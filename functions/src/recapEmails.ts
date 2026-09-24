@@ -14,11 +14,16 @@
  *
  * Design direction (captain, 2026-09-24, Wispr-Flow-inspired layout,
  * Ascend's own dark/green/landmark brand - see templates.ts for the render
- * layer): bold editorial hero, an optional milestone-unlocked callout, a
- * percentile/rank callout, stat cards with green "up only" delta chips, and
- * a per-day activity calendar heatmap. Copy is past-tense throughout ("last
- * week" / "last month") because every send lands well after the period it
- * describes has closed.
+ * layer): bold editorial hero leading with the climber's rank AND percentile
+ * shown together, an optional achievement callout (the app's existing
+ * tracked achievements, reused rather than invented), an optional
+ * milestone-unlocked callout, stat cards with green "up only" delta chips,
+ * and a per-day activity calendar heatmap. Copy is past-tense throughout
+ * ("last week" / "last month") because every send lands well after the
+ * period it describes has closed. Round 3 (2026-09-24) promoted rank and
+ * percentile to the hero's lead metric (previously a secondary callout
+ * below the fold) and added the achievement callout; round 2's
+ * milestone-honesty gate is unchanged.
  *
  * REUSE, NOT A SECOND PATH. Every send goes through the same
  * `enqueueLifecycleEmailIfAllowed` transaction the rating-prompt automation
@@ -42,7 +47,12 @@
  *     in memory (mirroring leaderboardAchievements.ts's standard competition
  *     ranking, uncapped) rather than a second Firestore read per user - the
  *     whole cohort is already resident for the active/inactive split, so
- *     ranking it is free.
+ *     ranking it is free. The separate ACHIEVEMENT callout (round 3) is the
+ *     one per-user read this file still does beyond the workout query: an
+ *     O(1) doc get on the same `global_steps_{cadence}_{periodKey}` record
+ *     `finalizeLeaderboardAchievements` already writes, because "achievement"
+ *     names the app's one existing tracked concept and must not drift from
+ *     it by being re-derived from this file's own ranking math.
  * This never sweeps the full `users` collection and never reads a user's
  * full workout history: the one per-user workout query load-bears is a
  * `startedAt` range query bounded to the single closed period, run only for
@@ -99,6 +109,14 @@
  *     computation (Workout.calculateWeeklyStreak) - there is no server field
  *     to read, and the two are expected to differ by at most a day at a week
  *     boundary.
+ *   - The weekly period label (round 3: "the captain was unsure how to label
+ *     the week... flag [a cleaner idea] rather than guessing") is the
+ *     captain's own given example, "Sep 15-21, 2026" - a concrete, dated
+ *     range so a later reader knows exactly when it was, matching the
+ *     monthly label's "month + year" concreteness. Implemented to also
+ *     handle a week that straddles a month or year boundary (rare, but a
+ *     UTC-Monday week can), even though the common case is exactly the given
+ *     example.
  */
 
 import {onSchedule} from "firebase-functions/v2/scheduler";
@@ -143,6 +161,7 @@ const APP_STORE_URL = "https://apps.apple.com/app/id6757202987";
 const USERS_COLLECTION = "users";
 const WORKOUTS_COLLECTION = "workouts";
 const LEADERBOARD_STATS_COLLECTION = "leaderboard_stats";
+const ACHIEVEMENTS_COLLECTION = "achievements";
 
 /** Page size and page budget for the two `leaderboard_stats` cohort scans. */
 const COHORT_PAGE_SIZE = 200;
@@ -219,20 +238,36 @@ function achievementTierLimit(rank: number): number {
 }
 
 /**
- * Formats a closed week as a short date range, e.g. "Sep 15 – Sep 21".
+ * Formats a closed week as a concrete, dated range so a later reader knows
+ * exactly when it was, e.g. "Sep 15-21, 2026". Handles a week that straddles
+ * a month or year boundary, though the common case never does.
  * @param {ClosedLeaderboardPeriod} period - Closed weekly period
  * @return {string} Display label
  */
 export function formatWeeklyPeriodLabel(
   period: ClosedLeaderboardPeriod
 ): string {
-  const lastDay = new Date(period.endAt.getTime() - 24 * 60 * 60 * 1000);
-  const format = (date: Date): string => date.toLocaleDateString("en-US", {
-    day: "numeric",
+  const start = period.startAt;
+  const end = new Date(period.endAt.getTime() - 24 * 60 * 60 * 1000);
+  const monthName = (date: Date): string => date.toLocaleDateString("en-US", {
     month: "short",
     timeZone: "UTC",
   });
-  return `${format(period.startAt)} – ${format(lastDay)}`;
+
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
+  const sameMonth = sameYear && start.getUTCMonth() === end.getUTCMonth();
+
+  if (sameMonth) {
+    return `${monthName(start)} ${start.getUTCDate()}-${end.getUTCDate()}, ` +
+      `${end.getUTCFullYear()}`;
+  }
+  if (sameYear) {
+    return `${monthName(start)} ${start.getUTCDate()} - ` +
+      `${monthName(end)} ${end.getUTCDate()}, ${end.getUTCFullYear()}`;
+  }
+  return `${monthName(start)} ${start.getUTCDate()}, ` +
+    `${start.getUTCFullYear()} - ${monthName(end)} ${end.getUTCDate()}, ` +
+    `${end.getUTCFullYear()}`;
 }
 
 /**
@@ -372,44 +407,19 @@ export function rankActiveCohort(
 }
 
 /**
- * Names a rank's percentile band, or nothing when the field is too small for
- * a rank to mean anything - the same honesty rule as the app's "1ST OF 1
- * CLIMBER never appears".
- *
- * A top-3 finish always states the exact position rather than a percentile
- * band: in a field of 3, rank 1 is honestly only the top 33rd percentile,
- * and "Top 50% of climbers" would undersell a literal first place. Every
- * other rank prefers the nicer percentile-band phrasing where it qualifies,
- * falling back to the same explicit "#N of M" form outside the bands.
- * @param {number} rank - This climber's rank in the closed period
- * @param {number} fieldSize - Total climbers ranked in the closed period
- * @return {string | undefined} Percentile band, or an explicit "#N of M"
- */
-export function percentileLabel(
-  rank: number,
-  fieldSize: number
-): string | undefined {
-  if (!isRankableField(fieldSize)) {
-    return undefined;
-  }
-  if (isPodiumRank(rank)) {
-    return `#${rank} of ${fieldSize} climbers`;
-  }
-  return percentileBand(rank, fieldSize) ??
-    `#${rank} of ${fieldSize} climbers`;
-}
-
-/**
- * Whether a field holds enough climbers for a rank in it to mean anything.
+ * Whether a field holds enough climbers for a rank in it to mean anything -
+ * the same honesty rule as the app's "1ST OF 1 CLIMBER never appears". The
+ * concrete rank (`#N of M climbers`) is shown whenever this is true; a
+ * percentile band is a further, optional badge alongside it.
  * @param {number} fieldSize - Total climbers ranked in the closed period
  * @return {boolean} True for a field of two or more
  */
-function isRankableField(fieldSize: number): boolean {
+export function isRankableField(fieldSize: number): boolean {
   return fieldSize > 1;
 }
 
 /**
- * Whether a rank is a podium finish, which is always stated exactly.
+ * Whether a rank is a podium finish.
  * @param {number} rank - This climber's rank in the closed period
  * @return {boolean} True for ranks 1-3
  */
@@ -418,18 +428,27 @@ function isPodiumRank(rank: number): boolean {
 }
 
 /**
- * Names the percentile band a rank falls in, if it reaches one.
+ * Names the percentile band a rank falls in, if it reaches one - the
+ * secondary badge shown alongside the always-stated concrete rank (round 3:
+ * "show BOTH"). Nothing below the top half; a recap never claims a
+ * percentile it did not earn.
  * @param {number} rank - This climber's rank in the closed period
  * @param {number} fieldSize - Total climbers ranked in the closed period
- * @return {string | undefined} Band label, or nothing below the top half
+ * @return {string | undefined} "Top N%", or nothing below the top half
  */
-function percentileBand(rank: number, fieldSize: number): string | undefined {
+export function percentileBand(
+  rank: number,
+  fieldSize: number
+): string | undefined {
+  if (!isRankableField(fieldSize)) {
+    return undefined;
+  }
   const percentile = (rank / fieldSize) * 100;
-  if (percentile <= 1) return "Top 1% of climbers";
-  if (percentile <= 5) return "Top 5% of climbers";
-  if (percentile <= 10) return "Top 10% of climbers";
-  if (percentile <= 25) return "Top 25% of climbers";
-  if (percentile <= 50) return "Top 50% of climbers";
+  if (percentile <= 1) return "Top 1%";
+  if (percentile <= 5) return "Top 5%";
+  if (percentile <= 10) return "Top 10%";
+  if (percentile <= 25) return "Top 25%";
+  if (percentile <= 50) return "Top 50%";
   return undefined;
 }
 
@@ -730,6 +749,41 @@ async function fetchPreviousPeriodTotals(
 }
 
 /**
+ * Reads the closed period's global steps achievement, when the climber
+ * earned one - the same permanent record `finalizeLeaderboardAchievements`
+ * (leaderboardAchievements.ts) writes. Round 3: surface the app's existing
+ * tracked achievements rather than inventing a new achievement concept for
+ * the recap.
+ * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
+ * @param {string} uid - Firebase Auth user ID
+ * @param {RecapCadence} cadence - Weekly or monthly
+ * @param {string} periodKey - Closed period key
+ * @return {Promise<string | undefined>} Achievement label, when earned
+ */
+async function fetchAchievementLabel(
+  firestore: admin.firestore.Firestore,
+  uid: string,
+  cadence: RecapCadence,
+  periodKey: string
+): Promise<string | undefined> {
+  const achievementId = `global_steps_${cadence}_${periodKey}`;
+  const snapshot = await firestore
+    .collection(USERS_COLLECTION)
+    .doc(uid)
+    .collection(ACHIEVEMENTS_COLLECTION)
+    .doc(achievementId)
+    .get();
+  if (!snapshot.exists) {
+    return undefined;
+  }
+  const rank = snapshot.get("rank");
+  if (typeof rank !== "number" || rank < 1) {
+    return undefined;
+  }
+  return `${achievementTierLabel(rank)} globally`;
+}
+
+/**
  * Fetches the hosted climb catalogue once per run, tolerating failure.
  *
  * A catalogue fetch failure degrades this run's copy (no landmark names, no
@@ -786,9 +840,10 @@ async function composeAndEnqueueActiveRecap(
     return;
   }
 
-  const [workoutDetails, previousTotals] = await Promise.all([
+  const [workoutDetails, previousTotals, achievementLabel] = await Promise.all([
     fetchPeriodWorkoutDetails(firestore, uid, period),
     fetchPreviousPeriodTotals(firestore, uid, cadence, period),
+    fetchAchievementLabel(firestore, uid, cadence, period.key),
   ]);
   const landmarksFinished = dedupeLandmarkNames(
     workoutDetails.completedClimbIds,
@@ -813,6 +868,7 @@ async function composeAndEnqueueActiveRecap(
 
   const deltaLabel = cadence === "weekly" ? "vs last week" : "vs last month";
   const payload: RecapActivePayload = {
+    achievementLabel,
     calendar: buildCalendarCells(period, workoutDetails.stepsByDayKey),
     climbsCompleted: aggregate.totalWorkouts,
     climbsDelta: buildDeltaChip(
@@ -836,7 +892,7 @@ async function composeAndEnqueueActiveRecap(
       standing.rank,
       standing.fieldSize
     ),
-    percentileLabel: percentileLabel(standing.rank, standing.fieldSize),
+    percentileBand: percentileBand(standing.rank, standing.fieldSize),
     periodLabel: cadence === "weekly" ?
       formatWeeklyPeriodLabel(period) :
       formatMonthlyPeriodLabel(period),

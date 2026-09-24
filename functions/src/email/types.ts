@@ -108,8 +108,17 @@ export interface RecapCalendarCell {
  * is nothing to report - no delta chip for a flat or down period, no
  * milestone line with nothing to celebrate, no rank line with too small a
  * field to mean anything.
+ *
+ * `rank`/`fieldSize` are the hero's lead metric (round 3): shown together as
+ * "#{rank} of {fieldSize} climbers" whenever `fieldSize` is large enough for
+ * a rank to mean anything, with `percentileBand` as an optional secondary
+ * badge alongside it. `achievementLabel` is a distinct, separate callout
+ * sourced from the app's existing tracked achievement for the period (not
+ * re-derived from `rank`) - present only when the climber actually earned
+ * one.
  */
 export interface RecapActivePayload {
+  achievementLabel?: string;
   periodLabel: string;
   climbsCompleted: number;
   climbsDelta?: RecapDeltaChip;
@@ -121,7 +130,7 @@ export interface RecapActivePayload {
   milestoneText?: string;
   rank?: number;
   fieldSize?: number;
-  percentileLabel?: string;
+  percentileBand?: string;
   currentStreakWeeks?: number;
   calendar: RecapCalendarCell[];
   ctaUrl: string;

@@ -168,11 +168,11 @@ test(
     );
     assert.equal(payload.currentStreakWeeks, 2);
 
-    // Ranked first of three active climbers this week.
+    // Ranked first of three active climbers this week - the concrete rank
+    // and its percentile band are both carried, shown together.
     assert.equal(payload.rank, 1);
     assert.equal(payload.fieldSize, 3);
-    // A top-3 finish states the exact position, not a coarse percentile band.
-    assert.equal(payload.percentileLabel, "#1 of 3 climbers");
+    assert.equal(payload.percentileBand, "Top 50%");
 
     // 8000 > 6000 the prior week - a genuine improvement.
     assert.deepEqual(payload.stepsDelta, {
@@ -250,6 +250,47 @@ test(
   }
 );
 
+test(
+  "an achievement earned this period is reused from the canonical record",
+  async () => {
+    await seedUser("achiever-1", "achiever@example.com");
+    await seedWeeklyStats("achiever-1", closedWeek, {
+      totalFloors: 5,
+      totalSteps: 100,
+      totalWorkouts: 1,
+    });
+    await seedAchievement("achiever-1", "weekly", closedWeek.key, 7);
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "achiever-1")
+    );
+    const payload = job.payload as RecapActivePayload;
+    assert.equal(payload.achievementLabel, "Top 10 globally");
+  }
+);
+
+test(
+  "no achievement callout when the climber earned none this period",
+  async () => {
+    await seedUser("no-achiever-1", "noachiever@example.com");
+    await seedWeeklyStats("no-achiever-1", closedWeek, {
+      totalFloors: 5,
+      totalSteps: 100,
+      totalWorkouts: 1,
+    });
+
+    await runRecapSweep("weekly", now);
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "no-achiever-1")
+    );
+    const payload = job.payload as RecapActivePayload;
+    assert.equal(payload.achievementLabel, undefined);
+  }
+);
+
 test("a field of one active climber gets no percentile callout", async () => {
   await seedUser("solo-1", "solo@example.com");
   await seedWeeklyStats("solo-1", closedWeek, {
@@ -266,7 +307,7 @@ test("a field of one active climber gets no percentile callout", async () => {
   const payload = job.payload as RecapActivePayload;
   assert.equal(payload.rank, 1);
   assert.equal(payload.fieldSize, 1);
-  assert.equal(payload.percentileLabel, undefined);
+  assert.equal(payload.percentileBand, undefined);
   assert.equal(payload.milestoneText, undefined);
 });
 
@@ -442,6 +483,31 @@ async function seedAllTimeStats(uid: string): Promise<void> {
     totalWorkouts: 1,
     userId: uid,
   });
+}
+
+/**
+ * Seeds the closed-period global steps achievement
+ * `finalizeLeaderboardAchievements` would have already written - the
+ * canonical record the recap's achievement callout reuses rather than
+ * re-deriving.
+ * @param {string} uid - Firebase Auth user ID
+ * @param {string} timeFrame - "weekly" or "monthly"
+ * @param {string} periodKey - Closed period key
+ * @param {number} rank - Finishing rank
+ * @return {Promise<void>}
+ */
+async function seedAchievement(
+  uid: string,
+  timeFrame: string,
+  periodKey: string,
+  rank: number
+): Promise<void> {
+  await db
+    .collection("users")
+    .doc(uid)
+    .collection("achievements")
+    .doc(`global_steps_${timeFrame}_${periodKey}`)
+    .set({rank, schemaVersion: 1, type: `${timeFrame}_top_10`});
 }
 
 /**

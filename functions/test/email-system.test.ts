@@ -289,28 +289,91 @@ test("weekly active recap states the period totals in past tense", () => {
   assert.doesNotMatch(rendered.text, /this week/i);
 });
 
-test("weekly active recap surfaces deltas, milestone, percentile, and streak", () => {
+test("weekly active recap surfaces deltas, milestone, and streak", () => {
   const rendered = renderWeeklyRecapActiveEmail({
     ...baseWeeklyActivePayload,
     climbsDelta: {direction: "up", label: "vs last week", value: "1"},
     currentStreakWeeks: 3,
-    fieldSize: 900,
     floorsDelta: {direction: "up", label: "vs last week", value: "40"},
     landmarksFinished: ["Eiffel Tower", "Burj Khalifa"],
     milestoneText: "You finished Eiffel Tower.",
-    percentileLabel: "Top 10% of climbers",
-    rank: 42,
     stepsDelta: {direction: "up", label: "vs last week", value: "1,200"},
   });
 
   assert.match(rendered.text, /up 1,200 vs last week/);
   assert.match(rendered.text, /up 40 vs last week/);
   assert.match(rendered.text, /3-week streak/);
-  assert.match(rendered.text, /Ranked: Top 10% of climbers/);
   assert.match(rendered.text, /Landmarks finished: Eiffel Tower, Burj Khalifa/);
   assert.match(rendered.text, /Milestone unlocked: You finished Eiffel Tower\./);
   assert.match(rendered.html, /▲/);
-  assert.match(rendered.html, /Top 10% of climbers/);
+});
+
+test("weekly active recap leads with rank and percentile as the hero metric", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    fieldSize: 900,
+    percentileBand: "Top 10%",
+    rank: 42,
+  });
+
+  assert.match(rendered.text, /You ranked #42 of 900 climbers \(Top 10%\)/);
+  assert.match(rendered.html, /You ranked/);
+  assert.match(rendered.html, /#42 of 900 climbers/);
+  assert.match(rendered.html, /Top 10%/);
+  // The hero box appears before the stat grid's "Your week in review"
+  // heading - it is the lead metric, not a footnote below the fold.
+  const rankIndex = rendered.html.indexOf("You ranked");
+  const reviewIndex = rendered.html.indexOf("Your week in review");
+  assert.ok(rankIndex > 0 && reviewIndex > 0 && rankIndex < reviewIndex);
+});
+
+test("no rank callout at all for a field too small to mean anything", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    fieldSize: 1,
+    rank: 1,
+  });
+
+  assert.doesNotMatch(rendered.text, /You ranked/);
+  assert.doesNotMatch(rendered.html, /You ranked/);
+});
+
+test("a rank with no qualifying percentile band still shows the concrete rank", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    fieldSize: 1000,
+    rank: 900,
+  });
+
+  assert.match(rendered.text, /You ranked #900 of 1000 climbers/);
+  assert.doesNotMatch(rendered.text, /Top \d+%/);
+});
+
+test("achievements reuse the app's existing tracked achievement, separately from the milestone", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    achievementLabel: "Top 10 globally",
+    fieldSize: 900,
+    milestoneText: "3 weeks running. That is a streak.",
+    rank: 42,
+  });
+
+  assert.match(rendered.text, /Achievement earned: Top 10 globally/);
+  assert.match(rendered.html, /Achievement earned/);
+  assert.match(rendered.html, /Top 10 globally/);
+  // Distinct from the milestone callout, which still renders alongside it.
+  assert.match(rendered.text, /Milestone unlocked: 3 weeks running/);
+});
+
+test("no achievement callout without an earned achievement", () => {
+  const rendered = renderWeeklyRecapActiveEmail(baseWeeklyActivePayload);
+  assert.doesNotMatch(rendered.html, /Achievement earned/);
+});
+
+test("the hero title reads 'your week on the stairstepper', not last week's climb", () => {
+  const rendered = renderWeeklyRecapActiveEmail(baseWeeklyActivePayload);
+  assert.match(rendered.html, />YOUR WEEK</);
+  assert.match(rendered.html, />ON THE STAIRSTEPPER\.</);
 });
 
 test("weekly active recap escapes a landmark and milestone in html", () => {
@@ -402,6 +465,8 @@ test("monthly active recap states month totals in past tense", () => {
   assert.match(rendered.text, /Landmarks finished: Space Needle/);
   assert.match(rendered.text, /up 2,000 vs last month/);
   assert.doesNotMatch(rendered.text, /this month/i);
+  assert.match(rendered.html, />YOUR MONTH</);
+  assert.match(rendered.html, />ON THE STAIRSTEPPER\.</);
 });
 
 test("monthly active payload renderer validates and renders", () => {

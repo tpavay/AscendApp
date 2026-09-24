@@ -786,8 +786,8 @@ interface RecapCadenceCopy {
 const WEEKLY_RECAP_COPY: RecapCadenceCopy = {
   ctaLabel: "Open Ascend",
   eyebrow: "Weekly Recap",
-  headlineAccent: "CLIMB.",
-  headlineLead: "LAST WEEK'S",
+  headlineAccent: "ON THE STAIRSTEPPER.",
+  headlineLead: "YOUR WEEK",
   inactiveHeadline: "THE BOARD MISSED YOU.",
   periodNoun: "last week",
   reviewHeading: "Your week in review",
@@ -802,8 +802,8 @@ const WEEKLY_RECAP_COPY: RecapCadenceCopy = {
 const MONTHLY_RECAP_COPY: RecapCadenceCopy = {
   ctaLabel: "Open Ascend",
   eyebrow: "Monthly Recap",
-  headlineAccent: "CLIMBS.",
-  headlineLead: "LAST MONTH'S",
+  headlineAccent: "ON THE STAIRSTEPPER.",
+  headlineLead: "YOUR MONTH",
   inactiveHeadline: "THE BOARD IS STILL THERE.",
   periodNoun: "last month",
   reviewHeading: "Your month in review",
@@ -831,6 +831,7 @@ function parseRecapActivePayload(
   }
 
   return {
+    achievementLabel: optionalString(payload, "achievementLabel"),
     calendar: calendarArray(payload.calendar),
     climbsCompleted: requiredNumber(payload, "climbsCompleted", errorCode),
     climbsDelta: parseDeltaChip(payload.climbsDelta),
@@ -840,7 +841,7 @@ function parseRecapActivePayload(
     floorsDelta: parseDeltaChip(payload.floorsDelta),
     landmarksFinished: stringArray(payload, "landmarksFinished"),
     milestoneText: optionalString(payload, "milestoneText"),
-    percentileLabel: optionalString(payload, "percentileLabel"),
+    percentileBand: optionalString(payload, "percentileBand"),
     periodLabel: requiredString(payload, "periodLabel", errorCode),
     rank: optionalNumber(payload, "rank"),
     stepsDelta: parseDeltaChip(payload.stepsDelta),
@@ -1078,25 +1079,68 @@ function renderMilestoneCalloutHtml(milestoneText: string | undefined): string {
 }
 
 /**
- * Renders the percentile/rank outlined callout, when the field is large
- * enough for a rank to mean anything.
- * @param {string | undefined} percentileText - Percentile or rank label
+ * Renders the hero's lead metric (round 3): the climber's concrete rank AND
+ * percentile shown together, whenever the field is large enough for a rank
+ * to mean anything. The rank is always stated exactly; the percentile band
+ * is an optional badge alongside it, since not every rank reaches one.
+ * @param {number | undefined} rank - This climber's rank in the closed
+ *   period
+ * @param {number | undefined} fieldSize - Total climbers ranked
+ * @param {string | undefined} band - Percentile band ("Top N%"), if earned
+ * @return {string} Callout HTML, or an empty string with no rankable field
+ */
+function renderRankHeroHtml(
+  rank: number | undefined,
+  fieldSize: number | undefined,
+  band: string | undefined
+): string {
+  if (rank === undefined || fieldSize === undefined || fieldSize <= 1) {
+    return "";
+  }
+  const bandBadgeHtml = band ? [
+    "<span style=\"display:inline-block;margin-top:12px;padding:6px 14px;",
+    `border-radius:999px;background:${BRAND_ACCENT_COLOR};color:`,
+    `${RECAP_ON_ACCENT_TEXT};font-size:13px;font-weight:800;">`,
+    escapeHtml(band),
+    "</span>",
+  ].join("") : "";
+
+  return [
+    `<div style="margin-top:24px;border:1px solid ${RECAP_ACCENT_BORDER};`,
+    "border-radius:20px;padding:26px 20px;text-align:center;background:",
+    "rgba(134,211,10,0.06);\">",
+    "<p style=\"margin:0 0 8px;font-size:12px;letter-spacing:0.12em;",
+    `text-transform:uppercase;color:${RECAP_TEXT_MUTED};">You ranked</p>`,
+    `<p style="margin:0;font-size:30px;font-weight:900;color:${RECAP_TEXT};`,
+    `letter-spacing:-0.01em;">#${rank} of ${fieldSize} climbers</p>`,
+    bandBadgeHtml,
+    "</div>",
+  ].join("");
+}
+
+/**
+ * Renders the achievement-earned outlined callout, when the climber earned
+ * one of the app's existing tracked achievements for the period. A distinct
+ * box from the milestone callout below it - this one names a permanent,
+ * canonical record; the milestone callout is a same-email highlight.
+ * @param {string | undefined} achievementLabel - Achievement label, if any
  * @return {string} Callout HTML, or an empty string with none
  */
-function renderPercentileCalloutHtml(
-  percentileText: string | undefined
+function renderAchievementCalloutHtml(
+  achievementLabel: string | undefined
 ): string {
-  if (!percentileText) {
+  if (!achievementLabel) {
     return "";
   }
   return [
-    `<div style="border:1px solid ${RECAP_BORDER};border-radius:16px;`,
-    "padding:16px 20px;margin-bottom:20px;text-align:center;\">",
-    `<p style="margin:0 0 6px;font-size:12px;color:${RECAP_TEXT_MUTED};">`,
-    "You ranked</p>",
-    `<p style="margin:0;font-size:20px;font-weight:800;color:${RECAP_TEXT};">`,
-    escapeHtml(percentileText),
-    "</p></div>",
+    `<div style="margin-top:16px;border:1px solid ${RECAP_ACCENT_BORDER};`,
+    "border-radius:16px;padding:16px 20px;\">",
+    "<p style=\"margin:0 0 6px;font-size:11px;letter-spacing:0.16em;",
+    `text-transform:uppercase;color:${BRAND_ACCENT_COLOR};font-weight:700;">`,
+    "Achievement earned</p>",
+    `<p style="margin:0;font-size:15px;line-height:1.5;color:${RECAP_TEXT};`,
+    `font-weight:600;">${escapeHtml(achievementLabel)}</p>`,
+    "</div>",
   ].join("");
 }
 
@@ -1207,8 +1251,14 @@ function buildRecapActiveTextLines(payload: RecapActivePayload): string[] {
   if (payload.currentStreakWeeks !== undefined) {
     lines.push(`${payload.currentStreakWeeks}-week streak`);
   }
-  if (payload.percentileLabel) {
-    lines.push(`Ranked: ${payload.percentileLabel}`);
+  if (payload.rank !== undefined && payload.fieldSize !== undefined &&
+    payload.fieldSize > 1) {
+    const band = payload.percentileBand ? ` (${payload.percentileBand})` : "";
+    lines.push(`You ranked #${payload.rank} of ${payload.fieldSize} ` +
+      `climbers${band}`);
+  }
+  if (payload.achievementLabel) {
+    lines.push(`Achievement earned: ${payload.achievementLabel}`);
   }
   if (payload.landmarksFinished.length > 0) {
     lines.push(`Landmarks finished: ${payload.landmarksFinished.join(", ")}`);
@@ -1266,12 +1316,13 @@ function renderRecapActiveEmail(
     `<p style="margin:0;font-size:14px;color:${RECAP_TEXT_MUTED};">`,
     escapeHtml(payload.periodLabel),
     "</p>",
+    renderRankHeroHtml(payload.rank, payload.fieldSize, payload.percentileBand),
+    renderAchievementCalloutHtml(payload.achievementLabel),
     renderMilestoneCalloutHtml(payload.milestoneText),
     "</td></tr>",
     "<tr><td style=\"padding:0 30px 34px;\">",
     "<h2 style=\"margin:0 0 18px;font-size:20px;font-weight:800;color:",
     `${RECAP_TEXT};">${escapeHtml(copy.reviewHeading)}</h2>`,
-    renderPercentileCalloutHtml(payload.percentileLabel),
     renderStatGridHtml([
       [
         formatCount(payload.totalSteps),

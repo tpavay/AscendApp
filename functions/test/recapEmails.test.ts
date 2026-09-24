@@ -12,7 +12,7 @@ import {
   pickMilestoneText,
   pickSuggestedClimb,
   rankActiveCohort,
-  percentileLabel,
+  percentileBand,
 } from "../src/recapEmails.js";
 import {previousPeriod} from "../src/leaderboardPeriod.js";
 import type {CatalogClimb} from "../src/climbDropNotifications.js";
@@ -48,9 +48,22 @@ test("achievement tier boundaries follow the locked Top 1/3/10/100 ladder", () =
   assert.equal(achievementTierLabel(100), "Top 100");
 });
 
-test("weekly period label formats a Monday-to-Sunday date range", () => {
+test("weekly period label is a concrete, dated range with the year", () => {
   const label = formatWeeklyPeriodLabel(closedWeek);
-  assert.match(label, /^[A-Z][a-z]{2} \d{1,2} – [A-Z][a-z]{2} \d{1,2}$/);
+  // The common case: a week entirely inside one month, e.g. "Sep 15-21, 2026".
+  assert.match(label, /^[A-Z][a-z]{2} \d{1,2}-\d{1,2}, \d{4}$/);
+});
+
+test("a week straddling a month boundary names both months", () => {
+  // 2026-08-31 is a Monday, so that UTC-Monday week runs Aug 31 - Sep 6.
+  const straddlingWeek = previousPeriod(
+    "weekly",
+    new Date("2026-09-07T00:00:00Z")
+  );
+  assert.equal(
+    formatWeeklyPeriodLabel(straddlingWeek),
+    "Aug 31 - Sep 6, 2026"
+  );
 });
 
 test("monthly period label formats a full month and year", () => {
@@ -201,30 +214,20 @@ test("ranking ties break deterministically by user id", () => {
 });
 
 test("percentile band names the locked ladder (1/5/10/25/50%)", () => {
-  assert.equal(percentileLabel(5, 1000), "Top 1% of climbers");
-  assert.equal(percentileLabel(40, 1000), "Top 5% of climbers");
-  assert.equal(percentileLabel(90, 1000), "Top 10% of climbers");
-  assert.equal(percentileLabel(200, 1000), "Top 25% of climbers");
-  assert.equal(percentileLabel(480, 1000), "Top 50% of climbers");
+  assert.equal(percentileBand(5, 1000), "Top 1%");
+  assert.equal(percentileBand(40, 1000), "Top 5%");
+  assert.equal(percentileBand(90, 1000), "Top 10%");
+  assert.equal(percentileBand(200, 1000), "Top 25%");
+  assert.equal(percentileBand(480, 1000), "Top 50%");
 });
 
-test("percentile falls back to an explicit rank below the top half", () => {
-  assert.equal(percentileLabel(900, 1000), "#900 of 1000 climbers");
-});
-
-test("a top-3 finish states the exact position, never a percentile band", () => {
-  // In a field of 3, rank 1 is honestly only the top 33rd percentile -
-  // "Top 50% of climbers" would undersell a literal first place.
-  assert.equal(percentileLabel(1, 3), "#1 of 3 climbers");
-  assert.equal(percentileLabel(2, 3), "#2 of 3 climbers");
-  assert.equal(percentileLabel(3, 3), "#3 of 3 climbers");
-  // Even in a huge field, a top-3 finish states the position, not "Top 1%".
-  assert.equal(percentileLabel(1, 10000), "#1 of 10000 climbers");
+test("no percentile band below the top half - the concrete rank carries it instead", () => {
+  assert.equal(percentileBand(900, 1000), undefined);
 });
 
 test("a number nobody can lose is not a result - no percentile for a field of one", () => {
-  assert.equal(percentileLabel(1, 1), undefined);
-  assert.equal(percentileLabel(1, 0), undefined);
+  assert.equal(percentileBand(1, 1), undefined);
+  assert.equal(percentileBand(1, 0), undefined);
 });
 
 test("a delta chip only ever reports a genuine improvement", () => {
