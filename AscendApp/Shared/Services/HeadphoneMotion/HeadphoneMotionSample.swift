@@ -4,7 +4,7 @@ import Foundation
 import CoreMotion
 #endif
 
-struct HeadphoneMotionVector: Equatable, Sendable {
+struct HeadphoneMotionVector: Codable, Equatable, Sendable {
     let x: Double
     let y: Double
     let z: Double

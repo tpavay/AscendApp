@@ -250,6 +250,56 @@ struct HeadphoneMotionStepAccuracyMetadataTests {
     }
 
     @Test
+    func connectedThroughoutIsTrueOnlyWithZeroInterruptionsAndDataFlow() {
+        let connected = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 10,
+            climbId: nil,
+            targetStepCount: nil,
+            stopReason: .userStopped,
+            trackingIntegrity: .verified,
+            didHeadphoneMotionDataFlow: true
+        )
+        #expect(connected.wasHeadphoneConnectedThroughoutClimb == true)
+
+        let interrupted = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 10,
+            climbId: nil,
+            targetStepCount: nil,
+            stopReason: .userStopped,
+            trackingIntegrity: HeadphoneMotionTrackingIntegrity(
+                currentUnavailableDuration: 0,
+                totalUnavailableDuration: 4,
+                longestUnavailableDuration: 4,
+                interruptionCount: 1
+            ),
+            didHeadphoneMotionDataFlow: true
+        )
+        #expect(interrupted.wasHeadphoneConnectedThroughoutClimb == false)
+
+        let noDataFlow = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 0,
+            climbId: nil,
+            targetStepCount: nil,
+            stopReason: .userStopped,
+            trackingIntegrity: .verified,
+            didHeadphoneMotionDataFlow: false
+        )
+        #expect(noDataFlow.wasHeadphoneConnectedThroughoutClimb == false)
+    }
+
+    @Test
+    func connectedThroughoutIsNilForALegacyPayloadMissingTrackingFields() throws {
+        let legacyJSON = """
+        {"algorithmVersion":1,"sampleCount":10,"sampleRateAssumptionHz":50,\
+        "source":"headphone_motion","stopReason":"user_stopped"}
+        """
+
+        let decoded = try #require(HeadphoneMotionWorkoutMetadata.decode(from: legacyJSON))
+
+        #expect(decoded.wasHeadphoneConnectedThroughoutClimb == nil)
+    }
+
+    @Test
     func rawPortNameIsBoundedToSixtyFourCharacters() {
         let route = HeadphoneAudioRouteSnapshot(
             rawPortName: String(repeating: "x", count: 248),

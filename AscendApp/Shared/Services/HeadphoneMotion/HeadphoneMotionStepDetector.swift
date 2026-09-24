@@ -12,6 +12,8 @@ struct HeadphoneMotionStepDetection: Equatable, Sendable {
 /// The owner must call `process(_:)` serially because the filter keeps rolling state.
 final class HeadphoneMotionStepDetector {
     static let algorithmVersion = 1
+    /// The sample rate this filter's coefficients assume the input stream arrives at.
+    static let assumedSampleRateHz = 50
 
     // 2nd-order Butterworth low-pass filter at 4Hz, assuming a 50Hz input stream.
     private let b0 = 0.046131802093312926
@@ -37,9 +39,12 @@ final class HeadphoneMotionStepDetector {
     private var wasRising = false
     private var lastPeakTime: TimeInterval = -1
 
-    private let peakThreshold = 0.15
-    private let minimumTimeBetweenPeaks: TimeInterval = 0.3
-    private let maximumPitchRotationRate = 1.5
+    /// Exposed as `static` (rather than a private instance constant) so a step-accuracy raw
+    /// capture can record the exact thresholds that produced its detections, without a second
+    /// copy of these numbers drifting out of sync with the algorithm itself.
+    static let peakThreshold = 0.15
+    static let minimumTimeBetweenPeaks: TimeInterval = 0.3
+    static let maximumPitchRotationRate = 1.5
 
     private(set) var stepCount = 0
     private(set) var currentFilteredVerticalAcceleration = 0.0
@@ -82,7 +87,7 @@ final class HeadphoneMotionStepDetector {
 
         guard wasRising,
               !isRising,
-              previousFilteredVerticalAcceleration > peakThreshold else {
+              previousFilteredVerticalAcceleration > Self.peakThreshold else {
             return nil
         }
 
@@ -90,9 +95,9 @@ final class HeadphoneMotionStepDetector {
             ? Double.infinity
             : sample.timestamp - lastPeakTime
         let maximumRecentPitchRotation = recentPitchRotationMagnitudes.max() ?? 0
-        let isNotHeadNod = maximumRecentPitchRotation < maximumPitchRotationRate
+        let isNotHeadNod = maximumRecentPitchRotation < Self.maximumPitchRotationRate
 
-        guard timeSinceLastPeak >= minimumTimeBetweenPeaks, isNotHeadNod else {
+        guard timeSinceLastPeak >= Self.minimumTimeBetweenPeaks, isNotHeadNod else {
             return nil
         }
 

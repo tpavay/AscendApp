@@ -84,6 +84,13 @@
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops the background Apple Health pass that writes heart rate and calories onto recorded climbs; the retry ledger is left untouched, so pending climbs resume when it returns."
     },
+    "step_accuracy_raw_capture_upload_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops uploading raw headphone-motion captures of badly-miscounted climbs for debugging; the capture was never persisted, so a blocked climb's capture is simply not uploaded, not queued for later."
+    },
     "local_data_migrations_enabled": {
       "defaultValue": {
         "value": "true"

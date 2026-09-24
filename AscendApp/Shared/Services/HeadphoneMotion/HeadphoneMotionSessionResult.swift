@@ -101,6 +101,11 @@ struct HeadphoneMotionSessionResult: Equatable, Sendable {
     let stopReason: HeadphoneMotionSessionStopReason
     let trackingIntegrity: HeadphoneMotionTrackingIntegrity
     let stepCorrections: [HeadphoneMotionStepCorrection]
+    /// Every raw motion sample and detected step the algorithm saw this session, for step-
+    /// accuracy debugging - see `HeadphoneMotionRawCapture` and
+    /// `StepAccuracyRawCaptureRetentionPolicy`. `nil` only when the session produced no motion
+    /// samples at all (e.g. a session that never started recording).
+    let rawCapture: HeadphoneMotionRawCapture?
 
     init(
         startedAt: Date,
@@ -110,7 +115,8 @@ struct HeadphoneMotionSessionResult: Equatable, Sendable {
         sampleCount: Int,
         stopReason: HeadphoneMotionSessionStopReason,
         trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified,
-        stepCorrections: [HeadphoneMotionStepCorrection] = []
+        stepCorrections: [HeadphoneMotionStepCorrection] = [],
+        rawCapture: HeadphoneMotionRawCapture? = nil
     ) {
         self.startedAt = startedAt
         self.endedAt = endedAt
@@ -120,6 +126,7 @@ struct HeadphoneMotionSessionResult: Equatable, Sendable {
         self.stopReason = stopReason
         self.trackingIntegrity = trackingIntegrity
         self.stepCorrections = stepCorrections
+        self.rawCapture = rawCapture
     }
 
     var hasRecordedSteps: Bool {
@@ -201,6 +208,16 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     /// `stepDiscrepancyAbs / machineReportedSteps * 100`, signed by which side over-counted -
     /// positive means the app counted more than the machine, negative means it undercounted.
     var stepDiscrepancyPercent: Double?
+
+    /// Whether headphone motion tracked without a single interruption for the whole climb - the
+    /// signal that separates a genuine algorithm miss from a disconnection-explained one. `nil`
+    /// for a payload written before tracking-integrity fields existed, which
+    /// `StepAccuracyRawCaptureRetentionPolicy` treats as "not proven connected" rather than
+    /// guessing either way.
+    var wasHeadphoneConnectedThroughoutClimb: Bool? {
+        guard let trackingInterruptionCount, let didHeadphoneMotionDataFlow else { return nil }
+        return trackingInterruptionCount == 0 && didHeadphoneMotionDataFlow
+    }
 
     init(
         sampleCount: Int,
