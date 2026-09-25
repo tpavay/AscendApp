@@ -147,7 +147,7 @@ An allowlist that cannot be read is a **refusal**, never a permission.
 
 **Never build a new version of this secret from the Keychain copy, or from any local copy.**
 A Functions deploy binds the *latest* version, so a new version is a production change the next unrelated deploy ships: version 3, built on 2026-09-08 from the stale Keychain copy, dropped `rc_promo_app_access_lifetime` and went live with the 1.1 deploy on 2026-09-25, and every comped climber's grant was deleted on their next reconciliation.
-Build the new version from the deployed binding and pin it; `docs/functions-secret-versions.md` owns the procedure, and both deploys refuse a version nobody pinned or an allowlist that drops a product a live grant holds.
+Build the new version from the deployed binding and pin it; `docs/functions-secret-versions.md` owns the procedure, and both deploys refuse a version nobody pinned, an allowlist that drops a product a live grant holds, or one that drops a product the bound version allowlists without a committed acknowledgement.
 
 ## Environments
 

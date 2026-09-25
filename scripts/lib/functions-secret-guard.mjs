@@ -10,7 +10,7 @@
  * `reconcileAppAccess` to it, and reconciliation deleted comped climbers'
  * `users/{uid}/entitlements/app_access`, so every paid screen failed for them.
  *
- * Three checks close that, and they are all pure here so they are tested
+ * Four checks close that, and they are all pure here so they are tested
  * without credentials or a network:
  *
  * - Drift: a deploy may only bind the version `functions/secret-versions.json`
@@ -20,6 +20,9 @@
  * - The allowlist invariant: `allowedProductIds` must keep every product that
  *   grants access - the ones the app sells, the comp duration, and every
  *   product a live grant holds - and `entitlementId` must name the app's.
+ * - The allowlist superset: `latest` must allowlist every product a version
+ *   the deployed functions are bound to allowlists, unless this commit
+ *   acknowledges dropping that exact product from the pinned version.
  * - Grant survival: after the Functions deploy, every grant that existed
  *   before it must still exist and still be allowlisted by the version the
  *   functions are now bound to, or the deploy stops before rules.
@@ -35,6 +38,7 @@ import {
 
 export const SECRET_VERSION_MANIFEST_PATH = "functions/secret-versions.json";
 export const REVENUECAT_SECRET = "REVENUECAT_SERVER_CONFIG";
+export const ACKNOWLEDGED_DROPS_KEY = "acknowledgedAllowlistDrops";
 export const GUARD_DOC = "docs/functions-secret-versions.md";
 export const GRANT_SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -99,10 +103,18 @@ export function parseDeclaredSecretNames(sources) {
  * Every guarded project maps every declared secret to a positive integer
  * version. A missing project, a missing secret and a stale extra secret are all
  * refusals: a pin nobody wrote is a version nobody reviewed.
+ *
+ * A project may also carry `acknowledgedAllowlistDrops`, naming the product
+ * ids the pinned RevenueCat version deliberately drops from the bound
+ * allowlist. It names the version it was reviewed with, and an
+ * acknowledgement for any version but the pin is refused as stale, so it can
+ * never carry over to a later version.
  * @param {string} text Raw manifest.
  * @param {Array<string>} declaredSecrets Names the source declares.
- * @return {Object<string, Object<string, string>>} Pins by project, as
- *   Secret Manager version ids.
+ * @return {Object<string, {pins: Object<string, string>,
+ *   acknowledgedDrops: Array<string>}>} Pins by project, as Secret Manager
+ *   version ids, and the RevenueCat product ids whose drop the pin
+ *   acknowledges.
  */
 export function parseSecretVersionManifest(text, declaredSecrets) {
   let parsed;
@@ -131,18 +143,21 @@ export function parseSecretVersionManifest(text, declaredSecrets) {
       problems.push(`${projectId} has no pins.`);
       continue;
     }
-    manifest[projectId] = {};
+    const projectPins = {};
     for (const secret of declaredSecrets) {
       const version = pins[secret];
-      if (!Number.isSafeInteger(version) || version <= 0) {
+      if (!isPositiveInteger(version)) {
         problems.push(
           `${projectId} must pin ${secret} to a positive integer version.`
         );
         continue;
       }
-      manifest[projectId][secret] = String(version);
+      projectPins[secret] = String(version);
     }
     for (const secret of Object.keys(pins)) {
+      if (secret === ACKNOWLEDGED_DROPS_KEY) {
+        continue;
+      }
       if (!declaredSecrets.includes(secret)) {
         problems.push(
           `${projectId} pins ${secret}, which no function in functions/src ` +
@@ -150,6 +165,16 @@ export function parseSecretVersionManifest(text, declaredSecrets) {
         );
       }
     }
+    const acknowledged = parseAcknowledgedDrops(
+      projectId,
+      pins[ACKNOWLEDGED_DROPS_KEY],
+      projectPins
+    );
+    problems.push(...acknowledged.problems);
+    manifest[projectId] = {
+      pins: projectPins,
+      acknowledgedDrops: acknowledged.productIds,
+    };
   }
 
   if (problems.length > 0) {
@@ -158,6 +183,56 @@ export function parseSecretVersionManifest(text, declaredSecrets) {
     );
   }
   return manifest;
+}
+
+function parseAcknowledgedDrops(projectId, acknowledgements, pins) {
+  if (acknowledgements === undefined) {
+    return {productIds: [], problems: []};
+  }
+  const subject = `${projectId} ${ACKNOWLEDGED_DROPS_KEY}`;
+  if (!isPlainObject(acknowledgements)) {
+    return {
+      productIds: [],
+      problems: [`${subject} must be an object keyed by secret name.`],
+    };
+  }
+  const problems = [];
+  let productIds = [];
+  for (const [secret, entry] of Object.entries(acknowledgements)) {
+    if (secret !== REVENUECAT_SECRET || pins[secret] === undefined) {
+      problems.push(
+        `${subject} names ${secret}; only a pinned ${REVENUECAT_SECRET} ` +
+          "carries an allowlist."
+      );
+      continue;
+    }
+    const ids = entry?.productIds;
+    if (
+      !isPlainObject(entry) ||
+      !isPositiveInteger(entry.version) ||
+      !Array.isArray(ids) ||
+      ids.length === 0 ||
+      !ids.every((id) => typeof id === "string" && id !== "") ||
+      new Set(ids).size !== ids.length
+    ) {
+      problems.push(
+        `${subject}.${secret} must be {"version": <positive integer>, ` +
+          '"productIds": [<distinct product ids>]}.'
+      );
+      continue;
+    }
+    if (String(entry.version) !== pins[secret]) {
+      problems.push(
+        `${subject}.${secret} acknowledges drops from version ` +
+          `${entry.version}, but ${secret} is pinned to version ` +
+          `${pins[secret]}. An acknowledgement covers only the version it ` +
+          "was reviewed with; remove the stale one."
+      );
+      continue;
+    }
+    productIds = [...ids].sort();
+  }
+  return {productIds, problems};
 }
 
 /**
@@ -626,12 +701,8 @@ export function evaluateAllowlistInvariant({
     );
   }
 
-  const allowed = config.allowedProductIds;
-  if (
-    !Array.isArray(allowed) ||
-    allowed.length === 0 ||
-    !allowed.every((entry) => typeof entry === "string")
-  ) {
+  const allowed = allowedProductIdsOf(config);
+  if (allowed === null) {
     errors.push(`${subject} has no allowedProductIds array of strings.`);
     return {errors, allowedProductIds: null};
   }
@@ -648,7 +719,100 @@ export function evaluateAllowlistInvariant({
     }
   }
 
-  return {errors, allowedProductIds: [...allowed]};
+  return {errors, allowedProductIds: allowed};
+}
+
+/**
+ * Reads the allowlist out of a `REVENUECAT_SERVER_CONFIG` payload.
+ * @param {string} payloadText A version's payload.
+ * @return {?Array<string>} The allowlist, or null when it has none usable.
+ */
+export function parseAllowedProductIds(payloadText) {
+  const config = parseJsonObject(payloadText);
+  return config === null ? null : allowedProductIdsOf(config);
+}
+
+/**
+ * Refuses a `latest` allowlist that drops a product a bound version honors.
+ *
+ * The invariant's floor only knows what grants access at this moment. A
+ * product the bound version allowlists can matter the moment after - a
+ * subscriber in billing retry whose grant is absent right now, a comp issued
+ * after the deploy - so the bound allowlist itself is the baseline, and a
+ * drop from it ships only when this commit acknowledges that exact product for
+ * the pinned version. Product ids are identifiers, not secrets, so a dropped
+ * one is named.
+ * @param {object} input Evaluation input.
+ * @param {string} input.projectId The project.
+ * @param {string} input.pin The pinned `REVENUECAT_SERVER_CONFIG` version.
+ * @param {string} input.latestVersion The version a deploy would bind.
+ * @param {Array<string>} input.latestAllowed Its allowlist.
+ * @param {Object<string, Array<string>>} input.boundAllowlists The allowlist
+ *   of every bound version other than `latest`, by version.
+ * @param {Array<string>} input.acknowledgedDrops Product ids the manifest
+ *   acknowledges dropping from the pinned version.
+ * @return {{errors: Array<string>, notices: Array<string>}} The verdict.
+ */
+export function evaluateAllowlistSuperset({
+  projectId,
+  pin,
+  latestVersion,
+  latestAllowed,
+  boundAllowlists,
+  acknowledgedDrops,
+}) {
+  const errors = [];
+  const notices = [];
+  const subject = `${REVENUECAT_SECRET} version ${latestVersion} in ${projectId}`;
+  const acknowledged = new Set(latestVersion === pin ? acknowledgedDrops : []);
+
+  const dropped = new Map();
+  const boundVersions = Object.keys(boundAllowlists)
+    .sort((a, b) => Number(a) - Number(b));
+  for (const version of boundVersions) {
+    for (const productId of boundAllowlists[version]) {
+      if (latestAllowed.includes(productId)) continue;
+      if (!dropped.has(productId)) dropped.set(productId, []);
+      dropped.get(productId).push(version);
+    }
+  }
+
+  for (const productId of [...dropped.keys()].sort()) {
+    const versions = dropped.get(productId);
+    const from = versions.length === 1 ?
+      `bound version ${versions[0]} allowlists` :
+      `bound versions ${versions.join(" and ")} allowlist`;
+    if (acknowledged.has(productId)) {
+      notices.push(
+        `${subject} drops ${productId}, which ${from}; ` +
+          `${SECRET_VERSION_MANIFEST_PATH} acknowledges that drop for ` +
+          `version ${pin}.`
+      );
+      continue;
+    }
+    errors.push(
+      `${subject} drops ${productId}, which ${from}. Once it is bound, the ` +
+        "webhook and reconcileAppAccess refuse that product and delete any " +
+        "users/{uid}/entitlements/app_access grant it carries. Put it back " +
+        "in a newer version rebuilt from the bound one, or acknowledge the " +
+        `drop for the pinned version in ${SECRET_VERSION_MANIFEST_PATH} ` +
+        `(${GUARD_DOC}).`
+    );
+  }
+
+  if (boundVersions.length > 0) {
+    for (const productId of [...acknowledged].filter((id) => !dropped.has(id))) {
+      errors.push(
+        `${SECRET_VERSION_MANIFEST_PATH} acknowledges dropping ${productId} ` +
+          `from ${REVENUECAT_SECRET} version ${pin} in ${projectId}, but ` +
+          "no version the deployed functions are bound to allowlists it " +
+          `without version ${pin} also allowlisting it, so the ` +
+          "acknowledgement is stale. Remove it."
+      );
+    }
+  }
+
+  return {errors, notices};
 }
 
 /**
@@ -800,6 +964,22 @@ function parseJsonObject(text) {
   } catch {
     return null;
   }
+}
+
+function allowedProductIdsOf(config) {
+  const allowed = config.allowedProductIds;
+  if (
+    !Array.isArray(allowed) ||
+    allowed.length === 0 ||
+    !allowed.every((entry) => typeof entry === "string")
+  ) {
+    return null;
+  }
+  return [...allowed];
+}
+
+function isPositiveInteger(value) {
+  return Number.isSafeInteger(value) && value > 0;
 }
 
 function isPlainObject(value) {

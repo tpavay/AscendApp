@@ -10,6 +10,7 @@ import {
   decodeFirestoreValue,
 } from "../lib/functions-secret-backend.mjs";
 import {
+  ACKNOWLEDGED_DROPS_KEY,
   GUARDED_PROJECTS,
   REVENUECAT_SECRET,
   SECRET_VERSION_MANIFEST_PATH,
@@ -18,6 +19,7 @@ import {
   describeKeyChange,
   diffSecretPayloadKeys,
   evaluateAllowlistInvariant,
+  evaluateAllowlistSuperset,
   evaluateDeployedBindings,
   evaluateGrantSurvival,
   evaluateSecretDrift,
@@ -206,8 +208,9 @@ test("the functions source declares the secrets the manifest pins, for every gua
 
   const manifest = parseSecretVersionManifest(repository.manifestText, declared);
   assert.deepEqual(Object.keys(manifest).sort(), Object.keys(GUARDED_PROJECTS).sort());
-  for (const pins of Object.values(manifest)) {
+  for (const {pins, acknowledgedDrops} of Object.values(manifest)) {
     assert.deepEqual(Object.keys(pins).sort(), declared);
+    assert.deepEqual(acknowledgedDrops, []);
   }
 });
 
@@ -230,8 +233,8 @@ test("the manifest refuses a missing, unknown, stale or non-integer pin", () => 
     [PRODUCTION]: {ALPHA: 3, BETA: 4},
   };
   assert.deepEqual(parseSecretVersionManifest(JSON.stringify(valid), declared), {
-    [STAGING]: {ALPHA: "1", BETA: "2"},
-    [PRODUCTION]: {ALPHA: "3", BETA: "4"},
+    [STAGING]: {pins: {ALPHA: "1", BETA: "2"}, acknowledgedDrops: []},
+    [PRODUCTION]: {pins: {ALPHA: "3", BETA: "4"}, acknowledgedDrops: []},
   });
 
   const cases = [
@@ -246,6 +249,37 @@ test("the manifest refuses a missing, unknown, stale or non-integer pin", () => 
     assert.throws(() => parseSecretVersionManifest(JSON.stringify(manifest), declared), pattern);
   }
   assert.throws(() => parseSecretVersionManifest("{", declared), /not valid JSON/);
+});
+
+test("an allowlist drop is acknowledged only for the pinned version, and anything else is refused", () => {
+  const declared = [REVENUECAT_SECRET];
+  const withAcknowledgement = (acknowledgement) => JSON.stringify({
+    [STAGING]: {[REVENUECAT_SECRET]: 2},
+    [PRODUCTION]: {[REVENUECAT_SECRET]: 5, [ACKNOWLEDGED_DROPS_KEY]: acknowledgement},
+  });
+
+  assert.deepEqual(
+    parseSecretVersionManifest(
+      withAcknowledgement({[REVENUECAT_SECRET]: {version: 5, productIds: ["b_product", "a_product"]}}),
+      declared
+    )[PRODUCTION],
+    {pins: {[REVENUECAT_SECRET]: "5"}, acknowledgedDrops: ["a_product", "b_product"]}
+  );
+
+  const cases = [
+    [
+      {[REVENUECAT_SECRET]: {version: 4, productIds: ["ascend_lifetime"]}},
+      /acknowledges drops from version 4, but REVENUECAT_SERVER_CONFIG is pinned to version 5[\s\S]*remove the stale one/,
+    ],
+    [{MIXPANEL_SERVER_CONFIG: {version: 5, productIds: ["x"]}}, /names MIXPANEL_SERVER_CONFIG; only a pinned REVENUECAT_SERVER_CONFIG/],
+    [{[REVENUECAT_SECRET]: {version: 5, productIds: []}}, /must be \{"version"/],
+    [{[REVENUECAT_SECRET]: {version: 5, productIds: ["x", "x"]}}, /must be \{"version"/],
+    [{[REVENUECAT_SECRET]: {version: "5", productIds: ["x"]}}, /must be \{"version"/],
+    [["ascend_lifetime"], /must be an object keyed by secret name/],
+  ];
+  for (const [acknowledgement, pattern] of cases) {
+    assert.throws(() => parseSecretVersionManifest(withAcknowledgement(acknowledgement), declared), pattern);
+  }
 });
 
 test("the required products are derived from the app's own configuration", () => {
@@ -695,10 +729,11 @@ test("replaying the incident: the preflight refuses version 3 before anything de
 
   assert.equal(exitCode, EXIT.unsafe);
   const errors = capture.errors();
-  assert.equal(errors.length, 3);
+  assert.equal(errors.length, 4);
   assert.match(errors[0], /version 3 was never acknowledged[\s\S]*\(keys changed allowedProductIds\)/);
   assert.match(errors[1], /version 3 in ascend-prod-9c8f2 does not allowlist rc_promo_app_access_lifetime/);
-  assert.match(errors[2], /must not run: 2 problem\(s\) above\. Nothing has been deployed/);
+  assert.match(errors[2], /version 3 in ascend-prod-9c8f2 drops rc_promo_app_access_lifetime, which bound version 2 allowlists\./);
+  assert.match(errors[3], /must not run: 3 problem\(s\) above\. Nothing has been deployed/);
   assertNoSecretValues(capture.text());
   assert.throws(() => readFileSync(join(directory, "snapshot.json")), /ENOENT/);
 });
@@ -726,18 +761,129 @@ test("pinning a version does not excuse an allowlist that drops a live product",
 
   assert.equal(exitCode, EXIT.unsafe);
   assert.match(capture.text(), /notice: [^\n]*moves reconcileAppAccess, revenueCatWebhook from version 2 to the pinned version 3 \(keys changed allowedProductIds\)/);
-  assert.equal(capture.errors().length, 2);
+  assert.equal(capture.errors().length, 3);
   assert.match(capture.errors()[0], /does not allowlist rc_promo_app_access_lifetime/);
+  assert.match(capture.errors()[1], /drops rc_promo_app_access_lifetime, which bound version 2 allowlists/);
   assertNoSecretValues(capture.text());
 });
 
-test("an acknowledged move still deploys when the bound version can no longer be read to compare", async () => {
+// Version 5 drops a product version 4 allowlists that nothing sells, no comp
+// uses and no live grant holds, so only the superset check can see it.
+const V5 = revenueCatConfig(["ascend_monthly", "ascend_yearly", PROMO]);
+
+function supersetPreflight({acknowledgement, payloads} = {}) {
+  const pins = {[REVENUECAT_SECRET]: 5, TRANSACTIONAL_EMAIL_CONFIG: 1};
+  if (acknowledgement) pins[ACKNOWLEDGED_DROPS_KEY] = acknowledgement;
   const capture = capturingLog();
+  const run = runPreflight({
+    projectId: PRODUCTION,
+    backend: fakeBackend({
+      latest: {
+        [REVENUECAT_SECRET]: {version: "5", state: "ENABLED"},
+        MIXPANEL_SERVER_CONFIG: {version: "2", state: "ENABLED"},
+        TRANSACTIONAL_EMAIL_CONFIG: {version: "1", state: "ENABLED"},
+      },
+      payloads: payloads ?? {[`${REVENUECAT_SECRET}@4`]: V4, [`${REVENUECAT_SECRET}@5`]: V5},
+    }),
+    repository: {...repository, manifestText: manifestWith(PRODUCTION, pins)},
+    snapshotPath: null,
+    now: () => NOW,
+    log: capture.log,
+  });
+  return run.then((exitCode) => ({exitCode, capture}));
+}
+
+test("a pinned version that drops a product the bound version allowlists is refused, naming it", async () => {
+  const {exitCode, capture} = await supersetPreflight();
+  assert.equal(exitCode, EXIT.unsafe, capture.text());
+  assert.equal(capture.errors().length, 2);
+  assert.match(
+    capture.errors()[0],
+    /REVENUECAT_SERVER_CONFIG version 5 in ascend-prod-9c8f2 drops ascend_lifetime, which bound version 4 allowlists\.[\s\S]*acknowledge the drop for the pinned version in functions\/secret-versions\.json/
+  );
+  assertNoSecretValues(capture.text());
+});
+
+test("an acknowledged drop deploys with a notice naming it", async () => {
+  const {exitCode, capture} = await supersetPreflight({
+    acknowledgement: {[REVENUECAT_SECRET]: {version: 5, productIds: ["ascend_lifetime"]}},
+  });
+  assert.equal(exitCode, EXIT.safe, capture.text());
+  assert.match(
+    capture.text(),
+    /notice: REVENUECAT_SERVER_CONFIG version 5 in ascend-prod-9c8f2 drops ascend_lifetime, which bound version 4 allowlists; functions\/secret-versions\.json acknowledges that drop for version 5\./
+  );
+});
+
+test("an acknowledgement for a product the pinned version does not drop is refused as stale", async () => {
+  const {exitCode, capture} = await supersetPreflight({
+    acknowledgement: {[REVENUECAT_SECRET]: {version: 5, productIds: ["ascend_lifetime", "ascend_monthly"]}},
+  });
+  assert.equal(exitCode, EXIT.unsafe, capture.text());
+  assert.equal(capture.errors().length, 2);
+  assert.match(capture.errors()[0], /acknowledges dropping ascend_monthly from REVENUECAT_SERVER_CONFIG version 5[\s\S]*stale\. Remove it\./);
+  assert.match(capture.text(), /notice: [^\n]*drops ascend_lifetime[^\n]*acknowledges that drop/);
+
+  const stale = await supersetPreflight({
+    acknowledgement: {[REVENUECAT_SECRET]: {version: 4, productIds: ["ascend_lifetime"]}},
+  });
+  assert.equal(stale.exitCode, EXIT.unverified);
+  assert.match(stale.capture.errors()[0], /acknowledges drops from version 4, but REVENUECAT_SERVER_CONFIG is pinned to version 5/);
+});
+
+test("the superset check fails closed when a bound RevenueCat version cannot be read", async () => {
+  for (const payloads of [
+    {[`${REVENUECAT_SECRET}@5`]: V5},
+    {[`${REVENUECAT_SECRET}@4`]: JSON.stringify({entitlementId: "app_access"}), [`${REVENUECAT_SECRET}@5`]: V5},
+  ]) {
+    const {exitCode, capture} = await supersetPreflight({payloads});
+    assert.equal(exitCode, EXIT.unverified, capture.text());
+    assert.match(capture.errors()[0], /nothing is verified/);
+    assertNoSecretValues(capture.text());
+  }
+});
+
+test("the superset check compares with every bound version and ignores the acknowledgement of another version", () => {
+  const input = {
+    projectId: PRODUCTION,
+    pin: "5",
+    latestVersion: "5",
+    latestAllowed: ["ascend_monthly"],
+    boundAllowlists: {"3": ["ascend_monthly", "ascend_yearly"], "4": ["ascend_yearly", PROMO]},
+    acknowledgedDrops: [],
+  };
+  const {errors, notices} = evaluateAllowlistSuperset(input);
+  assert.deepEqual(notices, []);
+  assert.equal(errors.length, 2);
+  assert.match(errors[0], /drops ascend_yearly, which bound versions 3 and 4 allowlist\./);
+  assert.match(errors[1], /drops rc_promo_app_access_lifetime, which bound version 4 allowlists\./);
+
+  const unpinned = evaluateAllowlistSuperset({
+    ...input,
+    latestVersion: "6",
+    acknowledgedDrops: ["ascend_yearly", PROMO],
+  });
+  assert.equal(unpinned.errors.length, 2);
+  assert.deepEqual(unpinned.notices, []);
+
+  assert.deepEqual(
+    evaluateAllowlistSuperset({...input, boundAllowlists: {}, acknowledgedDrops: ["ascend_yearly"]}),
+    {errors: [], notices: []}
+  );
+});
+
+test("an acknowledged move still deploys when a bound version of another secret can no longer be read to compare", async () => {
+  const capture = capturingLog();
+  const functions = productionFunctions().map((fn) =>
+    fn.name.endsWith("/processRevenueCatAnalyticsOutbox") ?
+      functionResource("processRevenueCatAnalyticsOutbox", {MIXPANEL_SERVER_CONFIG: 1}) :
+      fn
+  );
   const exitCode = await runPreflight({
     projectId: PRODUCTION,
     backend: fakeBackend({
-      functions: productionFunctions({revenueCat: 3}),
-      payloads: {[`${REVENUECAT_SECRET}@4`]: V4},
+      functions,
+      payloads: {[`${REVENUECAT_SECRET}@4`]: V4, "MIXPANEL_SERVER_CONFIG@2": "{}"},
     }),
     repository: {
       ...repository,
@@ -750,7 +896,7 @@ test("an acknowledged move still deploys when the bound version can no longer be
   assert.equal(exitCode, EXIT.safe, capture.text());
   assert.match(
     capture.text(),
-    /notice: [^\n]*from version 3 to the pinned version 4 \(the versions could not be read to compare \(no REVENUECAT_SERVER_CONFIG@3\)\)/
+    /notice: [^\n]*from version 1 to the pinned version 2 \(the versions could not be read to compare \(no MIXPANEL_SERVER_CONFIG@1\)\)/
   );
 });
 
@@ -1106,15 +1252,76 @@ test("the pinned CLI root comes from FIREBASE_TOOLS_ROOT or npm's exec cache", (
 // The workflows
 // ---------------------------------------------------------------------------
 
+// No YAML parser is a dependency of this repository, so these read the
+// workflows' block structure by indentation: a key only counts at its exact
+// position under its parent, comments never count, and a step is only the
+// keys written at step level.
+
 function workflow(name) {
-  return readFileSync(join(REPO_ROOT, ".github/workflows", name), "utf8");
+  return readFileSync(join(REPO_ROOT, ".github/workflows", name), "utf8").split("\n");
 }
 
-function stepBlock(contents, name) {
-  const start = contents.indexOf(`      - name: ${name}\n`);
-  assert.notEqual(start, -1, `missing step: ${name}`);
-  const next = contents.indexOf("\n      - name: ", start + 1);
-  return contents.slice(start, next === -1 ? undefined : next);
+function indentOf(line) {
+  return line.length - line.trimStart().length;
+}
+
+function section(lines, key, indent) {
+  const header = `${" ".repeat(indent)}${key}:`;
+  const start = lines.findIndex((line) => line === header);
+  if (start === -1) return null;
+  const body = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
+    if (indentOf(line) <= indent) break;
+    body.push(line);
+  }
+  return body;
+}
+
+function requiredSection(lines, key, indent) {
+  const body = section(lines, key, indent);
+  assert.ok(body, `missing ${key}: at indent ${indent}`);
+  return body;
+}
+
+function mapping(lines, indent) {
+  return Object.fromEntries(
+    lines
+      .filter((line) => indentOf(line) === indent)
+      .map((line) => {
+        const [key, ...value] = line.trim().split(":");
+        return [key, value.join(":").trim()];
+      })
+  );
+}
+
+function jobSteps(lines, job) {
+  const jobLines = requiredSection(requiredSection(lines, "jobs", 0), job, 2);
+  const steps = [];
+  for (const line of requiredSection(jobLines, "steps", 4)) {
+    if (line.startsWith("      - ")) {
+      steps.push([`        ${line.slice(8)}`]);
+      continue;
+    }
+    assert.ok(steps.length > 0 && indentOf(line) > 6, `unexpected step line: ${line}`);
+    steps.at(-1).push(line);
+  }
+  return steps.map((step) => {
+    const keys = mapping(step, 8);
+    return {
+      name: keys.name,
+      run: keys.run,
+      keys: Object.keys(keys),
+      env: mapping(section(step, "env", 8) ?? [], 10),
+    };
+  });
+}
+
+function assertUnconditionalGuard(step, command) {
+  assert.ok(step, "missing guard step");
+  assert.equal(step.run, command, step.name);
+  assert.equal(step.env.FIREBASE_TOKEN, "${{ secrets.FIREBASE_TOKEN }}", step.name);
+  assert.ok(!step.keys.includes("continue-on-error"), `${step.name} must not continue on error`);
 }
 
 for (const [file, project] of [
@@ -1122,7 +1329,8 @@ for (const [file, project] of [
   ["deploy-staging.yml", STAGING],
 ]) {
   test(`${file} checks secrets before any backend change and grants before rules`, () => {
-    const contents = workflow(file);
+    const steps = jobSteps(workflow(file), "deploy-firebase");
+    const names = steps.map((step) => step.name);
     const preflightName = "Verify Functions secrets before any backend change";
     const verifyName = "Verify the Functions deploy kept every paid-access grant";
     const order = [
@@ -1132,50 +1340,56 @@ for (const [file, project] of [
       "Verify deployed functions match this ref",
       verifyName,
       "Deploy Firestore rules",
-    ].map((name) => contents.indexOf(`      - name: ${name}\n`));
+    ].map((name) => names.indexOf(name));
     for (const position of order) assert.notEqual(position, -1);
     assert.deepEqual(order, [...order].sort((a, b) => a - b));
 
-    const firstDeploy = contents.search(/npx -y firebase-tools@[\d.]+ deploy /);
+    const firstDeploy = steps.findIndex((step) => /^npx -y firebase-tools@[\d.]+ deploy /.test(step.run ?? ""));
     assert.notEqual(firstDeploy, -1);
     assert.ok(order[0] < firstDeploy, "the preflight must precede every firebase deploy");
 
     const snapshot = "--snapshot \"$RUNNER_TEMP/functions-secret-snapshot.json\"";
-    const preflight = stepBlock(contents, preflightName);
-    assert.match(preflight, /FIREBASE_TOKEN: \$\{\{ secrets\.FIREBASE_TOKEN \}\}/);
-    assert.ok(
-      preflight.includes(`node scripts/verify-functions-secrets.mjs preflight --project ${project} ${snapshot}`),
-      preflight
+    const preflight = steps[order[0]];
+    const verify = steps[order[4]];
+    assertUnconditionalGuard(
+      preflight,
+      `node scripts/verify-functions-secrets.mjs preflight --project ${project} ${snapshot}`
     );
-    const verify = stepBlock(contents, verifyName);
-    assert.match(verify, /FIREBASE_TOKEN: \$\{\{ secrets\.FIREBASE_TOKEN \}\}/);
-    assert.ok(
-      verify.includes(`node scripts/verify-functions-secrets.mjs verify-deploy --project ${project} ${snapshot}`),
-      verify
+    assertUnconditionalGuard(
+      verify,
+      `node scripts/verify-functions-secrets.mjs verify-deploy --project ${project} ${snapshot}`
     );
-    for (const block of [preflight, verify]) {
-      assert.doesNotMatch(block, /continue-on-error/);
+    for (const step of [preflight, verify]) {
+      assert.ok(!step.keys.includes("if"), `${step.name} must not be conditional`);
     }
   });
 }
 
 test("a daily read-only check reports a secret drift before the next deploy trips on it", () => {
-  const contents = workflow("functions-secret-drift.yml");
-  assert.match(contents, /schedule:\n\s+- cron: "[^"]+"/);
-  assert.match(contents, /workflow_dispatch:/);
-  assert.match(contents, /permissions:\n\s+contents: read/);
+  const lines = workflow("functions-secret-drift.yml");
+  const on = requiredSection(lines, "on", 0);
+  const schedule = requiredSection(on, "schedule", 2);
+  assert.match(schedule.join("\n"), /^ {4}- cron: "[^"]+"$/);
+  assert.ok(section(on, "workflow_dispatch", 2), "the drift check can be run by hand");
+  assert.deepEqual(mapping(requiredSection(lines, "permissions", 0), 2), {contents: "read"});
+
+  const steps = jobSteps(lines, "report");
   for (const project of Object.keys(GUARDED_PROJECTS)) {
-    assert.ok(
-      contents.includes(`node scripts/verify-functions-secrets.mjs preflight --project ${project}\n`),
-      `the drift check skips ${project}`
-    );
+    const command = `node scripts/verify-functions-secrets.mjs preflight --project ${project}`;
+    assertUnconditionalGuard(steps.find((step) => step.run === command), command);
   }
-  assert.doesNotMatch(contents, /--snapshot|verify-deploy|firebase-tools@[\d.]+ deploy/);
+  for (const step of steps) {
+    assert.doesNotMatch(step.run ?? "", /--snapshot|verify-deploy|firebase-tools@[\d.]+ deploy/, step.name);
+  }
 });
 
 test("the manifest lives where every functions path filter already watches", () => {
   assert.equal(SECRET_VERSION_MANIFEST_PATH, "functions/secret-versions.json");
   for (const file of ["deploy-production.yml", "deploy-staging.yml"]) {
-    assert.match(workflow(file), /- "functions\/\*\*"/);
+    const push = requiredSection(requiredSection(workflow(file), "on", 0), "push", 2);
+    const paths = requiredSection(push, "paths", 4)
+      .filter((line) => indentOf(line) === 6)
+      .map((line) => line.trim().replace(/^- /, "").replace(/^"(.*)"$/, "$1"));
+    assert.ok(paths.includes("functions/**"), file);
   }
 });

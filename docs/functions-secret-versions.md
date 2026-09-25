@@ -48,6 +48,25 @@ It is the acknowledgement: a version is safe to deploy only once a reviewed comm
 The suite `scripts/test/functions-secret-guard.test.mjs` fails when a secret declared in `functions/src` has no pin in either project, or a pin names a secret nothing declares.
 Adding a `defineSecret` therefore means creating the secret in both projects and pinning both.
 
+### Acknowledging an allowlist drop
+
+A pinned `REVENUECAT_SERVER_CONFIG` may not drop a product id that a version the deployed functions are bound to allowlists, unless the same commit acknowledges that exact product for that exact version:
+
+```json
+{
+  "ascend-prod-9c8f2": {
+    "REVENUECAT_SERVER_CONFIG": 5,
+    "acknowledgedAllowlistDrops": {
+      "REVENUECAT_SERVER_CONFIG": {"version": 5, "productIds": ["ascend_retired_product"]}
+    }
+  }
+}
+```
+
+The acknowledgement is scoped to the project, the secret and the pinned version.
+The manifest is refused when its `version` is not the pin, so it cannot carry over to a later version, and the preflight refuses a listed product id that the pinned version does not actually drop from a bound version.
+Once every function is bound to the pin, the entry has done its job; remove it with the next pin change.
+
 ## What the deploys check
 
 Both `deploy-staging.yml` and `deploy-production.yml` run `scripts/verify-functions-secrets.mjs` twice inside the Firebase job.
@@ -56,7 +75,12 @@ Both runs are read-only, and neither prints a secret value: a changed secret is 
 **Before any backend change** (`preflight`, ahead of the index deploy), the deploy stops unless:
 
 - every declared secret's latest version is `ENABLED` and is exactly the version the manifest pins for that project at the commit being deployed, and
-- the latest `REVENUECAT_SERVER_CONFIG` names the app's entitlement and allowlists every product that grants access.
+- the latest `REVENUECAT_SERVER_CONFIG` names the app's entitlement and allowlists every product that grants access, and
+- the latest `REVENUECAT_SERVER_CONFIG` allowlists every product that each version the deployed functions are bound to allowlists, except a drop the manifest acknowledges for the pinned version, which is reported as a notice.
+
+The superset check exists because the required products below only describe this moment.
+A product the bound version honors can matter the moment after the deploy: a subscriber in billing retry whose grant is absent right now, or a comp issued after the deploy.
+If a bound version's payload cannot be read, or carries no `allowedProductIds`, the preflight exits `2` rather than pass.
 
 The preflight also records every live grant and the `comp_grants` ledger for the second run.
 
@@ -168,6 +192,15 @@ If it is not, or nobody knows where it came from, add a newer version rebuilt fr
 **`does not allowlist <product>`**
 The version the deploy would bind drops a product that the app sells, that comps are granted with, or that live grants hold.
 Build a newer version from the bound one with the product restored, and pin it.
+
+**`drops <product>, which bound version N allowlists`**
+The version the deploy would bind removes a product the live functions still honor.
+If the removal is a mistake, build a newer version from the bound one with the product restored, and pin it.
+If it is deliberate, acknowledge that product for the pinned version under `acknowledgedAllowlistDrops` in the same reviewed pull request.
+
+**`acknowledges dropping <product> ... so the acknowledgement is stale`** or **`acknowledges drops from version N, but ... is pinned to version M`**
+The acknowledgement names a product the pinned version does not drop, or a version other than the pin.
+Remove it, or rewrite it for the version and products this commit actually drops.
 
 **`LOST` or `WILL BE LOST` after the Functions deploy**
 The job stopped before rules, Storage, Hosting and the TestFlight upload.

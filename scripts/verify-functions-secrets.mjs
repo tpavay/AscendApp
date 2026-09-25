@@ -15,9 +15,11 @@
  *
  *   preflight       Before any backend change. Fails unless every secret's
  *                   latest version is the one functions/secret-versions.json
- *                   pins for this commit, and unless the RevenueCat allowlist
+ *                   pins for this commit, unless the RevenueCat allowlist
  *                   the deploy will bind keeps every product that grants
- *                   access. With --snapshot it records every live grant and
+ *                   access, and unless it keeps every product a bound
+ *                   version allowlists that the commit does not acknowledge
+ *                   dropping. With --snapshot it records every live grant and
  *                   the comp ledger for verify-deploy. Read-only.
  *   verify-deploy   After the Functions deploy, before rules. Fails unless
  *                   every function is bound to the pinned versions and every
@@ -45,11 +47,13 @@ import {
   diffSecretPayloadKeys,
   distinctBoundVersions,
   evaluateAllowlistInvariant,
+  evaluateAllowlistSuperset,
   evaluateDeployedBindings,
   evaluateGrantSurvival,
   evaluateSecretDrift,
   guardedProject,
   parseDeclaredSecretNames,
+  parseAllowedProductIds,
   parseGrantSnapshot,
   parseSecretVersionManifest,
   requiredAllowlistFloor,
@@ -128,13 +132,14 @@ export async function runPreflight({projectId, backend, repository, snapshotPath
     log.error(error.message);
     return EXIT.unverified;
   }
-  const {declaredSecrets, pins, floor} = inputs;
+  const {declaredSecrets, pins, acknowledgedDrops, floor} = inputs;
   log.info(`Functions secret preflight for ${projectId}, against ${SECRET_VERSION_MANIFEST_PATH} at this commit.`);
 
   let latest;
   let bound;
   let keyChanges;
   let revenueCatPayload;
+  let boundAllowlists;
   let grants;
   let ledger;
   try {
@@ -145,7 +150,7 @@ export async function runPreflight({projectId, backend, repository, snapshotPath
     ]);
     latest = Object.fromEntries(latestEntries.filter(([, head]) => head !== null));
     bound = boundSecretVersions(functions);
-    ({keyChanges, revenueCatPayload} = await readKeyChanges({backend, declaredSecrets, latest, bound}));
+    ({keyChanges, revenueCatPayload, boundAllowlists} = await readKeyChanges({backend, declaredSecrets, latest, bound}));
     [grants, ledger] = await Promise.all([
       backend.listGrants(floor.entitlementId),
       backend.listCompLedger(),
@@ -167,6 +172,7 @@ export async function runPreflight({projectId, backend, repository, snapshotPath
 
   const drift = evaluateSecretDrift({projectId, declaredSecrets, pins, latest, bound, keyChanges});
   const errors = [...drift.errors];
+  const notices = [...drift.notices];
   const takenAt = now();
 
   const revenueCatHead = latest[REVENUECAT_SECRET];
@@ -179,9 +185,21 @@ export async function runPreflight({projectId, backend, repository, snapshotPath
       required: requiredProducts(floor, grants, takenAt),
     });
     errors.push(...invariant.errors);
+    if (invariant.allowedProductIds !== null) {
+      const superset = evaluateAllowlistSuperset({
+        projectId,
+        pin: pins[REVENUECAT_SECRET],
+        latestVersion: revenueCatHead.version,
+        latestAllowed: invariant.allowedProductIds,
+        boundAllowlists,
+        acknowledgedDrops,
+      });
+      errors.push(...superset.errors);
+      notices.push(...superset.notices);
+    }
   }
 
-  for (const notice of drift.notices) {
+  for (const notice of notices) {
     log.notice(notice);
   }
   log.info(`  ${grants.length} live ${floor.entitlementId} grant(s), ${ledger.length} comp_grants ledger entr${ledger.length === 1 ? "y" : "ies"}.`);
@@ -211,7 +229,7 @@ export async function runPreflight({projectId, backend, repository, snapshotPath
     log.info(`  Recorded ${grants.length} grant(s) for the post-deploy check.`);
   }
 
-  log.info(`Every Functions secret in ${projectId} is the version this commit pins, and the RevenueCat allowlist keeps every product that grants access.`);
+  log.info(`Every Functions secret in ${projectId} is the version this commit pins, and the RevenueCat allowlist keeps every product that grants access or that a bound version allowlists.`);
   return EXIT.safe;
 }
 
@@ -331,26 +349,31 @@ function deriveInputs(projectId, repository) {
         "the paid-access invariant has nothing to check. Refusing to pass vacuously."
     );
   }
-  const pins = parseSecretVersionManifest(repository.manifestText, declaredSecrets)[projectId];
+  const {pins, acknowledgedDrops} = parseSecretVersionManifest(repository.manifestText, declaredSecrets)[projectId];
   const floor = requiredAllowlistFloor({
     projectId,
     pbxproj: repository.pbxproj,
     monetizationSource: repository.monetizationSource,
   });
-  return {declaredSecrets, pins, floor};
+  return {declaredSecrets, pins, acknowledgedDrops, floor};
 }
 
 /**
  * Compares every bound version that differs from `latest` against it, by key
- * name, and returns the RevenueCat payload the invariant checks.
+ * name, and returns the RevenueCat payload the invariant checks and the
+ * allowlist of every bound RevenueCat version the superset check compares.
  *
  * The comparison only explains a move, so a version that can no longer be
  * read degrades the explanation rather than blocking the deploy; the
- * RevenueCat payload is different, because the invariant decides on it.
+ * RevenueCat payloads are different, because the invariant and the superset
+ * check decide on them, so failing to read one - or to find an allowlist in a
+ * bound one - throws, and the preflight reports that it could not verify.
  * Payloads are held only in this function's memory.
  * @param {object} input Read input.
- * @return {Promise<{keyChanges: object, revenueCatPayload: ?string}>} Diffs by
- *   secret and bound version.
+ * @return {Promise<{keyChanges: object, revenueCatPayload: ?string,
+ *   boundAllowlists: Object<string, Array<string>>}>} Diffs by secret and
+ *   bound version, the latest RevenueCat payload, and bound allowlists by
+ *   version.
  */
 async function readKeyChanges({backend, declaredSecrets, latest, bound}) {
   const payloads = new Map();
@@ -383,10 +406,23 @@ async function readKeyChanges({backend, declaredSecrets, latest, bound}) {
   }
 
   const revenueCatHead = latest[REVENUECAT_SECRET];
-  const revenueCatPayload = revenueCatHead && revenueCatHead.state === "ENABLED" ?
-    await payload(REVENUECAT_SECRET, revenueCatHead.version) :
-    null;
-  return {keyChanges, revenueCatPayload};
+  if (!revenueCatHead || revenueCatHead.state !== "ENABLED") {
+    return {keyChanges, revenueCatPayload: null, boundAllowlists: {}};
+  }
+  const revenueCatPayload = await payload(REVENUECAT_SECRET, revenueCatHead.version);
+  const boundAllowlists = {};
+  for (const version of distinctBoundVersions(bound[REVENUECAT_SECRET])) {
+    if (version === revenueCatHead.version || version === "latest") continue;
+    const allowed = parseAllowedProductIds(await payload(REVENUECAT_SECRET, version));
+    if (allowed === null) {
+      throw new Error(
+        `${REVENUECAT_SECRET} version ${version}, which the deployed functions are bound to, ` +
+          "has no readable allowedProductIds, so what the latest version drops cannot be known"
+      );
+    }
+    boundAllowlists[version] = allowed;
+  }
+  return {keyChanges, revenueCatPayload, boundAllowlists};
 }
 
 function parseArgs(argv) {
