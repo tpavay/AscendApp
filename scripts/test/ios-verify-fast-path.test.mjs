@@ -18,6 +18,10 @@
  *   for the queue-inflated durations a healthy pass reports (189 s max on the
  *   green run), or a green pass turns red on a fast day.
  * - Each PR job resolves only its own Mixpanel configuration (~55 s each).
+ * - The package graph is fetched once per job. Every later `xcodebuild` passes
+ *   `-skipPackageUpdates`, which saved 10-66 s per invocation, and only once a
+ *   full resolve has run in the same job: a cache restored from an older
+ *   `Package.resolved` holds checkouts the flag would not move.
  * - The documented local test command carries the same overrides, so an agent
  *   copying it builds what CI builds.
  */
@@ -118,6 +122,29 @@ test("the simulator boots during the compile and the script waits on it before t
   const firstPass = script.indexOf("for pass in");
   assert.ok(build !== -1 && bootstatus !== -1 && firstPass !== -1);
   assert.ok(build < bootstatus && bootstatus < firstPass, "bootstatus must wait after the build and before the first pass");
+});
+
+test("the package graph is fetched once per job and never skipped before a full resolve", async () => {
+  const workflow = await read(".github/workflows/ci.yml");
+  const job = jobBlock(workflow, "ios-verify");
+  const script = await read("scripts/ci/run-ios-test-passes.sh");
+
+  // Every pass skips updates: the build in front of it resolved the graph.
+  assert.match(script, /^skip_package_updates=\(-skipPackageUpdates\)$/m);
+  assert.match(script, /xcodebuild "\$\{common\[@\]\}" "\$\{skip_package_updates\[@\]\}"[^\n]*\\\n(?:[^\n]*\\\n)*\s*test-without-building/);
+
+  // The build skips them only when the caller says a full resolve already ran.
+  assert.match(script, /if \[ "\$\{ASCEND_PACKAGE_GRAPH_RESOLVED:-\}" = "1" \]; then\n\s*build_package_resolution=\("\$\{skip_package_updates\[@\]\}"\)/);
+  assert.match(script, /xcodebuild "\$\{common\[@\]\}" \$\{build_package_resolution\[@\]\+"\$\{build_package_resolution\[@\]\}"\} build-for-testing/);
+  assert.doesNotMatch(script.match(/common=\(([\s\S]*?)\n\)/)?.[1] ?? "", /skipPackageUpdates/, "the flag must never reach the build unconditionally");
+
+  // In CI that caller is the Mixpanel step, which resolves the graph for real
+  // and must therefore run before the step that is told it did.
+  const runTests = stepBlock(job, "Run tests");
+  assert.match(runTests, /^\s+ASCEND_PACKAGE_GRAPH_RESOLVED: "1"$/m);
+  const mixpanel = job.indexOf("      - name: Verify Mixpanel build destinations");
+  assert.ok(mixpanel !== -1 && mixpanel < job.indexOf("      - name: Run tests"), "the Mixpanel step must resolve the graph before Run tests");
+  assert.doesNotMatch(await read("scripts/ci/assert-mixpanel-build-settings.mjs"), /skipPackageUpdates/, "the resolve the build relies on must be a full one");
 });
 
 test("every pass runs with per-test timeouts wide enough for a healthy queue-inflated duration", async () => {
