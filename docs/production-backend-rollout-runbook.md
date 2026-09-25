@@ -119,7 +119,10 @@ node scripts/backfill-live-replay-best-per-user.mjs --env prod --confirm-product
 
 4. Ship the iOS build after both runs report no skipped climbers.
 
-The script is idempotent and never stops on one climber: a climber whose entries could not be read or written is named in the summary and the exit code is 1, so re-run until the summary reports `no climber skipped`.
+The script is idempotent and never stops on one climber: a climber whose entries could not be read or written is logged as it fails, named again in the summary, and the exit code is 1, so re-run until the summary reports `no climber skipped`.
+Each board prints a progress line every two seconds, so a long staging run is never silent.
+A climber's writes are split into commits under a `bestForGoals` element budget (`scripts/lib/race-goal-commit-budget.mjs`), because Firestore refuses a commit with too many array elements as `Transaction too big` however few writes it holds; each board's `commits:` line shows its largest commit against that budget.
+A dry run that plans any commit over the budget names that climber under `Over the goal-key budget` and exits 1, so a clean dry run is evidence the write run's commits fit.
 A binary shipped ahead of the script renders a Just Climb run against a goal over an empty field, because the goal keys it filters on are what the script writes - the ordering (indexes and Functions, the script on every environment, then the binary) is owned by `ascend-live-climbs`.
 Measured on production (`ascend-prod-9c8f2`) on 2026-09-22, before the script ran: `just_climb__global` held 12 bucket-zero entries from 4 climbers over 234 buckets, only 5 entries carried any `isBestForUser`, none carried `bestForGoals`, and the captain's one flagged row was his shortest climb rather than his most steps - which is the defect the script corrects.
 

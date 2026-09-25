@@ -20,8 +20,20 @@
  * environment after the Cloud Functions deploy and before the iOS build - the
  * captain ruled out a recurring scheduled job on 2026-09-22. It is idempotent:
  * a second run on corrected data writes nothing and says so. It never stops on
- * one climber: a climber whose entries cannot be read or written is recorded,
- * the run continues, and every skipped climber is named at the end.
+ * one climber: a climber whose entries cannot be read or written is logged the
+ * moment it fails, the run continues, and every skipped climber is named again
+ * at the end. Each board prints a progress line every two seconds.
+ *
+ * A climber's writes are split into commits by `bestForGoals` elements as well
+ * as by count (`scripts/lib/race-goal-commit-budget.mjs`): one commit of 360
+ * rows x 65 goal keys was refused as `Transaction too big` on staging, and a
+ * production climber carries 117. So a climber is no longer one atomic
+ * commit, and what keeps a partial write recoverable is order: every bucket
+ * but zero commits first, and bucket zero - the row this script and the
+ * trigger both diff against - only once the rest have landed. A climber that
+ * fails part-way still reads as unmigrated, and the next run rewrites them
+ * whole. A dry run plans the same commits, and names any climber the write
+ * run could not keep under the budget instead of promising a clean run.
  *
  * The winner selection is `scripts/lib/live-replay-race-best.mjs`, the same
  * module the seeds use and the mirror of `functions/src/liveReplayRaceBest.ts`,
@@ -48,11 +60,18 @@
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {
+  PhaseStalledError,
   createBatchWriter,
+  createProgressReporter,
   listDocumentsAcross,
+  planCommits,
   withRetry,
 } from "./lib/firestore-bulk.mjs";
 import {isEntrypoint} from "./lib/is-entrypoint.mjs";
+import {
+  GOAL_KEY_COMMIT_BUDGET,
+  MAX_GOAL_KEYS_PER_COMMIT,
+} from "./lib/race-goal-commit-budget.mjs";
 import {
   contextRacesGoals,
   raceBestOnSteps,
@@ -91,10 +110,11 @@ async function main() {
   const report = await backfillRaceBests(getFirestore(), args);
   console.log(renderReport(report, {target, dryRun: args.dryRun}));
 
-  if (report.skippedClimbers.length > 0) {
+  if (report.skippedClimbers.length > 0 || (args.dryRun && report.oversizedClimbers.length > 0)) {
     // A climber left behind is a climber duplicated or missing in the live
     // field, so the run must not read as a success just because every other
-    // climber landed.
+    // climber landed - and a dry run that plans a commit over the budget has
+    // not shown that the write run will land them.
     process.exitCode = 1;
   }
 }
@@ -207,6 +227,7 @@ export async function backfillRaceBests(db, options) {
     boards: [],
     boardsSkipped: [],
     skippedClimbers: [],
+    oversizedClimbers: [],
   };
   const boardRefs = options.contextKey ?
     [db.collection(LIVE_REPLAY_COLLECTION).doc(options.contextKey)] :
@@ -268,6 +289,8 @@ async function backfillBoard(db, boardRef, contextType, options, report) {
     entryWritesPlanned: 0,
     entryWritesApplied: 0,
     bucketsWithoutEntry: 0,
+    commitsPlanned: 0,
+    largestCommitGoalKeys: 0,
   };
   const entries = await withRetry(
     () => boardRef.collection(SPLIT_BUCKETS_COLLECTION).doc(BUCKET_ZERO_DOC_ID)
@@ -289,66 +312,161 @@ async function backfillBoard(db, boardRef, contextType, options, report) {
   }
   board.climbersScanned = attemptsByUserId.size;
 
+  const progress = createProgressReporter({
+    label: boardRef.id,
+    total: attemptsByUserId.size,
+    unit: "climbers",
+  });
+  const noteWrites = () => {
+    progress.note(
+      (options.dryRun ?
+        `${board.entryWritesPlanned.toLocaleString()} entry writes planned` :
+        `${board.entryWritesApplied.toLocaleString()}/${board.entryWritesPlanned.toLocaleString()} entry writes applied`) +
+      (board.climbersSkipped > 0 ? `, ${board.climbersSkipped} climber(s) skipped` : "")
+    );
+  };
+
   let existingEntryIds = null;
-  for (const [userId, attempts] of attemptsByUserId) {
-    try {
-      const curves = board.racesGoals ?
-        await attemptCurves(db, boardRef, attempts, options, board) :
-        null;
-      const {updates} = planClimberUpdates({attempts, contextType, curves});
-      if (updates.length === 0) {
-        continue;
-      }
+  try {
+    for (const [userId, attempts] of attemptsByUserId) {
+      progress.assertAlive();
+      try {
+        const curves = board.racesGoals ?
+          await attemptCurves(db, boardRef, attempts, options, board, progress) :
+          null;
+        const {updates} = planClimberUpdates({attempts, contextType, curves});
+        if (updates.length > 0) {
+          existingEntryIds ??= await existingEntryIdsByBucket(
+            boardRef,
+            Math.max(...[...attemptsByUserId.values()].flat().map((a) => a.splitBucketCount))
+          );
+          const plan = entryWritePlan(updates, existingEntryIds);
+          const phases = entryUpdatePhases(boardRef, plan.writes);
+          const commits = plannedEntryCommits(phases);
+          const heaviestCommit = commits.reduce((heaviest, commit) => Math.max(heaviest, commit.weight), 0);
+          board.climbersChanged += 1;
+          board.bucketsWithoutEntry += plan.skipped;
+          board.entryWritesPlanned += plan.writes.length;
+          board.commitsPlanned += commits.length;
+          board.largestCommitGoalKeys = Math.max(board.largestCommitGoalKeys, heaviestCommit);
+          for (const update of updates) {
+            if (update.isBestForUser === true) board.attemptsPromoted += 1;
+            if (update.isBestForUser === false) board.attemptsDemoted += 1;
+            if (update.bestForGoals !== undefined) board.goalKeyRewrites += 1;
+          }
+          if (heaviestCommit > MAX_GOAL_KEYS_PER_COMMIT) {
+            report.oversizedClimbers.push({
+              contextKey: boardRef.id,
+              userId,
+              attempts: attempts.length,
+              goalKeys: heaviestCommit,
+            });
+            console.error(
+              `  ${boardRef.id}: climber ${userId} has one row of ${heaviestCommit} goal keys, over the ` +
+              `${MAX_GOAL_KEYS_PER_COMMIT} per-commit budget; ` +
+              (options.dryRun ? "the write run will commit it alone and Firestore may refuse it." : "committing it alone.")
+            );
+          }
 
-      existingEntryIds ??= await existingEntryIdsByBucket(
-        boardRef,
-        Math.max(...[...attemptsByUserId.values()].flat().map((a) => a.splitBucketCount))
-      );
-      const plan = entryWritePlan(updates, existingEntryIds);
-      board.climbersChanged += 1;
-      board.bucketsWithoutEntry += plan.skipped;
-      board.entryWritesPlanned += plan.writes.length;
-      for (const update of updates) {
-        if (update.isBestForUser === true) board.attemptsPromoted += 1;
-        if (update.isBestForUser === false) board.attemptsDemoted += 1;
-        if (update.bestForGoals !== undefined) board.goalKeyRewrites += 1;
+          if (!options.dryRun) {
+            await applyEntryWrites(db, phases, {
+              progress,
+              onCommitted: (count) => {
+                board.entryWritesApplied += count;
+                noteWrites();
+              },
+            });
+          }
+        }
+      } catch (error) {
+        if (error instanceof PhaseStalledError) throw error;
+        const reason = String(error?.message ?? error);
+        board.climbersSkipped += 1;
+        report.skippedClimbers.push({
+          contextKey: boardRef.id,
+          userId,
+          attempts: attempts.length,
+          reason,
+        });
+        console.error(`  ${boardRef.id}: skipped climber ${userId} (${attempts.length} attempt(s)): ${reason}`);
       }
-
-      if (!options.dryRun) {
-        board.entryWritesApplied += await applyEntryWrites(db, boardRef, plan.writes);
-      }
-    } catch (error) {
-      board.climbersSkipped += 1;
-      report.skippedClimbers.push({
-        contextKey: boardRef.id,
-        userId,
-        attempts: attempts.length,
-        reason: String(error?.message ?? error),
-      });
+      progress.advance(1);
+      noteWrites();
     }
+  } finally {
+    progress.finish(
+      `${progress.count()}/${board.climbersScanned} climbers, ` +
+      `${(options.dryRun ? board.entryWritesPlanned : board.entryWritesApplied).toLocaleString()} entry writes ` +
+      `${options.dryRun ? "planned" : "applied"}`
+    );
   }
 
   return board;
 }
 
 /**
- * Writes one climber's entry updates through their own batch queue, so a
- * failure is theirs alone and the next climber still gets their turn.
- * @param {FirebaseFirestore.Firestore} db Firestore instance.
+ * A climber's entry writes as `createBatchWriter` operations, in the two
+ * phases they commit in: every bucket but zero, then bucket zero. The planner
+ * diffs against bucket zero, so bucket zero landing last is what lets a
+ * climber whose later commits failed be planned again in full.
  * @param {FirebaseFirestore.DocumentReference} boardRef Board document.
- * @param {object[]} writes Entry writes.
- * @return {Promise<number>} Writes committed.
+ * @param {object[]} writes Entry writes from `entryWritePlan`.
+ * @return {object[][]} Non-empty phases, in commit order.
  */
-async function applyEntryWrites(db, boardRef, writes) {
-  const writer = createBatchWriter(db);
-  for (const write of writes) {
-    writer.update(
-      boardRef.collection(SPLIT_BUCKETS_COLLECTION).doc(String(write.bucketIndex))
-        .collection(ENTRIES_COLLECTION).doc(write.workoutId),
-      write.fields
-    );
+export function entryUpdatePhases(boardRef, writes) {
+  const operation = (write) => ({
+    kind: "update",
+    ref: boardRef.collection(SPLIT_BUCKETS_COLLECTION).doc(String(write.bucketIndex))
+      .collection(ENTRIES_COLLECTION).doc(write.workoutId),
+    data: write.fields,
+  });
+  const laterBuckets = writes.filter((write) => write.bucketIndex !== 0).map(operation);
+  const bucketZero = writes.filter((write) => write.bucketIndex === 0).map(operation);
+  return [laterBuckets, bucketZero].filter((phase) => phase.length > 0);
+}
+
+/**
+ * The commits `applyEntryWrites` will send for these phases, each with its
+ * `bestForGoals` element count as `weight`.
+ * @param {object[][]} phases From `entryUpdatePhases`.
+ * @return {{operations: object[], weight: number}[]} Commits in order.
+ */
+export function plannedEntryCommits(phases) {
+  return phases.flatMap((phase) => planCommits(phase, GOAL_KEY_COMMIT_BUDGET));
+}
+
+/**
+ * Writes one climber's entry updates through their own batch queue, so a
+ * failure is theirs alone and the next climber still gets their turn. Commits
+ * are split under the goal-key budget exactly as `plannedEntryCommits` plans
+ * them, and a phase starts only once the one before it has fully landed.
+ * @param {FirebaseFirestore.Firestore} db Firestore instance.
+ * @param {object[][]} phases From `entryUpdatePhases`.
+ * @param {object} [options] Reporting hooks.
+ * @param {object} [options.progress] The board's progress reporter; a landed
+ *   commit or a retry counts as a sign of life.
+ * @param {(count: number) => void} [options.onCommitted] Called with each
+ *   commit's write count once it lands.
+ * @return {Promise<void>} Resolves once every phase has committed.
+ */
+export async function applyEntryWrites(db, phases, {progress = null, onCommitted = () => {}} = {}) {
+  const writer = createBatchWriter(db, {
+    ...GOAL_KEY_COMMIT_BUDGET,
+    progress: {
+      assertAlive: () => progress?.assertAlive(),
+      retried: () => progress?.retried(),
+      advance: (count) => {
+        progress?.advance(0);
+        onCommitted(count);
+      },
+    },
+  });
+  for (const phase of phases) {
+    for (const operation of phase) {
+      writer.update(operation.ref, operation.data);
+    }
+    await writer.flush();
   }
-  return writer.drain();
 }
 
 /**
@@ -362,14 +480,16 @@ async function applyEntryWrites(db, boardRef, writes) {
  * @param {object[]} attempts The climber's attempts.
  * @param {{dryRun: boolean}} options Run options.
  * @param {object} board Board summary, mutated.
+ * @param {object} progress The board's progress reporter.
  * @return {Promise<Map<string, object>>} Curves by workout id.
  */
-async function attemptCurves(db, boardRef, attempts, options, board) {
+async function attemptCurves(db, boardRef, attempts, options, board, progress) {
   const refs = attempts.map((attempt) =>
     boardRef.collection(ATTEMPT_CURVES_COLLECTION).doc(attempt.workoutId)
   );
   const snapshots = await withRetry(() => db.getAll(...refs), {
     description: `read of ${attempts.length} curve(s) in ${boardRef.path}`,
+    onRetry: () => progress.retried(),
   });
   const curves = new Map();
 
@@ -381,7 +501,7 @@ async function attemptCurves(db, boardRef, attempts, options, board) {
       continue;
     }
 
-    const rebuilt = await rebuildCurve(db, boardRef, attempt);
+    const rebuilt = await rebuildCurve(db, boardRef, attempt, progress);
     board.curvesRebuilt += 1;
     curves.set(attempt.workoutId, rebuilt);
     if (!options.dryRun) {
@@ -394,14 +514,14 @@ async function attemptCurves(db, boardRef, attempts, options, board) {
         updatedAt: FieldValue.serverTimestamp(),
         userId: attempt.userId,
         workoutId: attempt.workoutId,
-      }), {description: `write of ${refs[index].path}`});
+      }), {description: `write of ${refs[index].path}`, onRetry: () => progress.retried()});
     }
   }
 
   return curves;
 }
 
-async function rebuildCurve(db, boardRef, attempt) {
+async function rebuildCurve(db, boardRef, attempt, progress) {
   const refs = [];
   for (let index = 0; index < attempt.splitBucketCount; index += 1) {
     refs.push(
@@ -415,6 +535,7 @@ async function rebuildCurve(db, boardRef, attempt) {
     const chunk = refs.slice(start, start + 100);
     const snapshots = await withRetry(() => db.getAll(...chunk), {
       description: `read of ${attempt.workoutId} buckets ${start}.. in ${boardRef.path}`,
+      onRetry: () => progress.retried(),
     });
     let ended = false;
     for (const snapshot of snapshots) {
@@ -636,7 +757,11 @@ export function renderReport(report, {target, dryRun}) {
         `${board.goalKeyRewrites} goal-key rewrites, ${board.curvesRebuilt} curves rebuilt`,
       `  entry writes: ${board.entryWritesPlanned} ${dryRun ? "would be applied" : "planned"}` +
         `${dryRun ? "" : `, ${board.entryWritesApplied} applied`}, ` +
-        `${board.bucketsWithoutEntry} buckets skipped (entry absent)`
+        `${board.bucketsWithoutEntry} buckets skipped (entry absent)`,
+      `  commits: ${board.commitsPlanned} ${dryRun ? "would be sent" : "planned"}` +
+        (board.racesGoals ?
+          `, largest ${board.largestCommitGoalKeys} goal keys (budget ${MAX_GOAL_KEYS_PER_COMMIT})` :
+          "")
     );
   }
 
@@ -645,11 +770,22 @@ export function renderReport(report, {target, dryRun}) {
   }
 
   lines.push("");
+  if (report.oversizedClimbers.length > 0) {
+    lines.push(
+      `Over the goal-key budget (${report.oversizedClimbers.length}) - one row alone carries more than ` +
+        `${MAX_GOAL_KEYS_PER_COMMIT} keys, so its commit ${dryRun ? "may be" : "may have been"} refused as too big:`
+    );
+    for (const climber of report.oversizedClimbers) {
+      lines.push(`  ${climber.contextKey} / ${climber.userId} (${climber.attempts} attempt(s)): ${climber.goalKeys} goal keys in one commit`);
+    }
+  }
   if (report.skippedClimbers.length > 0) {
     lines.push(`Skipped climbers (${report.skippedClimbers.length}) - re-run to reach them:`);
     for (const climber of report.skippedClimbers) {
       lines.push(`  ${climber.contextKey} / ${climber.userId} (${climber.attempts} attempt(s)): ${climber.reason}`);
     }
+  } else if (dryRun && report.oversizedClimbers.length > 0) {
+    lines.push(`${totalPlanned} entry write(s) would be applied across ${report.boards.length} board(s); the write run is not shown to land every climber.`);
   } else if (totalPlanned === 0) {
     lines.push("Nothing to write: every board is already on the current rule.");
   } else {
