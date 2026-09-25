@@ -21,6 +21,23 @@ struct AppVersionPolicyTests {
         #expect(short == explicit)
     }
 
+    /// The marketing version is written short (`1.1`) while operators write thresholds in full
+    /// (`1.1.0`), so a release whose own version becomes the threshold must not lock out or nudge
+    /// the very build it names.
+    @Test(
+        "A short build version satisfies thresholds naming its own full spelling",
+        arguments: [("1.1", "1.1.0"), ("1.0", "1.0.0"), ("2", "2.0.0")]
+    )
+    func shortBuildVersionSatisfiesItsOwnFullSpelling(currentVersion: String, threshold: String) {
+        let result = AppVersionPolicy.evaluate(
+            currentVersion: currentVersion,
+            minimumSupportedVersion: threshold,
+            recommendedVersion: threshold
+        )
+
+        #expect(result == nil)
+    }
+
     @Test(
         "Malformed semantic versions are rejected",
         .bug(id: 319),
