@@ -211,6 +211,7 @@ if (bundle !== -1) mkdirSync(argv[bundle + 1], {recursive: true});
   );
   writeExecutable(join(binDir, "xcrun"), "#!/bin/bash\nexit 0\n");
   writeExecutable(join(binDir, "sudo"), "#!/bin/bash\nexit 1\n");
+  writeExecutable(join(binDir, "vm_stat"), "#!/bin/bash\nexit 0\n");
 
   const env = {...process.env, PATH: `${binDir}:${process.env.PATH}`, GITHUB_ACTIONS: "true"};
   delete env.ASCEND_PACKAGE_GRAPH_RESOLVED;
