@@ -284,6 +284,7 @@ test("builds replay entry fields with context identity", () => {
     },
     stepsAtBucket: 420,
     isBestForUser: true,
+    bestForGoals: null,
     updatedAt,
   });
 
@@ -556,24 +557,220 @@ test("collapses a Just Climb climber to one opponent like every other board", ()
   // the flag an open Just Climb raced a rival's four runs as four opponents and
   // showed a climber their own earlier attempts as racers.
   //
-  // Superseded reasoning, kept because it is a real cost of the decision rather
-  // than an argument that was wrong: an open Just Climb has no step target, so
-  // on a duration metric its shortest attempt is the one the climber quit
-  // earliest. The collapse therefore represents a climber by their quickest
-  // session. The board already ranked every attempt that way, so the collapse
-  // makes the field consistent with the metric rather than introducing it.
+  // And settled again on 2026-09-22, on which run the flag lands: the fixture
+  // is 2,096 steps in 738 seconds, and with no goal a Just Climb's best is the
+  // most steps, all time. A shorter, quicker session used to take the flag
+  // because the collapse ran on the board's duration metric - which is what
+  // put the captain's 149-step climb on his marker instead of his 1,776.
   assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
-      bestCompletionDurationSeconds: 900,
-      bestWorkoutId: "workout-b",
-    }),
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", [
+      makeAttemptEntry({
+        workoutId: "workout-b",
+        rankingValue: 70,
+        raceValue: 149,
+        isBestForUser: true,
+      }),
+    ]),
     true
   );
   assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {}),
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", [
+      makeAttemptEntry({
+        workoutId: "workout-b",
+        rankingValue: 2334,
+        raceValue: 2766,
+        isBestForUser: true,
+      }),
+    ]),
+    false
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", []),
     true
   );
 });
+
+// The two metrics part company only on a Just Climb: its standings stay on
+// the clock while its race collapses on steps. Everywhere else they agree.
+test("a Just Climb races on steps while it still ranks on the clock", () => {
+  assert.equal(liveReplayLeaderboardTestHooks.raceBestOnSteps("just_climb"), true);
+  assert.equal(
+    liveReplayLeaderboardTestHooks.raceBestOnSteps("routine_template"),
+    true
+  );
+  assert.equal(liveReplayLeaderboardTestHooks.raceBestOnSteps("live_climb"), false);
+  assert.equal(liveReplayLeaderboardTestHooks.raceBestOnSteps("routine"), false);
+  assert.equal(liveReplayLeaderboardTestHooks.rankingMetric("just_climb"), "completionDurationSeconds");
+
+  const attempts = [
+    makeAttemptEntry({workoutId: "charminar", rankingValue: 70, raceValue: 149}),
+    makeAttemptEntry({workoutId: "cn-tower", rankingValue: 1201, raceValue: 1776}),
+    makeAttemptEntry({workoutId: "open-390", rankingValue: 250, raceValue: 390}),
+  ];
+
+  // The row that races, and the marker's source, is the most steps.
+  assert.equal(
+    liveReplayLeaderboardTestHooks.bestAttemptWorkoutId(attempts, "just_climb"),
+    "cn-tower"
+  );
+  // The finisher's standing best, which the standings count, stays fastest.
+  assert.equal(
+    liveReplayLeaderboardTestHooks.rankingBestAttempt(attempts, "just_climb")
+      ?.workoutId,
+    "charminar"
+  );
+});
+
+test("only the global Just Climb board races goals", () => {
+  assert.equal(liveReplayLeaderboardTestHooks.contextRacesGoals("just_climb"), true);
+  assert.equal(liveReplayLeaderboardTestHooks.contextRacesGoals("live_climb"), false);
+  assert.equal(
+    liveReplayLeaderboardTestHooks.contextRacesGoals("routine_template"),
+    false
+  );
+  assert.equal(liveReplayLeaderboardTestHooks.contextRacesGoals("routine"), false);
+});
+
+test("a Just Climb entry carries its goal keys and a tower entry carries none", () => {
+  const justClimb = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  const liveClimb = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(justClimb);
+  assert.ok(liveClimb);
+
+  const write = (payload: typeof justClimb, bestForGoals: string[] | null) =>
+    liveReplayLeaderboardTestHooks.replayEntryWrite({
+      payload,
+      userId: "user-a",
+      entryId: "workout-a",
+      publicUser: makePublicUser(),
+      stepsAtBucket: 420,
+      isBestForUser: true,
+      bestForGoals,
+      updatedAt: "server-timestamp",
+    });
+
+  // Seeded empty at publish; reconciliation fills it in the same trigger. The
+  // field has to exist from the first write, because a live window filters on
+  // it with array-contains and a missing field never matches.
+  assert.deepEqual(write(justClimb, []).bestForGoals, []);
+  assert.deepEqual(
+    write(justClimb, ["duration:300", "steps:100"]).bestForGoals,
+    ["duration:300", "steps:100"]
+  );
+  assert.equal("bestForGoals" in write(liveClimb, null), false);
+});
+
+test("reconciliation rewrites goal keys only where they moved", () => {
+  const attempts = [
+    makeAttemptEntry({
+      workoutId: "cn-tower",
+      rankingValue: 1201,
+      raceValue: 1776,
+      isBestForUser: true,
+      bestForGoals: ["steps:1000", "steps:1700"],
+    }),
+    makeAttemptEntry({
+      workoutId: "long-climb",
+      rankingValue: 2334,
+      raceValue: 2766,
+      bestForGoals: [],
+    }),
+  ];
+  const derived = new Map([
+    ["cn-tower", ["steps:1000", "steps:1700"]],
+    ["long-climb", ["duration:1800", "steps:2000"]],
+  ]);
+
+  const updates = liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(
+    attempts,
+    "just_climb",
+    derived
+  );
+
+  // The long climb takes the no-goal flag and its goal keys in one write; the
+  // CN Tower loses the flag but keeps the goal keys it already carries, so
+  // only the flag is written for it.
+  assert.deepEqual(updates, [
+    {workoutId: "cn-tower", splitBucketCount: 4, isBestForUser: false},
+    {
+      workoutId: "long-climb",
+      splitBucketCount: 4,
+      isBestForUser: true,
+      bestForGoals: ["duration:1800", "steps:2000"],
+    },
+  ]);
+  assert.deepEqual(
+    liveReplayLeaderboardTestHooks.flagUpdateFields(updates[0]),
+    {isBestForUser: false}
+  );
+  assert.deepEqual(
+    liveReplayLeaderboardTestHooks.flagUpdateFields(updates[1]),
+    {isBestForUser: true, bestForGoals: ["duration:1800", "steps:2000"]}
+  );
+});
+
+test("a settled Just Climb still costs no writes", () => {
+  const attempts = [
+    makeAttemptEntry({
+      workoutId: "long-climb",
+      rankingValue: 2334,
+      raceValue: 2766,
+      isBestForUser: true,
+      bestForGoals: ["duration:1800"],
+    }),
+    makeAttemptEntry({
+      workoutId: "cn-tower",
+      rankingValue: 1201,
+      raceValue: 1776,
+      bestForGoals: ["steps:1700"],
+    }),
+  ];
+
+  assert.deepEqual(
+    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(
+      attempts,
+      "just_climb",
+      new Map([
+        ["long-climb", ["duration:1800"]],
+        ["cn-tower", ["steps:1700"]],
+      ])
+    ),
+    []
+  );
+});
+
+test("an attempt curve stores the numbers the race-best rule reads and no identity", () => {
+  const write = liveReplayLeaderboardTestHooks.attemptCurveWrite(
+    "user-a",
+    {
+      workoutId: "workout-a",
+      finalSteps: 2096,
+      finalDurationSeconds: 738,
+      splitIntervalSeconds: 10,
+      splitSteps: [28, 56, 84],
+    },
+    "server-timestamp"
+  );
+
+  assert.deepEqual(write, {
+    finalDurationSeconds: 738,
+    finalSteps: 2096,
+    schemaVersion: 1,
+    splitIntervalSeconds: 10,
+    splitSteps: [28, 56, 84],
+    updatedAt: "server-timestamp",
+    userId: "user-a",
+    workoutId: "workout-a",
+  });
+  assert.equal("displayName" in write, false);
+});
+
 
 test("writes the flag on every context type", () => {
   const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
@@ -596,8 +793,9 @@ test("writes the flag on every context type", () => {
     isBestForUser: liveReplayLeaderboardTestHooks.seedBestForUser(
       payload,
       "workout-a",
-      undefined
+      []
     ),
+    bestForGoals: [],
     updatedAt: "server-timestamp",
   });
 
@@ -791,29 +989,35 @@ test("seeds the flag on a per-climb attempt without demoting the best", () => {
   assert.ok(payload);
   assert.equal(payload.finalDurationSeconds, 738);
 
+  const seed = (attempts: ReturnType<typeof makeAttemptEntry>[]) =>
+    liveReplayLeaderboardTestHooks.seedBestForUser(
+      payload,
+      "workout-a",
+      attempts
+    );
+
+  // A first attempt has nobody to lose to.
+  assert.equal(seed([]), true);
+  // Faster than the standing best takes the flag.
   assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {}),
+    seed([makeAttemptEntry({workoutId: "workout-b", rankingValue: 900})]),
     true
   );
+  // A republish of the standing best is its own workout id among the
+  // climber's attempts, and keeps the flag rather than losing it to itself.
   assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
-      bestCompletionDurationSeconds: 900,
-      bestWorkoutId: "workout-b",
-    }),
+    seed([
+      makeAttemptEntry({
+        workoutId: "workout-a",
+        rankingValue: 738,
+        isBestForUser: true,
+      }),
+    ]),
     true
   );
+  // Slower than the standing best does not demote it.
   assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
-      bestCompletionDurationSeconds: 738,
-      bestWorkoutId: "workout-a",
-    }),
-    true
-  );
-  assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
-      bestCompletionDurationSeconds: 700,
-      bestWorkoutId: "workout-b",
-    }),
+    seed([makeAttemptEntry({workoutId: "workout-b", rankingValue: 700})]),
     false
   );
 });
@@ -828,29 +1032,30 @@ test("seeds the flag on a routine attempt from its steps", () => {
   assert.ok(payload);
   assert.equal(payload.finalSteps, 1840);
 
+  const seed = (attempts: ReturnType<typeof makeAttemptEntry>[]) =>
+    liveReplayLeaderboardTestHooks.seedBestForUser(
+      payload,
+      "workout-a",
+      attempts
+    );
+
+  assert.equal(seed([]), true);
   assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {}),
+    seed([makeAttemptEntry({workoutId: "workout-b", rankingValue: 1700})]),
     true
   );
   assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
-      bestFinalSteps: 1700,
-      bestWorkoutId: "workout-b",
-    }),
+    seed([
+      makeAttemptEntry({
+        workoutId: "workout-a",
+        rankingValue: 1840,
+        isBestForUser: true,
+      }),
+    ]),
     true
   );
   assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
-      bestFinalSteps: 1840,
-      bestWorkoutId: "workout-a",
-    }),
-    true
-  );
-  assert.equal(
-    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
-      bestFinalSteps: 1900,
-      bestWorkoutId: "workout-b",
-    }),
+    seed([makeAttemptEntry({workoutId: "workout-b", rankingValue: 1900})]),
     false
   );
 });
@@ -1053,9 +1258,14 @@ test("reads published attempts from bucket-zero entry documents", () => {
     ),
     {
       workoutId: "workout-a",
+      raceValue: 738,
       rankingValue: 738,
+      finalSteps: 0,
+      completionDurationSeconds: 738,
+      splitIntervalSeconds: 10,
       splitBucketCount: 74,
       isBestForUser: true,
+      bestForGoals: [],
     }
   );
   // A routine attempt ranks on its steps, read from the same entry document.
@@ -1072,9 +1282,41 @@ test("reads published attempts from bucket-zero entry documents", () => {
     ),
     {
       workoutId: "workout-a",
+      raceValue: 1840,
       rankingValue: 1840,
+      finalSteps: 1840,
+      completionDurationSeconds: 1200,
+      splitIntervalSeconds: 10,
       splitBucketCount: 74,
       isBestForUser: false,
+      bestForGoals: [],
+    }
+  );
+  // A Just Climb attempt races on its steps while still ranking on its clock,
+  // and its goal keys come back sorted so they compare against a derived list.
+  assert.deepEqual(
+    liveReplayLeaderboardTestHooks.userAttemptEntry(
+      {
+        bestForGoals: ["steps:1700", "duration:300"],
+        completionDurationSeconds: 1201,
+        finalSteps: 1776,
+        splitBucketCount: 121,
+        splitIntervalSeconds: 10,
+        workoutId: "workout-a",
+      },
+      "workout-a",
+      "just_climb"
+    ),
+    {
+      workoutId: "workout-a",
+      raceValue: 1776,
+      rankingValue: 1201,
+      finalSteps: 1776,
+      completionDurationSeconds: 1201,
+      splitIntervalSeconds: 10,
+      splitBucketCount: 121,
+      isBestForUser: false,
+      bestForGoals: ["duration:300", "steps:1700"],
     }
   );
   assert.equal(
@@ -1107,18 +1349,32 @@ test("reads published attempts from bucket-zero entry documents", () => {
 function makeAttemptEntry(overrides: {
   workoutId: string;
   rankingValue: number;
+  /** The race value, where the board's race metric is not its ranking one. */
+  raceValue?: number;
   isBestForUser?: boolean;
+  bestForGoals?: string[];
 }): {
   workoutId: string;
+  raceValue: number;
   rankingValue: number;
+  finalSteps: number;
+  completionDurationSeconds: number;
+  splitIntervalSeconds: number;
   splitBucketCount: number;
   isBestForUser: boolean;
+  bestForGoals: string[];
 } {
+  const raceValue = overrides.raceValue ?? overrides.rankingValue;
   return {
     workoutId: overrides.workoutId,
+    raceValue,
     rankingValue: overrides.rankingValue,
+    finalSteps: raceValue,
+    completionDurationSeconds: overrides.rankingValue,
+    splitIntervalSeconds: 10,
     splitBucketCount: 4,
     isBestForUser: overrides.isBestForUser ?? false,
+    bestForGoals: overrides.bestForGoals ?? [],
   };
 }
 
@@ -1130,14 +1386,14 @@ function makeAttemptEntry(overrides: {
  */
 function applyFlagUpdates(
   attempts: ReturnType<typeof makeAttemptEntry>[],
-  updates: {workoutId: string; isBestForUser: boolean}[]
+  updates: {workoutId: string; isBestForUser?: boolean}[]
 ): ReturnType<typeof makeAttemptEntry>[] {
   return attempts.map((attempt) => {
     const update = updates.find(
       (candidate) => candidate.workoutId === attempt.workoutId
     );
 
-    return update ?
+    return update && update.isBestForUser !== undefined ?
       {...attempt, isBestForUser: update.isBestForUser} :
       attempt;
   });
@@ -1355,6 +1611,7 @@ test("stamps the guided window only on steps-ranked rows", () => {
     publicUser: makePublicUser(),
     stepsAtBucket: 120,
     isBestForUser: null,
+    bestForGoals: null,
     updatedAt: "now",
   });
   const climbEntry = liveReplayLeaderboardTestHooks.replayEntryWrite({
@@ -1364,6 +1621,7 @@ test("stamps the guided window only on steps-ranked rows", () => {
     publicUser: makePublicUser(),
     stepsAtBucket: 120,
     isBestForUser: null,
+    bestForGoals: null,
     updatedAt: "now",
   });
 

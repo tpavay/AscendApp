@@ -1,3 +1,4 @@
+import FirebaseAuth
 import Foundation
 import Observation
 import SwiftData
@@ -132,8 +133,8 @@ enum LiveClimbSessionMode: Equatable {
                 climbId: climb.id,
                 targetSteps: targetSteps
             )
-        case .justClimb:
-            return .justClimbGlobal(targetSteps: targetSteps)
+        case .justClimb(let goal):
+            return .justClimbGlobal(targetSteps: targetSteps, raceGoal: goal.raceGoal)
         }
     }
 
@@ -163,6 +164,15 @@ final class LiveClimbSessionViewModel {
     let motionSession: any HeadphoneMotionSessionServicing
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
     let liveActivitySessionID: String
+    /// The landmark cut-out the Just Me tab reveals as the climb progresses, once its image is
+    /// in hand. Nil for an open Just Climb, for a climb whose catalog entry has none, and - for a
+    /// climb that has one - while the image is still loading or after it failed to: the tab
+    /// shows its photo layout until then, so the climb is never blocked or blank, and switches
+    /// when the image arrives without touching the session.
+    private(set) var progressArtwork: LoadedClimbProgressArtwork?
+    /// The catalog's description of the cut-out still to be loaded, when there is one.
+    private let pendingProgressArtwork: ClimbProgressArtwork?
+    private let progressImageRepository: any ClimbProgressImageRepository
 
     private let climbService: ClimbService
     private let settingsManager: SettingsManager
@@ -171,6 +181,12 @@ final class LiveClimbSessionViewModel {
     private let backgroundSessionService: LiveClimbBackgroundSessionService
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let heartRateRecorder: LiveHeartRateRecorder
+    private let rawCaptureRepository: any StepAccuracyRawCaptureStorageRepositoryProtocol
+    /// Resolves the signed-in climber's uid for a step-accuracy raw capture upload. Injectable
+    /// the same way `now` is, so the upload path is testable without a live Firebase session;
+    /// production always takes the default.
+    private let currentUserId: () -> String?
+    private let featureFlags: RemoteFeatureFlagStore
     private let now: () -> Date
     /// Read once per session. `leaderboardRows` is rebuilt on every step and
     /// elapsed tick, so the climber's name cannot be resolved from the cache
@@ -191,6 +207,9 @@ final class LiveClimbSessionViewModel {
 
     private var hasSavedSession = false
     private var stepTimelineRecorder: LiveClimbStepTimelineRecorder
+    /// Trailing-window cadence behind the Just Me pace card's CURRENT number; `LiveClimbPaceWindow`
+    /// states the rules. Fed by the same samples as `stepTimelineRecorder` and reset with it.
+    private var paceWindow = LiveClimbPaceWindow()
     private var isLeaderboardRefreshInFlight = false
     /// Whether the leaderboard service has been told this session started. Done
     /// on the first window refresh rather than in `start`, so it is ordered
@@ -217,6 +236,10 @@ final class LiveClimbSessionViewModel {
     private var promptedStepSyncInterruptionCounts: Set<Int> = []
     private var skippedStepSyncInterruptionCounts: Set<Int> = []
     private let stepSyncPromptMinimumGapDuration: TimeInterval = 20
+    /// The in-flight step-accuracy raw capture upload, if the retention trigger fired. Held the
+    /// same way `leaderboardSummaryFetchTask` is - fire-and-forget for production, but an
+    /// awaitable handle for tests to settle on deterministically instead of polling.
+    @ObservationIgnored private(set) var rawCaptureUploadTask: Task<Void, Never>?
     private var activeDraft: ActiveHeadphoneWorkoutDraft?
     private var lastDraftCheckpointAt: Date?
     private let draftCheckpointInterval: TimeInterval = 2
@@ -225,6 +248,12 @@ final class LiveClimbSessionViewModel {
     /// checkpoints force it, bounding what an interruption can lose.
     private var lastHeartRateCheckpointAt: Date?
     private let heartRateCheckpointInterval: TimeInterval = 15
+    /// Captured once, when recording actually begins - the headphone that drove step detection
+    /// for a session with no mid-climb change. A save-time-only read would misattribute exactly
+    /// the climbs this pair exists to explain: one where headphones disconnected or switched
+    /// mid-climb, whose save-time read reports whatever was connected at the end.
+    private var headphoneRouteAtStart: HeadphoneAudioRouteSnapshot?
+    private var isMotionCapableHeadphoneConnectedAtStart: Bool?
 
     init(
         climb: Climb,
@@ -238,11 +267,19 @@ final class LiveClimbSessionViewModel {
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         heartRateMonitor: HeartRateMonitorService = .shared,
+        rawCaptureRepository: any StepAccuracyRawCaptureStorageRepositoryProtocol =
+            StepAccuracyRawCaptureStorageRepository.shared,
+        currentUserId: @escaping () -> String? = { Auth.auth().currentUser?.uid },
+        featureFlags: RemoteFeatureFlagStore = .shared,
         liveActivitySessionID: String = UUID().uuidString,
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
+        progressImageRepository: any ClimbProgressImageRepository = StorageClimbProgressImageRepository.shared,
         now: @escaping () -> Date = Date.init
     ) {
         self.mode = .liveClimb(climb)
+        self.progressArtwork = nil
+        self.pendingProgressArtwork = climb.progressArtwork.flatMap { $0.isUsable(forClimbID: climb.id) ? $0 : nil }
+        self.progressImageRepository = progressImageRepository
         self.analyticsEntryPoint = analyticsEntryPoint
         self.liveActivitySessionID = liveActivitySessionID
         self.motionSession = motionSession
@@ -254,6 +291,9 @@ final class LiveClimbSessionViewModel {
         self.draftStore = draftStore
         self.heartRateRecorder = heartRateRecorder
         self.heartRateMonitor = heartRateMonitor
+        self.rawCaptureRepository = rawCaptureRepository
+        self.currentUserId = currentUserId
+        self.featureFlags = featureFlags
         self.activeDraft = recoveredDraft
         self.now = now
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
@@ -275,11 +315,18 @@ final class LiveClimbSessionViewModel {
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         heartRateMonitor: HeartRateMonitorService = .shared,
+        rawCaptureRepository: any StepAccuracyRawCaptureStorageRepositoryProtocol =
+            StepAccuracyRawCaptureStorageRepository.shared,
+        currentUserId: @escaping () -> String? = { Auth.auth().currentUser?.uid },
+        featureFlags: RemoteFeatureFlagStore = .shared,
         liveActivitySessionID: String = UUID().uuidString,
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
         now: @escaping () -> Date = Date.init
     ) {
         self.mode = .justClimb(justClimbGoal)
+        self.progressArtwork = nil
+        self.pendingProgressArtwork = nil
+        self.progressImageRepository = StorageClimbProgressImageRepository.shared
         self.analyticsEntryPoint = analyticsEntryPoint
         self.liveActivitySessionID = liveActivitySessionID
         self.motionSession = motionSession
@@ -291,6 +338,9 @@ final class LiveClimbSessionViewModel {
         self.draftStore = draftStore
         self.heartRateRecorder = heartRateRecorder
         self.heartRateMonitor = heartRateMonitor
+        self.rawCaptureRepository = rawCaptureRepository
+        self.currentUserId = currentUserId
+        self.featureFlags = featureFlags
         self.activeDraft = recoveredDraft
         self.now = now
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
@@ -350,13 +400,45 @@ final class LiveClimbSessionViewModel {
         return (Double(targetStepCount) / Double(spm)) * 60
     }
 
-    var currentStepsPerMinute: Int {
-        guard displayedDuration > 0 else { return 0 }
-        return Int((Double(totalRecordedSteps) / (displayedDuration / 60)).rounded())
+    /// Steps per minute over the trailing `LiveClimbPaceWindow.defaultWindowSeconds`, or
+    /// `nil` until the window has run that long; the Just Me CURRENT value.
+    var currentStepsPerMinute: Int? {
+        paceWindow.currentStepsPerMinute(
+            elapsedSeconds: displayedDuration,
+            steps: totalRecordedSteps
+        )
+    }
+
+    /// Steps per minute over the whole climb so far, stated from the start; the Just Me
+    /// AVERAGE value.
+    var averageStepsPerMinute: Int {
+        LiveClimbPaceWindow.averageStepsPerMinute(
+            steps: totalRecordedSteps,
+            elapsedSeconds: displayedDuration
+        )
+    }
+
+    var currentPaceDisplay: String {
+        currentStepsPerMinute.map { $0.formatted() } ?? "—"
+    }
+
+    var averagePaceDisplay: String {
+        averageStepsPerMinute.formatted()
     }
 
     var elapsedClock: String {
-        let totalSeconds = max(Int(displayedDuration.rounded(.down)), 0)
+        Self.formattedClock(displayedDuration)
+    }
+
+    /// The duration-goal hero's denominator - the Just Climb goal formatted with the same
+    /// clock shape as `elapsedClock` so the two read as one fraction. `nil` for every other
+    /// mode, since only a duration goal has a duration to measure against.
+    var targetDurationClock: String? {
+        mode.targetDuration.map(Self.formattedClock)
+    }
+
+    private static func formattedClock(_ duration: TimeInterval) -> String {
+        let totalSeconds = max(Int(duration.rounded(.down)), 0)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60
@@ -415,7 +497,7 @@ final class LiveClimbSessionViewModel {
         )
     }
 
-    /// The same position as a fraction of the summit, for the Just Me rail.
+    /// The same position as a fraction of the summit, for the Just Me summit bar.
     var previousBestProgressFraction: Double? {
         guard let previousBestStepsAtBucket,
               previousBestStepsAtBucket > 0,
@@ -505,6 +587,15 @@ final class LiveClimbSessionViewModel {
         phase == .recording
     }
 
+    /// Loads the climb's cut-out from the climb-image cache, fetching it if it is not there yet.
+    /// A failure leaves the photo layout in place; the next call (the session view reappearing)
+    /// tries again.
+    func loadProgressArtworkIfNeeded() async {
+        guard progressArtwork == nil, let pendingProgressArtwork else { return }
+        guard let image = await progressImageRepository.image(for: pendingProgressArtwork) else { return }
+        progressArtwork = LoadedClimbProgressArtwork(artwork: pendingProgressArtwork, image: image)
+    }
+
     var isActivelyRecording: Bool {
         phase == .recording && motionSession.status.isRecording
     }
@@ -512,6 +603,15 @@ final class LiveClimbSessionViewModel {
     var shouldShowRankedCompletionSummary: Bool {
         guard case .saved(.completed) = phase else { return false }
         return true
+    }
+
+    /// Whether the post-climb step-accuracy calibration prompt has anything to offer. True for
+    /// any saved session, completed or incomplete/saved-progress alike, whose recorded step count
+    /// clears `StepAccuracyCalibrationOfferPolicy.minimumRecordedSteps` - a trivially short save
+    /// is noise, not a discrepancy worth reporting.
+    var shouldOfferStepAccuracyCalibration: Bool {
+        guard let savedWorkout else { return false }
+        return StepAccuracyCalibrationOfferPolicy.shouldOffer(recordedSteps: savedWorkout.steps)
     }
 
     var durationGoalReached: Bool {
@@ -562,6 +662,7 @@ final class LiveClimbSessionViewModel {
 
         do {
             stepTimelineRecorder.reset()
+            paceWindow.reset()
             if let splitCurve = activeDraft?.splitCurve {
                 stepTimelineRecorder.restore(curve: splitCurve)
             }
@@ -575,6 +676,7 @@ final class LiveClimbSessionViewModel {
                     cumulativeSteps: 0,
                     source: .headphoneMotion
                 )
+                paceWindow.record(elapsedSeconds: 0, steps: 0)
             }
 
             let draft = try prepareDraftIfNeeded(modelContext: modelContext)
@@ -584,6 +686,9 @@ final class LiveClimbSessionViewModel {
             )
             backgroundSessionService.start(at: draft?.startedAt ?? Date())
             phase = .recording
+            headphoneRouteAtStart = HeadphoneAudioRouteInspector.currentSnapshot()
+            HeadphoneMotionReadinessService.shared.refresh()
+            isMotionCapableHeadphoneConnectedAtStart = HeadphoneMotionReadinessService.shared.readiness.canStartLiveClimb
             AppDiagnosticsRecorder.shared.record(
                 "headphone_session_recording_started",
                 details: draft?.diagnosticDetails ?? [
@@ -799,6 +904,9 @@ final class LiveClimbSessionViewModel {
         }
 
         _ = stepTimelineRecorder.recordCorrection(correction)
+        // The corrected count is a new baseline: a pace read across it would measure the
+        // correction, not the climber.
+        paceWindow.reset()
         stepSyncPrompt = nil
         stepSyncConfirmation = LiveStepSyncConfirmation(correctedSteps: correction.correctedSteps)
 
@@ -819,6 +927,154 @@ final class LiveClimbSessionViewModel {
         stepSyncConfirmation = nil
     }
 
+    /// Records what the climber's stair-stepper machine displayed against the already-saved
+    /// workout, for step-counting algorithm analysis only. Never rewrites `Workout.steps` - the
+    /// climb's recorded result stays exactly as tracked.
+    func submitStepAccuracyCalibration(machineReportedSteps: Int, modelContext: ModelContext) {
+        guard let workout = savedWorkout, machineReportedSteps > 0 else { return }
+
+        let appSteps = workout.steps
+        guard var metadata = HeadphoneMotionWorkoutMetadata.decode(from: workout.sourceMetadata) else {
+            AppDiagnosticsRecorder.shared.record(
+                "step_accuracy_calibration_skipped",
+                level: .warning,
+                details: [
+                    "session_id": liveActivitySessionID,
+                    "reason": "source_metadata_undecodable"
+                ]
+            )
+            return
+        }
+        metadata.applyMachineStepCalibration(machineReportedSteps: machineReportedSteps, appSteps: appSteps)
+
+        guard let jsonString = metadata.jsonString else {
+            AppDiagnosticsRecorder.shared.record(
+                "step_accuracy_calibration_skipped",
+                level: .warning,
+                details: [
+                    "session_id": liveActivitySessionID,
+                    "reason": "source_metadata_unencodable"
+                ]
+            )
+            return
+        }
+
+        let leaderboardSnapshotBeforeEdit = LeaderboardWorkoutSnapshot(workout: workout)
+        workout.sourceMetadata = jsonString
+
+        do {
+            try modelContext.save()
+            try WorkoutMutationHandler.shared.workoutsDidChange(
+                modelContext: modelContext,
+                mutation: .updated(
+                    before: leaderboardSnapshotBeforeEdit,
+                    after: LeaderboardWorkoutSnapshot(workout: workout)
+                ),
+                changedWorkouts: [workout]
+            )
+        } catch {
+            AppDiagnosticsRecorder.shared.record(
+                "step_accuracy_calibration_save_failed",
+                level: .error,
+                details: [
+                    "session_id": liveActivitySessionID,
+                    "error": error.localizedDescription
+                ]
+            )
+            return
+        }
+
+        let discrepancyAbs = metadata.stepDiscrepancyAbs ?? abs(appSteps - machineReportedSteps)
+        TelemetryManager.shared.track(
+            WorkoutStepAccuracyAnalyticsEvent.calibrationSubmitted(
+                appSteps: appSteps,
+                machineSteps: machineReportedSteps,
+                discrepancyAbs: discrepancyAbs,
+                discrepancyPercent: metadata.stepDiscrepancyPercent ?? 0
+            )
+        )
+
+        uploadRawCaptureIfWarranted(
+            workout: workout,
+            metadata: metadata,
+            appSteps: appSteps,
+            machineReportedSteps: machineReportedSteps,
+            discrepancyAbs: discrepancyAbs
+        )
+    }
+
+    /// Applies the retention trigger and, only when every gate clears, uploads the climb's
+    /// buffered raw motion capture for algorithm debugging. Every other outcome - no calibration,
+    /// too small a discrepancy, a headphone dropout during the climb, or
+    /// `RemoteFeatureFlag.stepAccuracyRawCaptureUpload` switched off - simply never uploads the
+    /// buffer, which is the entirety of "discard" here: nothing was ever persisted to begin with.
+    private func uploadRawCaptureIfWarranted(
+        workout: Workout,
+        metadata: HeadphoneMotionWorkoutMetadata,
+        appSteps: Int,
+        machineReportedSteps: Int,
+        discrepancyAbs: Int
+    ) {
+        guard StepAccuracyRawCaptureRetentionPolicy.shouldRetain(
+            machineReportedSteps: machineReportedSteps,
+            discrepancyAbs: discrepancyAbs,
+            wasHeadphoneConnectedThroughoutClimb: metadata.wasHeadphoneConnectedThroughoutClimb
+        ), let recordedResult, let rawCapture = recordedResult.rawCapture,
+           let userId = workout.ownerUserId ?? currentUserId(),
+           RemoteFeatureGate.allows(
+               .stepAccuracyRawCaptureUpload,
+               path: "LiveClimbSessionViewModel.uploadRawCaptureIfWarranted",
+               store: featureFlags
+           ) else {
+            return
+        }
+
+        let blob = StepAccuracyRawCaptureBlob(
+            workoutId: WorkoutDocumentID.canonicalString(for: workout.id),
+            metadata: metadata,
+            appSteps: appSteps,
+            machineReportedSteps: machineReportedSteps,
+            stepDiscrepancyAbs: discrepancyAbs,
+            stepCorrections: recordedResult.stepCorrections,
+            rawCapture: rawCapture
+        )
+        let sessionID = liveActivitySessionID
+        let repository = rawCaptureRepository
+        let workoutId = workout.id
+        let sampleCount = rawCapture.samples.count
+
+        rawCaptureUploadTask = Task {
+            defer { self.rawCaptureUploadTask = nil }
+            do {
+                try await repository.uploadRawCapture(userId: userId, workoutId: workoutId, blob: blob)
+                AppDiagnosticsRecorder.shared.record(
+                    "step_accuracy_raw_capture_uploaded",
+                    details: [
+                        "session_id": sessionID,
+                        "sample_count": String(sampleCount),
+                        "discrepancy_abs": String(discrepancyAbs)
+                    ]
+                )
+            } catch {
+                AppDiagnosticsRecorder.shared.record(
+                    "step_accuracy_raw_capture_upload_failed",
+                    level: .error,
+                    details: [
+                        "session_id": sessionID,
+                        "error": error.localizedDescription
+                    ]
+                )
+            }
+        }
+    }
+
+    /// Skipping calibration also means the climb's buffered raw motion capture is discarded: the
+    /// upload trigger in `uploadRawCaptureIfWarranted` requires an entered machine count, which
+    /// this path never produces.
+    func skipStepAccuracyCalibration() {
+        TelemetryManager.shared.track(WorkoutStepAccuracyAnalyticsEvent.calibrationSkipped)
+    }
+
     func recordLiveSplitSample(modelContext: ModelContext? = nil) {
         guard phase == .recording,
               motionSession.status.isRecording else { return }
@@ -828,6 +1084,7 @@ final class LiveClimbSessionViewModel {
             cumulativeSteps: motionSession.stepCount,
             source: .headphoneMotion
         )
+        paceWindow.record(elapsedSeconds: motionSession.duration, steps: totalRecordedSteps)
         recordHeartRateSampleForSessionTick()
         if let modelContext {
             checkpointDraft(modelContext: modelContext)
@@ -907,6 +1164,7 @@ final class LiveClimbSessionViewModel {
               motionSession.status.isRecording else { return }
 
         _ = stepTimelineRecorder.record(sample)
+        paceWindow.record(elapsedSeconds: motionSession.duration, steps: totalRecordedSteps)
         Task { [weak self] in
             await self?.updateLiveActivity()
         }
@@ -1216,6 +1474,10 @@ final class LiveClimbSessionViewModel {
         }
 
         let floors = Workout.stepsToFloors(result.steps)
+        let headphoneRouteAtSave = HeadphoneAudioRouteInspector.currentSnapshot()
+        HeadphoneMotionReadinessService.shared.refresh()
+        let isMotionCapableHeadphoneConnectedAtSave = HeadphoneMotionReadinessService.shared.readiness.canStartLiveClimb
+        let didHeadphoneMotionDataFlow = result.sampleCount > 0
         let metadata = HeadphoneMotionWorkoutMetadata(
             sampleCount: result.sampleCount,
             trackingMode: mode.trackingMode,
@@ -1231,7 +1493,12 @@ final class LiveClimbSessionViewModel {
                 samples: heartRateRecorder.samples,
                 sessionStartedAt: result.startedAt,
                 sessionDuration: result.duration
-            )
+            ),
+            headphoneRouteAtStart: headphoneRouteAtStart,
+            headphoneRouteAtSave: headphoneRouteAtSave,
+            isMotionCapableHeadphoneConnectedAtStart: isMotionCapableHeadphoneConnectedAtStart,
+            isMotionCapableHeadphoneConnectedAtSave: isMotionCapableHeadphoneConnectedAtSave,
+            didHeadphoneMotionDataFlow: didHeadphoneMotionDataFlow
         )
 
         let heartRateSummary = heartRateWorkoutSummary
@@ -1268,6 +1535,21 @@ final class LiveClimbSessionViewModel {
         AppleHealthEnrichmentService.shared.trackNewlyRecordedWorkout(
             workout,
             modelContext: modelContext
+        )
+
+        TelemetryManager.shared.track(
+            WorkoutStepAccuracyAnalyticsEvent.recorded(
+                headphoneFamilyAtStart: headphoneRouteAtStart?.family ?? .none,
+                isHeadphoneClassOutputConnectedAtStart: headphoneRouteAtStart?.isHeadphoneClassOutputConnected ?? false,
+                isMotionCapableHeadphoneConnectedAtStart: isMotionCapableHeadphoneConnectedAtStart ?? false,
+                headphoneFamilyAtSave: headphoneRouteAtSave.family,
+                isHeadphoneClassOutputConnectedAtSave: headphoneRouteAtSave.isHeadphoneClassOutputConnected,
+                isMotionCapableHeadphoneConnectedAtSave: isMotionCapableHeadphoneConnectedAtSave,
+                didHeadphoneChangeDuringClimb: metadata.didHeadphoneChangeDuringClimb ?? false,
+                didHeadphoneMotionDataFlow: didHeadphoneMotionDataFlow,
+                steps: result.steps,
+                trackingMode: mode.trackingMode
+            )
         )
 
         // Just Climb sessions have no attempt to rank - saving one is the finish.

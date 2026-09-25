@@ -23,6 +23,7 @@ on:
       - "web/**"
       - "package.json"
       - "package-lock.json"
+      - "audit-ci.json"
       - "Gemfile"
       - "Gemfile.lock"
       - ".ruby-version"
@@ -78,8 +79,8 @@ jobs:
               - "AscendAppTests/**"
               - "AscendLiveActivityWidgets/**"
               # The retained watch target remains a build dependency for the
-              # 1.1 release, so a watch-only change is still an iOS change even
-              # though the 1.0 phone app does not embed its product.
+              # 1.2 release, so a watch-only change is still an iOS change even
+              # though no phone app before 1.2 embeds its product.
               - "AscendWatch/**"
               - "AscendWatchShared/**"
               - "AscendApp.xcodeproj/**"
@@ -163,6 +164,11 @@ jobs:
               # that goes back to picking a wildcard match hands every
               # downstream verification a stale build.
               - "fastlane/**"
+              # The audit-ci allowlist contract test reads every project's
+              # audit-ci.json directly (functions/** and scripts/** already
+              # cover their own), so an edit to either of these must run it.
+              - "audit-ci.json"
+              - "web/audit-ci.json"
               - ".github/workflows/**"
             web:
               - "web/**"
@@ -170,6 +176,7 @@ jobs:
             root_npm:
               - "package.json"
               - "package-lock.json"
+              - "audit-ci.json"
               - ".github/workflows/**"
             firebase:
               - "firestore.rules"
@@ -255,8 +262,31 @@ jobs:
 
       # Audits run last so a newly published advisory fails the job without
       # hiding the lint and test results that prove the code itself.
+      # audit-ci (not bare npm audit) so an advisory disclosed after the
+      # lockfile last landed can be reviewably allowlisted with an expiry
+      # date, rather than failing every unrelated PR until the dependency is
+      # patched: docs/dependency-security.md.
       - name: Audit dependencies
-        run: npm --prefix functions audit --audit-level=low
+        run: npx -y audit-ci@7.1.0 --config functions/audit-ci.json --directory functions
+
+  # Dependency-free like swiftdata-schema-verify below: it runs the runner
+  # image's own shellcheck binary against every tracked shell script in the
+  # repo, not just the ones under scripts/**, so a script added anywhere else
+  # is covered without a workflow edit. Gated on the scripts filter, which
+  # already matches every path a *.sh file lives under today.
+  shellcheck-verify:
+    name: Shell Script Lint
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint tracked shell scripts
+        run: git ls-files -z -- "*.sh" | xargs -0 -r shellcheck
 
   scripts-verify:
     name: Scripts Verify
@@ -293,8 +323,9 @@ jobs:
 
       # Audits run last so a newly published advisory fails the job without
       # hiding the test results that prove the code itself.
+      # audit-ci (not bare npm audit): docs/dependency-security.md.
       - name: Audit dependencies
-        run: npm --prefix scripts audit --package-lock-only --audit-level=low
+        run: npx -y audit-ci@7.1.0 --config scripts/audit-ci.json --directory scripts
 
   # Its own job, deliberately dependency-free. The check imports nothing but Node
   # builtins and local .mjs files, so it installs nothing and audits nothing: a
@@ -370,8 +401,9 @@ jobs:
       - name: Build website
         run: npm --prefix web run build
 
+      # audit-ci (not bare npm audit): docs/dependency-security.md.
       - name: Audit dependencies
-        run: npm --prefix web audit --audit-level=low
+        run: npx -y audit-ci@7.1.0 --config web/audit-ci.json --directory web
 
   root-npm-verify:
     name: Root npm Audit
@@ -389,8 +421,9 @@ jobs:
         with:
           node-version: "24"
 
+      # audit-ci (not bare npm audit): docs/dependency-security.md.
       - name: Audit dependencies
-        run: npm audit --package-lock-only --audit-level=low
+        run: npx -y audit-ci@7.1.0 --config audit-ci.json --directory .
 
   firebase-verify:
     name: Firebase Verify
@@ -468,7 +501,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.ios == 'true'
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -682,10 +715,19 @@ jobs:
       # runner is. The script's silence watchdog normally fires long before
       # either (five minutes in which no test starts or finishes while the
       # host is alive); this is the backstop.
+      #
+      # The cap bounds a hung script, not a slow runner, so it sits well above
+      # what a healthy run takes. Green runs spent 23-31 minutes in this step
+      # between 2026-09-11 and 2026-09-23, and run 35853374398 was killed at
+      # 34 with pass 2 five suites from the end: that runner compiled 18 minutes
+      # against the 14 of the green run an hour earlier and ran the untouched
+      # movie-export pass 2.5x slower, so the old 34 turned runner speed into a
+      # red check. The silence watchdog and the per-test allowance are what
+      # name a real hang, long before this fires.
       - name: Run tests
         id: tests
         shell: bash
-        timeout-minutes: 34
+        timeout-minutes: 48
         run: ./scripts/ci/run-ios-test-passes.sh "${{ steps.simulator.outputs.id }}"
 
       # A step killed by the job-level timeout-minutes reports `cancelled`,
@@ -817,8 +859,8 @@ jobs:
       # not reliably accept a string-typed `false`, which is why the type is
       # asserted alongside the value.
       #
-      # The 1.0 product has one shipped application bundle. The retained watch
-      # target is built for 1.1 but is not embedded in this phone app.
+      # Every release before 1.2 has one shipped application bundle. The retained
+      # watch target is built for 1.2 but is not embedded in this phone app.
       - name: Verify Release bundle export compliance
         shell: bash
         env:

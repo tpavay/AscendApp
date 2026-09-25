@@ -8,127 +8,172 @@
 import SwiftUI
 import SwiftData
 
+/// Home is the globe.
+///
+/// The realistic globe fills the band above the collapsed sheet and opens fully
+/// zoomed out, the whole globe and every pin on its near side in view. Over it sits
+/// a sheet with three positions, collapsed by default to the This Week line; pulled
+/// up it carries the Today's Climb row, ON THE GLOBE TODAY, the Weekly Rank and
+/// Streak tiles, Recent Personal Records, and then the catalog browse sections with
+/// search. A tapped marker shows a card that opens Climb Detail.
+///
+/// Only the active tab is mounted, so the map renderer runs on Home alone, and every
+/// `.task` here is bounded: the today feed is one listener on one document, the card
+/// counts are one catalog-sized read that a card open repeats only once a minute,
+/// the elapsed-text clock ticks once a minute, and the catalog and dashboard
+/// refreshes are the bounded queries the previous Home already ran over the
+/// `@Query` array this view already holds.
 struct HomeView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
+    @Environment(ModerationStore.self) private var moderationStore
     // Passed directly rather than read from the environment: HomeView updates
     // during the onboarding -> main-app crossfade while briefly detached from
     // its environment, and a non-optional @Environment(TabRouter.self) read
     // fatal-errors there (ASCEND-IOS-13). MainTabView owns the router and
     // constructs this view, so direct injection is also the simpler shape.
     private let tabRouter: TabRouter
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.tabBarOverlayHeight) private var tabBarOverlayHeight
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
-    @State private var enrichmentService = AppleHealthEnrichmentService.shared
+    @State private var enrichmentService: AppleHealthEnrichmentService
     private let homeDashboard: HomeDashboardViewModel
+    @State private var todayActivity: HomeTodayActivityViewModel
+    @State private var globeViewModel: GlobeViewModel
     @State private var showingStartActionSheet = false
-    @State private var showingClimbBrowse = false
+    @State private var showingHelpSheet = false
     @State private var showingJustClimbSetup = false
     @State private var pendingStartAction: HomeStartAction?
-    @State private var selectedHomeClimb: Climb?
+    @State private var pendingJustClimbGoal: JustClimbGoal?
+    @State private var selectedDetailClimb: Climb?
+    @State private var selectedDetailEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     @State private var activeJustClimbGoal: JustClimbGoal?
-    @State private var globeViewModel = GlobeViewModel()
+    @State private var showingTodayActivityList = false
+    @State private var sheetDetent: BrowseSheetDetent
+    @State private var selectedStepTier: ClimbTier?
+    @State private var isSearchMode = false
+    @State private var searchFocusTask: Task<Void, Never>?
+    @State private var hasPreparedHomeEntry = false
+    @State private var todayPresentations: [String: HomeTodayActivityRowPresentation] = [:]
+    @State private var personalizedClimbSPM = SettingsManager.shared.effectiveBaseLevelSPM
+    @FocusState private var isSearchFocused: Bool
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
 
+    private let titleResolver = HomeTodayActivityTitleResolver()
+
+    /// `initialSheetDetent` is `.compact` in the app: Home opens collapsed to the This
+    /// Week line. The evidence suite hosts the other two positions directly, and hands
+    /// in a globe view model and an enrichment service built on stubs so a hosted Home
+    /// reads no board and points no process-wide writer at a throwaway store.
     init(
         homeDashboard: HomeDashboardViewModel = HomeDashboardViewModel(),
-        tabRouter: TabRouter
+        tabRouter: TabRouter,
+        todayActivity: HomeTodayActivityViewModel = HomeTodayActivityViewModel(),
+        globeViewModel: GlobeViewModel = GlobeViewModel(),
+        enrichmentService: AppleHealthEnrichmentService = .shared,
+        initialSheetDetent: BrowseSheetDetent = .compact
     ) {
         self.homeDashboard = homeDashboard
         self.tabRouter = tabRouter
-    }
-
-    private var greeting: String {
-        // If first launch date not set, this is the first launch
-        if firstLaunchDate == 0 {
-            return "Welcome"
-        }
-
-        let firstDate = Date(timeIntervalSince1970: firstLaunchDate)
-        let isFirstDay = Calendar.current.isDate(firstDate, inSameDayAs: Date())
-
-        if isFirstDay {
-            return "Welcome"
-        }
-
-        // Time-based greeting
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 5..<12:
-            return "Good Morning"
-        case 12..<17:
-            return "Good Afternoon"
-        default:
-            return "Good Evening"
-        }
-    }
-
-    private var greetingWithName: String {
-        if authVM.displayName.isEmpty {
-            return greeting
-        }
-        // Use just the first name (first part before space)
-        let firstName = authVM.displayName.split(separator: " ").first.map(String.init) ?? authVM.displayName
-        return "\(greeting), \(firstName)"
+        _todayActivity = State(initialValue: todayActivity)
+        _globeViewModel = State(initialValue: globeViewModel)
+        _enrichmentService = State(initialValue: enrichmentService)
+        _sheetDetent = State(initialValue: initialSheetDetent)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                AscendWordmark(
-                    size: 16,
-                    letterColor: colorScheme == .dark ? .white : .black
+        GeometryReader { safeAreaGeometry in
+            let safeAreaInsets = safeAreaGeometry.safeAreaInsets
+            // The tab bar is not in the safe area the tab content sees, so the sheet
+            // measures its resting heights from the bar's top, not the home indicator.
+            let bottomInset = safeAreaInsets.bottom + tabBarOverlayHeight
+
+            GeometryReader { geometry in
+                let topCoverageInset = max(0, geometry.frame(in: .global).minY)
+                let sheetVisibleHeight = sheetDetent.height(
+                    containerHeight: geometry.size.height,
+                    topCoverageInset: topCoverageInset,
+                    topInset: safeAreaInsets.top,
+                    bottomInset: bottomInset
+                )
+                let collapsedSheetHeight = BrowseSheetDetent.compact.height(
+                    containerHeight: geometry.size.height,
+                    topCoverageInset: topCoverageInset,
+                    topInset: safeAreaInsets.top,
+                    bottomInset: bottomInset
                 )
 
-                Spacer()
-
-                startHeaderButton
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
-
-            ScrollView {
-                LazyVStack(spacing: 20) {
-                    TodayHomeSectionView(
-                        viewModel: globeViewModel,
-                        onOpenClimb: { climb in
-                            TelemetryManager.shared.track(
-                                LiveClimbAnalyticsEvent.homeDailyTapped(
-                                    climb: climb,
-                                    homeState: globeViewModel.homeCardState
-                                )
-                            )
-                            selectedHomeClimb = climb
-                        }
-                    )
-
-                    HomeRankGlobeSection(
-                        weeklyRankSummary: homeDashboard.weeklyRankSummary,
-                        isRankLoading: homeDashboard.isRankLoading,
-                        completedClimbCount: homeDashboard.completedClimbCount,
-                        totalClimbCount: globeViewModel.climbCount,
-                        onRankTapped: { tabRouter.select(.leaderboard, reason: .homeRankCard) },
-                        onGlobeTapped: { presentClimbBrowse() }
-                    )
-
-                    if !homeDashboard.recentPersonalRecords.isEmpty {
-                        HomeRecentPRsSection(
-                            records: homeDashboard.recentPersonalRecords,
-                            workouts: workouts
+                ZStack {
+                    // The map is the band above the collapsed sheet, not the whole
+                    // screen. MapKit draws the globe at a fixed fraction of the map
+                    // view's height (about 0.58 at its farthest camera, where it
+                    // clamps), so a full-screen map can only ever show a globe wider
+                    // than the phone with its sides cut off. Ending the map at the
+                    // collapsed sheet puts the whole globe on screen at the width of
+                    // the phone and keeps MapKit's attribution above the sheet; the
+                    // sheet's other positions and an open card cover everything the
+                    // full-screen map used to reach below that line.
+                    //
+                    // The vignette and the catalog state card are in the same band, so
+                    // the three share one bottom edge by construction. Padded on its
+                    // own, inside the safe area, the vignette ended one bottom inset
+                    // short of a map that was padded and then extended into it, and
+                    // zoomed in that left a 34pt strip of bright map under the
+                    // gradient's darkest stop: a hard line across the bottom of the
+                    // globe, just above the fold.
+                    ZStack {
+                        GlobeView(
+                            viewModel: globeViewModel,
+                            onSelectClimb: { climb in
+                                selectGlobePin(climb)
+                            }
                         )
+                        .offset(y: globeVerticalOffset(sheetHeight: sheetVisibleHeight))
+
+                        GlobeEdgeOverlays()
+
+                        if globeViewModel.visibleClimbs.isEmpty {
+                            ClimbCatalogStateOverlay(loadErrorMessage: globeViewModel.loadErrorMessage)
+                        }
+                    }
+                    .padding(.bottom, collapsedSheetHeight)
+                    .ignoresSafeArea()
+
+                    topChrome(topInset: safeAreaInsets.top)
+
+                    previewCardArea(sheetHeight: sheetVisibleHeight)
+                        .zIndex(2)
+
+                    if !isSearchMode {
+                        homeDrawer(
+                            containerHeight: geometry.size.height,
+                            topCoverageInset: topCoverageInset,
+                            topInset: safeAreaInsets.top,
+                            bottomInset: bottomInset
+                        )
+                        .zIndex(3)
+                    }
+
+                    if isSearchMode {
+                        searchOverlay(
+                            topInset: safeAreaInsets.top,
+                            bottomInset: bottomInset
+                        )
+                        .zIndex(4)
+                        .transition(.opacity)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 124)
+                .ignoresSafeArea()
+                .ignoresSafeArea(.keyboard)
             }
-            .scrollIndicators(.hidden)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .safeAreaPadding(.top, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .themedBackground()
-        .navigationDestination(item: $selectedHomeClimb) { climb in
-            ClimbDetailView(climb: climb, analyticsEntryPoint: .homeDaily)
+        .background(Color.black.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(item: $selectedDetailClimb) { climb in
+            ClimbDetailView(
+                climb: climb,
+                analyticsEntryPoint: selectedDetailEntryPoint,
+                effectiveSPM: personalizedClimbSPM
+            )
         }
         .navigationDestination(item: $activeJustClimbGoal) { goal in
             LiveClimbSessionView(
@@ -136,8 +181,14 @@ struct HomeView: View {
                 analyticsEntryPoint: .homeDaily
             )
         }
-        .navigationDestination(isPresented: $showingClimbBrowse) {
-            ClimbBrowseView(viewModel: globeViewModel, analyticsEntryPoint: .homeExplore)
+        .navigationDestination(isPresented: $showingTodayActivityList) {
+            HomeTodayActivityListView(
+                rows: moderatedTodayRows(allRows: true),
+                presentations: todayPresentations,
+                onOpen: { row, presentation in
+                    openTodayRow(row, presentation: presentation)
+                }
+            )
         }
         .sheet(isPresented: $showingStartActionSheet, onDismiss: {
             consumePendingStartAction()
@@ -148,13 +199,19 @@ struct HomeView: View {
             }
             .appSheetStyle(.fitted())
         }
-        .sheet(isPresented: $showingJustClimbSetup) {
-            JustClimbSetupSheet { goal in
+        .sheet(isPresented: $showingJustClimbSetup, onDismiss: {
+            pendingJustClimbGoal = nil
+        }) {
+            JustClimbSetupSheet(initialGoal: pendingJustClimbGoal) { goal in
                 activeJustClimbGoal = goal
             }
             .presentationDetents([.height(360), .medium])
             .presentationDragIndicator(.visible)
             .presentationBackground(Color.black)
+        }
+        .sheet(isPresented: $showingHelpSheet) {
+            ClimbBrowseHelpSheet()
+                .appSheetStyle(.fraction(0.8))
         }
         .task {
             // Set first launch date if not already set
@@ -164,13 +221,46 @@ struct HomeView: View {
 
             enrichmentService.configure(modelContext: modelContext)
             globeViewModel.loadIfNeeded(modelContext: modelContext)
+            personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: workouts)
+            prepareHomeEntryIfNeeded()
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshCompletedClimberCounts()
 
             // Apple Health writes a climb's heart rate after the climb ends, so every Home entry
             // is another chance for a recent climb to pick up what was not there yet.
             await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
+        }
+        .task(id: authVM.user?.uid) {
+            // One listener on one document, for as long as Home is mounted and this
+            // climber is signed in. Cancelled with the tab, which removes the listener.
+            await todayActivity.observe(currentUserId: authVM.user?.uid)
+        }
+        .task(id: globeViewModel.previewSummary?.climb.id) {
+            // The card shows the count already in hand; the boards are re-read only
+            // when that answer is older than the staleness window.
+            guard globeViewModel.previewSummary != nil else { return }
+            await globeViewModel.refreshCompletedClimberCountsIfStale()
+        }
+        .task {
+            // One tick a minute while Home is mounted, cancelled with the view, so
+            // "4 min ago" stays honest and a row that ages past the day leaves.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                todayActivity.tick()
+                refreshTodayPresentations()
+            }
+        }
+        .onChange(of: todayActivity.feed) { _, _ in
+            refreshTodayPresentations()
+        }
+        .onChange(of: workouts) { _, newValue in
+            // The query lands after the save notification, so a climb added or
+            // removed reaches the week line and the streak from the array itself.
+            homeDashboard.refreshLocalData(modelContext: modelContext, workouts: newValue)
+            personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: newValue)
         }
         .onChange(of: tabRouter.selectedTab) { _, newValue in
             guard newValue == .home else { return }
@@ -192,6 +282,8 @@ struct HomeView: View {
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshCompletedClimberCounts()
+            refreshTodayPresentations()
             Task {
                 await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
             }
@@ -201,42 +293,356 @@ struct HomeView: View {
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshCompletedClimberCounts()
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             globeViewModel.reloadCatalog(modelContext: modelContext)
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshTodayPresentations()
+        }
+        .onDisappear {
+            searchFocusTask?.cancel()
         }
     }
 
-    private var startHeaderButton: some View {
-        Button {
-            showingStartActionSheet = true
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.black)
-                .frame(width: 44, height: 44)
-            .background(
-                Circle()
-                    .fill(Color.accent)
-            )
-            .contentShape(Circle())
+    // MARK: - Layout
+
+    private func globeVerticalOffset(sheetHeight: CGFloat) -> CGFloat {
+        switch sheetDetent {
+        case .compact:
+            return 0
+        case .medium, .expanded:
+            return -min(max(sheetHeight * 0.25, 64), 96)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Start")
-        .accessibilityHint("Open climb actions")
     }
 
-    private func presentClimbBrowse() {
+    private func topChrome(topInset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
+                    AscendWordmark(size: 16, letterColor: .white)
+                        .padding(.top, 12)
+
+                    if !globeViewModel.mapScene.legendTiers.isEmpty {
+                        ClimbStepRangeLegendView(tiers: globeViewModel.mapScene.legendTiers)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 10) {
+                    GlobeControlButton(
+                        systemName: "questionmark",
+                        accessibilityLabel: "How Live Climbs work"
+                    ) {
+                        TelemetryManager.shared.track(LiveClimbAnalyticsEvent.browseHelpOpened)
+                        showingHelpSheet = true
+                    }
+                    .accessibilityHint("Open help for climb tiers, map icons, and progress rules")
+
+                    GlobeControlButton(
+                        systemName: "plus",
+                        accessibilityLabel: "Start",
+                        fill: Color.accent,
+                        foreground: .black
+                    ) {
+                        showingStartActionSheet = true
+                    }
+                    .accessibilityHint("Open climb actions")
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, topInset + 10)
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Sheet
+
+    private func homeDrawer(
+        containerHeight: CGFloat,
+        topCoverageInset: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat
+    ) -> some View {
+        ClimbBrowseDrawer(
+            detent: $sheetDetent,
+            containerHeight: containerHeight,
+            topCoverageInset: topCoverageInset,
+            topInset: topInset,
+            bottomInset: bottomInset,
+            dragDetents: [.compact, .medium, .expanded],
+            accessibilityLabel: "Home sheet",
+            accessibilityHint: "Drag to see this week, today's climbs and every climb on the globe",
+            setDetent: { detent in
+                setSheetDetent(detent)
+            }
+        ) {
+            sheetContent(bottomInset: bottomInset)
+        }
+    }
+
+    private func sheetContent(bottomInset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            // Collapsed, the line sits centred between the grabber and the fold; pulled
+            // up, Today's Climb follows it at the same step as every other gap in the
+            // sheet, with the row's top edge landing 2pt under the collapsed fold so
+            // nothing peeks until the sheet is pulled up.
+            HomeThisWeekLine(summary: homeDashboard.weekSummary)
+                .padding(.top, 8)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    Color.clear
+                        .frame(height: 2)
+
+                    if let todayClimb = globeViewModel.dailyRecommendedClimb {
+                        HomeTodayClimbRow(
+                            climb: todayClimb,
+                            stakeLine: globeViewModel.todayClimbStakeLine,
+                            isCompleted: globeViewModel.isCompleted(todayClimb)
+                        ) {
+                            openTodayClimb(todayClimb)
+                        }
+                    }
+
+                    HomeTodayActivitySection(
+                        rows: moderatedTodayRows(allRows: false),
+                        presentations: todayPresentations,
+                        hasReceivedFeed: todayActivity.hasReceivedFeed,
+                        showsSeeAll: todayActivity.showsSeeAll,
+                        onOpen: { row, presentation in
+                            openTodayRow(row, presentation: presentation)
+                        },
+                        onSeeAll: {
+                            showingTodayActivityList = true
+                        }
+                    )
+
+                    HomeRankStreakSection(
+                        weeklyRankSummary: homeDashboard.weeklyRankSummary,
+                        isRankLoading: homeDashboard.isRankLoading,
+                        currentStreakWeeks: homeDashboard.currentStreakWeeks,
+                        onRankTapped: { tabRouter.select(.leaderboard, reason: .homeRankCard) },
+                        onStreakTapped: { tabRouter.select(.profile, reason: .appRouting) }
+                    )
+
+                    if !homeDashboard.recentPersonalRecords.isEmpty {
+                        HomeRecentPRsSection(
+                            records: homeDashboard.recentPersonalRecords,
+                            workouts: workouts
+                        )
+                    }
+
+                    browseContent
+                }
+                .padding(.bottom, bottomInset + 22)
+            }
+            .scrollDisabled(sheetDetent != .expanded)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// The catalog, as Browse lists it, at the end of the sheet. Search lives here
+    /// too, in the expanded position.
+    private var browseContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if sheetDetent == .expanded {
+                // Exists only while the sheet is expanded, so each expansion reports
+                // itself once and a collapsed sheet reports nothing.
+                Color.clear
+                    .frame(height: 0)
+                    .trackOnce(screen: .homeSheetExpanded)
+            }
+
+            ClimbSearchLauncher(viewModel: globeViewModel) {
+                enterSearchMode()
+            }
+
+            browseSections
+        }
+    }
+
+    private var browseSections: some View {
+        ClimbBrowseSectionsView(
+            viewModel: globeViewModel,
+            selectedStepTier: $selectedStepTier,
+            showsTodaysClimb: false,
+            effectiveSPM: personalizedClimbSPM,
+            onOpenClimb: { climb, source in
+                openClimbFromSheet(climb, source: source)
+            },
+            onExpand: {
+                setSheetDetent(.expanded)
+            }
+        )
+    }
+
+    private func searchOverlay(topInset: CGFloat, bottomInset: CGFloat) -> some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 10) {
+                ClimbSearchField(viewModel: globeViewModel, isFocused: $isSearchFocused)
+
+                Button("Cancel") {
+                    exitSearchMode(clearQuery: true)
+                }
+                .font(.montserratSemiBold(size: 14))
+                .foregroundStyle(.accent)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.top, topInset + 12)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    if isSearching {
+                        ClimbSearchResultsView(viewModel: globeViewModel, effectiveSPM: personalizedClimbSPM) { climb in
+                            openClimbFromSheet(climb, source: .browseSearch)
+                        }
+                    } else {
+                        browseSections
+                    }
+                }
+                .padding(.bottom, bottomInset + 22)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.black)
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
+        .ignoresSafeArea(.keyboard)
+    }
+
+    // MARK: - Card
+
+    private func previewCardArea(sheetHeight: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            if let previewSummary = globeViewModel.previewSummary {
+                ClimbPreviewCardView(
+                    summary: previewSummary,
+                    completedClimberCount: globeViewModel.previewCompletedClimberCount,
+                    onSelect: {
+                        openPreviewClimb(previewSummary.climb)
+                    },
+                    onClose: {
+                        globeViewModel.dismissPreview()
+                        setSheetDetent(.compact)
+                    }
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, sheetHeight + 10)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .trackOnce(screen: .homeClimbCard)
+            }
+        }
+        .animation(.spring(response: 0.45, dampingFraction: 0.82), value: globeViewModel.previewSummary?.climb.id)
+    }
+
+    // MARK: - Today rows
+
+    private func moderatedTodayRows(allRows: Bool) -> [ModeratedHomeTodayActivityRow] {
+        moderationStore.moderate(allRows ? todayActivity.allRows : todayActivity.homeRows)
+    }
+
+    private func refreshTodayPresentations() {
+        let rows = moderatedTodayRows(allRows: true)
+        todayPresentations = titleResolver.presentations(for: rows, modelContext: modelContext)
+    }
+
+    /// A row tapped on Home's sheet, or handed back by SEE ALL for a destination
+    /// that leaves the stack. SEE ALL pushes Climb Detail itself so Back returns to
+    /// the list; a Just Climb or routine row still pops the list first, because the
+    /// sheet and the tab switch are presented from Home.
+    private func openTodayRow(
+        _ row: ModeratedHomeTodayActivityRow,
+        presentation: HomeTodayActivityRowPresentation
+    ) {
+        switch presentation.destination {
+        case .climbDetail(let climbId):
+            guard let climb = titleResolver.openableClimb(for: climbId) else { return }
+            openClimbDetail(climb, entryPoint: .homeTodayRow)
+        case .justClimb(let goal):
+            pendingJustClimbGoal = goal
+            showingTodayActivityList = false
+            showingJustClimbSetup = true
+        case .routineTemplate(let templateId):
+            showingTodayActivityList = false
+            tabRouter.openRoutineTemplate(templateId)
+        case .none:
+            break
+        }
+    }
+
+    // MARK: - Actions
+
+    private func prepareHomeEntryIfNeeded() {
+        guard !hasPreparedHomeEntry else { return }
+        hasPreparedHomeEntry = true
+        globeViewModel.prepareForHomeEntry()
+    }
+
+    private func selectGlobePin(_ climb: Climb) {
+        exitSearchMode(clearQuery: true, targetDetent: .compact)
+        isSearchFocused = false
+        globeViewModel.clearSearch()
+        globeViewModel.selectPreview(climb, modelContext: modelContext)
         TelemetryManager.shared.track(
-            LiveClimbAnalyticsEvent.homeExploreTapped(
-                totalClimbs: globeViewModel.climbCount
+            LiveClimbAnalyticsEvent.browsePreviewShown(climb: climb, entryPoint: .homePin)
+        )
+        setSheetDetent(.compact)
+    }
+
+    private func openTodayClimb(_ climb: Climb) {
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.homeDailyTapped(
+                climb: climb,
+                homeState: globeViewModel.homeCardState
             )
         )
-        globeViewModel.prepareForBrowseEntry()
-        showingClimbBrowse = true
+        openClimbDetail(climb, entryPoint: .homeDaily)
+    }
+
+    private func openClimbFromSheet(
+        _ climb: Climb,
+        source: LiveClimbAnalyticsEvent.EntryPoint
+    ) {
+        guard climb.isAvailable else { return }
+
+        exitSearchMode(clearQuery: false, targetDetent: .medium)
+        globeViewModel.previewSummary = nil
+        globeViewModel.userDidInteract()
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.browseClimbOpened(
+                climb: climb,
+                entryPoint: source
+            )
+        )
+        openClimbDetail(climb, entryPoint: source)
+    }
+
+    private func openPreviewClimb(_ climb: Climb) {
+        guard climb.isAvailable else { return }
+
+        exitSearchMode(clearQuery: false, targetDetent: .compact)
+        globeViewModel.userDidInteract()
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.browseClimbOpened(
+                climb: climb,
+                entryPoint: .homeCard
+            )
+        )
+        openClimbDetail(climb, entryPoint: .homeCard)
+    }
+
+    private func openClimbDetail(_ climb: Climb, entryPoint: LiveClimbAnalyticsEvent.EntryPoint) {
+        selectedDetailEntryPoint = entryPoint
+        selectedDetailClimb = climb
     }
 
     private func consumePendingStartAction() {
@@ -245,17 +651,86 @@ struct HomeView: View {
 
         switch action {
         case .justClimb:
+            pendingJustClimbGoal = nil
             showingJustClimbSetup = true
         case .browseClimbs:
-            presentClimbBrowse()
+            // The globe is already here: the sheet's expanded position is the list.
+            setSheetDetent(.expanded)
         case .routines:
             tabRouter.select(.training, reason: .appRouting)
         }
     }
 
+    private func setSheetDetent(
+        _ detent: BrowseSheetDetent,
+        dismissKeyboard: Bool = true
+    ) {
+        if dismissKeyboard, detent != .expanded {
+            isSearchFocused = false
+        }
+        if detent != .compact {
+            globeViewModel.previewSummary = nil
+        }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            sheetDetent = detent
+        }
+        globeViewModel.userDidInteract()
+    }
+
+    private func enterSearchMode() {
+        searchFocusTask?.cancel()
+
+        if globeViewModel.previewSummary != nil {
+            globeViewModel.dismissPreview()
+        }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.84)) {
+            isSearchMode = true
+        }
+        globeViewModel.userDidInteract()
+
+        searchFocusTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(260))
+            guard !Task.isCancelled, isSearchMode else { return }
+            isSearchFocused = true
+        }
+    }
+
+    private func exitSearchMode(
+        clearQuery: Bool,
+        targetDetent: BrowseSheetDetent = .expanded
+    ) {
+        searchFocusTask?.cancel()
+        searchFocusTask = nil
+        isSearchFocused = false
+
+        if clearQuery {
+            globeViewModel.clearSearch()
+        }
+
+        guard isSearchMode else { return }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.84)) {
+            isSearchMode = false
+            sheetDetent = targetDetent
+        }
+        globeViewModel.userDidInteract()
+    }
+
+    private var isSearching: Bool {
+        !globeViewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func refreshLiveClimbCommunityStats() {
         Task {
             await globeViewModel.refreshLiveClimbCommunityStats()
+        }
+    }
+
+    private func refreshCompletedClimberCounts() {
+        Task {
+            await globeViewModel.refreshCompletedClimberCounts()
         }
     }
 
@@ -269,7 +744,7 @@ struct HomeView: View {
     }
 
     private func refreshHomeDashboard(forceRank: Bool = false) {
-        homeDashboard.refreshLocalData(modelContext: modelContext)
+        homeDashboard.refreshLocalData(modelContext: modelContext, workouts: workouts)
         homeDashboard.refreshWeeklyRank(
             userId: authVM.user?.uid,
             displayName: authVM.displayName,
@@ -284,6 +759,7 @@ struct HomeView: View {
     NavigationStack {
         HomeView(tabRouter: TabRouter())
             .environment(AuthenticationViewModel())
+            .environment(ModerationStore.shared)
     }
     .modelContainer(
         for: [

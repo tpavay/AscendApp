@@ -584,6 +584,14 @@ struct LiveClimbCompletionSummaryView: View {
         defer { rankResolution = .settled }
         computedCompletionRank = nil
 
+        // A network call that fails or resolves instantly (no route, a rejected
+        // request) never actually suspends on I/O, so without this yield the whole
+        // chain below can run to completion in the same run-loop turn that set
+        // `.resolving` above - SwiftUI coalesces the two `@State` writes and never
+        // paints the loading frame in between. One yield hands control back to the
+        // main run loop so that frame commits before the resolution can race past it.
+        await Task.yield()
+
         if let resolved = await completedRankService.resolveFrozenRank(
             context: context,
             workoutId: workoutId

@@ -27,6 +27,11 @@ struct LiveClimbSessionView: View {
     /// the answer is tapped, which would remount the summary - and re-fire its `summaryViewed`
     /// telemetry - underneath the pop animation.
     @State private var didHandOffToRatingPrompt = false
+    @State private var showingStepAccuracyCalibration = false
+    /// Same latch as `didHandOffToRatingPrompt`, for the same reason: once the summary hands off
+    /// to the calibration sheet, the summary must not remount underneath it.
+    @State private var didHandOffToStepAccuracyCalibration = false
+    @State private var didSubmitStepAccuracyCalibration = false
 
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -56,20 +61,27 @@ struct LiveClimbSessionView: View {
 
     var body: some View {
         ZStack {
-            Color.black
-                .ignoresSafeArea()
+            sessionBackground
 
-            if didHandOffToRatingPrompt {
+            if didHandOffToRatingPrompt || didHandOffToStepAccuracyCalibration {
                 EmptyView()
-            } else if let savedWorkout = viewModel.savedWorkout,
-               viewModel.shouldShowRankedCompletionSummary {
+            } else if let savedWorkout = viewModel.savedWorkout {
+                // A saved attempt always earns the same completion summary, ranked or not - an
+                // incomplete climb still gets its splits, it just carries no rank, matching how
+                // the share card already treats an attempt the server never published to the
+                // replay index (`SavedClimbShareStanding`).
                 LiveClimbCompletionSummaryView(
                     climb: viewModel.mode.climb,
                     workout: savedWorkout,
-                    leaderboardRank: viewModel.completionLeaderboardRank,
-                    leaderboardTotal: viewModel.completionLeaderboardTotal,
+                    leaderboardRank: viewModel.shouldShowRankedCompletionSummary
+                        ? viewModel.completionLeaderboardRank : nil,
+                    leaderboardTotal: viewModel.shouldShowRankedCompletionSummary
+                        ? viewModel.completionLeaderboardTotal : nil,
                     leaderboardRankBasis: .liveSession,
                     leaderboardContext: viewModel.replayContext,
+                    ranksOnLeaderboard: viewModel.shouldShowRankedCompletionSummary,
+                    achievementTitleOverride: viewModel.shouldShowRankedCompletionSummary
+                        ? nil : "PROGRESS SAVED",
                     onDone: handleCompletionSummaryDismissed
                 )
             } else {
@@ -98,6 +110,26 @@ struct LiveClimbSessionView: View {
         .sheet(isPresented: $showingCompatibleHeadphones) {
             CompatibleHeadphonesHelpSheet()
                 .appSheetStyle(.fitted())
+        }
+        .sheet(
+            isPresented: $showingStepAccuracyCalibration,
+            onDismiss: handleStepAccuracyCalibrationDismissed
+        ) {
+            StepAccuracyCalibrationPromptView(
+                appSteps: viewModel.savedWorkout?.steps ?? 0,
+                onSubmit: { machineSteps in
+                    didSubmitStepAccuracyCalibration = true
+                    viewModel.submitStepAccuracyCalibration(
+                        machineReportedSteps: machineSteps,
+                        modelContext: modelContext
+                    )
+                    showingStepAccuracyCalibration = false
+                },
+                onSkip: {
+                    showingStepAccuracyCalibration = false
+                }
+            )
+            .appSheetStyle(.fitted())
         }
         .alert("Enjoying Ascend?", isPresented: $showingRatingEnjoymentPrompt) {
             Button("Yes") {
@@ -130,6 +162,11 @@ struct LiveClimbSessionView: View {
         }
         .task(id: countdownRunID) {
             await runCountdownThenStart()
+        }
+        .task {
+            // The cut-out comes from the climb-image cache (prefetched from Climb Detail) or is
+            // fetched now; the photo layout holds the tab until it lands, however long that takes.
+            await viewModel.loadProgressArtworkIfNeeded()
         }
         .task(id: viewModel.stepSyncConfirmation?.id) {
             guard viewModel.stepSyncConfirmation != nil else { return }
@@ -182,8 +219,35 @@ struct LiveClimbSessionView: View {
     private func handleCompletionSummaryDismissed(
         _ surface: LiveClimbAnalyticsEvent.SummaryDismissSurface
     ) {
-        guard case .doneButton = surface,
-              viewModel.mode.climb != nil,
+        guard case .doneButton = surface else {
+            dismiss()
+            return
+        }
+
+        // The result screen has already been dismissed at this point, so both the calibration
+        // prompt and the sentiment question below land after the celebration rather than
+        // covering the rank and stats the climber just earned.
+        guard viewModel.shouldOfferStepAccuracyCalibration else {
+            presentRatingPromptOrDismiss()
+            return
+        }
+
+        didHandOffToStepAccuracyCalibration = true
+        showingStepAccuracyCalibration = true
+    }
+
+    /// Runs once the sheet has finished leaving the screen, however it left - Submit, Skip, or a
+    /// swipe down - so the rating alert is never raised against a sheet still animating out.
+    private func handleStepAccuracyCalibrationDismissed() {
+        guard didHandOffToStepAccuracyCalibration else { return }
+        if !didSubmitStepAccuracyCalibration {
+            viewModel.skipStepAccuracyCalibration()
+        }
+        presentRatingPromptOrDismiss()
+    }
+
+    private func presentRatingPromptOrDismiss() {
+        guard viewModel.mode.climb != nil,
               AppStoreRatingManager.shared.shouldAskEnjoymentQuestionAfterFirstLiveClimb(
                   completedLiveClimbCount: completedLiveClimbCount
               ) else {
@@ -191,9 +255,6 @@ struct LiveClimbSessionView: View {
             return
         }
 
-        // The result screen has already been dismissed at this point. The app-owned sentiment
-        // question therefore lands after the celebration instead of covering the rank and stats
-        // the climber just earned.
         didHandOffToRatingPrompt = true
         showingRatingEnjoymentPrompt = true
     }
@@ -217,6 +278,50 @@ struct LiveClimbSessionView: View {
         return (try? modelContext.fetchCount(descriptor)) ?? 0
     }
 
+    /// A flat black backdrop everywhere except the Just Me tab on a real landmark
+    /// climb, which gets the climb's own hero photo instead - full-bleed, with a
+    /// bottom-anchored scrim carrying legibility for the chrome and stats drawn
+    /// over it. An open Just Climb has no landmark and therefore no photo to show,
+    /// and a climb with a progress cut-out keeps the black: its landmark is drawn
+    /// in the tab itself, and a photo of the same landmark behind it would compete.
+    private var sessionBackground: some View {
+        ZStack {
+            Color.black
+
+            if showsClimbPhotoBackground, let climb = viewModel.mode.climb {
+                ClimbArtworkView(climb: climb, variant: .hero)
+                    .overlay(
+                        LinearGradient(
+                            colors: [
+                                .black.opacity(0.18),
+                                .black.opacity(0.4),
+                                .black.opacity(0.97)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+        }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.25), value: showsClimbPhotoBackground)
+    }
+
+    /// Redundant against a full-bleed photo, so the small artwork thumbnail in
+    /// the top chrome only makes sense where there is no photo behind it. Gated
+    /// on the same condition `liveLeaderboardSection` uses to decide whether the
+    /// redesigned Just Me content - as opposed to the idle/countdown screen or
+    /// the leaderboard panel - is actually on screen.
+    private var showsClimbPhotoBackground: Bool {
+        showsLandmarkOnJustMe && viewModel.progressArtwork == nil
+    }
+
+    /// Whether the Just Me tab is on screen drawing this climb's landmark - as the full-bleed
+    /// photo or as the progress cut-out - which is what makes the chrome thumbnail redundant.
+    private var showsLandmarkOnJustMe: Bool {
+        viewModel.isRecording && selectedTab == .justMe && viewModel.mode.climb != nil
+    }
+
     private var sessionContent: some View {
         VStack(spacing: 0) {
             topChrome
@@ -229,10 +334,6 @@ struct LiveClimbSessionView: View {
                 .frame(maxHeight: .infinity)
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
-
-            savedSummary
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
 
             bottomControls
                 .padding(.horizontal, 22)
@@ -253,34 +354,61 @@ struct LiveClimbSessionView: View {
     }
 
     private var topChrome: some View {
-        HStack(spacing: 10) {
-            if !hasStartedRecording {
-                OnboardingBackButton {
-                    dismiss()
-                }
-                .accessibilityLabel("Close")
+        // The leading back button and artwork thumbnail collapse in place (width + opacity) rather
+        // than being inserted/removed from the HStack. A conditional `if` here would change this
+        // row's child count in the same instant `sessionBackground`'s photo crossfades in, forcing
+        // an unanimated reflow of the title/subtitle that could paint a transitional frame mid-fade;
+        // collapsing keeps every child's identity and position in this HStack stable throughout.
+        HStack(spacing: 0) {
+            OnboardingBackButton {
+                dismiss()
             }
+            .accessibilityLabel("Close")
+            .frame(width: hasStartedRecording ? 0 : 44, height: hasStartedRecording ? 0 : 44)
+            .opacity(hasStartedRecording ? 0 : 1)
+            .allowsHitTesting(!hasStartedRecording)
+            .accessibilityHidden(hasStartedRecording)
+            .clipped()
+
+            Spacer(minLength: 0)
+                .frame(width: hasStartedRecording ? 0 : 10)
 
             sessionArtwork
-                .frame(width: 42, height: 42)
+                .frame(width: showsLandmarkOnJustMe ? 0 : 42, height: showsLandmarkOnJustMe ? 0 : 42)
+                .opacity(showsLandmarkOnJustMe ? 0 : 1)
+                .accessibilityHidden(showsLandmarkOnJustMe)
+                .clipped()
+
+            Spacer(minLength: 0)
+                .frame(width: showsLandmarkOnJustMe ? 0 : 10)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(viewModel.mode.title)
                     .font(.montserratBold(size: 15))
                     .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
                 Text(viewModel.mode.subtitle)
                     .font(.montserratMedium(size: 11))
                     .foregroundStyle(.white.opacity(0.56))
+                    .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
                     .lineLimit(1)
             }
 
             Spacer(minLength: 0)
 
-            if let heartRateStatus = viewModel.liveHeartRateStatus {
+            // Just Me reads heart rate once, in the centered stat grid's heart-rate box
+            // (`LiveClimbJustMeView.heartRateCard`) - this top-right slot is the
+            // Leaderboard tab's heart-rate surface, and Just Me's on a climb with a
+            // progress cut-out, whose metrics column carries no heart rate.
+            if selectedTab != .justMe, let heartRateStatus = viewModel.liveHeartRateStatus {
                 LiveHeartRateStatusChip(status: heartRateStatus)
+                    .padding(.leading, 10)
+            } else if let heartRateStatus = landmarkHeartRateStatus {
+                landmarkHeartRate(status: heartRateStatus)
+                    .padding(.leading, 10)
             }
 
             if !(viewModel.isRecording && selectedTab == .justMe) {
@@ -296,10 +424,41 @@ struct LiveClimbSessionView: View {
                         RoundedRectangle(cornerRadius: 13, style: .continuous)
                             .fill(.white.opacity(0.10))
                     )
+                    .padding(.leading, 10)
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
+        // Recording start flips `hasStartedRecording` and `showsLandmarkOnJustMe` in the same
+        // instant that `sessionBackground`'s photo/gradient crossfades in over 250ms - without a
+        // matching animation here, this HStack's child count changes (back button and thumbnail
+        // removed) and the title/subtitle reflow instantly, one frame ahead of the background's
+        // animated transaction, which can paint a transitional layout pass mid-crossfade.
+        .animation(.easeInOut(duration: 0.25), value: hasStartedRecording)
+        .animation(.easeInOut(duration: 0.25), value: showsLandmarkOnJustMe)
+    }
+
+    /// Heart rate for the Just Me tab of a climb with a progress cut-out, and only while a strap
+    /// is delivering a current reading - a connecting, lost or failed strap shows nothing.
+    private var landmarkHeartRateStatus: LiveHeartRateStatus? {
+        guard showsLandmarkOnJustMe,
+              viewModel.progressArtwork != nil,
+              let status = viewModel.liveHeartRateStatus,
+              status.hasCurrentReading else { return nil }
+        return status
+    }
+
+    private func landmarkHeartRate(status: LiveHeartRateStatus) -> some View {
+        HStack(spacing: 10) {
+            LiveHeartRateZoneRingBadge(status: status, diameter: 44, contentFontSize: 15)
+
+            Text("HEART RATE")
+                .font(.montserratBold(size: 10))
+                .tracking(0.6)
+                .foregroundStyle(.white.opacity(0.6))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
     }
 
     @ViewBuilder
@@ -333,6 +492,13 @@ struct LiveClimbSessionView: View {
             }
             .frame(maxHeight: .infinity)
         }
+        // Matches topChrome's fix: recording start swaps this Group's content (and reveals the
+        // tab bar) in the same instant `sessionBackground`'s photo crossfades in - without this,
+        // the swap is an instant, unanimated remount racing that 250ms animated transaction.
+        .animation(.easeInOut(duration: 0.25), value: viewModel.isRecording)
+        // A cut-out that arrives mid-climb swaps the photo layout for the landmark one on the
+        // same curve the photo backdrop fades out on.
+        .animation(.easeInOut(duration: 0.25), value: viewModel.progressArtwork != nil)
     }
 
     private var leaderboardPanel: some View {
@@ -390,25 +556,6 @@ struct LiveClimbSessionView: View {
                 .fill(.white.opacity(0.09))
         )
         .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder
-    private var savedSummary: some View {
-        if case .saved(let status) = viewModel.phase {
-            VStack(spacing: 8) {
-                Text(savedTitle(for: status))
-                    .font(.montserratBold(size: 22))
-                    .foregroundStyle(.white)
-
-                if let recordedResult = viewModel.recordedResult {
-                    Text("\(recordedResult.steps.formatted()) steps saved")
-                        .font(.montserratMedium(size: 15))
-                        .foregroundStyle(.white.opacity(0.62))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 2)
-        }
     }
 
     private var bottomControls: some View {
@@ -729,19 +876,6 @@ struct LiveClimbSessionView: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-    }
-
-    private func savedTitle(for status: ClimbAttemptStatus) -> String {
-        switch status {
-        case .completed:
-            return viewModel.mode.isLandmarkClimb ? "Climb Complete" : "Session Complete"
-        case .failed:
-            return "Attempt Saved"
-        case .active:
-            return "Progress Saved"
-        case .abandoned:
-            return "Attempt Ended"
-        }
     }
 
     private var headphoneRequiredOverlay: some View {

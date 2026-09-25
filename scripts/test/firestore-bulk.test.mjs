@@ -8,6 +8,7 @@ import {
   createBatchWriter,
   createProgressReporter,
   listDocumentsAcross,
+  planCommits,
   runPool,
   withRetry,
   withTimeout,
@@ -122,6 +123,47 @@ test("writes are committed in batches no larger than Firestore accepts", async (
   assert.equal(db.commits.length, 3);
   assert.deepEqual(db.commits.map((batch) => batch.length), [MAX_BATCH_WRITES, MAX_BATCH_WRITES, 100]);
   assert.equal(db.commits.flat().length, 1_100);
+});
+
+test("a weight budget splits commits well under the write cap", () => {
+  const operations = Array.from({length: 360}, (_unused, index) => ({index, weight: 117}));
+
+  const commits = planCommits(operations, {maxWeight: 5_000, weigh: (operation) => operation.weight});
+
+  assert.deepEqual(commits.map((commit) => commit.operations.length), [42, 42, 42, 42, 42, 42, 42, 42, 24]);
+  assert.ok(commits.every((commit) => commit.weight <= 5_000));
+  assert.deepEqual(commits.flatMap((commit) => commit.operations.map((operation) => operation.index)), operations.map((operation) => operation.index));
+});
+
+test("one operation heavier than the whole budget is committed alone, never dropped", () => {
+  const commits = planCommits(
+    [{weight: 1}, {weight: 9}, {weight: 1}],
+    {maxWeight: 5, weigh: (operation) => operation.weight}
+  );
+
+  assert.deepEqual(commits.map((commit) => commit.weight), [1, 9, 1]);
+  assert.deepEqual(commits.map((commit) => commit.operations.length), [1, 1, 1]);
+});
+
+test("a writer given a weight budget commits exactly as planCommits plans", async () => {
+  const db = fakeDb();
+  const weigh = (operation) => operation.data.keys.length;
+  const writer = createBatchWriter(db, {maxWeight: 100, weigh});
+  const operations = Array.from({length: 50}, (_unused, index) => ({
+    ref: ref(`c/${index}`),
+    data: {keys: Array.from({length: index % 7}, (_u, key) => key)},
+  }));
+
+  for (const operation of operations) {
+    writer.update(operation.ref, operation.data);
+  }
+  assert.equal(await writer.drain(), 50);
+
+  assert.deepEqual(
+    db.commits.map((batch) => batch.length),
+    planCommits(operations, {maxWeight: 100, weigh}).map((commit) => commit.operations.length)
+  );
+  assert.ok(db.commits.every((batch) => batch.reduce((sum, operation) => sum + operation.data.keys.length, 0) <= 100));
 });
 
 test("a flush commits what is buffered and leaves the queue usable", async () => {

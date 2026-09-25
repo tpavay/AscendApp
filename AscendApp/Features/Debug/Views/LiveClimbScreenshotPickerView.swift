@@ -79,7 +79,8 @@ struct LiveClimbScreenshotPickerView: View {
 
             ClimbResultRowView(
                 climb: climb,
-                isCompleted: completedClimbIds.contains(climb.id)
+                isCompleted: completedClimbIds.contains(climb.id),
+                effectiveSPM: SettingsManager.shared.effectiveBaseLevelSPM
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -155,7 +156,8 @@ struct LiveClimbScreenshotPickerView: View {
                     } label: {
                         ClimbResultRowView(
                             climb: climb,
-                            isCompleted: completedClimbIds.contains(climb.id)
+                            isCompleted: completedClimbIds.contains(climb.id),
+                            effectiveSPM: SettingsManager.shared.effectiveBaseLevelSPM
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)

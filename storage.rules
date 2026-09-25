@@ -44,7 +44,20 @@ service firebase.storage {
       return fileName.matches("^[0-9a-fA-F-]{36}\\.json\\.gz$");
     }
 
+    function validStepAccuracyDebugFileName(fileName) {
+      return fileName.matches("^[0-9a-fA-F-]{36}\\.json\\.gz$");
+    }
+
     function isCompressedHeartRateUpload(maxBytes) {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= maxBytes &&
+        request.resource.contentType.matches(
+          "application/(gzip|x-gzip|octet-stream)"
+        );
+    }
+
+    function isCompressedStepAccuracyDebugUpload(maxBytes) {
       return request.resource != null &&
         request.resource.size > 0 &&
         request.resource.size <= maxBytes &&
@@ -83,6 +96,19 @@ service firebase.storage {
         validWorkoutHeartRateFileName(fileName) &&
         isCompressedHeartRateUpload(5 * 1024 * 1024);
       allow delete: if isOwner(userId) && validWorkoutHeartRateFileName(fileName);
+    }
+
+    // Step-accuracy raw motion captures - uploaded only for a badly-miscounted climb where the
+    // climber entered a machine step count, for the captain's own algorithm debugging. Nothing
+    // in the app downloads these; `get` still follows the same owner-paid pattern as every other
+    // per-workout blob for consistency and for the account-deletion sweep's `list`.
+    match /users/{userId}/step_accuracy_debug/{fileName} {
+      allow get: if isPaidOwner(userId) && validStepAccuracyDebugFileName(fileName);
+      allow list: if isOwner(userId);
+      allow create, update: if isPaidOwner(userId) &&
+        validStepAccuracyDebugFileName(fileName) &&
+        isCompressedStepAccuracyDebugUpload(5 * 1024 * 1024);
+      allow delete: if isOwner(userId) && validStepAccuracyDebugFileName(fileName);
     }
 
     // User profile pictures.

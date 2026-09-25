@@ -19,8 +19,15 @@
  *   node scripts/sync-climb-images.mjs sync --from staging --to production --confirm-production
  *   node scripts/sync-climb-images.mjs sync --from staging --to dev --climb burj-khalifa
  *   node scripts/sync-climb-images.mjs upload --project staging --climb burj-khalifa --dir ~/art/burj --image-set-version 2
+ *   node scripts/sync-climb-images.mjs upload-progress --project dev --climb charminar --file ~/art/charminar-progress.png
+ *
+ * Progress cut-outs (the Just Me tab's photographic reveal) live beside the
+ * hero/card/thumb set, at the path each climb's catalog entry names in
+ * `progressArtwork.path` - `climb-images/<id>/progress/v<n>.png`. They are
+ * versioned on their own, so regenerating one never re-uploads the photo set.
  */
 
+import {createHash} from "node:crypto";
 import {existsSync, readFileSync} from "node:fs";
 import {resolve, dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -39,6 +46,7 @@ const CATALOG_PATH = resolve(REPO_ROOT, "web/public/climbs/catalog-v1.json");
 export const IMAGE_PREFIX = "climb-images/";
 export const IMAGE_SIZES = ["hero", "card", "thumb"];
 const IMAGE_CONTENT_TYPE = "image/heic";
+const PROGRESS_CONTENT_TYPE = "image/png";
 // Versioned paths are immutable - a new image set bumps imageSetVersion and
 // gets a new path - so clients and CDNs may cache aggressively.
 const IMAGE_CACHE_CONTROL = "public, max-age=604800, immutable";
@@ -121,6 +129,33 @@ export function candidateObjectPaths(climb, size) {
   ];
 }
 
+/**
+ * The Storage path a climb's catalog entry names for its progress cut-out, or
+ * null when it has none. The app refuses any path outside the climb's own
+ * `climb-images/<id>/` folder, and so does this.
+ */
+export function progressObjectPath(climb) {
+  const path = climb.progressArtwork?.path;
+  if (typeof path !== "string") return null;
+  if (!path.startsWith(`${IMAGE_PREFIX}${climb.id}/`) || path.includes("..")) return null;
+  return path;
+}
+
+/**
+ * Content type by extension. A copy carries its source's metadata, so the type
+ * is always pinned - and a PNG cut-out labelled HEIC would be a lie about it.
+ */
+export function contentTypeForPath(path) {
+  return path.endsWith(".png") ? PROGRESS_CONTENT_TYPE : IMAGE_CONTENT_TYPE;
+}
+
+/** Width and height from a PNG's IHDR chunk, or null for anything that is not a PNG. */
+export function pngDimensions(buffer) {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (buffer.length < 24 || signature.some((byte, index) => buffer[index] !== byte)) return null;
+  return {width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20)};
+}
+
 function expectedObjectPaths(catalog) {
   const paths = new Map();
   for (const climb of catalog.climbs ?? catalog) {
@@ -130,6 +165,10 @@ function expectedObjectPaths(catalog) {
         releaseState: climb.releaseState,
         size,
       });
+    }
+    const progressPath = progressObjectPath(climb);
+    if (progressPath) {
+      paths.set(progressPath, {climbId: climb.id, releaseState: climb.releaseState, size: "progress"});
     }
   }
   return paths;
@@ -197,6 +236,16 @@ async function commandAudit(flags) {
     (set) => set.climb.releaseState !== "available" && !set.complete
   );
   const orphans = [...actual.keys()].filter((path) => !expected.has(path));
+  // A catalog entry naming a cut-out the bucket lacks falls back to the photo
+  // layout on device - survivable, but the catalog would be describing artwork
+  // that is not there, so it blocks publication exactly like a missing card.
+  const missingProgress = climbs.filter((climb) => {
+    const path = progressObjectPath(climb);
+    return climb.releaseState === "available" && path && !actual.has(path);
+  });
+  const progressCount = climbs.filter(
+    (climb) => climb.releaseState === "available" && progressObjectPath(climb)
+  ).length;
 
   console.log(`Climb image audit - ${seedEnvironmentName(projectId)} (${projectId})`);
   console.log(`  catalog climbs: ${sets.length}`);
@@ -213,9 +262,24 @@ async function commandAudit(flags) {
   for (const set of incompleteOther) {
     console.log(`    [${set.climb.releaseState}] ${set.climb.id} - missing ${set.missing.join(", ")}`);
   }
+  console.log(
+    `  AVAILABLE climbs with a progress cut-out in the catalog: ${progressCount}` +
+      ` (${missingProgress.length} missing from the bucket)`
+  );
+  for (const climb of missingProgress) {
+    console.log(`    MISSING PROGRESS ${climb.id} - ${progressObjectPath(climb)}`);
+  }
   console.log(`  objects not referenced by current catalog: ${orphans.length}`);
   for (const path of orphans) {
     console.log(`    EXTRA ${path}`);
+  }
+
+  if (missingProgress.length > 0) {
+    process.exitCode = 1;
+    console.log(
+      `\n${missingProgress.length} AVAILABLE climb(s) name a progress cut-out that is not in ` +
+        `${seedEnvironmentName(projectId)}. Upload or sync it before publishing the catalog.`
+    );
   }
 
   if (incompleteAvailable.length > 0) {
@@ -308,7 +372,7 @@ async function commandSync(flags) {
     // decodes the bytes as HEIC or shows nothing.
     await targetBucket.file(item.path).setMetadata({
       cacheControl: IMAGE_CACHE_CONTROL,
-      contentType: IMAGE_CONTENT_TYPE,
+      contentType: contentTypeForPath(item.path),
     });
   }
 
@@ -363,12 +427,60 @@ async function commandUpload(flags) {
   );
 }
 
+async function commandUploadProgress(flags) {
+  const projectId = requireProject(flags, "project");
+  assertWritableTarget(projectId, flags);
+
+  const climbId = flags.climb;
+  if (typeof climbId !== "string" || climbId.length === 0) {
+    throw new Error("--climb <climb-id> is required.");
+  }
+  const file = flags.file;
+  if (typeof file !== "string" || !existsSync(file)) {
+    throw new Error("--file <progress PNG> is required.");
+  }
+
+  // The catalog entry is the contract: the upload goes exactly where it says,
+  // and only if it is exactly the image it describes.
+  const catalog = loadCatalog();
+  const climb = (catalog.climbs ?? catalog).find((entry) => entry.id === climbId);
+  if (!climb) throw new Error(`${climbId} is not in the catalog.`);
+  const remotePath = progressObjectPath(climb);
+  if (!remotePath) {
+    throw new Error(`${climbId}'s catalog entry names no usable progressArtwork.path.`);
+  }
+  const bytes = readFileSync(file);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  if (climb.progressArtwork.sha256 && climb.progressArtwork.sha256 !== sha256) {
+    throw new Error(`${file} is sha256 ${sha256}; the catalog expects ${climb.progressArtwork.sha256}.`);
+  }
+  const dimensions = pngDimensions(bytes);
+  if (
+    !dimensions ||
+    dimensions.width !== climb.progressArtwork.canvasWidth ||
+    dimensions.height !== climb.progressArtwork.canvasHeight
+  ) {
+    throw new Error(
+      `${file} is ${dimensions ? `${dimensions.width}x${dimensions.height}` : "not a PNG"}; ` +
+        `the catalog measured ${climb.progressArtwork.canvasWidth}x${climb.progressArtwork.canvasHeight}.`
+    );
+  }
+
+  console.log(`  uploading ${remotePath}`);
+  await bucketFor(projectId).upload(file, {
+    destination: remotePath,
+    metadata: {cacheControl: IMAGE_CACHE_CONTROL, contentType: PROGRESS_CONTENT_TYPE},
+  });
+  console.log(`Uploaded ${climbId}'s progress cut-out to ${seedEnvironmentName(projectId)}.`);
+}
+
 function printUsage() {
   console.log(`Commands:
   audit  --project <env>                       Check bucket contents against the catalog
   diff   --from <env> --to <env> [--climb id]  Show what sync would copy
   sync   --from <env> --to <env> [--climb id] [--dry-run] [--confirm-production]
   upload --project <env> --climb <id> --dir <folder> [--image-set-version n] [--confirm-production]
+  upload-progress --project <env> --climb <id> --file <png> [--confirm-production]
 
 Environments: dev, staging, production. Writes to production require --confirm-production.`);
 }
@@ -387,6 +499,9 @@ async function main() {
     break;
   case "upload":
     await commandUpload(flags);
+    break;
+  case "upload-progress":
+    await commandUploadProgress(flags);
     break;
   default:
     printUsage();

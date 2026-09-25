@@ -8,6 +8,9 @@ protocol LiveReplayLeaderboardServicing: Sendable {
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary
 
+    /// Distinct finishers per landmark, keyed by climb id, in one bounded read.
+    func fetchLiveClimbCompletedClimberCounts() async throws -> [String: Int]
+
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
         completionDurationSeconds: TimeInterval,
@@ -123,6 +126,13 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
         let repository = repository
         return try await withLiveReplayLeaderboardTimeout(seconds: fetchTimeoutSeconds) {
             try await repository.fetchSummary(context: context)
+        }
+    }
+
+    func fetchLiveClimbCompletedClimberCounts() async throws -> [String: Int] {
+        let repository = repository
+        return try await withLiveReplayLeaderboardTimeout(seconds: fetchTimeoutSeconds) {
+            try await repository.fetchLiveClimbCompletedClimberCounts()
         }
     }
 

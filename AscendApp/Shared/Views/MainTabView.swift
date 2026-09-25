@@ -22,6 +22,7 @@ struct MainTabView: View {
     @State private var showOfflineHighlight = false
     @State private var offlineHighlightTask: Task<Void, Never>?
     @State private var recoveryDraft: ActiveHeadphoneWorkoutDraft?
+    @State private var tabBarOverlayHeight: CGFloat = 0
 
     // Easy configuration - just change this array to modify tabs
     private let tabs = TabItem.activeTabs
@@ -66,11 +67,15 @@ struct MainTabView: View {
         .background(Color.black.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
             tabBar
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                    tabBarOverlayHeight = height
+                }
         }
         .tint(Color.ascendAccent)
         .accentColor(Color.ascendAccent)
         .preferredColorScheme(.dark)
         .environment(tabRouter)
+        .environment(\.tabBarOverlayHeight, tabBarOverlayHeight)
         .task {
             rebuildBestEffortCacheIfNeeded()
             consumePendingFirstClimbHandoffIfNeeded()

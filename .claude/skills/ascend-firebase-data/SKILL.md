@@ -23,6 +23,7 @@ A *new* top-level server-owned collection still needs its own `allow read, write
 
 - If a scheduled job, a counter, or an award reads a field, that collection is **server-write-only** and derived from the canonical records. `leaderboard_stats` was the counter-example: rules validated its shape and bound its identity to the publisher's own profile, yet a signed-in climber could `PATCH` `totalSteps: 2000000000`, hold every board, and have the nightly finalizer freeze permanent achievements from it (#307). A forged permanent award is data surgery to unwind, not a code fix.
 - The derivation reads the private canonical record - `users/{uid}/workouts` for standings - and writes the projection through the Admin SDK, which bypasses rules. One derivation, called by every trigger and by the backfill script; never a per-trigger copy.
+- A public projection that names climbers carries their identity from the public snapshot read inside the same transaction, refreshes it when the public profile changes, and is scrubbed by the account-deletion sweep. `home_today_activity/global` (`functions/src/homeTodayActivity.ts`) is the worked example: one document, rows rewritten on `public_profile/current` changes, rows removed by `cleanupDeletedUser`.
 - **Deriving is not verifying.** The canonical records are still client-authored, and Ascend has no App Check and no server-side sensor ingestion, so the server's own evidence is only as good as the device that produced it. Bound what you derive by what is physically possible (see `ascend-leaderboards` for the standings envelope) and say plainly that the remainder is open. Claiming a derived number is "verified" is how a known gap becomes an assumed guarantee.
 - A seeded fixture row in a server-owned collection needs a synthetic marker (`isSynthetic: true`), or the derivation will delete it for having no evidence behind it. See `ascend-dev-fixtures`.
 
@@ -165,7 +166,7 @@ node scripts/firestore-query.mjs count users/<uid>/workouts --env staging   # ma
 node scripts/firestore-query.mjs count workouts --env staging               # EMPTY (verified) - no such collection
 ```
 
-The top-level collections a climb does reach - `leaderboard_stats`, `live_replay_leaderboards`, `live_climb_community_stats` - hold server-derived aggregates keyed by climber-period or by context, never one row per climb.
+The top-level collections a climb does reach - `leaderboard_stats`, `live_replay_leaderboards`, `live_climb_community_stats`, and Home's single `home_today_activity/global` feed document - hold server-derived aggregates keyed by climber-period or by context, never one document per climb.
 
 ### `(none)` from a collection listing settles nothing
 
@@ -178,7 +179,7 @@ Probe the subcollections you expect by name (`subcollections <doc> --expect a,b,
 
 Every collection a *client* touches has a `match` block, which makes the rules file the best navigation map of the app's paths.
 It is not a list of what exists.
-A server-owned subcollection written only through the Admin SDK needs no rule at all, so it is absent from the file and unreadable by any client: `live_replay_leaderboards/{contextKey}/userBestAttempts` is written by `liveReplayLeaderboard.ts` and by the seed, exists in staging, and appears nowhere in `firestore.rules`.
+A server-owned subcollection written only through the Admin SDK needs no rule at all, so it is absent from the file and unreadable by any client: `live_replay_leaderboards/{contextKey}/userBestAttempts` is written by `liveReplayLeaderboard.ts` and by the seed, exists in staging, and appears nowhere in `firestore.rules`; `live_replay_leaderboards/{contextKey}/attemptCurves`, the split curves behind the goal-aware Just Climb collapse (`ascend-live-climbs`), is written by the same file on the same terms.
 Discover paths from the database, then confirm the client-facing contract in the rules - not the other way round.
 
 ## Storage pathing + rules
@@ -188,12 +189,13 @@ User-generated media must be stored under user-scoped prefixes:
 - `users/{uid}/videos/...`
 - `users/{uid}/profile_pictures/...`
 - `users/{uid}/workout_heart_rate/...`
+- `users/{uid}/step_accuracy_debug/...` - raw headphone-motion capture for a badly-miscounted climb, uploaded only when `StepAccuracyRawCaptureRetentionPolicy` fires (calibration entered, discrepancy >= 30 steps either direction, headphones connected the whole climb); never downloaded back into the app.
 
 Rules:
 - Never write user media to shared root paths. `photos/`, `videos/`, and `profile_pictures/` at the bucket root are closed to every client (`read, write: if false`) and must stay that way: a flat path carries no owner segment, so any rule permissive enough to admit the owner admits every signed-in account. Objects predating the user-scoped migration still sit there, unattributable and reachable only by the backend.
 - Server-owned synthetic Live Replay avatar fixtures may live under `live-replay-avatars/{seedPackId}/...`; they are not user media, should be read-only to clients, and must be written only by admin/server tooling.
 - Legacy share card template assets may still live under `share-card-templates/...`, but workout share cards in v1 must not fetch their backgrounds or layout config from Firebase.
-- Account deletion and cleanup should target only the authenticated user's scoped prefixes, including durable workout heart-rate sidecars and private workout backup documents.
+- Account deletion and cleanup should target only the authenticated user's scoped prefixes, including durable workout heart-rate sidecars, step-accuracy debug captures, and private workout backup documents.
 
 ## Account deletion (Apple 5.1.1(v))
 

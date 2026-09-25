@@ -278,11 +278,12 @@ struct LiveReplayRepeatClimberRankTests {
     // MARK: - Ranking the live attempt against his own finished one
 
     @Test
-    func hisOwnRecordStaysAboveHimAndCarriesNoRank() {
-        // The captain's bucket 35, end to end. Both rows are on the board and
-        // his record is still the one in front, but it is his own ghost: it
-        // takes no rank cell, and he is first of the one climber the field
-        // holds rather than second of two.
+    func hisOwnRecordIsNotDrawnAndHeIsFirstOfOne() {
+        // The captain's bucket 35, end to end. His record is still the one in
+        // front, but it is his own previous best: it is the `BEST` marker
+        // inside his row and never a row of its own (settled 2026-09-22), and
+        // he is first of the one climber the field holds rather than second
+        // of two.
         let window = windowChasingHisOwnRecord(currentSteps: 497)
 
         let rows = window.locallyRankedRows(
@@ -291,9 +292,10 @@ struct LiveReplayRepeatClimberRankTests {
             displayName: "Tyler Pavay"
         )
 
-        #expect(rows.map(\.id) == ["first-attempt", "current-user"])
-        #expect(rows.map(\.rank) == [nil, 1])
+        #expect(rows.map(\.id) == ["current-user"])
+        #expect(rows.map(\.rank) == [1])
         #expect(window.totalClimbers == 1)
+        #expect(window.previousBestStepsAtBucket(currentElapsedSeconds: 350) == 551)
     }
 
     @Test
@@ -322,16 +324,15 @@ struct LiveReplayRepeatClimberRankTests {
             displayName: "Tyler Pavay"
         )
 
-        #expect(
-            rows.map(\.id) == ["rival-fast", "rival-quick", "first-attempt", "current-user"]
-        )
-        #expect(rows.map(\.rank) == [1, 2, nil, 3])
+        #expect(rows.map(\.id) == ["rival-fast", "rival-quick", "current-user"])
+        #expect(rows.map(\.rank) == [1, 2, 3])
     }
 
     @Test
-    func aGhostCarriesNoRankCellWhileAnUnresolvedRankStillReadsAsUnknown() {
-        // Two different statements that must not collapse into one another: a
-        // ghost has no placing, an unresolved row has one nobody could read.
+    func anUnresolvedRankStillReadsAsUnknownWithNoGhostBesideIt() {
+        // An unresolved row has a placing nobody could read, and it is the
+        // only row: his own record is never drawn as one, so there is no ghost
+        // for the unresolved rank to be confused with.
         let window = LiveReplayLeaderboardWindow(
             context: Self.context,
             bucketIndex: Self.firstAttemptBucketCount,
@@ -348,28 +349,27 @@ struct LiveReplayRepeatClimberRankTests {
             displayName: "Tyler Pavay"
         )
 
+        #expect(rows.map(\.id) == ["current-user"])
         #expect(rows.allSatisfy { $0.rank == nil })
-        #expect(rows.first { $0.id == "first-attempt" }?.isViewerGhost == true)
-        #expect(rows.first { $0.isLiveAttempt }?.isViewerGhost == false)
+        #expect(rows.contains(where: \.isViewerGhost) == false)
     }
 
     @Test
-    func bothRowsBelongToTheViewerButOnlyOneIsTheAttemptInProgress() throws {
+    func theOnlyRowOfHisOnTheLiveBoardIsTheAttemptInProgress() throws {
         let rows = windowChasingHisOwnRecord(currentSteps: 497).locallyRankedRows(
             currentSteps: 497,
             currentElapsedSeconds: 350,
             displayName: "Tyler Pavay"
         )
 
-        #expect(rows.allSatisfy { $0.isCurrentUser })
-        #expect(rows.filter(\.isLiveAttempt).map(\.id) == ["current-user"])
+        #expect(rows.map(\.id) == ["current-user"])
+        #expect(rows.allSatisfy { $0.isCurrentUser && $0.isLiveAttempt })
 
-        // Through the one resolver every identity surface renders from: the
-        // history row keeps his name and his photo rather than being redrawn as
-        // a stranger wearing initials.
-        let history = try #require(rows.first { $0.id == "first-attempt" })
+        // His finished attempt still resolves as his through the one resolver
+        // every identity surface renders from - Climb Detail draws it as a row
+        // - rather than being redrawn as a stranger wearing initials.
         let moderated = CrossUserIdentityAdapter.replayRow(
-            history,
+            firstAttempt(atSteps: 551),
             blockedUserIds: [],
             isBlockListHydrated: true
         )
@@ -382,17 +382,20 @@ struct LiveReplayRepeatClimberRankTests {
     }
 
     @Test
-    func matchingHisOwnRecordStillLeavesTheFinishedAttemptInFront() {
-        // A dead heat on steps at the same bucket: the attempt already banked
-        // stays ahead of the one still on the machine.
-        let rows = windowChasingHisOwnRecord(currentSteps: 551).locallyRankedRows(
+    func matchingHisOwnRecordLeavesHimFirstWithTheMarkerOnHisFill() {
+        // A dead heat on steps at the same bucket: his banked record is the
+        // marker sitting exactly on the edge of his fill, and his rank does
+        // not move, because a marker was never counted.
+        let window = windowChasingHisOwnRecord(currentSteps: 551)
+        let rows = window.locallyRankedRows(
             currentSteps: 551,
             currentElapsedSeconds: 350,
             displayName: "Tyler Pavay"
         )
 
-        #expect(rows.map(\.id) == ["first-attempt", "current-user"])
-        #expect(rows.map(\.rank) == [nil, 1])
+        #expect(rows.map(\.id) == ["current-user"])
+        #expect(rows.map(\.rank) == [1])
+        #expect(window.previousBestStepsAtBucket(currentElapsedSeconds: 350) == 551)
     }
 
     @Test
@@ -415,8 +418,8 @@ struct LiveReplayRepeatClimberRankTests {
             displayName: "Tyler Pavay"
         )
 
-        #expect(rows.map(\.id) == ["current-user", "first-attempt"])
-        #expect(rows.map(\.rank) == [1, nil])
+        #expect(rows.map(\.id) == ["current-user"])
+        #expect(rows.map(\.rank) == [1])
     }
 
     @Test

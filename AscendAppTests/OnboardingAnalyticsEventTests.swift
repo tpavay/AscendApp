@@ -44,7 +44,7 @@ struct OnboardingAnalyticsEventTests {
             questionID: "stair_stepper_baseline",
             inputType: "single_select",
             selectionType: "single_select",
-            answerID: "never_tried",
+            answerID: "no_access",
             answerIndex: 0,
             properties: ["answer_count": .int(1)]
         ).record
@@ -57,7 +57,7 @@ struct OnboardingAnalyticsEventTests {
         expectStringParameter(record, "question_id", "stair_stepper_baseline")
         expectStringParameter(record, "input_type", "single_select")
         expectStringParameter(record, "selection_type", "single_select")
-        expectStringParameter(record, "answer_id", "never_tried")
+        expectStringParameter(record, "answer_id", "no_access")
         expectIntParameter(record, "answer_index", 0)
         expectIntParameter(record, "answer_count", 1)
         expectBoolParameter(record, "has_answer", true)

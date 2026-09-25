@@ -245,9 +245,7 @@ enum ProfileSnapshotBuilder {
         let lifetimeTotalSteps = workouts.reduce(0) { $0 + $1.steps }
         let lifetimeDurationSeconds = Int(workouts.reduce(0.0) { $0 + $1.duration }.rounded())
         let totalClimbs = workouts.count
-        let averageStepsPerMinute = lifetimeDurationSeconds > 0
-            ? Double(lifetimeTotalSteps) / (Double(lifetimeDurationSeconds) / 60.0)
-            : 0
+        let averageStepsPerMinute = PersonalizedClimbPaceService.allTimeAverageSPM(workouts: workouts) ?? 0
 
         return ProfileStatsSnapshot(
             totalClimbsCompleted: completedCount,

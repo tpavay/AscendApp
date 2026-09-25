@@ -117,13 +117,13 @@ struct GlobeViewModelTests {
         viewModel.selectPreview(climb, modelContext: modelContext)
         viewModel.prepareForBrowseEntry()
 
-        let region = try #require(viewModel.cameraPosition.region)
+        let camera = try #require(viewModel.cameraPosition.camera)
+        let overview = GlobeViewModel.defaultOverviewCamera
         #expect(viewModel.searchQuery.isEmpty)
         #expect(viewModel.previewSummary == nil)
-        #expect(region.center.latitude == 8.0)
-        #expect(region.center.longitude == -76.0)
-        #expect(region.span.latitudeDelta == 138.0)
-        #expect(region.span.longitudeDelta == 150.0)
+        #expect(camera.centerCoordinate.latitude == overview.centerCoordinate.latitude)
+        #expect(camera.centerCoordinate.longitude == overview.centerCoordinate.longitude)
+        #expect(camera.distance == overview.distance)
     }
 
     @Test
@@ -144,12 +144,12 @@ struct GlobeViewModelTests {
         viewModel.mapCameraDidChange(latitude: 12.34, longitude: 56.78)
         viewModel.dismissPreview()
 
-        let region = try #require(viewModel.cameraPosition.region)
+        let camera = try #require(viewModel.cameraPosition.camera)
+        let overview = GlobeViewModel.defaultOverviewCamera
         #expect(viewModel.previewSummary == nil)
-        #expect(region.center.latitude == 8.0)
-        #expect(region.center.longitude == -76.0)
-        #expect(region.span.latitudeDelta == 138.0)
-        #expect(region.span.longitudeDelta == 150.0)
+        #expect(camera.centerCoordinate.latitude == overview.centerCoordinate.latitude)
+        #expect(camera.centerCoordinate.longitude == overview.centerCoordinate.longitude)
+        #expect(camera.distance == overview.distance)
     }
 
     @Test
@@ -276,21 +276,7 @@ struct GlobeViewModelTests {
     }
 }
 
-private actor StaticLiveClimbCommunityStatsService: LiveClimbCommunityStatsServicing {
-    private let summary: LiveClimbCommunitySummary
-    private(set) var fetchCount = 0
-
-    init(summary: LiveClimbCommunitySummary) {
-        self.summary = summary
-    }
-
-    func fetchSummary() async throws -> LiveClimbCommunitySummary {
-        fetchCount += 1
-        return summary
-    }
-}
-
-private struct StaticClimbCatalogRepository: ClimbCatalogRepository {
+struct StaticClimbCatalogRepository: ClimbCatalogRepository {
     let climbs: [Climb]
 
     func loadInitialCatalog() throws -> ClimbCatalogSnapshot {

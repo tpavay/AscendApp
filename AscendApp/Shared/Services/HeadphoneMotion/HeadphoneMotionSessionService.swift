@@ -63,6 +63,7 @@ final class HeadphoneMotionSessionService {
     private var originalRecordingStartedAt: Date?
     private var resumedBaseDuration: TimeInterval = 0
     private var resumedBaseSampleCount = 0
+    private var rawCaptureResumeBase: HeadphoneMotionRawCaptureResumeBase?
     private var accumulatedPausedDuration: TimeInterval = 0
     private var pauseStartedAt: Date?
     private var lastMotionUpdateAt: Date?
@@ -165,6 +166,9 @@ final class HeadphoneMotionSessionService {
         originalRecordingStartedAt = resumeState?.startedAt ?? startedAt
         resumedBaseDuration = initialDuration
         resumedBaseSampleCount = initialSampleCount
+        rawCaptureResumeBase = resumeState.map {
+            HeadphoneMotionRawCaptureResumeBase(steps: $0.steps, sampleCount: $0.sampleCount)
+        }
         accumulatedPausedDuration = 0
         pauseStartedAt = nil
         lastMotionUpdateAt = nil
@@ -257,7 +261,8 @@ final class HeadphoneMotionSessionService {
                 sampleCount: finalSampleCount,
                 stopReason: sessionResult.stopReason,
                 trackingIntegrity: finalTrackingIntegrity,
-                stepCorrections: stepCorrections
+                stepCorrections: stepCorrections,
+                rawCapture: sessionResult.rawCapture?.resumed(from: rawCaptureResumeBase)
             )
             stepCount = result.steps
             sampleCount = result.sampleCount
@@ -269,6 +274,7 @@ final class HeadphoneMotionSessionService {
             originalRecordingStartedAt = nil
             resumedBaseDuration = 0
             resumedBaseSampleCount = 0
+            rawCaptureResumeBase = nil
             accumulatedPausedDuration = 0
             pauseStartedAt = nil
             lastMotionUpdateAt = nil
@@ -695,6 +701,9 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
     private var pausedAt: Date?
     private var accumulatedPausedDuration: TimeInterval = 0
     private var sampleCount = 0
+    /// Buffered on the same confined queue every sample and detection is already produced on,
+    /// so no additional synchronization is needed to keep it in sync with `detector`.
+    private var rawCaptureBuffer = HeadphoneMotionRawCaptureBuffer()
 
     func start(startedAt: Date) {
         detector.reset()
@@ -702,6 +711,7 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
         pausedAt = nil
         accumulatedPausedDuration = 0
         sampleCount = 0
+        rawCaptureBuffer.reset()
     }
 
     func pause(pausedAt: Date) {
@@ -742,6 +752,10 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
             motion: motion
         )
         let detection = detector.process(sample)
+        rawCaptureBuffer.recordSample(sample)
+        if let detection {
+            rawCaptureBuffer.recordDetection(detection)
+        }
 
         return HeadphoneMotionSessionUpdate(
             stepCount: detector.stepCount,
@@ -767,7 +781,8 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
             duration: max(0, endedAt.timeIntervalSince(startedAt) - accumulatedPausedDuration - activePausedDuration),
             steps: detector.stepCount,
             sampleCount: sampleCount,
-            stopReason: reason
+            stopReason: reason,
+            rawCapture: rawCaptureBuffer.snapshot()
         )
 
         self.startedAt = nil
@@ -775,6 +790,7 @@ private final class HeadphoneMotionSessionProcessor: @unchecked Sendable {
         accumulatedPausedDuration = 0
         sampleCount = 0
         detector.reset()
+        rawCaptureBuffer.reset()
 
         return .success(result)
     }

@@ -118,12 +118,21 @@ struct EmailPreferencesViewModelTests {
 
     @Test
     func concurrentLoadsReadTheServerOnce() async {
-        let service = StubEmailPreferencesService(storedConsent: .declined)
+        // Hold the first read open so the second provably arrives while it is
+        // in flight. Two bare `async let` loads against an instant stub only
+        // overlap by scheduling luck: when the first finishes before the
+        // second starts, a second read is correct and the test flaked.
+        let service = SuspendingEmailPreferencesService(storedConsent: .declined)
         let viewModel = EmailPreferencesViewModel(service: service)
 
+        await service.startSuspendingLoads()
         async let first: Void = viewModel.load()
-        async let second: Void = viewModel.load()
-        _ = await (first, second)
+        await service.waitForSuspendedLoad()
+
+        await viewModel.load()
+
+        await service.resumeSuspendedLoad(returning: .declined)
+        await first
 
         #expect(await service.loadCount == 1)
         #expect(viewModel.loadState == .ready)
@@ -341,6 +350,7 @@ private actor SuspendingEmailPreferencesService: EmailPreferencesProviding {
     private var isSuspendingLoads = false
     private var suspendedLoad: CheckedContinuation<LifecycleEmailConsent, Error>?
     private var loadObserver: CheckedContinuation<Void, Never>?
+    private(set) var loadCount = 0
 
     init(storedConsent: LifecycleEmailConsent) {
         self.storedConsent = storedConsent
@@ -369,6 +379,7 @@ private actor SuspendingEmailPreferencesService: EmailPreferencesProviding {
     }
 
     func loadConsent() async throws -> LifecycleEmailConsent {
+        loadCount += 1
         guard isSuspendingLoads else { return storedConsent }
 
         return try await withCheckedThrowingContinuation { continuation in

@@ -53,6 +53,9 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
 
     // MARK: - Home
 
+    case homeSheetExpanded = "home_sheet_expanded"
+    case homeTodayActivityList = "home_today_activity_list"
+    case homeClimbCard = "home_climb_card"
     case homeStartAction = "home_start_action"
     case justClimbSetup = "just_climb_setup"
     case dailyWorkoutDetail = "daily_workout_detail"
@@ -62,6 +65,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case workoutDetail = "workout_detail"
     case editWorkout = "edit_workout"
     case activeHeadphoneWorkoutRecovery = "active_headphone_workout_recovery"
+    case stepAccuracyCalibration = "step_accuracy_calibration"
 
     // MARK: - Progress
 
@@ -136,12 +140,16 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .climbBrowseHelp: "ClimbBrowseHelpSheet"
         case .compatibleHeadphonesHelp: "CompatibleHeadphonesHelpSheet"
         case .climbsCollection: "ClimbsCollectionView"
+        case .homeSheetExpanded: "HomeView"
+        case .homeTodayActivityList: "HomeTodayActivityListView"
+        case .homeClimbCard: "ClimbPreviewCardView"
         case .homeStartAction: "HomeStartActionSheet"
         case .justClimbSetup: "JustClimbSetupSheet"
         case .dailyWorkoutDetail: "DailyWorkoutDetailView"
         case .workoutDetail: "WorkoutDetailView"
         case .editWorkout: "EditWorkoutView"
         case .activeHeadphoneWorkoutRecovery: "ActiveHeadphoneWorkoutRecoveryView"
+        case .stepAccuracyCalibration: "StepAccuracyCalibrationPromptView"
         case .bestEfforts: "BestEffortsListView"
         case .bestEffortRecordDetail: "BestEffortRecordDetailView"
         case .routineDetail: "RoutineDetailView"

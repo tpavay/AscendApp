@@ -32,6 +32,12 @@ final class HomeDashboardViewModel {
     var workoutCount: Int = 0
     var isRankLoading = false
     var recentPersonalRecords: [HomeRecentPRRecord] = []
+    /// This week's climbs and steps for the sheet's collapsed line. Derived here, on
+    /// the same refresh as the records, from the array Home already holds, so Home's
+    /// body never walks the history and no refresh fetches every climb again.
+    var weekSummary: WeekActivitySummary?
+    /// Consecutive weeks with a climb, the same figure Profile shows.
+    var currentStreakWeeks: Int = 0
 
     private let leaderboardRepository: LeaderboardRepository
     private let leaderboardSessionCache: LeaderboardSessionCache
@@ -50,7 +56,14 @@ final class HomeDashboardViewModel {
         self.leaderboardService = leaderboardService
     }
 
-    func refreshLocalData(modelContext: ModelContext, referenceDate: Date = Date()) {
+    /// `workouts` is the array Home's `@Query` already materialises; the week summary,
+    /// the streak and the records derive from it rather than from a second fetch of
+    /// the whole store (ASCEND-IOS-1K). The count queries stay bounded store reads.
+    func refreshLocalData(
+        modelContext: ModelContext,
+        workouts: [Workout],
+        referenceDate: Date = Date()
+    ) {
         let completedClimbCount = Self.fetchCompletedClimbCount(modelContext: modelContext)
         if self.completedClimbCount != completedClimbCount {
             self.completedClimbCount = completedClimbCount
@@ -61,9 +74,26 @@ final class HomeDashboardViewModel {
             self.workoutCount = workoutCount
         }
 
-        let recentPRs = fetchRecentPersonalRecords(modelContext: modelContext, referenceDate: referenceDate)
+        let recentPRs = fetchRecentPersonalRecords(
+            modelContext: modelContext,
+            workouts: workouts,
+            referenceDate: referenceDate
+        )
         if self.recentPersonalRecords != recentPRs {
             self.recentPersonalRecords = recentPRs
+        }
+
+        let weekSummary = WeekActivitySummaryCalculator(
+            workouts: workouts,
+            firstWeekday: WeekConfiguration.mondayFirstWeekday
+        ).calculate(referenceDate: referenceDate)
+        if self.weekSummary != weekSummary {
+            self.weekSummary = weekSummary
+        }
+
+        let streak = Workout.calculateWeeklyStreak(from: workouts)
+        if currentStreakWeeks != streak {
+            currentStreakWeeks = streak
         }
     }
 
@@ -163,6 +193,7 @@ final class HomeDashboardViewModel {
 
     private func fetchRecentPersonalRecords(
         modelContext: ModelContext,
+        workouts: [Workout],
         referenceDate: Date
     ) -> [HomeRecentPRRecord] {
         let rankOne = 1
@@ -174,7 +205,6 @@ final class HomeDashboardViewModel {
 
         guard let entries = try? modelContext.fetch(entryDescriptor),
               !entries.isEmpty,
-              let workouts = try? modelContext.fetch(FetchDescriptor<Workout>()),
               !workouts.isEmpty else {
             return []
         }

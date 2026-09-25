@@ -320,6 +320,72 @@ export function createProgressReporter({
 }
 
 /**
+ * How a list of operations splits into commits: at most `batchSize` writes
+ * each, and at most `maxWeight` of whatever `weigh` measures.
+ *
+ * Operation count is not the only limit Firestore enforces. A commit of 360
+ * row updates, each carrying 65 `bestForGoals` keys, was refused with
+ * `INVALID_ARGUMENT: Transaction too big` although it was well under 500
+ * writes, because every array element fans out into its own index entries -
+ * and that refusal is not retryable, so the same commit is refused every time.
+ * A weight lets a caller budget what actually costs.
+ *
+ * One operation heavier than the whole budget is still committed, alone,
+ * rather than dropped: the budget is a margin, not a proof of refusal, and a
+ * caller that needs to know can find such a commit in this plan before writing.
+ * `createBatchWriter` splits with this same rule, so this is also exactly how
+ * a writer given the same options will commit.
+ * @param {T[]} operations Operations in commit order.
+ * @param {object} [options] Split settings.
+ * @param {number} [options.batchSize] Writes per commit, capped at `MAX_BATCH_WRITES`.
+ * @param {number} [options.maxWeight] Weight per commit.
+ * @param {(operation: T) => number} [options.weigh] Weight of one operation.
+ * @return {{operations: T[], weight: number}[]} Commits in order.
+ * @template T
+ */
+export function planCommits(operations, {
+  batchSize = MAX_BATCH_WRITES,
+  maxWeight = Infinity,
+  weigh = () => 0,
+} = {}) {
+  const commits = [];
+  const splitter = createCommitSplitter({batchSize, maxWeight, weigh}, (chunk, weight) => {
+    commits.push({operations: chunk, weight});
+  });
+  for (const operation of operations) {
+    splitter.add(operation);
+  }
+  splitter.close();
+  return commits;
+}
+
+function createCommitSplitter({batchSize, maxWeight, weigh}, emit) {
+  const size = Math.max(1, Math.min(batchSize, MAX_BATCH_WRITES));
+  let pending = [];
+  let pendingWeight = 0;
+
+  const close = () => {
+    if (pending.length === 0) return;
+    const chunk = pending;
+    const weight = pendingWeight;
+    pending = [];
+    pendingWeight = 0;
+    emit(chunk, weight);
+  };
+
+  return {
+    add(operation) {
+      const weight = weigh(operation);
+      if (pendingWeight + weight > maxWeight) close();
+      pending.push(operation);
+      pendingWeight += weight;
+      if (pending.length >= size || pendingWeight >= maxWeight) close();
+    },
+    close,
+  };
+}
+
+/**
  * A write queue that commits `db.batch()` chunks through a worker pool.
  *
  * Deliberately not `db.bulkWriter()` - see this module's header. Operations are
@@ -329,6 +395,8 @@ export function createProgressReporter({
  * @param {object} [options] Queue settings.
  * @param {number} [options.concurrency] Commits in flight.
  * @param {number} [options.batchSize] Writes per commit.
+ * @param {number} [options.maxWeight] Weight per commit; see `planCommits`.
+ * @param {(operation: object) => number} [options.weigh] Weight of one operation.
  * @param {number} [options.timeoutMs] Per-commit deadline.
  * @param {number} [options.attempts] Attempts per commit.
  * @param {object} [options.progress] Progress reporter to advance.
@@ -337,14 +405,17 @@ export function createProgressReporter({
 export function createBatchWriter(db, {
   concurrency = DEFAULT_WRITE_CONCURRENCY,
   batchSize = MAX_BATCH_WRITES,
+  maxWeight = Infinity,
+  weigh = () => 0,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   attempts = DEFAULT_ATTEMPTS,
   progress = null,
 } = {}) {
-  const size = Math.max(1, Math.min(batchSize, MAX_BATCH_WRITES));
-  let pending = [];
   let inFlight = [];
   let queued = 0;
+  const splitter = createCommitSplitter({batchSize, maxWeight, weigh}, (chunk) => {
+    inFlight.push(chunk);
+  });
 
   const commit = async (operations) => {
     progress?.assertAlive();
@@ -377,11 +448,7 @@ export function createBatchWriter(db, {
 
   const enqueue = (operation) => {
     queued += 1;
-    pending.push(operation);
-    if (pending.length >= size) {
-      inFlight.push(pending);
-      pending = [];
-    }
+    splitter.add(operation);
   };
 
   return {
@@ -416,10 +483,7 @@ export function createBatchWriter(db, {
      * @return {Promise<void>} Resolves once every buffered write has committed.
      */
     async flush() {
-      if (pending.length > 0) {
-        inFlight.push(pending);
-        pending = [];
-      }
+      splitter.close();
       await drainInFlight();
     },
     /**

@@ -168,12 +168,8 @@ struct ModeratedReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let deltaFromUser: Int
     let isCurrentUser: Bool
     /// The viewer's attempt in progress, as opposed to every completion of
-    /// theirs the board already carries. Both are `isCurrentUser`.
+    /// theirs the static board carries. Both are `isCurrentUser`.
     let isLiveAttempt: Bool
-    /// Mirrors `LiveReplayLeaderboardRow.isViewerGhost` by construction rather
-    /// than re-deriving it, so the rule for which rows carry no rank has one
-    /// definition.
-    let isViewerGhost: Bool
     let isPersonalBest: Bool
     let completionDurationSeconds: TimeInterval?
     let userId: String?
@@ -194,7 +190,6 @@ struct ModeratedReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         deltaFromUser = source.deltaFromUser
         isCurrentUser = source.isCurrentUser
         isLiveAttempt = source.isLiveAttempt
-        isViewerGhost = source.isViewerGhost
         isPersonalBest = source.isPersonalBest
         completionDurationSeconds = source.completionDurationSeconds
         userId = source.userId
@@ -234,6 +229,43 @@ struct ModeratedReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         default:
             return nil
         }
+    }
+}
+
+/// Renderer input for one row of Home's ON THE GLOBE TODAY list.
+///
+/// The raw `HomeTodayActivityRow` cannot reach a view: it crosses
+/// `CrossUserIdentityAdapter.homeTodayRow`, the only place that can build this.
+struct ModeratedHomeTodayActivityRow: Identifiable, Equatable, Sendable {
+    let id: String
+    let identity: ResolvedUserIdentity
+    let userId: String
+    let kind: HomeTodayActivityKind
+    let climbId: String?
+    let routineTemplateId: String?
+    let steps: Int
+    let durationSeconds: TimeInterval
+    let completedAt: Date
+    let publishedAt: Date
+    let justClimbGoal: JustClimbGoal?
+    let isCurrentUser: Bool
+
+    fileprivate init(
+        source: HomeTodayActivityRow,
+        identity: ResolvedUserIdentity
+    ) {
+        id = source.id
+        self.identity = identity
+        userId = source.userId
+        kind = source.kind
+        climbId = source.climbId
+        routineTemplateId = source.routineTemplateId
+        steps = source.steps
+        durationSeconds = source.durationSeconds
+        completedAt = source.completedAt
+        publishedAt = source.publishedAt
+        justClimbGoal = source.justClimbGoal
+        isCurrentUser = source.isCurrentUser
     }
 }
 
@@ -317,6 +349,25 @@ enum CrossUserIdentityAdapter {
             isBlockListHydrated: isBlockListHydrated
         )
         return ModeratedReplayLeaderboardRow(source: row, identity: identity)
+    }
+
+    static func homeTodayRow(
+        _ row: HomeTodayActivityRow,
+        blockedUserIds: Set<String>,
+        isBlockListHydrated: Bool
+    ) -> ModeratedHomeTodayActivityRow {
+        let publicIdentity = row.unresolvedIdentity.publicPresentation(
+            userId: row.userId,
+            isCurrentUser: row.isCurrentUser
+        )
+        let identity = resolve(
+            userId: row.userId,
+            publicIdentity: publicIdentity,
+            isCurrentUser: row.isCurrentUser,
+            blockedUserIds: blockedUserIds,
+            isBlockListHydrated: isBlockListHydrated
+        )
+        return ModeratedHomeTodayActivityRow(source: row, identity: identity)
     }
 
     static func firstAscent(

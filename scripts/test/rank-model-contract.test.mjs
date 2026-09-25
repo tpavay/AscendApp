@@ -332,6 +332,31 @@ const STATEMENT_ANCHORS = [
     symbol: "theMarkerReportsAPositionAndNothingElse",
   },
   {
+    statement: 1,
+    file: "AscendAppTests/LiveReplayRaceGoalTests.swift",
+    symbol: "aPreviousBestIsNeverRenderedAsARowOnAnyBoard",
+  },
+  {
+    statement: 1,
+    file: "AscendAppTests/LiveReplayRaceGoalTests.swift",
+    symbol: "everyGoalKeyIsSpelledTheWayTheServerWritesIt",
+  },
+  {
+    statement: 1,
+    file: "functions/test/liveReplayRaceBest.test.ts",
+    symbol: "with no goal the marker's source is the most-steps climb",
+  },
+  {
+    statement: 1,
+    file: "functions/test/liveReplayRaceBest.test.ts",
+    symbol: "with a step goal a longer climb counts through its split",
+  },
+  {
+    statement: 1,
+    file: "functions/test/liveReplayRaceBest.test.ts",
+    symbol: "with a duration goal a climb that ended earlier counts at its final steps",
+  },
+  {
     statement: 2,
     file: "functions/test/liveReplayLeaderboard.test.ts",
     symbol: "counts a repeat rival once on a board that races climbers",

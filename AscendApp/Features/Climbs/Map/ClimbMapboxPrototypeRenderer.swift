@@ -25,8 +25,9 @@ struct ClimbMapboxPrototypeRenderer: View {
                     Button {
                         select(landmark.climb)
                     } label: {
-                        ClimbPinView(
+                        ClimbMarkerView(
                             climb: landmark.climb,
+                            completedClimberCount: landmark.completedClimberCount,
                             isCompleted: landmark.state == .completed,
                             isHighlighted: isHighlighted(landmark)
                         )

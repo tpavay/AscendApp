@@ -418,12 +418,12 @@ private struct LiveReplayLeaderboardRowView: View {
         }
     }
 
-    /// The viewer's own earlier completion holds no placing, so its cell draws
-    /// nothing at all, and neither does any row on a board with no leaderboard
-    /// placing to state. `--` still stands for a rank that could not be
-    /// resolved, which is a different statement and has to keep reading as one.
+    /// No row draws a rank cell on a board with no leaderboard placing to
+    /// state. `--` stands for a rank that could not be resolved. The viewer's
+    /// own earlier completion never reaches this panel as a row - it is the
+    /// `BEST` marker inside their live row - so nothing here has to withdraw one.
     private var rankLabel: String? {
-        guard showsLeaderboardRank, !row.isViewerGhost else { return nil }
+        guard showsLeaderboardRank else { return nil }
         return row.rank.map(String.init) ?? "--"
     }
 

@@ -31,12 +31,13 @@ Both facts point at the same habit: **bump the version in the pull request, not 
 | Fixes, copy, tuning, no new user-visible capability | patch: `1.0` to `1.0.1` |
 | A new feature users can see and use | minor: `1.0.1` to `1.1` |
 
-`1.1` is spoken for.
-`docs/heart-rate-zones-plan.md` reserves it for the release that embeds the watch app, and `deploy-production.yml` refers to "the 1.1 release" in the same sense.
-Do not spend `1.1` on something else without moving that plan first.
+`1.2` is spoken for.
+`docs/heart-rate-zones-plan.md` reserves it for the release that embeds the watch app, and `deploy-production.yml` refers to "the 1.2 release" in the same sense.
+Do not spend `1.2` on something else without moving that plan first.
+`1.1` was reserved the same way until the release after `1.0.1` needed a minor version of its own, and the watch release moved to `1.2`.
 
 Apple accepts one to three numeric components.
-`SemanticAppVersion` compares missing components as zero, so `1.0.1` sorts above `1.0` and below `1.1`, and the Remote Config version thresholds in `remoteconfig.template.json` keep working across the change.
+`SemanticAppVersion` compares missing components as zero, so `1.0.1` sorts above `1.0` and below `1.1`, and `1.1` equals `1.1.0`, so the Remote Config version thresholds in `remoteconfig.template.json` keep working across the change and a `1.1` build is never nudged toward a `1.1.0` recommendation.
 
 ## What is automatic, and what is not
 

@@ -49,6 +49,13 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// the retry window without anyone asking for it.
     case appleHealthEnrichment = "apple_health_enrichment_enabled"
 
+    /// Uploading a badly-miscounted climb's raw headphone-motion capture to Storage for step
+    /// algorithm debugging. Unlike every other switch, a blocked upload has nothing to defer: the
+    /// capture only ever lives in memory until calibration, so a climb it blocks is simply not
+    /// uploaded - exactly as if the retention trigger had not fired - and is never queued for
+    /// later.
+    case stepAccuracyRawCaptureUpload = "step_accuracy_raw_capture_upload_enabled"
+
     /// One-shot local backfills that rewrite existing SwiftData rows in bulk.
     case localDataMigrations = "local_data_migrations_enabled"
 
@@ -90,6 +97,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Restores routine backups into local storage on sign-in and reinstall."
         case .appleHealthEnrichment:
             return "Reads Apple Health and writes heart rate and calories onto recorded climbs."
+        case .stepAccuracyRawCaptureUpload:
+            return "Uploads raw headphone-motion captures of badly-miscounted climbs for debugging."
         case .localDataMigrations:
             return "Runs one-shot local backfills that rewrite stored workouts."
         case .publicProfilePublishing:

@@ -21,10 +21,10 @@ The failures all land on the seam between two surfaces rather than inside one, s
 
 ### 1. During a climb
 
-On a tower (`live_climb`) and on a routine template (`routine_template`), the board shows **one row per unique climber, at that climber's best time**.
+On a tower (`live_climb`), a routine template (`routine_template`), an open Just Climb, and a plain routine, the board shows **one row per unique climber, at that climber's best time**.
 Never one row per attempt.
 You are one of those climbers, and your row is ranked like anyone else's.
-An open Just Climb and a plain routine draw every completed attempt as its own row instead, and their rank sentence still counts unique climbers - that is the row-versus-rank seam below.
+This is one mechanism across all four context types since the captain's 2026-09-02 best-per-climber ruling (`isBestForUser` is written and filtered on unconditionally); only the static Climb Detail board (statement 4) still draws every completed attempt as its own row.
 
 **Your row shows your current run** - the live time and the current steps of the climb happening right now.
 
@@ -35,6 +35,21 @@ You are counted once, as yourself.
 
 The marker's source is your **best** previous climb across all previous attempts, never your most recent.
 What you are chasing is your best, which is why the word on it is `BEST`.
+
+**On a Just Climb, "best" follows the goal you set for this session.**
+Settled by the captain on 2026-09-22, after production 1.0.1 drew his 149-step Charminar climb - his shortest session, which the collapse had picked on the board's duration metric - as his marker.
+With no goal, your previous best is your most steps, all time: a history of 149, 390 and 1,776 is 1,776.
+With a step goal, it is your fastest time to reach that count across every previous climb, and a longer climb counts through its split at that count - a 5,000-step climb's time to 3,000 can be your fastest to 3,000.
+With a duration goal, it is the most steps you had reached within that duration across every previous climb, and a climb that ended before the duration counts at its final steps.
+"Previous climbs" is every climb published to the global Just Climb board, of every context type - the captain named his CN Tower live climb as his best - and a rival's single row is chosen by the same rule, so a goal session still races one row per climber, on the run that is each climber's best *for that goal*.
+A step count nobody has reached has no previous best and no rival row for that climber, exactly as a tower shows only its finishers.
+The three goal kinds are the whole space: the setup sheet offers no goal, a step count in hundreds from 100 to 20,000, and a duration in five-minute steps from 5 to 180 minutes, and nothing else.
+The mechanism is the server's and lives with the replay machinery in `ascend-live-climbs`: `isBestForUser` carries the no-goal answer on every board, and a Just Climb entry also carries `bestForGoals`, every goal key its attempt wins, derived in `functions/src/liveReplayRaceBest.ts`, mirrored by `LiveReplayRaceGoal` on the client and by `scripts/lib/live-replay-race-best.mjs` in the seeds, all three pinned by `SharedTestVectors/live-replay-race-best-vector.json`.
+This is the race best, not the ranking metric: a Just Climb's frozen and recomputed standings still count on the clock (`rankingMetric`), and moving them is a separate decision this ruling did not make.
+
+**And it is never a row, on any board.**
+A 2026-09-02 reading let the previous best keep a row of its own beneath the live one, wearing `YOU` and no rank cell; the captain saw that second row on production on 2026-09-22 and it is superseded.
+The live window withdraws the climber's own earlier completion from the rows it renders (`LiveReplayLeaderboardWindow.locallyRankedRows`) on every context type; it still takes part in the arithmetic that keeps the rank exact, and the marker is its only representation.
 
 ### 2. The summary right after you finish
 
@@ -74,13 +89,15 @@ If a field size moves when your own previous best appears, it counted you twice.
 
 **A rank sentence versus the rows a board draws.**
 These are different questions, and the answers are allowed to differ on one screen.
-An open Just Climb has no target and a plain routine ranks on steps, so both draw every completed attempt as its own row and race it as its own opponent.
-The rank sentence beside those rows still counts **unique climbers on both halves**: a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
+Live, this seam is closed: since the captain's 2026-09-02 best-per-climber ruling, an open Just Climb and a plain routine draw one row per climber like every other board, so the rows and the rank sentence agree.
+The seam persists between the static Climb Detail board (statement 4) and the finish summary for the same climb.
+Climb Detail draws every completed attempt as its own row, ranks those rows as attempts, and counts completions in its field-size line (`N COMPLETIONS`); it renders no unique-climber rank sentence.
+The finish summary's recomputed standing for that same climb counts **unique climbers on both halves** (`recomputedFieldPopulation`, `countFinishersBetterThan`): a tower with 41 finishes from 16 climbers, where 5 distinct climbers beat you, reads `6TH OF 16`.
 Never `13TH OF 16`, and never `13TH OF 41`.
 Settled by the captain on 2026-09-02.
 `LiveReplayLeaderboardContextType.recomputedFieldPopulation` is `.climbers` unconditionally, on every context type, with no `collapsesRepeatFinishers` branch - folding it into that predicate would change the server's frozen-standing meaning by implication, which is why it is kept separate.
 
-**The field-size line and the server's frozen stamp count the board's own population instead - Option A, scoped to boards that collapse repeats.** Settled by the captain on 2026-09-06, closing the `key=live-board-attempt-board-denominator` escalation for good. `LiveReplayLeaderboardContextType.fieldPopulation` is `.climbers` only where `collapsesRepeatFinishers` is true (`live_climb`, `routine_template`); on `just_climb` and `routine`, which draw every attempt as its own row, it stays `.completions` - matching the rows actually on screen rather than a population the board did not draw. `frozenCompletionStanding` in `functions/src/liveReplayLeaderboard.ts` mirrors this exactly: `population` is `input.completedCount` where the payload collapses repeats, else `input.reading.attemptCount`. This is the final form, not a transitional one - do not describe the attempt-counting branch as superseded.
+**The field-size line and the server's frozen stamp count the board's own population instead - Option A, scoped to boards that collapse repeats.** Settled by the captain on 2026-09-06, closing the `key=live-board-attempt-board-denominator` escalation for good. `LiveReplayLeaderboardContextType.fieldPopulation` is `.climbers` only where `collapsesRepeatFinishers` is true (`live_climb`, `routine_template`); on `just_climb` and `routine` it stays `.completions`. Those boards draw one row per climber like every other live board, with a climber's previous best as the `BEST` marker inside their own row; `.completions` is scoped to the frozen/stamped field-size population only - the attempt count the server freezes with a standing - and says nothing about the rows the board draws. `frozenCompletionStanding` in `functions/src/liveReplayLeaderboard.ts` mirrors this exactly: `population` is `input.completedCount` where the payload collapses repeats, else `input.reading.attemptCount`. This is the final form, not a transitional one - do not describe the attempt-counting branch as superseded.
 
 **One card, two bases, two nouns, and that is intentional.** `LiveClimbSummaryRankHero.fieldPopulation(on:)` reads `recomputedFieldPopulation` (always climbers) for a `.current` standing and `fieldPopulation` (Option A) for `.atCompletion` / `.liveSession`. The captain's "the saved card has to match the live one" instruction (`key=climbers-noun-vs-frozen-basis`, option (a)) was scoped to the recomputed basis only - the frozen stamp keeps the board's own population. That is why a `just_climb` summary can read `CLIMBERS` while the standing is still live-recomputed, then `COMPLETIONS` once the server's frozen stamp lands - both are true statements about different moments, not drift.
 
@@ -115,6 +132,8 @@ Each statement has a test behind it, or a gap named here.
 1. During a climb - `AscendAppTests/LiveReplayFieldPopulationTests.onlyPerClimbAndPerTemplateContextsCollapseRepeats` for the one-row-per-climber board.
    `AscendAppTests/LiveReplayPreviousBestMarkerTests.theClimbersOwnBestIsNotCountedAsAClimberAheadOfThem` holds the half that keeps your previous best out of the rank and the field size.
    `AscendAppTests/LiveReplayPreviousBestMarkerTests.theMarkerReportsAPositionAndNothingElse` holds the rest, that the marker carries a position and no step count, time or gap sentence.
+   `AscendAppTests/LiveReplayRaceGoalTests.aPreviousBestIsNeverRenderedAsARowOnAnyBoard` holds that the previous best is never a rendered row, parameterized over every context type.
+   The three Just Climb rules are held on the server, where the choice is made: `functions/test/liveReplayRaceBest.test.ts` "with no goal the marker's source is the most-steps climb", "with a step goal a longer climb counts through its split" and "with a duration goal a climb that ended earlier counts at its final steps" - and `AscendAppTests/LiveReplayRaceGoalTests.everyGoalKeyIsSpelledTheWayTheServerWritesIt` holds the client to the keys the server writes.
 2. The summary right after you finish - `functions/test/liveReplayLeaderboard.test.ts`, "counts a repeat rival once on a board that races climbers" and "keeps a first finisher at first of one".
 3. Reopened later - `AscendAppTests/CompletedClimbRankFreezeTests.aLaterServerReadNeverMovesAnAlreadyFrozenRank`, and on the share card `AscendAppTests/SavedClimbShareRankTests.aStoredFrozenStandingReachesTheSavedClimbShareCardWithoutARequest`.
 4. Climb detail - two anchors that cover different things, and neither covers the whole statement.

@@ -49,7 +49,8 @@ The two missing Live Replay indexes are both collection-scoped `entries` indexes
 The current query filters every live race with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
-Current `develop` declares 20 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index, and four more collection-scoped `entries` indexes for the live window's finished-attempt and own-history reads: `isBestForUser + finalSteps + splitBucketCount` in both directions, `userId + stepsAtBucket`, and `userId + finalSteps + splitBucketCount`.
+Current `develop` declares 25 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index, four more collection-scoped `entries` indexes for the live window's finished-attempt and own-history reads: `isBestForUser + finalSteps + splitBucketCount` in both directions, `userId + stepsAtBucket`, and `userId + finalSteps + splitBucketCount` - and five more collection-scoped `entries` indexes behind `bestForGoals` (`array-contains`) for a Just Climb run against a goal: `bestForGoals + stepsAtBucket` in both directions, `bestForGoals + finalSteps + splitBucketCount` in both directions, and `bestForGoals + userId` for the climber's own goal row.
+Every `bestForGoals` index mirrors an `isBestForUser` window read exactly, because the goal-aware window is the same query with one different equality (`ascend-live-climbs`).
 It also declares six field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, and `_revenuecat_analytics_outbox.retainUntil`.
 The first four carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
 The two `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger and the analytics outbox.
@@ -98,15 +99,32 @@ gh-axi secret list
 gh-axi variable list
 ```
 
-The captain-only replay check is:
+The race-best backfill is a required step of the release that ships the goal-aware Just Climb rule (captain, 2026-09-22: a one-time script run with the deploy, never a recurring job), in this order:
+
+1. Deploy the Firestore indexes and the Cloud Functions, and wait for every `bestForGoals` index to report `READY`.
+2. Run the script on staging, then verify one known climber's flagged row is their most steps (`--dry-run` first; a second run must report `Nothing to write`):
 
 ```sh
-node scripts/backfill-live-replay-best-per-user.mjs --project prod --dry-run
+node scripts/backfill-live-replay-best-per-user.mjs --env staging --dry-run
+node scripts/backfill-live-replay-best-per-user.mjs --env staging
+node scripts/firestore-query.mjs get live_replay_leaderboards/just_climb__global/splitBuckets/0/entries/<workoutId> --env staging
 ```
 
-Do not use `--confirm-production` for this preflight.
-If the dry-run reports writes, stop and prepare a separate migration review before deploying the binary.
-The release that first ships the every-board `isBestForUser` collapse is that reviewed migration rather than an anomaly - its ordering (Functions, then this backfill in every environment, then the binary) is owned by `ascend-live-climbs`, and a binary shipped ahead of it renders every board whose rows predate the flag empty.
+3. Run it on production the same way, dry run first, and verify the captain's flagged row is his most steps rather than his shortest climb:
+
+```sh
+node scripts/backfill-live-replay-best-per-user.mjs --env prod --confirm-production ascend-prod-9c8f2 --dry-run
+node scripts/backfill-live-replay-best-per-user.mjs --env prod --confirm-production ascend-prod-9c8f2
+```
+
+4. Ship the iOS build after both runs report no skipped climbers.
+
+The script is idempotent and never stops on one climber: a climber whose entries could not be read or written is logged as it fails, named again in the summary, and the exit code is 1, so re-run until the summary reports `no climber skipped`.
+Each board prints a progress line every two seconds, so a long staging run is never silent.
+A climber's writes are split into commits under a `bestForGoals` element budget (`scripts/lib/race-goal-commit-budget.mjs`), because Firestore refuses a commit with too many array elements as `Transaction too big` however few writes it holds; each board's `commits:` line shows its largest commit against that budget.
+A dry run that plans any commit over the budget names that climber under `Over the goal-key budget` and exits 1, so a clean dry run is evidence the write run's commits fit.
+A binary shipped ahead of the script renders a Just Climb run against a goal over an empty field, because the goal keys it filters on are what the script writes - the ordering (indexes and Functions, the script on every environment, then the binary) is owned by `ascend-live-climbs`.
+Measured on production (`ascend-prod-9c8f2`) on 2026-09-22, before the script ran: `just_climb__global` held 12 bucket-zero entries from 4 climbers over 234 buckets, only 5 entries carried any `isBestForUser`, none carried `bestForGoals`, and the captain's one flagged row was his shortest climb rather than his most steps - which is the defect the script corrects.
 
 ### Public identity backfill
 
@@ -186,7 +204,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 ```
 
 Verify the deployment does not request deletion of an unexpected index.
-Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all six field overrides, to become usable:
+Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions, every `bestForGoals` index, and all six field overrides, to become usable:
 
 ```sh
 firebase_bin="$(npm exec --yes --package=firebase-tools@15.22.1 -- which firebase)"

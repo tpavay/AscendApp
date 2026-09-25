@@ -11,11 +11,13 @@ import Testing
 /// tappable, and it is never counted - not in the rank, not in the field size.
 /// Every comparison number that earlier drafts carried is deleted.
 ///
-/// He then settled on 2026-09-02 that the completion also keeps its own row, with
-/// `YOU` on it and no rank cell, matching the static board he called correct.
-/// What has never moved is the arithmetic pinned here: a climber is never seated
-/// behind themselves, and their own ghost is never one of the rivals the rank
-/// counts.
+/// A 2026-09-02 reading briefly gave the completion its own row as well, with
+/// `YOU` on it and no rank cell. On 2026-09-22 the captain saw that second row
+/// on production - his 149-step climb drawn beneath his live one - and settled
+/// it for good: the previous best is the marker and never a row, on every
+/// board. What has never moved is the arithmetic pinned here: a climber is
+/// never seated behind themselves, and their own ghost is never one of the
+/// rivals the rank counts.
 ///
 /// Before this, `parseRow` marked nobody as the current user, so a repeat
 /// climber's own best rendered as a stranger wearing their name, was ranked as a
@@ -34,8 +36,8 @@ struct LiveReplayPreviousBestMarkerTests {
     ///
     /// The rank arrives with that completion already withdrawn - the repository
     /// takes it out of the server's own count, so the number is exact rather than
-    /// a function of which rows the page happened to hold. The ghost still stands
-    /// beside the run chasing it; it just holds no placing.
+    /// a function of which rows the page happened to hold. The ghost is not drawn
+    /// beside the run chasing it; it reaches the screen only as the marker.
     @Test
     func aSoloRepeatRacesTheirOwnBestWithoutBeingRankedBehindIt() {
         let window = makeWindow(
@@ -46,9 +48,10 @@ struct LiveReplayPreviousBestMarkerTests {
 
         let rows = window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
 
-        #expect(rows.map(\.id) == ["own-best", "current-user"])
-        #expect(rows.first(where: \.isViewerGhost)?.rank == nil)
+        #expect(rows.map(\.id) == ["current-user"])
+        #expect(rows.contains(where: \.isViewerGhost) == false)
         #expect(rows.first(where: \.isLiveAttempt)?.rank == 1)
+        #expect(window.previousBestStepsAtBucket(currentElapsedSeconds: 300) == 414)
     }
 
     /// The rank the Just Me tab's `CURRENT RANK` card reads. It used to say `#2`
@@ -66,8 +69,8 @@ struct LiveReplayPreviousBestMarkerTests {
 
         let rows = window.locallyRankedRows(currentSteps: 347, currentElapsedSeconds: 300)
 
-        #expect(rows.map(\.id) == ["rival", "own-best", "current-user"])
-        #expect(rows.first(where: \.isViewerGhost)?.rank == nil)
+        #expect(rows.map(\.id) == ["rival", "current-user"])
+        #expect(rows.contains(where: \.isViewerGhost) == false)
         #expect(rows.first(where: \.isLiveAttempt)?.rank == 2)
     }
 
@@ -107,8 +110,8 @@ struct LiveReplayPreviousBestMarkerTests {
 
         let rows = window.locallyRankedRows(currentSteps: 430, currentElapsedSeconds: 300)
 
-        #expect(rows.map(\.id) == ["rival", "current-user", "own-best"])
-        #expect(rows.first(where: \.isViewerGhost)?.rank == nil)
+        #expect(rows.map(\.id) == ["rival", "current-user"])
+        #expect(rows.contains(where: \.isViewerGhost) == false)
         #expect(rows.first(where: \.isLiveAttempt)?.rank == 2)
     }
 

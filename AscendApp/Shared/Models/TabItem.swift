@@ -31,6 +31,10 @@ final class TabRouter {
 
     private(set) var selectionReason: TabSelectionReason = .appLaunch
 
+    /// A catalog routine another surface asked Training to open. Training consumes it
+    /// once mounted, so a request survives the tab switch that delivers it.
+    private(set) var requestedRoutineTemplateId: String?
+
     /// Re-selecting the tab already showing is not an entry, so it leaves the
     /// standing attribution alone: SwiftUI echoing a selection binding back must
     /// not downgrade the entry that put the climber there.
@@ -38,6 +42,18 @@ final class TabRouter {
         guard tab != selectedTab else { return }
         selectionReason = reason
         selectedTab = tab
+    }
+
+    /// Sends the climber to Training with a catalog routine to open.
+    func openRoutineTemplate(_ templateId: String) {
+        requestedRoutineTemplateId = templateId
+        select(.training, reason: .appRouting)
+    }
+
+    /// The pending routine request, cleared on read so it opens exactly once.
+    func consumeRequestedRoutineTemplateId() -> String? {
+        defer { requestedRoutineTemplateId = nil }
+        return requestedRoutineTemplateId
     }
 }
 

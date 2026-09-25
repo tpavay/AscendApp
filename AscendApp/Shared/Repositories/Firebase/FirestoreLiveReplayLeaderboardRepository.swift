@@ -77,6 +77,27 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     private init() {}
 
+    func fetchLiveClimbCompletedClimberCounts() async throws -> [String: Int] {
+        // `contextType` is a single-field equality, served by Firestore's automatic
+        // index, so no composite index is needed.
+        let snapshot = try await db
+            .collection("live_replay_leaderboards")
+            .whereField("contextType", isEqualTo: LiveReplayLeaderboardContextType.liveClimb.rawValue)
+            .getDocuments(source: .server)
+
+        var counts: [String: Int] = [:]
+        for document in snapshot.documents {
+            let data = document.data()
+            guard let climbId = stringValue(for: "contextId", in: data), !climbId.isEmpty else { continue }
+            let completedCount = intValue(for: "completedCount", in: data) ?? 0
+            // A board whose First Ascent is claimed has at least one finisher, whatever
+            // its counter says while it is still being derived.
+            let hasFirstAscent = !(stringValue(for: "firstAscentUserId", in: data) ?? "").isEmpty
+            counts[climbId] = max(completedCount, hasFirstAscent ? 1 : 0)
+        }
+        return counts
+    }
+
     func fetchSummary(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary {
@@ -799,7 +820,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         bucketIndex: Int,
         currentSteps: Int
     ) async -> LiveReplayLeaderboardRow? {
-        let key = "\(userId)|\(context.contextKey)|\(max(bucketIndex, 0))"
+        let key = "\(userId)|\(context.contextKey)|\(context.raceGoal.cacheKey)|\(max(bucketIndex, 0))"
         if let cached = ownPreviousCompletionCache.withLock({ $0 }), cached.key == key {
             return cached.row?.rebased(currentSteps: currentSteps)
         }
@@ -883,11 +904,14 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         return count
     }
 
+    /// Keyed on the goal as well as the board: the flagged row a session reads
+    /// is the climber's best *for that goal*, so a second session on the same
+    /// board under a different goal must not inherit the first one's answer.
     private static func ownHistoryKey(
         userId: String,
         context: LiveReplayLeaderboardContext
     ) -> String {
-        "\(userId)|\(context.contextKey)"
+        "\(userId)|\(context.contextKey)|\(context.raceGoal.cacheKey)"
     }
 
     private func rememberOwnHistory(key: String, _ fact: OwnHistoryFact) {
@@ -1862,12 +1886,26 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int
     ) -> Query {
+        let entries = entriesCollection(context: context, bucketIndex: bucketIndex)
+
         // Every context type carries the flag now, so one mechanism collapses
         // the race on all three board types rather than one of them behaving
         // differently for want of a field. It also stops a repeat climber's own
         // earlier attempts lining up against them as separate racers.
-        entriesCollection(context: context, bucketIndex: bucketIndex)
-            .whereField("isBestForUser", isEqualTo: true)
+        //
+        // A Just Climb run against a goal reads the goal-keyed flag instead:
+        // the server writes onto every Just Climb entry the goal keys its
+        // attempt is that climber's best under (`LiveReplayRaceGoal`), so the
+        // same one-row-per-climber field is drawn from the run that is best
+        // *for this goal* - the fastest to a step target, the most steps within
+        // a duration. Same collection, same window shape, one different
+        // equality; the composite indexes for it are declared beside the
+        // `isBestForUser` ones.
+        guard let goalKey = context.raceGoal.entryFilterKey else {
+            return entries.whereField("isBestForUser", isEqualTo: true)
+        }
+
+        return entries.whereField("bestForGoals", arrayContains: goalKey)
     }
 
     /// One document per climber who has completed on this board, on every

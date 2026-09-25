@@ -52,6 +52,13 @@ struct ShareComposerView: View {
     private let shareTitle: String
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
     private static let storyAspectRatio = ShareCardFormat.aspectRatio
+    /// `bottomBar`'s own content height (its buttons plus its own top/bottom
+    /// padding) — shared with `canvasRegion` so the add-pill/wordmark stack can
+    /// sit clear above the floating action bar instead of behind it. Excludes
+    /// the bottom safe-area inset on purpose: `bottomBar` and the canvas are
+    /// siblings in the same bottom-aligned `ZStack`, both already laid out
+    /// within the safe area, so their shared bottom edge already accounts for it.
+    private static let bottomBarContentHeight: CGFloat = 70
 
     /// - Parameters:
     ///   - climbRank: The standing this climb's card asserts, and `climbRankTotal` the field it was
@@ -416,7 +423,7 @@ struct ShareComposerView: View {
     // MARK: - Composer canvas
 
     private var composer: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             canvasRegion
             bottomBar
         }
@@ -424,9 +431,15 @@ struct ShareComposerView: View {
         .ignoresSafeArea(edges: .top)
     }
 
-    /// The shareable photo region — everything that gets exported. The action
-    /// bar lives *below* this (in `bottomBar`) so controls never overlap the
-    /// image, matching the Aura layout.
+    /// The shareable photo region — everything that gets exported. `bottomBar`
+    /// floats over its bottom edge (the Instagram/TikTok Story-editor model)
+    /// rather than reserving its own row below it: reserving space is what let
+    /// the canvas fit narrower than the screen on every device, since the
+    /// 9:19.5 story format has to shrink in width to keep its aspect ratio once
+    /// its available height is reduced (#585). `canvasRegion`'s `GeometryReader`
+    /// gets the composer's full height now, which on every current non-SE
+    /// iPhone is already almost exactly 9:19.5 — the canvas fills essentially
+    /// the whole width with no code change beyond removing the reservation.
     private var canvasRegion: some View {
         GeometryReader { geo in
             let canvasSize = Self.fittedStoryCanvasSize(in: geo.size)
@@ -541,14 +554,17 @@ struct ShareComposerView: View {
                         .allowsHitTesting(false)
                 }
 
-                // Bottom overlay: the + pill (hidden while dragging) above the
-                // always-on Ascend wordmark that's burned into every export.
-                VStack(spacing: 10) {
-                    Spacer()
-                    if viewModel.draggingID == nil {
-                        addPill.transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    }
-                    if viewModel.shouldRenderCanvasWordmark {
+                // The always-on Ascend wordmark burned into every export. Left at
+                // its original position (matching `ShareExportCanvas`'s own fixed
+                // inset) rather than nudged up to clear `bottomBar` below — moving
+                // card content to dodge chrome is what would actually break
+                // WYSIWYG, where the floating action bar sitting over it while
+                // editing does not, the same way `topChrome` already sits over the
+                // top of the photo. `bottomBar`'s own scrim keeps it legible
+                // wherever it peeks out from underneath.
+                if viewModel.shouldRenderCanvasWordmark {
+                    VStack {
+                        Spacer()
                         AscendWordmark(size: 13 * canvasScale, letterColor: .white.opacity(0.92))
                             .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 1)
                             .allowsHitTesting(false)
@@ -558,6 +574,17 @@ struct ShareComposerView: View {
                             .dynamicTypeSize(.large)
                             .padding(.bottom, 12)
                     }
+                }
+
+                // The + pill (hidden while dragging) is pure interactive chrome,
+                // never exported, so it moves clear of `bottomBar`'s own tap
+                // targets instead of competing with them for touches.
+                if viewModel.draggingID == nil {
+                    VStack {
+                        Spacer()
+                        addPill.transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    }
+                    .padding(.bottom, Self.bottomBarContentHeight + 14)
                 }
 
                 // Chrome
@@ -792,7 +819,16 @@ struct ShareComposerView: View {
         .padding(.top, 14)
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
-        .background(Color.black)
+        .background(
+            // A scrim, not a flat fill: this now floats over the photo instead
+            // of sitting on its own black strip below the canvas, so it needs to
+            // read as chrome over an image rather than a hard-edged block.
+            LinearGradient(
+                colors: [.black.opacity(0), .black.opacity(0.55), .black.opacity(0.85)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
         .disabled(isExporting)
     }
 

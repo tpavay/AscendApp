@@ -60,6 +60,10 @@ Optional fields:
 
 If absent, the app defaults `imageSetVersion` to `1`.
 
+`progressArtwork` names the climb's progress cut-out, the transparent PNG the Just Me tab reveals in colour from base to tip as the climb progresses.
+A climb without one keeps the photo layout.
+Its fields - `path`, the measured canvas size, `visibleBoundsPixels`, `progressTopY` / `progressBottomY`, `sha256`, and an optional `layout` pin - are documented on `ClimbProgressArtwork` (`AscendApp/Features/Climbs/Models/ClimbProgressArtwork.swift`), which owns what each one means.
+
 `commonName` is the name a city still uses for a renamed landmark. It never replaces `name`, which stays the official one, and no surface renders it yet. Populate it only with a citable source recorded in `docs/climb-coordinate-and-name-sources.md`, which is also where a climb's coordinate provenance goes.
 
 ### Category is free-form, but the app branches on it
@@ -135,6 +139,10 @@ climb-images/{climbId}/thumb.heic
 
 If replacing images for an existing climb, increment `imageSetVersion` in both catalog files so clients fetch the new cached path.
 
+A progress cut-out lives at the path its catalog entry names, `climb-images/{climbId}/progress/v{n}.png`, and is versioned on its own: replacing one means a new `v{n}` path in both catalog files, never overwriting the old object, because the disk cache treats the path as immutable.
+The app and the tool both refuse a path outside the climb's own `climb-images/{climbId}/` folder.
+Cut-outs do not ship in the app bundle; the app downloads one when a climber opens that climb's detail page (and for the featured climb), and a live session fetches it itself on a miss.
+
 ### Image tooling (`scripts/sync-climb-images.mjs`)
 
 Images are per-environment Storage content — publishing a catalog does NOT move images. Use this tool to keep buckets in sync with the catalog:
@@ -146,6 +154,9 @@ node scripts/sync-climb-images.mjs audit --project staging
 # Upload new artwork (folder must contain hero.heic, card.heic, thumb.heic)
 node scripts/sync-climb-images.mjs upload --project dev --climb <id> --dir <folder> --image-set-version 1
 
+# Upload a progress cut-out to the path its catalog entry names (refused unless its sha256 and dimensions match the entry)
+node scripts/sync-climb-images.mjs upload-progress --project dev --climb <id> --file <png>
+
 # Propagate images between environments (dry-run first)
 node scripts/sync-climb-images.mjs sync --from staging --to production --dry-run
 node scripts/sync-climb-images.mjs sync --from staging --to production --confirm-production
@@ -154,6 +165,7 @@ node scripts/sync-climb-images.mjs sync --from staging --to production --confirm
 Writes to production require `--confirm-production`. Sync copies only missing/changed objects (md5 compare) and never deletes. When adding a climb: upload images to dev/staging first, validate in-app, then sync to production alongside (or before) the catalog deploy that references them.
 
 `audit` fails when any `available` climb lacks a **complete** hero/card/thumb set - a partial set reads worse than none, because the card is the browse surface. It honors the same versioned-then-legacy fallback the app does (`FirebaseClimbImageRepository.candidateRemotePaths`), and it refuses to read a zero-object listing as a verified-empty bucket.
+It also fails when any `available` climb's catalog entry names a progress cut-out the bucket lacks, so cut-outs reach a bucket before the catalog that names them publishes; `sync` carries them with the rest of the artwork.
 
 `releaseState` is not per-environment: one catalogue file deploys to dev, staging, and production, so promoting a climb to `available` commits every environment to having its artwork. **Images are not per-environment content and no deploy moves them** - they are copied bucket to bucket by this tool alone.
 

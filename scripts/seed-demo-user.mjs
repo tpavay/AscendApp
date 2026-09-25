@@ -38,7 +38,11 @@ import {
   firstAscentInvariantFailure,
   firstAscentSeedFields,
 } from "./seed/lib/live-replay-first-ascent.mjs";
-import {buildDemoReplayEntry} from "./seed/lib/demo-replay-entry.mjs";
+import {
+  buildDemoAttemptCurveWrite,
+  buildDemoReplayEntry,
+} from "./seed/lib/demo-replay-entry.mjs";
+import {ATTEMPT_CURVES_COLLECTION} from "./lib/live-replay-race-best.mjs";
 import {bestMetricField} from "./seed/lib/live-replay-finisher.mjs";
 import {
   REPLAY_SUMMARY_SOURCE_LIVE,
@@ -780,6 +784,9 @@ async function addReplayClearWrites(db, writes, deletes, user, liveContexts) {
     deletes.push(
       leaderboardRef.collection("completionSnapshots").doc(context.workoutId)
     );
+    for (const entryId of removedIds) {
+      deletes.push(leaderboardRef.collection(ATTEMPT_CURVES_COLLECTION).doc(entryId));
+    }
     for (let index = 0; index < context.splitSteps.length; index += 1) {
       const entriesRef = leaderboardRef
         .collection("splitBuckets").doc(String(index)).collection("entries");
@@ -1201,6 +1208,22 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
         workoutId: context.workoutId,
       },
     ]);
+
+    const curveWrite = buildDemoAttemptCurveWrite({
+      context,
+      splitIntervalSeconds: SPLIT_INTERVAL_SECONDS,
+      updatedAt: FieldValue.serverTimestamp(),
+      user,
+    });
+    if (curveWrite !== null) {
+      for (const staleEntryId of staleEntryIds) {
+        deletes.push(leaderboardRef.collection(ATTEMPT_CURVES_COLLECTION).doc(staleEntryId));
+      }
+      writes.push([
+        leaderboardRef.collection(ATTEMPT_CURVES_COLLECTION).doc(context.workoutId),
+        curveWrite,
+      ]);
+    }
 
     for (let index = 0; index < context.splitSteps.length; index += 1) {
       const entriesRef = leaderboardRef.collection("splitBuckets").doc(String(index)).collection("entries");

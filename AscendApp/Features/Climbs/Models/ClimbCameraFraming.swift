@@ -2,8 +2,8 @@ import CoreGraphics
 import CoreLocation
 import Foundation
 
-/// Shared camera framing for showing a climb's real-world landmark in 3D —
-/// used by both the globe pin-tap focus and the standalone flyover so the
+/// Shared camera framing for showing a climb's real-world landmark in 3D -
+/// used by both the globe marker-tap focus and the standalone flyover so the
 /// distance/pitch tuning stays consistent.
 ///
 /// MapKit's camera looks at a *ground* coordinate, so a tall structure rises

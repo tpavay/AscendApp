@@ -130,6 +130,7 @@ struct ClimbDetailView: View {
         showsBrowseBackButton: Bool = false,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
         onboardingCoach: ClimbDetailOnboardingCoachMode? = nil,
+        effectiveSPM: Int = SettingsManager.shared.effectiveBaseLevelSPM,
         climbService: ClimbService = .shared,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
     ) {
@@ -139,6 +140,7 @@ struct ClimbDetailView: View {
         _viewModel = State(
             initialValue: ClimbDetailViewModel(
                 climb: climb,
+                effectiveSPM: effectiveSPM,
                 climbService: climbService,
                 leaderboardService: leaderboardService
             )
@@ -247,6 +249,7 @@ struct ClimbDetailView: View {
         }
         .task {
             trackDetailViewedIfNeeded()
+            ClimbProgressArtworkPrefetcher.prefetch(for: viewModel.climb)
             headphoneMotionService.refresh()
             viewModel.refresh(modelContext: modelContext)
             await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
