@@ -41,6 +41,27 @@ struct LeaderboardPeriod: Equatable, Hashable, Sendable {
         }
     }
 
+    /// `windowLabel` qualified with its year, e.g. `Jul 27 - Aug 2, 2026` or
+    /// `August 2026`, for a closed window read long after the fact - an achievement
+    /// history row cannot lean on "the current one" to supply the year.
+    ///
+    /// Pinned to the same canonical zone and calendar as `windowLabel`, for the same reason.
+    var datedWindowLabel: String {
+        switch timeFrame {
+        case .daily:
+            return Self.datedDayStyle.format(startAt)
+        case .weekly:
+            guard let lastDay = inclusiveEndDate else { return Self.datedDayStyle.format(startAt) }
+            return "\(Self.dayStyle.format(startAt)) - \(Self.datedDayStyle.format(lastDay))"
+        case .monthly:
+            return Self.datedMonthStyle.format(startAt)
+        case .yearly:
+            return Self.yearStyle.format(startAt)
+        case .allTime:
+            return "All time"
+        }
+    }
+
     /// The window as the subject of a sentence, for copy that states the condition
     /// before it commands - "August is empty. Take the first spot."
     ///
@@ -95,4 +116,8 @@ struct LeaderboardPeriod: Equatable, Hashable, Sendable {
         timeZone: LeaderboardTimeFrame.canonicalTimeZone
     )
     .year()
+
+    static let datedDayStyle = dayStyle.year()
+
+    static let datedMonthStyle = monthStyle.year()
 }

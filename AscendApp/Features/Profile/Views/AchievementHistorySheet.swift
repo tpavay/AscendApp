@@ -138,34 +138,13 @@ private struct AchievementHistoryRow: View {
     }
 
     private var subtitle: String {
-        if let periodText {
-            return periodText
+        if let periodLabel = record.periodLabel {
+            return periodLabel
         }
         if let periodKey = record.periodKey {
             return periodKey
         }
         return "Earned \(ProfileDateFormatters.shortDate(record.earnedAt))"
-    }
-
-    private var periodText: String? {
-        guard let startAt = record.periodStartAt else { return nil }
-
-        switch record.timeFrame {
-        case .weekly:
-            let endAt = record.periodEndAt.map { Calendar.current.date(byAdding: .day, value: -1, to: $0) ?? $0 }
-            guard let endAt else { return ProfileDateFormatters.shortDate(startAt) }
-            return "\(Self.monthDayFormatter.string(from: startAt)) - \(Self.shortDateFormatter.string(from: endAt))"
-        case .monthly:
-            return Self.monthFormatter.string(from: startAt)
-        case .yearly:
-            return Self.yearFormatter.string(from: startAt)
-        case .daily:
-            return ProfileDateFormatters.shortDate(startAt)
-        case .allTime:
-            return "All time"
-        case nil:
-            return ProfileDateFormatters.shortDate(startAt)
-        }
     }
 
     private var rankText: String {
@@ -188,28 +167,4 @@ private struct AchievementHistoryRow: View {
             return "\(formatted) STEPS"
         }
     }
-
-    private static let monthDayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter
-    }()
-
-    private static let shortDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, yyyy"
-        return formatter
-    }()
-
-    private static let monthFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
-        return formatter
-    }()
-
-    private static let yearFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy"
-        return formatter
-    }()
 }
