@@ -82,7 +82,7 @@ test("the phone target keeps its build dependency on the retained watch target",
   // With the embed phase gone this dependency is the only edge that compiles and
   // signs AscendWatch at all, and losing it is silent: the app still builds, CI
   // still passes, and every watch assertion above goes on passing against a
-  // target nothing verifies until someone tries to ship 1.1. It is also the sole
+  // target nothing verifies until someone tries to ship 1.2. It is also the sole
   // justification for the watchOS runtime step, the AscendWatch/** path filters,
   // and the Fastlane signing entries.
   const declared = new Set(
