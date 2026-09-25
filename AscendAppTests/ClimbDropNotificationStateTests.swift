@@ -106,11 +106,19 @@ struct ClimbDropNotificationStateTests {
             authorizationStatus: .authorized,
             isPreferenceEnabled: true
         )
+        client.holdsAuthorizationReads = true
         let state = ClimbDropNotificationState(client: client, observesEnvironmentChanges: false)
 
-        async let first: Void = state.refresh()
-        async let second: Void = state.refresh()
-        _ = await (first, second)
+        let first = Task { await state.refresh() }
+        while client.heldAuthorizationReadCount == 0 {
+            await Task.yield()
+        }
+        // Queued behind this test body on the main actor, so it cannot run until the second
+        // caller below has checked for the in-flight read and suspended on it.
+        let release = Task { client.releaseHeldAuthorizationReads() }
+        await state.refresh()
+        await release.value
+        await first.value
 
         #expect(client.authorizationReadCount == 1)
         #expect(state.authorizationStatus == .authorized)
@@ -517,6 +525,21 @@ private final class StubClimbDropNotificationStateClient: ClimbDropNotificationS
 
     var status: UNAuthorizationStatus
 
+    /// Keeps each read in flight until the test releases it, so a coalescing test controls exactly
+    /// when the first read finishes instead of racing a single yield under a loaded runner.
+    var holdsAuthorizationReads = false
+    private var heldAuthorizationReads: [CheckedContinuation<Void, Never>] = []
+    var heldAuthorizationReadCount: Int { heldAuthorizationReads.count }
+
+    /// Also stops holding later reads, so a read that starts after the release (a caller that
+    /// failed to coalesce) completes and is counted rather than hanging the test.
+    func releaseHeldAuthorizationReads() {
+        holdsAuthorizationReads = false
+        let reads = heldAuthorizationReads
+        heldAuthorizationReads = []
+        reads.forEach { $0.resume() }
+    }
+
     /// What one enable request does, scripted per scenario rather than re-derived: the status iOS
     /// ends up reporting, the answer the request writes down (`nil` leaves the stored one alone),
     /// and whether it hands the climber to iOS Settings. `ClimbDropNotificationEnableRequestTests`
@@ -543,7 +566,11 @@ private final class StubClimbDropNotificationStateClient: ClimbDropNotificationS
     /// without ever suspending would let a caller through before an overlapping one has started,
     /// and coalescing is exactly what those tests are asking about.
     func authorizationStatus() async -> UNAuthorizationStatus {
-        await Task.yield()
+        if holdsAuthorizationReads {
+            await withCheckedContinuation { heldAuthorizationReads.append($0) }
+        } else {
+            await Task.yield()
+        }
         authorizationReadCount += 1
         return status
     }
