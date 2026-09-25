@@ -163,8 +163,25 @@ test_timeouts=(
     -maximum-test-execution-time-allowance 600
 )
 
+# Every `xcodebuild` resolves the package graph before it does anything else, and
+# resolving means fetching each of the ~28 remotes to look for updates: 10-66 s
+# per invocation on the runner (job 108132522008: 58 s before the build, 66 s
+# before pass 1, 12 s before pass 2), for a graph that `Package.resolved` pins
+# and that cannot change inside one job. `-skipPackageUpdates` still clones a
+# missing checkout - verified against an empty DerivedData - but it does not
+# move an existing one, so it is only safe once this job has resolved the graph
+# for real: a cache restored from an older `Package.resolved` holds older
+# checkouts. The build is the first resolve here unless the caller says one
+# already ran (CI's Mixpanel step does, and sets `ASCEND_PACKAGE_GRAPH_RESOLVED`);
+# every pass after the build skips it.
+skip_package_updates=(-skipPackageUpdates)
+build_package_resolution=()
+if [ "${ASCEND_PACKAGE_GRAPH_RESOLVED:-}" = "1" ]; then
+    build_package_resolution=("${skip_package_updates[@]}")
+fi
+
 echo "--- Building for testing ---" | tee -a "$log"
-xcodebuild "${common[@]}" build-for-testing 2>&1 | tee -a "$log"
+xcodebuild "${common[@]}" ${build_package_resolution[@]+"${build_package_resolution[@]}"} build-for-testing 2>&1 | tee -a "$log"
 
 echo "--- Planning test passes ---" | tee -a "$log"
 rm -f "$log_dir"/test-pass-*.txt
@@ -236,7 +253,7 @@ node '$scripts_dir/unfinished-tests.mjs' '$log' '$pass_first_line'"
         --log "$log" \
         --on-stall "$on_stall" \
         --progress-pattern "$progress_pattern" \
-        -- xcodebuild "${common[@]}" "${test_timeouts[@]}" \
+        -- xcodebuild "${common[@]}" "${skip_package_updates[@]}" "${test_timeouts[@]}" \
         -resultBundlePath "$result_bundle" \
         "${args[@]}" \
         test-without-building; then

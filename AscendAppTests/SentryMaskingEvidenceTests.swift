@@ -122,7 +122,7 @@ struct SentryMaskingEvidenceTests {
             VideoPlayerView(player: AVPlayer(url: footage.original)).frame(height: 320),
             VideoPlayerView(player: AVPlayer(url: footage.mirrored)).frame(height: 320),
             named: "workout-card-footage",
-            settledWhen: Self.playerIsShowingItsFootage
+            showingFootage: true
         )
     }
 
@@ -135,7 +135,7 @@ struct SentryMaskingEvidenceTests {
             ShareBackgroundView(source: .video(footage.original)),
             ShareBackgroundView(source: .video(footage.mirrored)),
             named: "share-composer-background",
-            settledWhen: Self.playerIsShowingItsFootage
+            showingFootage: true
         )
     }
 
@@ -151,7 +151,7 @@ struct SentryMaskingEvidenceTests {
             FullScreenPhotoView(photo: Self.video(footage.original), onDismiss: {}),
             FullScreenPhotoView(photo: Self.video(footage.mirrored), onDismiss: {}),
             named: "full-screen-player",
-            settledWhen: Self.playerIsShowingItsFootage
+            showingFootage: true
         )
     }
 
@@ -236,15 +236,15 @@ struct SentryMaskingEvidenceTests {
         _ first: some View,
         _ second: some View,
         named name: String,
-        settledWhen isSettled: @escaping @MainActor (UIView) -> Bool = { _ in true }
+        showingFootage: Bool = false
     ) async throws {
         let rawDifference = try await difference(
-            render(first, masked: false, savedAs: "\(name)-unmasked-a", settledWhen: isSettled),
-            render(second, masked: false, savedAs: "\(name)-unmasked-b", settledWhen: isSettled)
+            render(first, masked: false, savedAs: "\(name)-unmasked-a", showingFootage: showingFootage),
+            render(second, masked: false, savedAs: "\(name)-unmasked-b", showingFootage: showingFootage)
         )
         let maskedDifference = try await difference(
-            render(first, masked: true, savedAs: "\(name)-masked-a", settledWhen: isSettled),
-            render(second, masked: true, savedAs: "\(name)-masked-b", settledWhen: isSettled)
+            render(first, masked: true, savedAs: "\(name)-masked-a", showingFootage: showingFootage),
+            render(second, masked: true, savedAs: "\(name)-masked-b", showingFootage: showingFootage)
         )
 
         // Control: the two renders really do differ before masking, so an
@@ -301,13 +301,13 @@ struct SentryMaskingEvidenceTests {
         _ view: some View,
         masked: Bool,
         savedAs name: String? = nil,
-        settledWhen isSettled: @MainActor (UIView) -> Bool = { _ in true }
+        showingFootage: Bool = false
     ) async throws -> Bitmap {
         try await SentryMaskTestHost.hosting(view, size: screenSize, interfaceStyle: .dark) { _, root in
-            try await settle(root, isSettled)
+            try await settle(root, showingFootage ? playerIsShowingItsFootage : { _ in true })
 
-            let image: UIImage
-            if masked {
+            func capture() -> UIImage {
+                guard masked else { return HierarchyRenderer().render(view: root) }
                 // The very options the app hands the SDK, and the same renderer
                 // selection the SDK makes from them.
                 let options = SentryOptionsFactory.makeScreenshotOptions()
@@ -316,10 +316,10 @@ struct SentryMaskingEvidenceTests {
                     redactOptions: options,
                     enableMaskRendererV2: options.enableViewRendererV2
                 )
-                image = photographer.image(view: root)
-            } else {
-                image = HierarchyRenderer().render(view: root)
+                return photographer.image(view: root)
             }
+
+            let image = showingFootage ? try await captureWithFootageOnScreen(root, capture) : capture()
 
             if let name {
                 try save(image, named: name)
@@ -348,6 +348,49 @@ struct SentryMaskingEvidenceTests {
         try #require(isSettled(view), "the surface never became ready to photograph")
     }
 
+    /// Captures `root` only across an instant in which its footage is on screen:
+    /// an unmasked read on either side of the capture has to show the movie drawn
+    /// inside every ready player layer.
+    ///
+    /// `isReadyForDisplay` says a layer *has* shown a frame, not that it is showing
+    /// one at the capture. The fixture is a one-second loop, and at a loop point -
+    /// under a busy runner, with the decoder reporting `-12852` - a layer can draw
+    /// nothing for a beat. The masked render fills its region with the average of
+    /// what is under it, so one black capture against one footage capture read as
+    /// a 131-step leak across 95% of the frame (run 36166318387), which is not
+    /// something the mask did. The comparison needs footage on both sides, so a
+    /// capture that straddles a gap is taken again, and footage that never holds
+    /// still for one capture is a failure by name rather than a silent pass.
+    private static func captureWithFootageOnScreen(
+        _ root: UIView,
+        _ capture: () -> UIImage
+    ) async throws -> UIImage {
+        for _ in 0..<40 {
+            if try footageIsDrawn(in: root) {
+                let image = capture()
+                if try footageIsDrawn(in: root) { return image }
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        Issue.record("the footage never stayed on screen for the length of one capture")
+        return capture()
+    }
+
+    /// Whether an unmasked read of `root` shows the fixture inside every ready
+    /// player layer. The fixture's blocks are never darker than half intensity in
+    /// their strongest channel, so a layer drawing nothing has no lit pixels at
+    /// all; a tenth rather than all of them, because an aspect-fit player
+    /// letterboxes the movie inside its layer.
+    private static func footageIsDrawn(in root: UIView) throws -> Bool {
+        let layers = root.layer.playerLayers.filter(\.isReadyForDisplay)
+        guard !layers.isEmpty else { return false }
+        let bitmap = try Bitmap(HierarchyRenderer().render(view: root))
+        return layers.allSatisfy { layer in
+            let frame = layer.convert(layer.bounds, to: root.layer).intersection(root.bounds)
+            return bitmap.fractionLit(in: frame, of: root.bounds.size, above: 96) >= 0.1
+        }
+    }
+
     /// Ready when the mask marker is in the tree with a real frame and a player
     /// layer under it has a decoded frame to show.
     ///
@@ -372,8 +415,12 @@ struct SentryMaskingEvidenceTests {
     /// for the faster one too.
     private final class HierarchyRenderer: NSObject, SentryViewRenderer {
         func render(view: UIView) -> UIImage {
-            UIGraphicsImageRenderer(size: view.bounds.size).image { _ in
-                view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
+            // `SentryViewRenderer` is a nonisolated protocol, but the SDK draws on the main
+            // thread and so does every caller here - the only place a view may be drawn.
+            MainActor.assumeIsolated {
+                UIGraphicsImageRenderer(size: view.bounds.size).image { _ in
+                    view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
+                }
             }
         }
     }
@@ -404,6 +451,26 @@ struct SentryMaskingEvidenceTests {
             )
             context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
             samples = buffer
+        }
+
+        /// The share of a sparse grid of the pixels inside `rect` (in the points of a
+        /// view of `size`) whose strongest colour channel is above `threshold`.
+        func fractionLit(in rect: CGRect, of size: CGSize, above threshold: UInt8) -> Double {
+            guard !rect.isNull, !rect.isEmpty, size.width > 0, size.height > 0 else { return 0 }
+            let scaleX = CGFloat(width) / size.width
+            let scaleY = CGFloat(height) / size.height
+            let minX = max(Int(rect.minX * scaleX), 0), maxX = min(Int(rect.maxX * scaleX), width)
+            let minY = max(Int(rect.minY * scaleY), 0), maxY = min(Int(rect.maxY * scaleY), height)
+            var lit = 0
+            var count = 0
+            for y in stride(from: minY, to: maxY, by: 4) {
+                for x in stride(from: minX, to: maxX, by: 4) {
+                    let offset = (y * width + x) * 4
+                    if max(samples[offset], samples[offset + 1], samples[offset + 2]) > threshold { lit += 1 }
+                    count += 1
+                }
+            }
+            return count == 0 ? 0 : Double(lit) / Double(count)
         }
 
         /// The largest absolute difference across this pixel's four channels.

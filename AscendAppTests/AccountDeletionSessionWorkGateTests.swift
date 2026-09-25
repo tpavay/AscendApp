@@ -54,10 +54,12 @@ struct AccountDeletionSessionWorkGateTests {
         let modelContext = try Self.makeUploadModelContext()
         let gate = AuthenticatedBootstrapCoordinator()
         let photoRepository = CountingPhotoRepository()
+        let backoffs = BackoffRecorder()
         let manager = MediaUploadManager(
             photoRepo: photoRepository,
             featureFlags: RemoteFeatureFlagStore(),
-            sessionWorkGate: gate
+            sessionWorkGate: gate,
+            backoff: { await backoffs.record($0) }
         )
 
         let workout = Self.makeUploadWorkout()
@@ -90,6 +92,8 @@ struct AccountDeletionSessionWorkGateTests {
         let released = try modelContext.fetch(FetchDescriptor<PendingMediaUpload>())
         #expect(released.first?.status == PendingUploadStatus.failed.rawValue)
         #expect(released.first?.retryCount == 3)
+        // Three attempts, backing off 1s then 2s between them - and none while the gate held.
+        #expect(await backoffs.delays == [.seconds(1), .seconds(2)])
     }
 
     /// The gate has to hold every entry point the feature switch holds, at the same place.

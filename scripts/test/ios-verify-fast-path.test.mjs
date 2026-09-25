@@ -18,12 +18,20 @@
  *   for the queue-inflated durations a healthy pass reports (189 s max on the
  *   green run), or a green pass turns red on a fast day.
  * - Each PR job resolves only its own Mixpanel configuration (~55 s each).
+ * - The package graph is fetched once per job. Every later `xcodebuild` passes
+ *   `-skipPackageUpdates`, which saved 10-66 s per invocation, and only once a
+ *   full resolve has run in the same job: a cache restored from an older
+ *   `Package.resolved` holds checkouts the flag would not move.
  * - The documented local test command carries the same overrides, so an agent
  *   copying it builds what CI builds.
  */
 
 import assert from "node:assert/strict";
+import {spawnSync} from "node:child_process";
+import {chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs";
 import {readFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import test from "node:test";
 import {fileURLToPath} from "node:url";
 
@@ -118,6 +126,164 @@ test("the simulator boots during the compile and the script waits on it before t
   const firstPass = script.indexOf("for pass in");
   assert.ok(build !== -1 && bootstatus !== -1 && firstPass !== -1);
   assert.ok(build < bootstatus && bootstatus < firstPass, "bootstatus must wait after the build and before the first pass");
+});
+
+/** Each step of a job, in order, with its name and its `env:` mapping. */
+function jobSteps(job) {
+  const steps = [];
+  let inEnv = false;
+  for (const line of job.split("\n")) {
+    const name = line.match(/^      - name: (.+)$/)?.[1];
+    if (name) {
+      steps.push({name, env: {}});
+      inEnv = false;
+    } else if (line.startsWith("      - ")) {
+      steps.push({name: null, env: {}});
+      inEnv = false;
+    } else if (steps.length > 0 && /^        env:\s*$/.test(line)) {
+      inEnv = true;
+    } else if (inEnv) {
+      const entry = line.match(/^          ([A-Z_][A-Z0-9_]*): (.+)$/);
+      if (entry) {
+        steps.at(-1).env[entry[1]] = entry[2].replace(/^"(.*)"$/, "$1");
+      } else if (!/^\s*(#.*)?$/.test(line)) {
+        inEnv = false;
+      }
+    }
+  }
+  return steps;
+}
+
+function writeExecutable(path, contents) {
+  writeFileSync(path, contents);
+  chmodSync(path, 0o755);
+}
+
+/**
+ * Runs `run-ios-test-passes.sh` against stub `xcodebuild`, `xcrun` and `sudo`,
+ * with its sibling planner, verifier and watchdog replaced by stand-ins that
+ * plan two passes and report every pass green. Returns each `xcodebuild`
+ * invocation's argv.
+ */
+function runTestPasses(extraEnv) {
+  const sandbox = mkdtempSync(join(tmpdir(), "ios-test-passes-"));
+  const ciDir = join(sandbox, "ci");
+  const binDir = join(sandbox, "bin");
+  const workDir = join(sandbox, "work");
+  mkdirSync(ciDir);
+  mkdirSync(binDir);
+  mkdirSync(workDir);
+  const invocations = join(sandbox, "xcodebuild-invocations.jsonl");
+
+  copyFileSync(join(repositoryRoot, "scripts/ci/run-ios-test-passes.sh"), join(ciDir, "run-ios-test-passes.sh"));
+  chmodSync(join(ciDir, "run-ios-test-passes.sh"), 0o755);
+  writeFileSync(
+    join(ciDir, "plan-test-passes.mjs"),
+    `import {writeFileSync} from "node:fs";
+export const EXECUTED_TEST_FLOOR = 0;
+const [prefix] = process.argv.slice(2);
+if (prefix) {
+  writeFileSync(prefix + "1.txt", "-only-testing:AscendAppTests/IsolatedSuite\\n-parallel-testing-enabled\\nNO\\n");
+  writeFileSync(prefix + "2.txt", "-skip-testing:AscendAppTests/IsolatedSuite\\n-parallel-testing-enabled\\nNO\\n");
+}
+`
+  );
+  writeFileSync(join(ciDir, "verify-test-pass-result.mjs"), `console.log("executed-tests=1");\n`);
+  writeFileSync(join(ciDir, "unfinished-tests.mjs"), "");
+  writeExecutable(
+    join(ciDir, "run-with-silence-watchdog.sh"),
+    `#!/bin/bash
+while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+shift
+exec "$@"
+`
+  );
+
+  writeExecutable(
+    join(binDir, "xcodebuild"),
+    `#!/usr/bin/env node
+const {appendFileSync, mkdirSync} = require("node:fs");
+const argv = process.argv.slice(2);
+appendFileSync(${JSON.stringify(invocations)}, JSON.stringify(argv) + "\\n");
+const bundle = argv.indexOf("-resultBundlePath");
+if (bundle !== -1) mkdirSync(argv[bundle + 1], {recursive: true});
+`
+  );
+  writeExecutable(join(binDir, "xcrun"), "#!/bin/bash\nexit 0\n");
+  writeExecutable(join(binDir, "sudo"), "#!/bin/bash\nexit 1\n");
+  writeExecutable(join(binDir, "vm_stat"), "#!/bin/bash\nexit 0\n");
+
+  const env = {...process.env, PATH: `${binDir}:${process.env.PATH}`, GITHUB_ACTIONS: "true"};
+  delete env.ASCEND_PACKAGE_GRAPH_RESOLVED;
+  Object.assign(env, extraEnv);
+
+  const result = spawnSync(join(ciDir, "run-ios-test-passes.sh"), ["SIMULATOR-UDID"], {cwd: workDir, env, encoding: "utf8"});
+  assert.equal(result.status, 0, `run-ios-test-passes.sh failed:\n${result.stdout}\n${result.stderr}`);
+
+  return readFileSync(invocations, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+}
+
+function invocationsFor(invocations, action) {
+  return invocations.filter((argv) => argv.at(-1) === action);
+}
+
+test("the package graph is fetched once per job and never skipped before a full resolve", () => {
+  // Without a caller's word that the graph was resolved, the build is the resolve.
+  const cold = runTestPasses({});
+  const [coldBuild, ...extraColdBuilds] = invocationsFor(cold, "build-for-testing");
+  assert.ok(coldBuild, "the script must build for testing");
+  assert.deepEqual(extraColdBuilds, []);
+  assert.ok(!coldBuild.includes("-skipPackageUpdates"), "the first resolve in a job must be a full one");
+
+  // Every pass skips updates: the build in front of it resolved the graph.
+  const coldPasses = invocationsFor(cold, "test-without-building");
+  assert.equal(coldPasses.length, 2, "every planned pass must run");
+  for (const pass of coldPasses) {
+    assert.ok(pass.includes("-skipPackageUpdates"), `a pass must skip package updates: ${pass.join(" ")}`);
+  }
+
+  // Told a full resolve already ran, the build skips it too.
+  const warm = runTestPasses({ASCEND_PACKAGE_GRAPH_RESOLVED: "1"});
+  const [warmBuild] = invocationsFor(warm, "build-for-testing");
+  assert.ok(warmBuild.includes("-skipPackageUpdates"), "the build must skip package updates once the caller resolved the graph");
+  for (const pass of invocationsFor(warm, "test-without-building")) {
+    assert.ok(pass.includes("-skipPackageUpdates"));
+  }
+});
+
+test("CI tells the test script the graph is resolved only after a full resolve ran in the job", () => {
+  const workflow = readFileSync(join(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
+  const steps = jobSteps(jobBlock(workflow, "ios-verify"));
+  const runTests = steps.findIndex(({name}) => name === "Run tests");
+  const mixpanel = steps.findIndex(({name}) => name === "Verify Mixpanel build destinations");
+
+  assert.notEqual(runTests, -1, "ios-verify must run its tests");
+  assert.equal(steps[runTests].env.ASCEND_PACKAGE_GRAPH_RESOLVED, "1");
+  assert.ok(mixpanel !== -1 && mixpanel < runTests, "the Mixpanel step must resolve the graph before Run tests");
+
+  // That step's `xcodebuild` must itself be a full resolve.
+  const binDir = mkdtempSync(join(tmpdir(), "mixpanel-resolve-"));
+  const invocations = join(binDir, "invocations.jsonl");
+  writeExecutable(
+    join(binDir, "xcodebuild"),
+    `#!/usr/bin/env node
+require("node:fs").appendFileSync(${JSON.stringify(invocations)}, JSON.stringify(process.argv.slice(2)) + "\\n");
+process.stdout.write("[]");
+`
+  );
+  spawnSync(process.execPath, [join(repositoryRoot, "scripts/ci/assert-mixpanel-build-settings.mjs"), "Staging"], {
+    cwd: repositoryRoot,
+    env: {...process.env, PATH: `${binDir}:${process.env.PATH}`, GITHUB_ACTIONS: "true"},
+    encoding: "utf8",
+  });
+  const resolves = readFileSync(invocations, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.ok(resolves.length > 0, "the Mixpanel step must invoke xcodebuild");
+  for (const argv of resolves) {
+    assert.ok(!argv.includes("-skipPackageUpdates"), "the resolve the build relies on must be a full one");
+  }
 });
 
 test("every pass runs with per-test timeouts wide enough for a healthy queue-inflated duration", async () => {
