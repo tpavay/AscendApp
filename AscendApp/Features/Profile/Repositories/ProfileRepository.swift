@@ -147,7 +147,11 @@ final class ProfileRepository: Sendable {
     }
 
     func upsertStats(userId: String, stats: ProfileStatsSnapshot) async throws {
-        try await statsDocument(userId: userId).setData([
+        try await statsDocument(userId: userId).setData(Self.statsPayload(stats), merge: true)
+    }
+
+    static func statsPayload(_ stats: ProfileStatsSnapshot) -> [String: Any] {
+        [
             "total_climbs_completed": stats.totalClimbsCompleted,
             "total_first_ascents": stats.totalFirstAscents,
             "lifetime_total_steps": stats.lifetimeTotalSteps,
@@ -172,8 +176,17 @@ final class ProfileRepository: Sendable {
             "top_1_weeks": FieldValue.delete(),
             "top_3_weeks": FieldValue.delete(),
             "top_10_weeks": FieldValue.delete(),
-            "top_100_weeks": FieldValue.delete()
-        ], merge: true)
+            "top_100_weeks": FieldValue.delete(),
+            // Optional, and deleted rather than left behind when the climber no longer has any
+            // heart rate: the comparison hides a row off an absent field, and a stale number
+            // would otherwise outlive the climbs it came from.
+            "average_heart_rate_bpm": valueOrDelete(stats.heartRate?.averageBpm),
+            "max_heart_rate_bpm": valueOrDelete(stats.heartRate?.maxBpm)
+        ]
+    }
+
+    private static func valueOrDelete(_ value: Int?) -> Any {
+        value.map { $0 as Any } ?? FieldValue.delete()
     }
 
     func replaceWorkoutSummaries(userId: String, summaries: [ProfileWorkoutSummary]) async throws {
@@ -254,7 +267,11 @@ final class ProfileRepository: Sendable {
             lifetimeTotalSteps: intValue(for: "lifetime_total_steps", in: data) ?? 0,
             lifetimeDurationSeconds: intValue(for: "lifetime_duration_seconds", in: data) ?? 0,
             totalClimbs: intValue(for: "total_climbs", in: data) ?? 0,
-            averageStepsPerMinute: doubleValue(for: "average_steps_per_minute", in: data) ?? 0
+            averageStepsPerMinute: doubleValue(for: "average_steps_per_minute", in: data) ?? 0,
+            heartRate: ProfileHeartRateSummary(
+                averageBpm: intValue(for: "average_heart_rate_bpm", in: data),
+                maxBpm: intValue(for: "max_heart_rate_bpm", in: data)
+            )
         )
     }
 

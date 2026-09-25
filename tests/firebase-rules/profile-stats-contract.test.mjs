@@ -126,6 +126,88 @@ test('users cannot write profile stats into another users path', async () => {
   await assertFails(setDoc(otherStatsRef, makeProfileStatsDocument()));
 });
 
+// The heart-rate aggregates are additive: a document without them is exactly what every
+// shipped client writes, and it must keep passing.
+test('profile stats carrying heart-rate aggregates are accepted', async () => {
+  const context = testEnv.authenticatedContext(userId);
+
+  await assertSucceeds(setDoc(doc(context.firestore(), statsPath), makeProfileStatsDocument({
+    average_heart_rate_bpm: 142,
+    max_heart_rate_bpm: 178,
+  })));
+});
+
+test('either heart-rate aggregate may be published without the other', async () => {
+  const context = testEnv.authenticatedContext(userId);
+
+  await assertSucceeds(setDoc(doc(context.firestore(), statsPath), makeProfileStatsDocument({
+    max_heart_rate_bpm: 178,
+  })));
+  await assertSucceeds(setDoc(doc(context.firestore(), statsPath), makeProfileStatsDocument({
+    average_heart_rate_bpm: 142,
+  })));
+});
+
+test('an earlier client merge onto a document holding heart rate still succeeds', async () => {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(doc(adminContext.firestore(), statsPath), makeProfileStatsDocument({
+      average_heart_rate_bpm: 142,
+      max_heart_rate_bpm: 178,
+    }));
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+
+  await assertSucceeds(setDoc(
+    doc(context.firestore(), statsPath),
+    makeUpsertStatsPayload(),
+    { merge: true }
+  ));
+  const stored = await readProfileStatsDocument();
+  assert.equal(stored.average_heart_rate_bpm, 142);
+  assert.equal(stored.max_heart_rate_bpm, 178);
+});
+
+test('the current client payload clears heart rate a climber no longer has', async () => {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(doc(adminContext.firestore(), statsPath), makeProfileStatsDocument({
+      average_heart_rate_bpm: 142,
+      max_heart_rate_bpm: 178,
+    }));
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+
+  await assertSucceeds(setDoc(
+    doc(context.firestore(), statsPath),
+    {
+      ...makeUpsertStatsPayload(),
+      average_heart_rate_bpm: deleteField(),
+      max_heart_rate_bpm: deleteField(),
+    },
+    { merge: true }
+  ));
+  const stored = await readProfileStatsDocument();
+  assert.ok(!('average_heart_rate_bpm' in stored));
+  assert.ok(!('max_heart_rate_bpm' in stored));
+});
+
+test('heart-rate aggregates outside a plausible human range are rejected', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const statsRef = doc(context.firestore(), statsPath);
+
+  for (const overrides of [
+    { average_heart_rate_bpm: 24 },
+    { average_heart_rate_bpm: 251 },
+    { max_heart_rate_bpm: 0 },
+    { max_heart_rate_bpm: 300 },
+    { average_heart_rate_bpm: 142.5 },
+    { max_heart_rate_bpm: '178' },
+  ]) {
+    await assertFails(setDoc(statsRef, makeProfileStatsDocument(overrides)));
+  }
+});
+
 async function seedLegacyProfileStatsDocument() {
   await testEnv.withSecurityRulesDisabled(async (adminContext) => {
     await setDoc(doc(adminContext.firestore(), statsPath), makeLegacyProfileStatsDocument());

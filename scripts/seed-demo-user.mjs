@@ -32,6 +32,7 @@ import {
   staleWorkoutDocumentIds,
 } from "./lib/workout-document-id.mjs";
 import {currentPeriod, utcDate} from "./lib/leaderboard-period.mjs";
+import {deriveProfileHeartRate, profileHeartRateFields} from "./lib/profile-heart-rate.mjs";
 import {
   PUBLIC_IDENTITY_STATE_PUBLISHED,
   clearedFirstAscentFields,
@@ -1066,8 +1067,8 @@ function workoutRecord(input) {
     integrityLevel: input.integrityLevel,
     createdAt: Timestamp.fromDate(input.startedAt),
     updatedAt: Timestamp.fromDate(updatedAt),
-    avgHeartRateBpm: averageHeartRate(input.steps, input.durationSeconds),
-    maxHeartRateBpm: averageHeartRate(input.steps, input.durationSeconds) + 24,
+    avgHeartRateBpm: seededHeartRate(input).averageBpm,
+    maxHeartRateBpm: seededHeartRate(input).maxBpm,
     caloriesBurned: Math.round(input.durationSeconds / 60 * 8.4),
     effortRating: 4.5,
     averageMETs: 8.2,
@@ -1334,6 +1335,10 @@ function statsFor(workouts, firstAscentCount) {
     prMostSteps: maxSteps,
     prLongestClimbSeconds: Math.round(maxDuration),
     prHighestSPM: maxSPM,
+    heartRate: deriveProfileHeartRate(workouts.map((workout) => ({
+      durationSeconds: workout.durationSeconds,
+      ...seededHeartRate(workout),
+    }))),
   };
 }
 
@@ -1355,6 +1360,7 @@ function profileStatsData(stats) {
     pr_most_steps: stats.prMostSteps,
     pr_longest_climb_seconds: stats.prLongestClimbSeconds,
     pr_highest_spm: stats.prHighestSPM,
+    ...profileHeartRateFields(stats.heartRate),
     lastUpdated: FieldValue.serverTimestamp(),
   };
 }
@@ -1556,6 +1562,11 @@ function replayContextKey(contextType, contextId) {
 
 function spmForLevel(level) {
   return SPM_BY_LEVEL[Math.min(Math.max(level, 1), SPM_BY_LEVEL.length) - 1];
+}
+
+function seededHeartRate(workout) {
+  const averageBpm = averageHeartRate(workout.steps, workout.durationSeconds);
+  return {averageBpm, maxBpm: averageBpm + 24};
 }
 
 function averageHeartRate(steps, durationSeconds) {

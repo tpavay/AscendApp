@@ -97,8 +97,10 @@ enum ProfileSnapshotBuilder {
         viewer: ProfileSnapshot,
         otherUser: ProfileSnapshot
     ) -> ProfileComparisonSummary {
-        let viewerClimbs = Set(viewer.activityWorkouts.filter(\.isCompletedClimb).compactMap(\.climbId))
-        let otherClimbs = Set(otherUser.activityWorkouts.filter(\.isCompletedClimb).compactMap(\.climbId))
+        let viewerClimbs = completedLandmarkIDs(viewer)
+        let otherClimbs = completedLandmarkIDs(otherUser)
+        let viewerExclusiveCount = viewerClimbs.subtracting(otherClimbs).count
+        let otherExclusiveCount = otherClimbs.subtracting(viewerClimbs).count
 
         if otherUser.totalClimbs == 0 && otherUser.activityWorkouts.isEmpty {
             return ProfileComparisonSummary(
@@ -112,78 +114,36 @@ enum ProfileSnapshotBuilder {
             )
         }
 
-        if viewerClimbs.isEmpty && otherClimbs.isEmpty {
-            return ProfileComparisonSummary(
-                state: .hidden,
-                sharedClimbCount: 0,
-                viewerWins: 0,
-                otherUserWins: 0,
-                ties: 0,
-                viewerExclusiveCount: 0,
-                otherExclusiveCount: 0
-            )
-        }
-
-        if viewerClimbs.isEmpty && !otherClimbs.isEmpty {
-            return ProfileComparisonSummary(
-                state: .viewerEmpty,
-                sharedClimbCount: 0,
-                viewerWins: 0,
-                otherUserWins: 0,
-                ties: 0,
-                viewerExclusiveCount: 0,
-                otherExclusiveCount: otherClimbs.count
-            )
-        }
-
-        if !viewerClimbs.isEmpty && otherClimbs.isEmpty {
-            return ProfileComparisonSummary(
-                state: .hidden,
-                sharedClimbCount: 0,
-                viewerWins: 0,
-                otherUserWins: 0,
-                ties: 0,
-                viewerExclusiveCount: viewerClimbs.count,
-                otherExclusiveCount: 0
-            )
-        }
-
-        let shared = viewerClimbs.intersection(otherClimbs)
-        let state: ProfileComparisonSummary.State = shared.isEmpty ? .noSharedClimbs : .shared
-        let viewerBestDurations = bestCompletedDurationByClimb(viewer.activityWorkouts)
-        let otherBestDurations = bestCompletedDurationByClimb(otherUser.activityWorkouts)
-        var viewerWins = 0
-        var otherUserWins = 0
-        var ties = 0
-
-        for climbId in shared {
-            guard let viewerDuration = viewerBestDurations[climbId],
-                  let otherDuration = otherBestDurations[climbId],
-                  viewerDuration > 0,
-                  otherDuration > 0 else {
-                continue
-            }
-
-            if viewerDuration < otherDuration {
-                viewerWins += 1
-            } else if otherDuration < viewerDuration {
-                otherUserWins += 1
-            } else {
-                ties += 1
-            }
+        // The record is tallied off the very rows the tab draws, so the two can never disagree.
+        let results = headToHeadResults(viewer: viewer, otherUser: otherUser, climbs: [])
+        let viewerCanCompare = !viewerClimbs.isEmpty || justClimbBestSteps(viewer) != nil
+        let otherCanCompare = !otherClimbs.isEmpty || justClimbBestSteps(otherUser) != nil
+        let state: ProfileComparisonSummary.State
+        if !results.isEmpty {
+            state = .shared
+        } else if !viewerCanCompare {
+            state = otherCanCompare ? .viewerEmpty : .hidden
+        } else if !otherCanCompare {
+            state = .hidden
+        } else {
+            state = .noSharedClimbs
         }
 
         return ProfileComparisonSummary(
             state: state,
-            sharedClimbCount: shared.count,
-            viewerWins: viewerWins,
-            otherUserWins: otherUserWins,
-            ties: ties,
-            viewerExclusiveCount: viewerClimbs.subtracting(otherClimbs).count,
-            otherExclusiveCount: otherClimbs.subtracting(viewerClimbs).count
+            sharedClimbCount: results.count,
+            viewerWins: results.count(where: { $0.winner == .viewer }),
+            otherUserWins: results.count(where: { $0.winner == .otherUser }),
+            ties: results.count(where: { $0.winner == .tie }),
+            viewerExclusiveCount: viewerExclusiveCount,
+            otherExclusiveCount: otherExclusiveCount
         )
     }
 
+    /// One row per climb both climbers can be judged on, each judged by that climb's own
+    /// meaning of "best" (`ProfileHeadToHeadClimbResult.Measure`): a landmark both have
+    /// finished is a race to the fastest completion, and the Just Climb matchup is a contest of
+    /// most steps.
     static func headToHeadResults(
         viewer: ProfileSnapshot,
         otherUser: ProfileSnapshot,
@@ -194,42 +154,48 @@ enum ProfileSnapshotBuilder {
         let otherBest = bestCompletedWorkoutByClimb(otherUser.activityWorkouts)
         let sharedClimbIDs = Set(viewerBest.keys).intersection(otherBest.keys)
 
-        return sharedClimbIDs.compactMap { climbId in
+        let landmarkResults = sharedClimbIDs.compactMap { climbId -> ProfileHeadToHeadClimbResult? in
             guard let viewerWorkout = viewerBest[climbId],
                   let otherWorkout = otherBest[climbId],
                   let viewerDuration = viewerWorkout.comparisonDurationSeconds,
-                  let otherDuration = otherWorkout.comparisonDurationSeconds,
-                  viewerDuration > 0,
-                  otherDuration > 0 else {
+                  let otherDuration = otherWorkout.comparisonDurationSeconds else {
                 return nil
             }
 
             let climb = climbsByID[climbId]
-            let winner: ProfileHeadToHeadClimbResult.Winner
-            if viewerDuration < otherDuration {
-                winner = .viewer
-            } else if otherDuration < viewerDuration {
-                winner = .otherUser
-            } else {
-                winner = .tie
-            }
-
             return ProfileHeadToHeadClimbResult(
                 id: climbId,
                 climbName: climb?.name ?? viewerWorkout.name,
                 stepCount: climb?.referenceStepCount ?? max(viewerWorkout.steps, otherWorkout.steps),
-                viewerDurationSeconds: viewerDuration,
-                otherUserDurationSeconds: otherDuration,
-                mostRecentAt: max(viewerWorkout.startedAt, otherWorkout.startedAt),
-                winner: winner
+                measure: .completionTime(
+                    viewerSeconds: viewerDuration,
+                    otherUserSeconds: otherDuration
+                ),
+                mostRecentAt: max(viewerWorkout.startedAt, otherWorkout.startedAt)
             )
         }
         .sorted { lhs, rhs in
             if lhs.mostRecentAt != rhs.mostRecentAt {
-                return lhs.mostRecentAt > rhs.mostRecentAt
+                return (lhs.mostRecentAt ?? .distantPast) > (rhs.mostRecentAt ?? .distantPast)
             }
             return lhs.climbName < rhs.climbName
         }
+
+        guard let viewerSteps = justClimbBestSteps(viewer),
+              let otherSteps = justClimbBestSteps(otherUser) else {
+            return landmarkResults
+        }
+
+        // Pinned first: it is the one matchup every pair of climbers shares, so it anchors the
+        // list the same way for everyone.
+        let justClimb = ProfileHeadToHeadClimbResult(
+            id: ProfileHeadToHeadClimbResult.justClimbID,
+            climbName: "Just Climb",
+            stepCount: nil,
+            measure: .mostSteps(viewerSteps: viewerSteps, otherUserSteps: otherSteps),
+            mostRecentAt: nil
+        )
+        return [justClimb] + landmarkResults
     }
 
     static func statsSnapshot(
@@ -260,7 +226,16 @@ enum ProfileSnapshotBuilder {
             lifetimeTotalSteps: lifetimeTotalSteps,
             lifetimeDurationSeconds: lifetimeDurationSeconds,
             totalClimbs: totalClimbs,
-            averageStepsPerMinute: averageStepsPerMinute
+            averageStepsPerMinute: averageStepsPerMinute,
+            heartRate: ProfileHeartRateSummary.derive(
+                from: workouts.map { workout in
+                    ProfileHeartRateSummary.Climb(
+                        durationSeconds: workout.duration,
+                        averageBpm: workout.avgHeartRate,
+                        maxBpm: workout.maxHeartRate
+                    )
+                }
+            )
         )
     }
 
@@ -675,19 +650,17 @@ enum ProfileSnapshotBuilder {
         return 0
     }
 
-    private static func bestCompletedDurationByClimb(_ workouts: [ProfileWorkoutSummary]) -> [String: TimeInterval] {
-        workouts.reduce(into: [:]) { result, workout in
-            guard let climbId = workout.climbId,
-                  let duration = workout.comparisonDurationSeconds,
-                  duration > 0 else {
-                return
-            }
-            if let existing = result[climbId] {
-                result[climbId] = min(existing, duration)
-            } else {
-                result[climbId] = duration
-            }
-        }
+    private static func completedLandmarkIDs(_ snapshot: ProfileSnapshot) -> Set<String> {
+        Set(snapshot.activityWorkouts.filter(\.isCompletedClimb).compactMap(\.climbId))
+    }
+
+    /// A climber's no-goal Just Climb best: the most steps on any climb they have published,
+    /// of every context type - a tower counts, the way the captain named his CN Tower live
+    /// climb as his best (The rank model, `ascend-leaderboards`). `prMostSteps` is that
+    /// number on both sides: derived by `statsSnapshot` from the viewer's own climbs, and
+    /// published by the other climber's client from theirs.
+    private static func justClimbBestSteps(_ snapshot: ProfileSnapshot) -> Int? {
+        snapshot.stats.prMostSteps > 0 ? snapshot.stats.prMostSteps : nil
     }
 
     private static func bestCompletedWorkoutByClimb(_ workouts: [ProfileWorkoutSummary]) -> [String: ProfileWorkoutSummary] {

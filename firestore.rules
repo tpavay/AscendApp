@@ -463,6 +463,8 @@ service cloud.firestore {
           "pr_most_steps",
           "pr_longest_climb_seconds",
           "pr_highest_spm",
+          "average_heart_rate_bpm",
+          "max_heart_rate_bpm",
           "lastUpdated"
         ]) &&
         request.resource.data.keys().hasAll([
@@ -514,7 +516,17 @@ service cloud.firestore {
         request.resource.data.pr_longest_climb_seconds is int &&
         request.resource.data.pr_longest_climb_seconds >= 0 &&
         isNonNegativeNumber(request.resource.data.pr_highest_spm) &&
+        // Optional and additive: earlier clients never write them. Aggregates only - no
+        // sample and no per-climb heart rate ever reaches this cross-account document - bounded
+        // to ProfileHeartRateSummary.plausibleBpm.
+        isOptionalProfileHeartRate(request.resource.data, "average_heart_rate_bpm") &&
+        isOptionalProfileHeartRate(request.resource.data, "max_heart_rate_bpm") &&
         request.resource.data.lastUpdated is timestamp;
+    }
+
+    function isOptionalProfileHeartRate(data, key) {
+      return !data.keys().hasAny([key]) ||
+        (data[key] is int && data[key] >= 25 && data[key] <= 250);
     }
 
     function isValidProfileWorkoutSummary() {
