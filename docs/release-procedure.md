@@ -2,10 +2,10 @@
 
 How a change gets from a merged pull request to a build sitting in App Store Connect, ready for you to submit.
 
-Read the two facts below first.
+Read the three facts below first.
 They are the ones that have actually cost a release.
 
-## The two facts that bite
+## The three facts that bite
 
 **1. A version train closes the moment that version goes live.**
 Ascend 1.0 is on the App Store, so Apple refuses every further upload that declares `CFBundleShortVersionString` as `1.0`:
@@ -23,6 +23,14 @@ That is the silent half-release: the backend is live on the new contract, the ap
 On 2026-08-25, run 32886787708 did exactly this because the marketing version was still `1.0`.
 
 Both facts point at the same habit: **bump the version in the pull request, not in a follow-up.**
+
+**3. A merge to `main` ships every Functions secret version created since the last deploy.**
+A Functions deploy binds each secret's *latest* version, so a secret version is a production change that waits for whichever merge deploys next.
+On 2026-09-25 the 1.1 deploy shipped a `REVENUECAT_SERVER_CONFIG` version built weeks earlier from a stale local copy, and comped climbers lost every paid screen.
+
+Never create a secret version from a local copy: build it from the version the deployed functions are bound to, and pin it in `functions/secret-versions.json` in the same pull request.
+Both deploys now refuse a version that commit does not pin, and stop before rules if any paid-access grant would not survive the Functions deploy.
+`docs/functions-secret-versions.md` owns the procedure.
 
 ## Version numbering
 
@@ -46,6 +54,7 @@ Apple accepts one to three numeric components.
 | Bump `MARKETING_VERSION` | **You**, in the pull request |
 | Allocate the build number | Automatic (`derive-build-number.sh`) |
 | Archive, sign, export the IPA | Automatic (`fastlane build_production`) |
+| Pin any new Functions secret version in `functions/secret-versions.json` | **You**, in the pull request |
 | Deploy Firebase: indexes, functions, rules, storage, hosting | Automatic |
 | Upload the build to TestFlight | Automatic (`fastlane upload_testflight`) |
 | Create the App Store version record | Automatic (`prepare-app-store-version.yml`) |
@@ -77,6 +86,7 @@ If you are tempted to "finish the job", that test is the answer, and the answer 
    Approve it once; the pipeline requests approval before any work starts, deliberately, so a late second request cannot sit unnoticed.
 
 3. **Deploy Production runs**, in this order: production readiness gate, approval, build and sign the IPA, deploy Firebase, upload to TestFlight, deploy status.
+   The Firebase deploy checks every Functions secret against its pin before it touches anything, and checks every paid-access grant again after the Functions deploy, before rules.
    A run that deploys nothing concludes `failure` rather than a green no-op (`assert-deploy-outcome.sh`).
    A cancelled run is caught from outside by `deploy-production-watchdog.yml`.
 
@@ -161,6 +171,11 @@ It waits for the *newest* build in the train, deliberately, so a stale build tha
 The budget is 50 minutes, inside the workflow's 60-minute job cap, so a timeout means something is genuinely wrong rather than that Apple was slow.
 Re-run it from the Actions tab once App Store Connect shows the build as ready; it is idempotent.
 
+**The deploy stopped at "Verify Functions secrets before any backend change" or "Verify the Functions deploy kept every paid-access grant"**
+A Functions secret's latest version is not the one this commit pins, the RevenueCat allowlist would drop a product that grants access, or a paid-access grant did not survive the Functions deploy.
+The first stops before anything deploys; the second stops before rules, Storage, Hosting and the upload.
+Read what it printed before re-running anything: `docs/functions-secret-versions.md` says what each message means, how to fix it, and the one case where a re-run is the fix.
+
 **A bad build is already live**
 Neither this pipeline nor a resubmission is the fast lever.
 Flip the relevant Remote Config kill switch first (`docs/remote-config-kill-switches.md`), then pause the rollout with `scripts/appstore-phased-release.mjs pause --confirm`.
@@ -171,4 +186,5 @@ Pausing stops further users being moved onto the build; it does not remove it fr
 - `.claude/skills/ascend-deploy/SKILL.md` - the job graph, secrets, and build-number allocator in full
 - `docs/remote-config-kill-switches.md` - the two undo levers a shipped binary has
 - `docs/production-backend-rollout-runbook.md` - what production actually holds
+- `docs/functions-secret-versions.md` - changing a Functions secret, and the checks that stop an unpinned version shipping
 - `data/ascend-support-page-and-product-page-package/app-store-copy.md` - a record of the live listing, not a source the pipeline pushes from

@@ -145,6 +145,10 @@ gcloud secrets versions access <version> --secret REVENUECAT_SERVER_CONFIG --pro
 
 An allowlist that cannot be read is a **refusal**, never a permission.
 
+**Never build a new version of this secret from the Keychain copy, or from any local copy.**
+A Functions deploy binds the *latest* version, so a new version is a production change the next unrelated deploy ships: version 3, built on 2026-09-08 from the stale Keychain copy, dropped `rc_promo_app_access_lifetime` and went live with the 1.1 deploy on 2026-09-25, and every comped climber's grant was deleted on their next reconciliation.
+Build the new version from the deployed binding and pin it; `docs/functions-secret-versions.md` owns the procedure, and both deploys refuse a version nobody pinned or an allowlist that drops a product a live grant holds.
+
 ## Environments
 
 | Alias | Project | Comping |
@@ -159,7 +163,7 @@ Symptom: the person gets past the paywall and every server-guarded screen fails 
 
 `users/{uid}/entitlement_status/app_access` is written on **every** webhook delivery, while `users/{uid}/entitlements/app_access` is written only for an allowlisted product. So:
 
-- **status exists, `isActive: false`, no grant document** - the webhook delivered and *refused the product*. The allowlist is the problem, not the delivery. Waiting will never fix it. Revoke, add the identifier to `REVENUECAT_SERVER_CONFIG.allowedProductIds`, redeploy Functions, grant again.
+- **status exists, `isActive: false`, no grant document** - the webhook delivered and *refused the product*. The allowlist is the problem, not the delivery. Waiting will never fix it. Revoke, add the identifier to `REVENUECAT_SERVER_CONFIG.allowedProductIds` in a new version built from the deployed one and pinned in `functions/secret-versions.json` (`docs/functions-secret-versions.md`), redeploy Functions, grant again.
 - **neither document** - the webhook has not landed. It normally takes seconds; check the RevenueCat integration's delivery log and the `revenueCatWebhook` logs.
 
 Read those two documents with `ascend-data-investigation`'s wrapper, and honor its absence rule - a read that failed and a document that is missing both print nothing.

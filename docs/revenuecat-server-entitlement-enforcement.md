@@ -33,7 +33,8 @@ If the one-time value is lost, use **Rotate secret** on that detail page to mint
 Rotation invalidates the old secret immediately, and RevenueCat, not the captain, decides when the next delivery arrives.
 Every genuine lifecycle event between the rotation click and the deployed replacement is therefore rejected with HTTP 401.
 That window is unavoidable; only its length is controllable.
-Rotate only when the current value is genuinely lost, and follow the same ordering without pausing: click **Rotate secret**, copy the new secret, write the complete Firebase secret with it, deploy Functions, then send the dashboard test webhook and require HTTP 200 before considering the rotation done.
+Rotate only when the current value is genuinely lost, and follow the same ordering without pausing: click **Rotate secret**, copy the new secret, write a new version of the Firebase secret built from the deployed version with only `webhookSigningSecret` replaced, pin that version in `functions/secret-versions.json`, deploy Functions, then send the dashboard test webhook and require HTTP 200 before considering the rotation done.
+Both deploys refuse a secret version the commit does not pin, so a rotation that cannot wait for a merge is a hand deploy of `revenueCatWebhook` and `reconcileAppAccess` with the pin edited in the working tree, followed by the pull request that lands it (`docs/functions-secret-versions.md`).
 [RevenueCat's current webhook documentation](https://www.revenuecat.com/docs/integrations/webhooks#webhook-signature-verification-hmac) specifies enabling the toggle on an existing webhook integration, the secret shown only once at creation or rotation, the immediate invalidation of the old secret on rotation, and the `X-RevenueCat-Webhook-Signature: t=<unix_timestamp>,v1=<hmac_sha256_hex>` delivery header.
 That the toggle is absent from the New Webhook form is an observation of the current dashboard rather than a documented claim.
 The same page states that the server should return a 200 status code, that any other status code is considered a failure by RevenueCat's backend, that RevenueCat then retries up to five times with increasing delays of 5, 10, 20, 40, and 80 minutes, and that it stops sending after five retries.
@@ -71,8 +72,13 @@ The JSON shape is:
 ```
 
 Staging must allow `ascend_staging_yearly` and `ascend_staging_monthly`.
-Production must allow `ascend_yearly` and `ascend_monthly`.
-Add a promotional product identifier only when the App Review subscriber response proves its exact value.
+Production must allow `ascend_yearly`, `ascend_monthly`, and `rc_promo_app_access_lifetime`, the product every comp from `scripts/comp-access.mjs` carries.
+Add any other promotional product identifier only when a subscriber response proves its exact value.
+Both deploys enforce this set, derived from the app's build settings, the comp tool, and every product a live grant holds, and refuse to bind a version that drops any of it.
+
+Never build a version of this secret from a local copy.
+A Functions deploy binds the latest version, so every new version is a production change the next deploy ships: build it from the version the deployed functions are bound to, and pin it in `functions/secret-versions.json` in the same pull request.
+`docs/functions-secret-versions.md` owns that procedure and the 2026-09-25 incident that made it a rule.
 
 Create `MIXPANEL_SERVER_CONFIG` as a Firebase Functions secret separately in staging and production.
 Enter it at the secret prompt so no value reaches shell history, logs, Git, chat, or the iOS bundle.
@@ -94,7 +100,7 @@ No repository workflow deploys Cloud Functions to `ascend-f2e4f`, and dev has no
 Client analytics is untouched by this: the dev app still reports client events to `4032860` from the device.
 If a dev Functions deployment is ever added, provision a dev-project-scoped Mixpanel service account and its own `MIXPANEL_SERVER_CONFIG` before that deployment, because a bound secret that does not exist fails the whole Functions deploy exactly as it would in staging.
 
-Set both `REVENUECAT_SERVER_CONFIG` and `MIXPANEL_SERVER_CONFIG` before deploying Functions.
+Set both `REVENUECAT_SERVER_CONFIG` and `MIXPANEL_SERVER_CONFIG`, and pin their versions in `functions/secret-versions.json`, before deploying Functions.
 The webhook binds only the RevenueCat secret, while the independent outbox worker binds only the Mixpanel secret, so a Mixpanel outage or credential failure can never decide RevenueCat's webhook response.
 
 Before the first Storage rules deployment in each Firebase project, enable cross-service Cloud Storage Security Rules access to Cloud Firestore.

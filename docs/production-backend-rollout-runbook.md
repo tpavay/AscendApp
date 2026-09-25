@@ -90,6 +90,8 @@ Complete every item before starting the production workflow.
 10. Complete every production captain action for server-side entitlement enforcement before this rollout: the `REVENUECAT_SERVER_CONFIG` Functions secret, the project-scoped `MIXPANEL_SERVER_CONFIG` service-account secret, the production RevenueCat webhook destination and its credentials, the App Store Server Notification URLs, the cross-service Storage-to-Firestore IAM role, and a reconciled grant for every account that already has paid access.
     Firestore and Storage rules deny paid data to a signed-in account with no server-owned grant, so a missed step here is a subscriber lockout rather than a degraded feature.
     `docs/revenuecat-server-entitlement-enforcement.md` owns the full action list; do not restate it here.
+11. Confirm every Functions secret's latest version is the one `functions/secret-versions.json` pins at the release SHA, with `node scripts/verify-functions-secrets.mjs preflight --project ascend-prod-9c8f2`.
+    The workflow refuses to deploy otherwise, so a secret version created since the last release has to be reviewed and pinned before the merge, never discovered by the run (`docs/functions-secret-versions.md`).
 
 Use these read-only GitHub checks:
 
@@ -168,21 +170,24 @@ The workflow performs the following order automatically:
 2. Request the single `production` environment approval and hold until the captain grants it.
 3. Build and retain the signed production IPA.
 4. Build the Functions and Hosting artifacts.
-5. Deploy Firestore indexes.
-6. Poll the Firestore Admin API until all 20 composite indexes and every declared query scope inside all six field overrides report `READY`.
-7. Deploy Functions.
-8. Verify `cleanupDeletedUserData`, `expireRevenueCatEntitlements`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, `processRevenueCatAnalyticsOutbox`, `reconcileAppAccess`, `revenueCatWebhook`, and `unsubscribeFromEmails` report `ACTIVE`.
-9. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
-10. Deploy Firestore rules.
-11. Deploy Storage rules.
-12. Deploy Hosting.
-13. Verify Hosting serves `/climbs/manifest.json` successfully.
-14. Prove the downloaded IPA embeds the exact build number the build job published, then upload it to TestFlight only after every backend step succeeds.
+5. Verify every Functions secret's latest version is the one `functions/secret-versions.json` pins at this SHA and that the RevenueCat allowlist it would bind keeps every product that grants access, then record every live paid-access grant - before anything deploys (`docs/functions-secret-versions.md`).
+6. Verify the production bucket carries artwork for every available climb.
+7. Deploy Firestore indexes.
+8. Poll the Firestore Admin API until every declared composite index and every declared query scope inside every field override report `READY`.
+9. Deploy Functions.
+10. Verify `cleanupDeletedUserData`, `expireRevenueCatEntitlements`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, `processRevenueCatAnalyticsOutbox`, `reconcileAppAccess`, `revenueCatWebhook`, and `unsubscribeFromEmails` report `ACTIVE`.
+11. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
+12. Verify every function is bound to the pinned secret versions and every grant recorded in step 5 still exists and is still allowlisted by the version the functions now run.
+13. Deploy Firestore rules.
+14. Deploy Storage rules.
+15. Deploy Hosting.
+16. Verify Hosting serves `/climbs/manifest.json` successfully.
+17. Prove the downloaded IPA embeds the exact build number the build job published, then upload it to TestFlight only after every backend step succeeds.
     A missing or mismatched build number fails the job before Apple is contacted, so it can never be confused with an upload or App Store Connect failure.
-15. Hold the upload job until App Store Connect records the exact build upload as `PROCESSING` or `COMPLETE`, so the next run's build number is derived from post-upload state.
+18. Hold the upload job until App Store Connect records the exact build upload as `PROCESSING` or `COMPLETE`, so the next run's build number is derived from post-upload state.
     The allocator reads active upload records as well as processed builds, so this gate does not wait for Apple's later build-processing index.
     `scripts/ci/await-build-upload-recorded.mjs` owns the bounded upload-ledger wait and its distinct missing, failed, and timeout diagnostics.
-16. Assert the run reached a real outcome, so a run that deployed nothing fails instead of reporting green.
+19. Assert the run reached a real outcome, so a run that deployed nothing fails instead of reporting green.
 
 This ordering makes indexes available before `onWorkoutWritten` can execute its `source + climbId` query.
 It also puts the entitlement Functions and the `entitlements.accessUntil` expiry index in place before the Firestore and Storage rules that require a server-owned paid grant, so a missing RevenueCat secret stops the rollout instead of locking every subscriber out of the backend - `docs/revenuecat-server-entitlement-enforcement.md` owns that system.
@@ -260,7 +265,7 @@ Do not replace this command with `firebase firestore:operations:list --token` wh
 That command omits the CLI authentication hook, so `--token` is ignored on a clean runner even though adjacent index commands authenticate successfully.
 The direct state reader installs the workflow refresh token into the pinned CLI client explicitly and checks the state that determines whether an index can serve queries.
 Because it loads that CLI's private `lib/auth.js` and `lib/firestore/api.js`, it asserts the resolved package is exactly `firebase-tools@15.22.1` and refuses to run against any other tree.
-Bumping the CLI pin therefore requires updating `PINNED_FIREBASE_TOOLS_VERSION` in `scripts/lib/firestore-index-state-reader.mjs` and re-verifying both private modules against the new release.
+Bumping the CLI pin therefore requires updating `PINNED_FIREBASE_TOOLS_VERSION` in `scripts/lib/pinned-firebase-tools.mjs` and re-verifying every private module it and its callers load against the new release.
 
 Rollback: do not delete a newly created additive index during an incident.
 An unused composite index does not change query results, and deleting it adds risk while providing no immediate recovery benefit.
@@ -268,7 +273,14 @@ Revert the declaration in a reviewed follow-up only after confirming no released
 
 ### 2. Functions
 
+A Functions deploy binds every function to each secret's latest version, so check the secrets before it and the paid-access grants after it.
+Never create a secret version from a local copy; `docs/functions-secret-versions.md` owns how a version is built, pinned and recovered.
+
 ```sh
+ROLLOUT_TMP="$(mktemp -d)"
+node scripts/verify-functions-secrets.mjs preflight --project ascend-prod-9c8f2 \
+  --snapshot "$ROLLOUT_TMP/functions-secret-snapshot.json"
+
 npx -y firebase-tools@15.22.1 deploy --project production \
   --only functions --non-interactive --force
 ```
@@ -298,6 +310,14 @@ Then reconcile the whole deployed set against the checked-out source, which is w
 
 ```sh
 node scripts/verify-deployed-functions.mjs --project production
+```
+
+Then prove the deploy bound the pinned secret versions and kept every paid-access grant the preflight recorded.
+A grant is only deleted on that climber's next webhook delivery or reconciliation, so this also fails on a grant that still exists but is no longer allowlisted:
+
+```sh
+node scripts/verify-functions-secrets.mjs verify-deploy --project ascend-prod-9c8f2 \
+  --snapshot "$ROLLOUT_TMP/functions-secret-snapshot.json"
 ```
 
 Run it from the ref production is supposed to be running, because the expectation is that ref's `functions/src/index.ts`.
