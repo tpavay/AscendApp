@@ -50,6 +50,7 @@ import {
   raceBestOnSteps,
   raceGoalKeysByWorkoutId,
 } from "./lib/live-replay-race-best.mjs";
+import {GOAL_KEY_COMMIT_BUDGET} from "./lib/race-goal-commit-budget.mjs";
 import {
   FIRST_ASCENT_OPEN_ACTIVITY_TIER,
   PUBLIC_IDENTITY_STATE_PUBLISHED,
@@ -1391,7 +1392,9 @@ async function writeSeedPlan(db, seedPlan, args, claimedOpen = new Set()) {
     total: plannedEntries + plannedFinishers + contexts.length,
     unit: "docs",
   });
-  const writer = createBatchWriter(db, {progress});
+  // A Just Climb row carries its `bestForGoals`, and 360 of one climber's rows
+  // back to back are a commit Firestore refuses as too big on count alone.
+  const writer = createBatchWriter(db, {progress, ...GOAL_KEY_COMMIT_BUDGET});
   let writes = 0;
 
   // Summaries first and fingerprints last, both deliberate. The summary a board

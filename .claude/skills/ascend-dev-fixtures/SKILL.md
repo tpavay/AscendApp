@@ -85,6 +85,9 @@ paths:
   `db.bulkWriter()` strands its last few writes under load - reproduced 6/6 against staging, six processes each settling ~19,985 of 20,000 writes with every `close()` promise still pending 90 seconds later at 0% CPU and no open connection - and a seed awaiting it waited forever while printing nothing.
   `scripts/lib/firestore-bulk.mjs` is the one home for bulk reads and writes: `db.batch()` commits through a worker pool, a deadline and retry budget on every call, a progress line on a two-second clock, and a watchdog that calls a phase wedged rather than waiting on it.
   It is also about four times faster than an unthrottled BulkWriter.
+- **A commit has a size limit that is not its write count.**
+  Firestore refused 360 entry updates carrying 65 `bestForGoals` keys each as `INVALID_ARGUMENT: Transaction too big`, which is not retryable, while 360 rows of 45 keys committed.
+  Every array element fans out into its own index entries, so any write of `bestForGoals` goes through `createBatchWriter(db, {...GOAL_KEY_COMMIT_BUDGET})` (`scripts/lib/race-goal-commit-budget.mjs`), and `planCommits` shows a dry run the exact commits a write run will send.
   `scripts/lib/seed-step-runner.mjs` does the same for a spawned child, so a wedged step is killed and named instead of blocking its parent.
 - A repeat seed is a skip, not a rewrite. Each replay board's summary carries `seedRowFingerprint`, a hash of the rows it holds, stamped only after those rows land; a matching hash means the board already holds exactly what the run would write. That is the difference between a 36-second warm run and a three-minute cold one. `--force` overrides it, and a clear drops it.
 - Fill a batch climber-major, not bucket-major. Every entry in one split bucket shares an `entries` collection, so 500 writes filled bucket-first all land on one collection and one index range: 2,327 docs/s with retries, against over 20,000 filled climber-first.
