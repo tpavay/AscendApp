@@ -27,19 +27,19 @@
 //
 // An IPA carrying no watch app passes, loudly. This guard's job is "the icon
 // Apple rejects is present"; it must not also quietly assert "the watch app
-// ships". The watch app ships in 1.1, and 1.0 is submitted without it;
-// docs/heart-rate-zones-plan.md owns that decision. That ruling validates the
-// behavior below rather than changing it: warn-not-fail on zero embedded watch
-// bundles is the branch every 1.0 build actually takes, so it is the normal
-// case and not a hypothetical edge case. Zero watch bundles does not mean
-// something is broken, and turning this back into a hard requirement would fail
-// the deploy after the archive is already built, at exactly the moment someone
-// is unblocking a submission. Announcing the absence keeps a watch app that
-// silently vanished from the scheme visible on the deploy run summary without
-// blocking anyone on it. A friendlier failure message was considered and
-// rejected: it still hard-fails an intentional removal. More than one nested
-// watch bundle stays fatal, because that is a real defect however the scope
-// question lands.
+// ships". The watch app ships in 1.2, and every release before it is submitted
+// without it; docs/heart-rate-zones-plan.md owns that decision. That ruling
+// validates the behavior below rather than changing it: warn-not-fail on zero
+// embedded watch bundles is the branch every build before 1.2 actually takes,
+// so it is the normal case and not a hypothetical edge case. Zero watch bundles
+// does not mean something is broken, and turning this back into a hard
+// requirement would fail the deploy after the archive is already built, at
+// exactly the moment someone is unblocking a submission. Announcing the absence
+// keeps a watch app that silently vanished from the scheme visible on the
+// deploy run summary without blocking anyone on it. A friendlier failure
+// message was considered and rejected: it still hard-fails an intentional
+// removal. More than one nested watch bundle stays fatal, because that is a
+// real defect however the scope question lands.
 //
 // Usage: assert-app-icon-present.mjs <path/to/Bundle.app> <expected-idiom>
 //        assert-app-icon-present.mjs <path/to/App.ipa>

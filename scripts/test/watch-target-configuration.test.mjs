@@ -49,12 +49,13 @@ async function watchBuildConfigurations() {
   return configurations;
 }
 
-test("the 1.0 phone app does not embed the retained watch product", async () => {
+test("no phone app before 1.2 embeds the retained watch product", async () => {
   const project = await readFile(projectPath, "utf8");
 
-  // docs/heart-rate-zones-plan.md owns the 1.0 and 1.1 packaging split.
-  // The target and product reference stay ready for 1.1, but no copy phase may
-  // place the watch bundle under the shipping phone app's Watch directory.
+  // docs/heart-rate-zones-plan.md owns the packaging split that holds the watch
+  // app until 1.2. The target and product reference stay ready for 1.2, but no
+  // copy phase may place the watch bundle under the shipping phone app's Watch
+  // directory.
   assert.match(project, /path = AscendWatch\.app;/);
   assert.doesNotMatch(
     project,
@@ -81,7 +82,7 @@ test("the phone target keeps its build dependency on the retained watch target",
   // With the embed phase gone this dependency is the only edge that compiles and
   // signs AscendWatch at all, and losing it is silent: the app still builds, CI
   // still passes, and every watch assertion above goes on passing against a
-  // target nothing verifies until someone tries to ship 1.1. It is also the sole
+  // target nothing verifies until someone tries to ship 1.2. It is also the sole
   // justification for the watchOS runtime step, the AscendWatch/** path filters,
   // and the Fastlane signing entries.
   const declared = new Set(
@@ -108,7 +109,7 @@ test("the phone target keeps its build dependency on the retained watch target",
 
   assert.ok(
     watchDependencies.some((identifier) => declared.has(identifier)),
-    "the AscendApp target dropped its dependency on AscendWatch, so the retained 1.1 target is no longer built or signed by any scheme"
+    "the AscendApp target dropped its dependency on AscendWatch, so the retained 1.2 target is no longer built or signed by any scheme"
   );
 });
 
@@ -172,7 +173,7 @@ test("the watch target builds for watchOS and nothing else", async () => {
     // Load-bearing beyond documentation. `-sdk <platform>` on an xcodebuild
     // command line overrides SDKROOT for every target in the build. Keeping the
     // explicit supported-platform list prevents an iOS build of the retained
-    // watch target now and a wrong-platform bundle when 1.1 embeds it later.
+    // watch target now and a wrong-platform bundle when 1.2 embeds it later.
     assert.equal(
       settingValue(buildSettings, "SUPPORTED_PLATFORMS"),
       "watchos watchsimulator",

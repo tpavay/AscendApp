@@ -176,15 +176,17 @@ How this plan collides with existing CLAUDE.md / project skill rules and the cod
    first. Most of the maintenance surface is already paid for - the target still builds and signs
    end to end, and `scripts/test/watch-target-configuration.test.mjs` holds its source-side
    configuration contract - while anything Health-related on the watch remains outstanding.
-   The watch app ships in 1.1, not 1.0: **no 1.0 IPA embeds it, staging archives included**, so no
-   TestFlight tester on either environment installs a watch app until 1.1. `AscendWatch` is
+   The watch app ships in 1.2: **no IPA before 1.2 embeds it, staging archives included**, so no
+   TestFlight tester on either environment installs a watch app until 1.2. 1.0, 1.0.1 and 1.1 all
+   ship without it; 1.1 was once reserved for the watch release and moved to 1.2 when the
+   release after 1.0.1 turned out to be a minor version of its own. `AscendWatch` is
    retained as a build dependency of the phone app, so every scheme still compiles and signs it and
    a watch-only change still fails the iOS jobs - the watch is exercised at build time, not on a
-   staging tester's wrist. Its App Store listing artwork is therefore the captain's 1.1 listing work
-   rather than a 1.0 blocker or an open question this plan carries.
+   staging tester's wrist. Its App Store listing artwork is therefore the captain's 1.2 listing work
+   rather than a blocker for any earlier release or an open question this plan carries.
    `scripts/ci/assert-embedded-watch-platform.sh` is the artifact-level platform guard for an
-   embedded watch binary; with nothing embedded in 1.0 it runs nowhere and is parked for
-   reactivation when 1.1 restores embedding.
+   embedded watch binary; with nothing embedded before 1.2 it runs nowhere and is parked for
+   reactivation when 1.2 restores embedding.
    `ascend-deploy` owns the CI and signing side.
 5. **SPM zone bands must stay absolute.** Per Workout Measurement rules, no user-calibrated
    effort baselines (base level is deprecated). Apple's personalized HR zones are Apple's model —

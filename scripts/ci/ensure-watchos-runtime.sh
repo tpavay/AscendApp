@@ -1,8 +1,8 @@
 #!/bin/bash
 # Provision the watchOS simulator runtime the retained watch target may need.
 #
-# Both phone schemes keep the watch target as a build dependency for 1.1 even
-# though the 1.0 app no longer embeds its product. Removing that embed phase also
+# Both phone schemes keep the watch target as a build dependency for 1.2 even
+# though no app before 1.2 embeds its product. Removing that embed phase also
 # removed the refusal that made this step a proven hard precondition:
 #
 #   xcodebuild: error: Failed to build project AscendApp with scheme AscendApp.:

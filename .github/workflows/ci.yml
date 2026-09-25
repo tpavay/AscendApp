@@ -79,8 +79,8 @@ jobs:
               - "AscendAppTests/**"
               - "AscendLiveActivityWidgets/**"
               # The retained watch target remains a build dependency for the
-              # 1.1 release, so a watch-only change is still an iOS change even
-              # though the 1.0 phone app does not embed its product.
+              # 1.2 release, so a watch-only change is still an iOS change even
+              # though no phone app before 1.2 embeds its product.
               - "AscendWatch/**"
               - "AscendWatchShared/**"
               - "AscendApp.xcodeproj/**"
@@ -859,8 +859,8 @@ jobs:
       # not reliably accept a string-typed `false`, which is why the type is
       # asserted alongside the value.
       #
-      # The 1.0 product has one shipped application bundle. The retained watch
-      # target is built for 1.1 but is not embedded in this phone app.
+      # Every release before 1.2 has one shipped application bundle. The retained
+      # watch target is built for 1.2 but is not embedded in this phone app.
       - name: Verify Release bundle export compliance
         shell: bash
         env:

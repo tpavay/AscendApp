@@ -61,7 +61,7 @@ AscendApp/
 └── Shared/             # Components · Extensions · Managers · Models · Repositories · Services · Views
 AscendAppTests/         # Swift Testing suite
 AscendLiveActivityWidgets/  # Live Activity / Dynamic Island extension
-AscendWatch/            # watchOS companion target retained for the 1.1 release
+AscendWatch/            # watchOS companion target retained for the 1.2 release
 AscendWatchShared/      # Compiled into BOTH binaries - platform-neutral value types only
 .claude/skills/         # Project skills (see Skill Router)
 AppStoreAssets/         # Shipped en-US iPhone screenshot set and its renderer
@@ -79,10 +79,10 @@ web/                    # Website source
 
 `AscendApp/App/Firebase/` needs the plist for the environment you're building - the Dev plist is committed, Staging and Production are gitignored and linked in locally; see the README there. CI decodes them from base64 secrets.
 
-Both app schemes build the retained watch target as a dependency, but no phone app before 1.1 embeds it.
+Both app schemes build the retained watch target as a dependency, but no phone app before 1.2 embeds it.
 Whether a dependency-only build still demands an installed watchOS simulator runtime matching the watchOS **SDK** (not the deployment target, whatever the destination) is unverified now that nothing is embedded (#496), so `scripts/ci/ensure-watchos-runtime.sh` provisions one **best effort** - it warns and exits 0 on every failure, leaving `xcodebuild` the only authority on whether a build can proceed.
 It runs locally too; CI runs it before both iOS jobs and before each deploy pipeline's archive.
-`docs/heart-rate-zones-plan.md` owns the 1.0 and 1.1 packaging decision; `ascend-deploy` owns the CI side.
+`docs/heart-rate-zones-plan.md` owns the packaging decision that holds the watch app until 1.2; `ascend-deploy` owns the CI side.
 
 **Every local `xcodebuild` keeps `-derivedDataPath "$PWD/.build/dd"`, and CI keeps none.**
 Xcode keys DerivedData to the project's *filesystem path* and never garbage-collects it, so a build run from a throwaway worktree - a no-mistakes ULID worktree, a treehouse lane - mints `~/Library/Developer/Xcode/DerivedData/AscendApp-<hash>` for a path deleted minutes later and orphans ~9 GiB forever; 197 recorded runs had accumulated 224 GB before this flag.
