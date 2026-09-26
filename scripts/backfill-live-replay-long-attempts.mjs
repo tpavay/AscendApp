@@ -33,10 +33,15 @@
  *      attempt reading as unrepaired and the next run redoes it whole.
  *
  * Goal keys (`bestForGoals`) are copied onto the new entries as bucket zero
- * holds them, and those were derived from the bent curve. Run
- * `backfill-live-replay-best-per-user.mjs` against the same environment
- * straight after this one: it re-derives every key from the repaired curves
- * and writes them across each attempt's whole span.
+ * holds them, and those were derived from the bent curve - a clamped curve
+ * credited `duration:3600` to a climber who reached those steps hours later.
+ * So once every bucket zero has landed, the same run re-derives the race-best
+ * flags and goal keys on every board holding a long attempt, through
+ * `backfillRaceBests` in `backfill-live-replay-best-per-user.mjs`, which reads
+ * the repaired curves and writes each attempt's keys across its whole span.
+ * A plan runs that pass as a dry run and prints the goal-key rewrites it would
+ * make. Boards whose long attempts are all republished already are passed
+ * again, so a re-run reaches any climber the previous one skipped.
  *
  * Seeded rows (`isSynthetic`) have no workout behind them and are skipped. A
  * session longer than the 24-hour plausibility envelope is skipped too: the
@@ -45,7 +50,9 @@
  * Migration discipline (`scripts/lib/migration-discipline.mjs`): dry-run by
  * default, `--apply` to write, production only with its project id spelled
  * out, a `_migrations` ledger entry per apply, and idempotent - a second run
- * plans nothing. AUTHOR-ONLY in its pull request: running it is captain-gated
+ * plans nothing. It exits 1 when an attempt is left alone, when the race-best
+ * pass skips a climber, or when a plan finds a climber over the goal-key
+ * commit budget. AUTHOR-ONLY in its pull request: running it is captain-gated
  * ops, per environment, after the Cloud Functions deploy that ships the fix.
  *
  * Usage:
@@ -73,6 +80,10 @@ import {createBatchWriter, withRetry} from "./lib/firestore-bulk.mjs";
 import {isEntrypoint} from "./lib/is-entrypoint.mjs";
 import {GOAL_KEY_COMMIT_BUDGET} from "./lib/race-goal-commit-budget.mjs";
 import {contextRacesGoals} from "./lib/live-replay-race-best.mjs";
+import {
+  backfillRaceBests,
+  renderReport as renderRaceBestReport,
+} from "./backfill-live-replay-best-per-user.mjs";
 import {
   PRE_FIX_SAMPLER_CHECKPOINTS,
   REPLAY_BOARD_INTERVAL_SECONDS,
@@ -125,11 +136,19 @@ async function main() {
   });
   const db = await initFirestore(environment);
   const report = await planBackfill(db, {contextKey: args.contextKey});
+  const raceBestTarget = {label: `${environment.env} (${environment.projectId})`};
 
   console.log(renderReport(report, {environment, apply: args.apply}));
 
   if (!args.apply) {
-    if (report.unrepairable.length > 0) process.exitCode = 1;
+    const raceBests = await backfillGoalKeys(db, report.longAttemptBoards, {dryRun: true});
+    console.log(`\nRace-best pass after the republish:\n${renderRaceBestReport(raceBests, {
+      target: raceBestTarget,
+      dryRun: true,
+    })}`);
+    if (report.unrepairable.length > 0 || raceBestPassFailed(raceBests, {dryRun: true})) {
+      process.exitCode = 1;
+    }
     console.log("\nDry-run only. Re-run with --apply to write these documents.");
     return;
   }
@@ -143,19 +162,22 @@ async function main() {
 
   try {
     const written = await applyRepublishes(db, report.republishes);
+    console.log(`\nApplied: ${report.republishes.length} attempt(s), ${written} write(s).`);
+    const raceBests = await backfillGoalKeys(db, report.longAttemptBoards, {dryRun: false});
+    console.log(`\nRace-best pass:\n${renderRaceBestReport(raceBests, {
+      target: raceBestTarget,
+      dryRun: false,
+    })}`);
     await run.finish({
       attemptsRepublished: report.republishes.length,
       entryWrites: written,
       unrepairable: report.unrepairable.length,
+      raceBestEntryWrites: raceBests.boards.reduce((sum, board) => sum + board.entryWritesApplied, 0),
+      raceBestClimbersSkipped: raceBests.skippedClimbers.length,
     });
-    console.log(`\nApplied: ${report.republishes.length} attempt(s), ${written} write(s).`);
-    if (report.republishes.length > 0) {
-      console.log(
-        "Next: run backfill-live-replay-best-per-user.mjs against this environment so every " +
-        "goal key is re-derived from the repaired curves."
-      );
+    if (report.unrepairable.length > 0 || raceBestPassFailed(raceBests, {dryRun: false})) {
+      process.exitCode = 1;
     }
-    if (report.unrepairable.length > 0) process.exitCode = 1;
   } catch (error) {
     await run.fail(error);
     throw error;
@@ -181,6 +203,7 @@ export async function planBackfill(db, {contextKey}) {
     synthetic: 0,
     republishes: [],
     unrepairable: [],
+    longAttemptBoards: [],
   };
 
   for (const boardRef of boards) {
@@ -194,6 +217,9 @@ export async function planBackfill(db, {contextKey}) {
       if (data.isSynthetic === true) {
         report.synthetic += 1;
         continue;
+      }
+      if (!report.longAttemptBoards.includes(boardRef.id)) {
+        report.longAttemptBoards.push(boardRef.id);
       }
 
       const userId = typeof data.userId === "string" ? data.userId : null;
@@ -235,6 +261,34 @@ export async function planBackfill(db, {contextKey}) {
   }
 
   return report;
+}
+
+/**
+ * Re-derives race-best flags and goal keys on each board, one board at a
+ * time, into one report shaped like `backfillRaceBests`'s own.
+ * @param {FirebaseFirestore.Firestore} db Firestore instance.
+ * @param {string[]} contextKeys Boards holding a long attempt.
+ * @param {{dryRun: boolean}} options Run options.
+ * @return {Promise<object>} The merged race-best report.
+ */
+export async function backfillGoalKeys(db, contextKeys, {dryRun}) {
+  const merged = {boards: [], boardsSkipped: [], skippedClimbers: [], oversizedClimbers: []};
+  for (const contextKey of contextKeys) {
+    const report = await backfillRaceBests(db, {dryRun, contextKey});
+    for (const key of Object.keys(merged)) merged[key].push(...report[key]);
+  }
+  return merged;
+}
+
+/**
+ * The race-best pass's own failure contract: a skipped climber always fails
+ * the run, and a plan over the goal-key budget has not shown the write lands.
+ * @param {object} report From `backfillGoalKeys`.
+ * @param {{dryRun: boolean}} options Run options.
+ * @return {boolean} True when the run must exit 1.
+ */
+export function raceBestPassFailed(report, {dryRun}) {
+  return report.skippedClimbers.length > 0 || (dryRun && report.oversizedClimbers.length > 0);
 }
 
 /**
@@ -484,5 +538,5 @@ function printUsage() {
   node scripts/backfill-live-replay-long-attempts.mjs --env dev|staging [--apply] [--rerun] [--context-key <key>]
   node scripts/backfill-live-replay-long-attempts.mjs --env prod --confirm-production ascend-prod-9c8f2 [--apply]
 
-Plans by default; --apply writes. Run backfill-live-replay-best-per-user.mjs afterwards.`);
+Plans by default; --apply writes, then re-derives race-best flags and goal keys on every board holding a long attempt.`);
 }

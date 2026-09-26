@@ -5,6 +5,7 @@ import {fileURLToPath} from "node:url";
 import {dirname, join} from "node:path";
 import {
   applyRepublishes,
+  backfillGoalKeys,
   boardCurveForWorkout,
   planAttemptRepublish,
   planBackfill,
@@ -168,6 +169,67 @@ test("a write run republishes the attempt, bucket zero last, and a second run pl
   assert.equal(again.upToDate, 1);
 });
 
+test("one run takes a goal back from the clamped curve that won it", async () => {
+  // The captain's real hour: 5,400 steps in 59:50, more than the ~5,030 the
+  // ninety-minute climb had at 60:00. The clamped curve reached 7,708 at
+  // 60:00, so it held duration:3600 over this attempt.
+  const hour = {workoutId: "one-hour", durationSeconds: 3590, steps: 5400};
+  const hourCurve = Array.from({length: 360}, (_, index) =>
+    Math.min(hour.steps, Math.floor((index + 1) * 10 * hour.steps / hour.durationSeconds))
+  );
+  const documents = {
+    [BOARD]: {contextType: "just_climb"},
+    [`users/${CAPTAIN}/workouts/${WORKOUT}`]: captainWorkout,
+    [`${BOARD}/attemptCurves/${WORKOUT}`]: {splitSteps: captain.splitSteps, splitIntervalSeconds: 10},
+    [`${BOARD}/attemptCurves/${hour.workoutId}`]: {
+      finalDurationSeconds: hour.durationSeconds,
+      finalSteps: hour.steps,
+      splitIntervalSeconds: 10,
+      splitSteps: hourCurve,
+    },
+  };
+  captain.splitSteps.forEach((steps, index) => {
+    documents[entryPath(index)] = preFixEntry(steps);
+  });
+  hourCurve.forEach((steps, index) => {
+    documents[entryPath(index, hour.workoutId)] = preFixEntry(steps, {
+      bestForGoals: [],
+      completionDurationSeconds: hour.durationSeconds,
+      finalSteps: hour.steps,
+      isBestForUser: false,
+      workoutId: hour.workoutId,
+    });
+  });
+  const db = memoryFirestore(documents);
+  const goalsOf = (workoutId, bucketIndex = 0) =>
+    db.store.get(entryPath(bucketIndex, workoutId)).bestForGoals;
+
+  const plan = await planBackfill(db, {contextKey: null});
+  assert.deepEqual(plan.longAttemptBoards, ["just_climb__global"]);
+
+  // The plan shows the rewrite and writes nothing.
+  const planned = await backfillGoalKeys(db, plan.longAttemptBoards, {dryRun: true});
+  assert.ok(planned.boards[0].goalKeyRewrites > 0);
+  assert.ok(goalsOf(WORKOUT).includes("duration:3600"));
+
+  await applyRepublishes(db, plan.republishes);
+  const applied = await backfillGoalKeys(db, plan.longAttemptBoards, {dryRun: false});
+
+  assert.deepEqual(applied.skippedClimbers, []);
+  assert.ok(goalsOf(hour.workoutId).includes("duration:3600"));
+  assert.ok(goalsOf(hour.workoutId, 359).includes("duration:3600"));
+  assert.equal(goalsOf(WORKOUT).includes("duration:3600"), false);
+  // The keys reach the buckets past the hour the republish created.
+  assert.deepEqual(goalsOf(WORKOUT, 540), goalsOf(WORKOUT));
+  assert.ok(goalsOf(WORKOUT).includes("steps:7700"));
+
+  // A second run changes nothing.
+  const again = await backfillGoalKeys(db, (await planBackfill(db, {contextKey: null})).longAttemptBoards, {
+    dryRun: false,
+  });
+  assert.equal(again.boards[0].entryWritesApplied, 0);
+});
+
 /**
  * An in-memory Firestore with the surface the backfill touches.
  * @param {Record<string, object>} documents Initial documents by path.
@@ -187,8 +249,14 @@ function memoryFirestore(documents) {
   const docRef = (path) => ({
     path,
     id: path.split("/").at(-1),
+    get parent() {
+      return collectionRef(path.split("/").slice(0, -1).join("/"));
+    },
     collection: (name) => collectionRef(`${path}/${name}`),
     get: async () => snapshot(path),
+    set: async (data) => {
+      store.set(path, data);
+    },
   });
   const query = (path, filters) => ({
     where: (field, op, value) => {
@@ -202,6 +270,10 @@ function memoryFirestore(documents) {
   const collectionRef = (path) => ({
     ...query(path, []),
     path,
+    id: path.split("/").at(-1),
+    get parent() {
+      return docRef(path.split("/").slice(0, -1).join("/"));
+    },
     doc: (id) => docRef(`${path}/${id}`),
     listDocuments: async () => {
       const ids = new Set([...store.keys()]
@@ -216,6 +288,7 @@ function memoryFirestore(documents) {
     commits,
     collection: collectionRef,
     doc: docRef,
+    getAll: async (...refs) => refs.map((ref) => snapshot(ref.path)),
     batch() {
       const operations = [];
       return {

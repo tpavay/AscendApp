@@ -134,26 +134,26 @@ Attempts published before the split fix that ran past the hour sit on their boar
 The fixed Cloud Function publishes new and re-published long attempts correctly on its own; `scripts/backfill-live-replay-long-attempts.mjs` rewrites the ones already there, and it is a required step of the release that ships the fix, in this order:
 
 1. Deploy the Cloud Functions.
-2. Run the long-attempt backfill on staging, plan first, then the race-best backfill, because the goal keys it copies onto the new entries were derived from the bent curves:
+2. Run the long-attempt backfill on staging, plan first.
+   One run also re-derives the race-best flags and goal keys on every board holding a long attempt, once its bucket-zero writes have landed, because the goal keys it copies onto the new entries were derived from the bent curves: a clamped curve credited `duration:3600` to a climber who reached those steps hours later.
+   The plan prints that pass as a dry run, goal-key rewrites included:
 
 ```sh
 node scripts/backfill-live-replay-long-attempts.mjs --env staging
 node scripts/backfill-live-replay-long-attempts.mjs --env staging --apply
-node scripts/backfill-live-replay-best-per-user.mjs --env staging --dry-run
-node scripts/backfill-live-replay-best-per-user.mjs --env staging
 ```
 
-3. Run both on production the same way, and verify a long attempt's bucket zero now states its whole span:
+3. Run it on production the same way, and verify a long attempt's bucket zero now states its whole span:
 
 ```sh
 node scripts/backfill-live-replay-long-attempts.mjs --env prod --confirm-production ascend-prod-9c8f2
 node scripts/backfill-live-replay-long-attempts.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
-node scripts/backfill-live-replay-best-per-user.mjs --env prod --confirm-production ascend-prod-9c8f2 --dry-run
-node scripts/backfill-live-replay-best-per-user.mjs --env prod --confirm-production ascend-prod-9c8f2
 node scripts/firestore-query.mjs get live_replay_leaderboards/just_climb__global/splitBuckets/0/entries/<workoutId> --env prod --confirm-production
 ```
 
-The long-attempt script is idempotent - bucket zero is written last and is what it diffs against, so a second plan reports `Attempts to republish: 0` - and it names every attempt it left alone under `Left alone, needing a look` with exit code 1.
+The script is idempotent - bucket zero is written last and is what it diffs against, so a second plan reports `Attempts to republish: 0` and the race-best pass writes nothing.
+It exits 1 when it names an attempt under `Left alone, needing a look`, when the race-best pass skips a climber, or when a plan finds a climber over the goal-key commit budget.
+A board whose long attempts are all republished still gets the race-best pass, so re-running the same command reaches a climber the previous run skipped.
 It never writes a climber's private workout: every reader repairs a clamped curve on read, on the device and on the server.
 Seeded rows have no workout behind them and are skipped; the seed's own Just Climb window now reaches its slowest rival, so reseeding a board (`content:staging`) republishes its seeded long rivals.
 Measured on production (`ascend-prod-9c8f2`) on 2026-09-26, before the script existed: 29 bucket-zero entries across 10 boards, 4 of them an hour or longer, all on `just_climb__global` (74, 90, 101 and 150 minutes), each with `splitBucketCount` 360 and its final steps in bucket 359.
