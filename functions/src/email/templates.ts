@@ -11,6 +11,11 @@ import type {
   FirstAscentClaimedPayload,
   FirstClimbCompletedPayload,
   LeaderboardFirstPlacePayload,
+  RecapActivePayload,
+  RecapCalendarCell,
+  RecapDeltaChip,
+  RecapEarnedBadge,
+  RecapInactivePayload,
   TransactionalEmailRenderResult,
 } from "./types";
 
@@ -128,6 +133,84 @@ function requiredUrl(
   }
 
   return value;
+}
+
+/**
+ * Reads an optional, non-empty string from a stored template payload.
+ * @param {Record<string, unknown>} payload - Stored job payload
+ * @param {string} key - Payload key
+ * @return {string | undefined} Trimmed string, when present
+ */
+function optionalString(
+  payload: Record<string, unknown>,
+  key: string
+): string | undefined {
+  const value = payload[key];
+  return typeof value === "string" && value.trim().length > 0 ?
+    value.trim() :
+    undefined;
+}
+
+/**
+ * Reads a required finite number from a stored template payload.
+ * @param {Record<string, unknown>} payload - Stored job payload
+ * @param {string} key - Payload key
+ * @param {string} errorCode - Error to throw when invalid
+ * @return {number} The number
+ */
+function requiredNumber(
+  payload: Record<string, unknown>,
+  key: string,
+  errorCode: string
+): number {
+  const value = payload[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(errorCode);
+  }
+  return value;
+}
+
+/**
+ * Reads an optional finite number from a stored template payload.
+ * @param {Record<string, unknown>} payload - Stored job payload
+ * @param {string} key - Payload key
+ * @return {number | undefined} The number, when present
+ */
+function optionalNumber(
+  payload: Record<string, unknown>,
+  key: string
+): number | undefined {
+  const value = payload[key];
+  return typeof value === "number" && Number.isFinite(value) ?
+    value :
+    undefined;
+}
+
+/**
+ * Reads a string array from a stored template payload, dropping anything
+ * that is not a non-empty string rather than rejecting the whole email.
+ * @param {Record<string, unknown>} payload - Stored job payload
+ * @param {string} key - Payload key
+ * @return {string[]} Non-empty trimmed strings
+ */
+function stringArray(payload: Record<string, unknown>, key: string): string[] {
+  const value = payload[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((entry): entry is string =>
+      typeof entry === "string" && entry.trim().length > 0)
+    .map((entry) => entry.trim());
+}
+
+/**
+ * Formats a count with thousands separators for recap copy.
+ * @param {number} value - Raw count
+ * @return {string} Locale-formatted count
+ */
+function formatCount(value: number): string {
+  return Math.max(0, Math.round(value)).toLocaleString("en-US");
 }
 
 /**
@@ -659,6 +742,991 @@ export function renderLeaderboardFirstPlaceEmailFromPayload(
 ): TransactionalEmailRenderResult {
   return renderLeaderboardFirstPlaceEmail(
     parseLeaderboardFirstPlacePayload(payload),
+    context
+  );
+}
+
+// =============================================================================
+// Weekly / Monthly Recap
+//
+// Bespoke dark-themed layout (captain, 2026-09-24, Wispr-Flow-inspired
+// structure in Ascend's own brand - dark, green accent, no borrowed colors,
+// mascot, or copy). Does not use renderBrandedEmail's light card layout: a
+// bold editorial hero leading with rank + percentile, an optional row of
+// earned achievement badges, stat cards with green "up only" delta chips,
+// and a per-day activity calendar heatmap. Copy is past tense throughout
+// ("last week" / "last month") since every send lands after the period it
+// describes has closed.
+//
+// Round 4 (2026-09-24, captain review of the rendered emails): the base
+// background is true black (`ThemedBackground`'s own `Color.black`, not an
+// off-black), and every surface color is derived from ONE source - white at
+// the app's own opacity scale for text/borders/card fills, the brand accent
+// at reduced opacity for the calendar's "active" heat step - rather than
+// scattered one-off hex values, matching AscendApp/Shared/Managers's
+// documented dark theming tokens. Podium ranks (1-3) use the gold medal
+// token for the hero box, reserved for exactly this "rank-prestige moment"
+// per the design system - every other rank keeps the green accent.
+// =============================================================================
+
+const RECAP_BG = "#000000";
+const RECAP_CARD_BG = "rgba(255,255,255,0.05)";
+const RECAP_BORDER = "rgba(255,255,255,0.10)";
+const RECAP_ACCENT_BORDER = "rgba(134,211,10,0.35)";
+const RECAP_TEXT = "#ffffff";
+const RECAP_TEXT_MUTED = "rgba(255,255,255,0.6)";
+const RECAP_CHIP_BG = "rgba(134,211,10,0.16)";
+const RECAP_CAL_NONE = "rgba(255,255,255,0.05)";
+const RECAP_CAL_ACTIVE = "rgba(134,211,10,0.35)";
+const RECAP_ON_ACCENT_TEXT = "#0c0e10";
+const RECAP_GOLD = "#D4AF37";
+const RECAP_GOLD_BG = "rgba(212,175,55,0.10)";
+const RECAP_GOLD_BORDER = "rgba(212,175,55,0.45)";
+const RECAP_CARD_SHADOW = "0 1px 3px rgba(0,0,0,0.55)," +
+  "inset 0 1px 0 rgba(255,255,255,0.05)";
+
+interface RecapCadenceCopy {
+  ctaLabel: string;
+  eyebrow: string;
+  gapNoun: string;
+  headlineAccent: string;
+  headlineLead: string;
+  periodNoun: string;
+  reviewHeading: string;
+  subject: string;
+  subjectInactive: string;
+  whyReceivedActive: string;
+  whyReceivedInactive: string;
+}
+
+const WEEKLY_RECAP_COPY: RecapCadenceCopy = {
+  ctaLabel: "Open Ascend",
+  eyebrow: "Weekly Recap",
+  gapNoun: "week",
+  headlineAccent: "ON THE STAIR STEPPER.",
+  headlineLead: "YOUR WEEK",
+  periodNoun: "last week",
+  reviewHeading: "Your week in review",
+  subject: "Your week on the stair stepper",
+  subjectInactive: "We missed you",
+  whyReceivedActive: "You received this because Ascend sends climbers a " +
+    "weekly recap of their climbs.",
+  whyReceivedInactive: "You received this because a week passed with no " +
+    "Ascend climbs on your account.",
+};
+
+const MONTHLY_RECAP_COPY: RecapCadenceCopy = {
+  ctaLabel: "Open Ascend",
+  eyebrow: "Monthly Recap",
+  gapNoun: "month",
+  headlineAccent: "ON THE STAIR STEPPER.",
+  headlineLead: "YOUR MONTH",
+  periodNoun: "last month",
+  reviewHeading: "Your month in review",
+  subject: "Your month on the stair stepper",
+  subjectInactive: "We missed you",
+  whyReceivedActive: "You received this because Ascend sends climbers a " +
+    "monthly recap of their climbs.",
+  whyReceivedInactive: "You received this because a month passed with no " +
+    "Ascend climbs on your account.",
+};
+
+/**
+ * Parses a recap payload shared by an active climber's weekly or monthly
+ * email.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {string} errorCode - Error to throw when invalid
+ * @return {RecapActivePayload} Validated payload
+ */
+function parseRecapActivePayload(
+  payload: EmailJobPayload,
+  errorCode: string
+): RecapActivePayload {
+  if (!isPlainObject(payload)) {
+    throw new Error(errorCode);
+  }
+
+  return {
+    calendar: calendarArray(payload.calendar),
+    climbsCompleted: requiredNumber(payload, "climbsCompleted", errorCode),
+    climbsDelta: parseDeltaChip(payload.climbsDelta),
+    ctaUrl: requiredUrl(payload, "ctaUrl", errorCode),
+    currentStreakWeeks: optionalNumber(payload, "currentStreakWeeks"),
+    earnedBadges: earnedBadgeArray(payload.earnedBadges),
+    fieldSize: optionalNumber(payload, "fieldSize"),
+    floorsDelta: parseDeltaChip(payload.floorsDelta),
+    landmarksFinished: stringArray(payload, "landmarksFinished"),
+    percentileBand: optionalString(payload, "percentileBand"),
+    periodLabel: requiredString(payload, "periodLabel", errorCode),
+    rank: optionalNumber(payload, "rank"),
+    stepsDelta: parseDeltaChip(payload.stepsDelta),
+    totalFloors: requiredNumber(payload, "totalFloors", errorCode),
+    totalSteps: requiredNumber(payload, "totalSteps", errorCode),
+  };
+}
+
+/**
+ * Parses a recap payload shared by a zero-activity climber's re-engagement
+ * email.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {string} errorCode - Error to throw when invalid
+ * @return {RecapInactivePayload} Validated payload
+ */
+function parseRecapInactivePayload(
+  payload: EmailJobPayload,
+  errorCode: string
+): RecapInactivePayload {
+  if (!isPlainObject(payload)) {
+    throw new Error(errorCode);
+  }
+
+  return {
+    ctaUrl: requiredUrl(payload, "ctaUrl", errorCode),
+    earnedBadges: earnedBadgeArray(payload.earnedBadges),
+    firstAscents: stringArray(payload, "firstAscents"),
+    gapCount: requiredNumber(payload, "gapCount", errorCode),
+    periodLabel: requiredString(payload, "periodLabel", errorCode),
+    suggestedClimbName: optionalString(payload, "suggestedClimbName"),
+  };
+}
+
+/**
+ * Parses a stored delta chip, dropping anything that does not carry every
+ * field an "up" chip needs.
+ * @param {unknown} value - Raw stored field
+ * @return {RecapDeltaChip | undefined} The chip, when it parses
+ */
+function parseDeltaChip(value: unknown): RecapDeltaChip | undefined {
+  if (!isPlainObject(value) || value.direction !== "up") {
+    return undefined;
+  }
+  const label = typeof value.label === "string" ? value.label : "";
+  const chipValue = typeof value.value === "string" ? value.value : "";
+  return label && chipValue ? {direction: "up", label, value: chipValue} : undefined;
+}
+
+/**
+ * Parses a stored calendar cell array, dropping anything malformed rather
+ * than failing the whole render.
+ * @param {unknown} value - Raw stored field
+ * @return {RecapCalendarCell[]} Parsed calendar cells
+ */
+function calendarArray(value: unknown): RecapCalendarCell[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const cells: RecapCalendarCell[] = [];
+  for (const entry of value) {
+    if (!isPlainObject(entry)) {
+      continue;
+    }
+    const level = entry.level;
+    if (level !== "blank" && level !== "none" && level !== "active" &&
+      level !== "peak") {
+      continue;
+    }
+    const dayOfMonth = typeof entry.dayOfMonth === "number" ?
+      entry.dayOfMonth :
+      null;
+    cells.push({dayOfMonth, level});
+  }
+  return cells;
+}
+
+/**
+ * Parses a stored earned-badge array, dropping anything that does not carry
+ * a recognized badge id and a non-empty label.
+ * @param {unknown} value - Raw stored field
+ * @return {RecapEarnedBadge[]} Parsed badges
+ */
+function earnedBadgeArray(value: unknown): RecapEarnedBadge[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const badges: RecapEarnedBadge[] = [];
+  for (const entry of value) {
+    if (!isPlainObject(entry)) {
+      continue;
+    }
+    const id = entry.id;
+    if (id !== "top10" && id !== "top100" && id !== "first-ascent") {
+      continue;
+    }
+    const label = typeof entry.label === "string" ? entry.label : "";
+    if (!label) {
+      continue;
+    }
+    const detail = typeof entry.detail === "string" ? entry.detail : undefined;
+    badges.push({detail, id, label});
+  }
+  return badges;
+}
+
+/**
+ * Renders one stat card's inline styles.
+ * @param {string} value - Big headline number
+ * @param {string} label - Caption below the number
+ * @param {RecapDeltaChip | undefined} chip - Optional green delta chip
+ * @return {string} Card HTML
+ */
+function renderStatCardHtml(
+  value: string,
+  label: string,
+  chip: RecapDeltaChip | undefined
+): string {
+  const chipHtml = chip ? [
+    "<span style=\"display:inline-block;margin-top:10px;padding:4px 10px;",
+    `border-radius:8px;background:${RECAP_CHIP_BG};color:`,
+    `${BRAND_ACCENT_COLOR};font-size:12px;font-weight:700;">▲ `,
+    `${escapeHtml(chip.value)} ${escapeHtml(chip.label)}</span>`,
+  ].join("") : [
+    // Reserves the chip's height so a chip-less card matches its row-mate.
+    "<span aria-hidden=\"true\" style=\"display:inline-block;",
+    "margin-top:10px;padding:4px 10px;font-size:12px;visibility:hidden;\">",
+    "&nbsp;</span>",
+  ].join("");
+
+  return [
+    `<div style="border:1px solid ${RECAP_BORDER};border-radius:16px;`,
+    `padding:20px;background:${RECAP_CARD_BG};box-shadow:`,
+    `${RECAP_CARD_SHADOW};">`,
+    `<p style="margin:0;font-size:30px;font-weight:800;color:${RECAP_TEXT};`,
+    `line-height:1.1;letter-spacing:-0.01em;">${escapeHtml(value)}</p>`,
+    `<p style="margin:8px 0 0;font-size:13px;color:${RECAP_TEXT_MUTED};">`,
+    `${escapeHtml(label)}</p>`,
+    chipHtml,
+    "</div>",
+  ].join("");
+}
+
+/**
+ * Renders the 2x2 stat card grid as an email-safe table.
+ * @param {Array<[string, string, RecapDeltaChip | undefined]>} cards -
+ *   Exactly four (value, label, chip) tuples
+ * @return {string} Grid HTML
+ */
+function renderStatGridHtml(
+  cards: Array<[string, string, RecapDeltaChip | undefined]>
+): string {
+  // The gutter sits between the two cards only, so the outer edges stay
+  // flush with the rank hero and badge boxes above the grid.
+  const cell = (
+    card: [string, string, RecapDeltaChip | undefined],
+    padding: string
+  ): string =>
+    `<td width="50%" style="padding:${padding};vertical-align:top;">` +
+    `${renderStatCardHtml(card[0], card[1], card[2])}</td>`;
+  const left = (card: [string, string, RecapDeltaChip | undefined]) =>
+    cell(card, "0 8px 16px 0");
+  const right = (card: [string, string, RecapDeltaChip | undefined]) =>
+    cell(card, "0 0 16px 8px");
+
+  return [
+    "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" ",
+    "cellpadding=\"0\" border=\"0\"><tr>",
+    left(cards[0]),
+    right(cards[1]),
+    "</tr><tr>",
+    left(cards[2]),
+    right(cards[3]),
+    "</tr></table>",
+  ].join("");
+}
+
+/**
+ * Renders one calendar day cell.
+ * @param {RecapCalendarCell} cell - Cell to render
+ * @return {string} Cell HTML
+ */
+function renderCalendarCellHtml(cell: RecapCalendarCell): string {
+  if (cell.level === "blank") {
+    return "<td style=\"padding:4px;\"></td>";
+  }
+  const background = cell.level === "peak" ?
+    BRAND_ACCENT_COLOR :
+    cell.level === "active" ? RECAP_CAL_ACTIVE : RECAP_CAL_NONE;
+  const border = cell.level === "peak" ?
+    "1px solid transparent" :
+    `1px solid ${RECAP_BORDER}`;
+  const textColor = cell.level === "peak" ? RECAP_ON_ACCENT_TEXT : RECAP_TEXT;
+  return [
+    "<td style=\"padding:4px;\"><div style=\"background:",
+    background,
+    ";border:",
+    border,
+    ";border-radius:10px;padding:10px 0;text-align:center;font-size:12px;",
+    "font-weight:700;color:",
+    textColor,
+    ";\">",
+    String(cell.dayOfMonth ?? ""),
+    "</div></td>",
+  ].join("");
+}
+
+/**
+ * Renders the activity calendar heatmap table plus its legend.
+ * @param {RecapCalendarCell[]} cells - Calendar cells, Monday-aligned
+ * @return {string} Calendar HTML, or an empty string with no cells
+ */
+function renderCalendarHtml(cells: RecapCalendarCell[]): string {
+  if (cells.length === 0) {
+    return "";
+  }
+
+  const weekdayHeader = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+    .map((day) => "<td style=\"padding:0 3px 8px;text-align:center;" +
+      `font-size:11px;font-weight:700;color:${RECAP_TEXT_MUTED};">` +
+      `${day}</td>`)
+    .join("");
+
+  const weekRows: string[] = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    const week = cells.slice(i, i + 7).map(renderCalendarCellHtml).join("");
+    weekRows.push(`<tr>${week}</tr>`);
+  }
+
+  const legendSwatch = (color: string, label: string): string => [
+    "<span style=\"display:inline-block;width:10px;height:10px;",
+    `border-radius:3px;background:${color};border:1px solid `,
+    `${RECAP_BORDER};margin-right:6px;vertical-align:middle;"></span>`,
+    `<span style="font-size:12px;color:${RECAP_TEXT_MUTED};`,
+    "margin-right:16px;vertical-align:middle;\">",
+    label,
+    "</span>",
+  ].join("");
+
+  return [
+    "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" ",
+    "cellpadding=\"0\" border=\"0\"><tr>",
+    weekdayHeader,
+    "</tr>",
+    weekRows.join(""),
+    "</table>",
+    "<p style=\"margin:14px 0 0;\">",
+    legendSwatch(BRAND_ACCENT_COLOR, "Peak day"),
+    legendSwatch(RECAP_CAL_ACTIVE, "Active"),
+    legendSwatch(RECAP_CAL_NONE, "No activity"),
+    "</p>",
+  ].join("");
+}
+
+/**
+ * Renders the hero's lead metric (round 3): the climber's concrete rank AND
+ * percentile shown together, whenever the field is large enough for a rank
+ * to mean anything. The rank is always stated exactly; the percentile band
+ * is an optional badge alongside it, since not every rank reaches one.
+ *
+ * A podium finish (rank 1-3) uses the gold medal token instead of the green
+ * accent - the design system reserves gold for exactly this "rank-prestige
+ * moment", applied sparingly and never as a primary surface color.
+ * @param {number | undefined} rank - This climber's rank in the closed
+ *   period
+ * @param {number | undefined} fieldSize - Total climbers ranked
+ * @param {string | undefined} band - Percentile band ("Top N%"), if earned
+ * @return {string} Callout HTML, or an empty string with no rankable field
+ */
+function renderRankHeroHtml(
+  rank: number | undefined,
+  fieldSize: number | undefined,
+  band: string | undefined
+): string {
+  if (rank === undefined || fieldSize === undefined || fieldSize <= 1) {
+    return "";
+  }
+  const isPodium = rank <= 3;
+  const accentColor = isPodium ? RECAP_GOLD : BRAND_ACCENT_COLOR;
+  const boxBorder = isPodium ? RECAP_GOLD_BORDER : RECAP_ACCENT_BORDER;
+  const boxBg = isPodium ? RECAP_GOLD_BG : "rgba(134,211,10,0.08)";
+  const badgeTextColor = isPodium ? "#2b2205" : RECAP_ON_ACCENT_TEXT;
+
+  const bandBadgeHtml = band ? [
+    "<span style=\"display:inline-block;margin-top:12px;padding:6px 14px;",
+    `border-radius:999px;background:${accentColor};color:`,
+    `${badgeTextColor};font-size:13px;font-weight:800;">`,
+    escapeHtml(band),
+    "</span>",
+  ].join("") : "";
+
+  return [
+    `<div style="margin-top:24px;border:1px solid ${boxBorder};`,
+    "border-radius:20px;padding:28px 20px;text-align:center;background:",
+    `${boxBg};box-shadow:${RECAP_CARD_SHADOW};">`,
+    "<p style=\"margin:0 0 8px;font-size:12px;letter-spacing:0.12em;",
+    `text-transform:uppercase;color:${RECAP_TEXT_MUTED};">You ranked</p>`,
+    `<p style="margin:0;font-size:32px;font-weight:900;color:${RECAP_TEXT};`,
+    `letter-spacing:-0.01em;">#${rank} of ${fieldSize} climbers</p>`,
+    bandBadgeHtml,
+    "</div>",
+  ].join("");
+}
+
+/**
+ * Maps an earned badge id to its email-safe artwork, copied from the app's
+ * own `ProfileAchievementCatalogue` assets
+ * (`AscendApp/Resources/Assets.xcassets/Images/LeaderboardTop10`,
+ * `LeaderboardTop100`, `FirstAscentBadgeDetailed`) into
+ * `web/public/images/badges/`, so this never invents new badge art.
+ * @param {RecapEarnedBadge["id"]} id - Which badge
+ * @return {string} Marketing-site-relative image path
+ */
+function recapBadgeImagePath(id: RecapEarnedBadge["id"]): string {
+  switch (id) {
+  case "top10":
+    return "images/badges/top10.png";
+  case "top100":
+    return "images/badges/top100.png";
+  case "first-ascent":
+    return "images/badges/first-ascent.png";
+  }
+}
+
+/**
+ * Renders one earned-badge card: the real app badge artwork, its locked
+ * label, and an optional detail line (the landmark name(s) for a First
+ * Ascent badge, "globally" for a rank badge). The Top 10 / First Ascent
+ * badges use the gold "rank-prestige" token, matching
+ * `ProfileAchievementCatalogue`'s own gold tint for those two; Top 100 stays
+ * on the neutral card treatment, matching the catalogue's secondary-text
+ * tint for that badge.
+ * @param {RecapEarnedBadge} badge - The earned badge
+ * @return {string} Card HTML (no outer `<td>`)
+ */
+function renderAchievementBadgeCardHtml(badge: RecapEarnedBadge): string {
+  const isGold = badge.id !== "top100";
+  const border = isGold ? RECAP_GOLD_BORDER : RECAP_BORDER;
+  const background = isGold ? RECAP_GOLD_BG : RECAP_CARD_BG;
+  const imageUrl = escapeHtml(
+    `${getMarketingWebsiteUrl()}/${recapBadgeImagePath(badge.id)}`
+  );
+  const detailHtml = badge.detail ? [
+    "<p style=\"margin:4px 0 0;font-size:12px;line-height:1.4;color:",
+    `${RECAP_TEXT_MUTED};">${escapeHtml(badge.detail)}</p>`,
+  ].join("") : "";
+
+  return [
+    `<div style="border:1px solid ${border};border-radius:16px;`,
+    `padding:16px 14px;background:${background};box-shadow:`,
+    `${RECAP_CARD_SHADOW};text-align:center;">`,
+    // The artwork's own dark chrome/gold rendering assumes a light backdrop
+    // (see ProfileAchievementCatalogue) - a plate behind just the image
+    // keeps it legible against this card's dark, tinted fill.
+    "<div style=\"display:inline-block;background:#ffffff;",
+    "border-radius:12px;padding:8px 10px;margin:0 0 10px;line-height:0;\">",
+    `<img src="${imageUrl}" width="72" height="48" alt="${escapeHtml(badge.label)} badge" `,
+    "style=\"display:block;width:72px;height:48px;border:0;\" />",
+    "</div>",
+    "<p style=\"margin:0;font-size:13px;font-weight:800;color:",
+    `${RECAP_TEXT};">${escapeHtml(badge.label)}</p>`,
+    detailHtml,
+    "</div>",
+  ].join("");
+}
+
+/**
+ * Renders every earned-badge card side by side, when the climber earned at
+ * least one - the app's real achievement badge artwork for the period
+ * (round 5: "we should include our achievement badges that we have in the
+ * app"), replacing the old text-only "Achievement earned" callout.
+ * @param {RecapEarnedBadge[]} badges - Earned badges, in display order
+ * @return {string} Badge row HTML, or an empty string with none earned
+ */
+function renderAchievementBadgesHtml(badges: RecapEarnedBadge[]): string {
+  if (badges.length === 0) {
+    return "";
+  }
+  const widthPercent = Math.floor(100 / badges.length);
+  const cells = badges.map((badge, index) => {
+    const padding = badges.length === 1 ?
+      "0" :
+      index === 0 ? "0 8px 0 0" : "0 0 0 8px";
+    return `<td width="${widthPercent}%" style="padding:${padding};` +
+      `vertical-align:top;">${renderAchievementBadgeCardHtml(badge)}</td>`;
+  }).join("");
+
+  return [
+    "<div style=\"margin-top:16px;\">",
+    "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" ",
+    `cellpadding="0" border="0"><tr>${cells}</tr></table>`,
+    "</div>",
+  ].join("");
+}
+
+/**
+ * Renders the shared dark outer shell every recap email uses.
+ * @param {string} preheader - Hidden inbox-preview text
+ * @param {string} bodyRowsHtml - `<tr>` rows for the card body
+ * @return {string} Full HTML document
+ */
+function renderRecapShellHtml(preheader: string, bodyRowsHtml: string): string {
+  const iconUrl = escapeHtml(`${getMarketingWebsiteUrl()}/images/ascend-a-icon.png`);
+  return [
+    "<!doctype html>",
+    "<html lang=\"en\" xmlns=\"http://www.w3.org/1999/xhtml\"><head>",
+    "<meta charset=\"utf-8\">",
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+    // This layout is dark by design, not by client-side inversion - these
+    // tell Apple Mail / Outlook.com not to "helpfully" re-theme it.
+    "<meta name=\"color-scheme\" content=\"dark\">",
+    "<meta name=\"supported-color-schemes\" content=\"dark\">",
+    "</head><body style=",
+    `"margin:0;padding:0;background:${RECAP_BG};font-family:-apple-system,`,
+    `BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:${RECAP_TEXT};">`,
+    "<div style=\"display:none;max-height:0;overflow:hidden;opacity:0;",
+    "color:transparent;\">",
+    escapeHtml(preheader),
+    "</div>",
+    "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" ",
+    `cellpadding="0" border="0" style="background:${RECAP_BG};padding:24px `,
+    "12px;\"><tr><td align=\"center\">",
+    "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" ",
+    "cellpadding=\"0\" border=\"0\" style=\"max-width:620px;background:",
+    RECAP_BG,
+    `;border:1px solid ${RECAP_BORDER};border-radius:28px;overflow:hidden;">`,
+    "<tr><td style=\"background:#000000;padding:24px 30px;border-bottom:",
+    `1px solid ${RECAP_BORDER};"><table role=`,
+    "\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tr>",
+    "<td valign=\"middle\" style=\"padding-right:12px;\"><img src=\"",
+    iconUrl,
+    "\" width=\"38\" height=\"38\" alt=\"Ascend icon\" style=\"display:",
+    "block;width:38px;height:38px;border:0;border-radius:9px;\" /></td>",
+    "<td valign=\"middle\" style=\"font-size:15px;line-height:1;color:",
+    "#ffffff;font-weight:800;letter-spacing:0.08em;text-transform:",
+    "uppercase;\">Ascend</td></tr></table></td></tr>",
+    bodyRowsHtml,
+    "</table></td></tr></table></body></html>",
+  ].join("");
+}
+
+/**
+ * Renders the footer row shared by every recap email.
+ * @param {string} whyReceived - Why-received sentence
+ * @param {string | null | undefined} unsubscribeUrl - Unsubscribe link
+ * @return {string} Footer `<tr>` HTML
+ */
+function renderRecapFooterHtml(
+  whyReceived: string,
+  unsubscribeUrl: string | null | undefined
+): string {
+  const privacyPolicyUrl = escapeHtml(`${getMarketingWebsiteUrl()}/privacy`);
+  const unsubscribeHtml = unsubscribeUrl ? [
+    "<span style=\"color:#4b5054;\"> &middot; </span><a href=\"",
+    escapeHtml(unsubscribeUrl),
+    `" style="color:${RECAP_TEXT_MUTED};text-decoration:underline;">`,
+    "Unsubscribe</a>",
+  ].join("") : "";
+
+  return [
+    "<tr><td style=\"padding:8px 30px 34px;\"><div style=\"border-top:1px ",
+    `solid ${RECAP_BORDER};padding-top:20px;text-align:center;">`,
+    "<p style=\"margin:0 0 10px;font-size:12px;line-height:1.6;color:",
+    `${RECAP_TEXT_MUTED};">${escapeHtml(whyReceived)}</p>`,
+    "<p style=\"margin:0;font-size:12px;line-height:1.6;\"><a href=\"",
+    privacyPolicyUrl,
+    `" style="color:${RECAP_TEXT_MUTED};text-decoration:underline;">`,
+    "Privacy Policy</a>",
+    unsubscribeHtml,
+    "</p></div></td></tr>",
+  ].join("");
+}
+
+/**
+ * Renders the CTA button HTML, shared by every recap email.
+ * @param {string} label - Button label
+ * @param {string} url - Button destination
+ * @return {string} Button HTML
+ */
+function renderRecapCtaHtml(label: string, url: string): string {
+  return [
+    "<a href=\"",
+    escapeHtml(url),
+    "\" style=\"display:inline-block;padding:16px 26px;border-radius:16px;",
+    `background:${BRAND_ACCENT_COLOR};color:${RECAP_ON_ACCENT_TEXT};`,
+    "font-size:15px;font-weight:800;text-decoration:none;text-transform:",
+    "uppercase;letter-spacing:0.04em;\">",
+    escapeHtml(label),
+    "</a>",
+  ].join("");
+}
+
+/**
+ * Builds the plain-text "Achievement earned" lines for a set of earned
+ * badges, shared by both cadences and both variants' plain-text renders -
+ * plain text has no images, so this is where a badge's fact still has to
+ * land.
+ * @param {RecapEarnedBadge[]} badges - Earned badges, in display order
+ * @return {string[]} Plain-text lines, one per badge
+ */
+function buildEarnedBadgeTextLines(badges: RecapEarnedBadge[]): string[] {
+  return badges.map((badge) => {
+    const detail = badge.detail ? ` (${badge.detail})` : "";
+    return `Achievement earned: ${badge.label}${detail}`;
+  });
+}
+
+/**
+ * Builds the plain-text stat lines shared by both cadences' active recap.
+ * @param {RecapActivePayload} payload - Validated recap payload
+ * @return {string[]} Plain-text lines
+ */
+function buildRecapActiveTextLines(payload: RecapActivePayload): string[] {
+  const chipText = (chip: RecapDeltaChip | undefined): string =>
+    chip ? ` (up ${chip.value} ${chip.label})` : "";
+
+  const lines = [
+    `${formatCount(payload.totalSteps)} steps${chipText(payload.stepsDelta)}`,
+    `${formatCount(payload.totalFloors)} floors${chipText(payload.floorsDelta)}`,
+    `${formatCount(payload.climbsCompleted)} climbs completed` +
+      chipText(payload.climbsDelta),
+  ];
+  if (payload.currentStreakWeeks !== undefined) {
+    lines.push(`${payload.currentStreakWeeks}-week streak`);
+  }
+  if (payload.rank !== undefined && payload.fieldSize !== undefined &&
+    payload.fieldSize > 1) {
+    const band = payload.percentileBand ? ` (${payload.percentileBand})` : "";
+    lines.push(`You ranked #${payload.rank} of ${payload.fieldSize} ` +
+      `climbers${band}`);
+  }
+  lines.push(...buildEarnedBadgeTextLines(payload.earnedBadges));
+  if (payload.landmarksFinished.length > 0) {
+    lines.push(`Landmarks finished: ${payload.landmarksFinished.join(", ")}`);
+  }
+  return lines;
+}
+
+/**
+ * Renders the active-climber recap for either cadence.
+ * @param {RecapCadenceCopy} copy - Cadence-specific copy
+ * @param {RecapActivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+function renderRecapActiveEmail(
+  copy: RecapCadenceCopy,
+  payload: RecapActivePayload,
+  context: EmailRenderContext
+): TransactionalEmailRenderResult {
+  const fourthCard: [string, string, RecapDeltaChip | undefined] =
+    payload.currentStreakWeeks !== undefined ?
+      [
+        String(payload.currentStreakWeeks),
+        "week streak",
+        undefined,
+      ] :
+      [
+        formatCount(payload.landmarksFinished.length),
+        payload.landmarksFinished.length === 1 ?
+          "landmark finished" :
+          "landmarks finished",
+        undefined,
+      ];
+
+  const landmarksLine = payload.landmarksFinished.length > 0 ? [
+    "<p style=\"margin:18px 0 0;font-size:14px;line-height:1.6;color:",
+    `${RECAP_TEXT_MUTED};">Landmarks finished: `,
+    `<span style="color:${RECAP_TEXT};">`,
+    escapeHtml(payload.landmarksFinished.join(", ")),
+    "</span>.</p>",
+  ].join("") : "";
+
+  const bodyRowsHtml = [
+    "<tr><td style=\"padding:40px 30px 34px;\">",
+    "<p style=\"margin:0 0 14px;font-size:12px;letter-spacing:0.22em;",
+    `text-transform:uppercase;color:${BRAND_ACCENT_COLOR};font-weight:700;">`,
+    escapeHtml(copy.eyebrow),
+    "</p>",
+    "<h1 style=\"margin:0;font-size:40px;line-height:1.05;font-weight:800;",
+    `color:#ffffff;letter-spacing:-0.02em;">${escapeHtml(copy.headlineLead)}`,
+    "</h1>",
+    "<h1 style=\"margin:0 0 14px;font-size:40px;line-height:1.05;",
+    `font-weight:900;color:${BRAND_ACCENT_COLOR};letter-spacing:-0.02em;">`,
+    `${escapeHtml(copy.headlineAccent)}</h1>`,
+    `<p style="margin:0;font-size:14px;color:${RECAP_TEXT_MUTED};">`,
+    escapeHtml(payload.periodLabel),
+    "</p>",
+    renderRankHeroHtml(payload.rank, payload.fieldSize, payload.percentileBand),
+    renderAchievementBadgesHtml(payload.earnedBadges),
+    "</td></tr>",
+    "<tr><td style=\"padding:0 30px 34px;\">",
+    "<h2 style=\"margin:0 0 18px;font-size:20px;font-weight:800;color:",
+    `${RECAP_TEXT};">${escapeHtml(copy.reviewHeading)}</h2>`,
+    renderStatGridHtml([
+      [
+        formatCount(payload.totalSteps),
+        "steps",
+        payload.stepsDelta,
+      ],
+      [
+        formatCount(payload.totalFloors),
+        "floors",
+        payload.floorsDelta,
+      ],
+      [
+        formatCount(payload.climbsCompleted),
+        "climbs completed",
+        payload.climbsDelta,
+      ],
+      fourthCard,
+    ]),
+    landmarksLine,
+    "</td></tr>",
+    "<tr><td style=\"padding:0 30px 34px;\">",
+    "<h2 style=\"margin:0 0 14px;font-size:20px;font-weight:800;color:",
+    `${RECAP_TEXT};">Your activity</h2>`,
+    renderCalendarHtml(payload.calendar),
+    "</td></tr>",
+    "<tr><td style=\"padding:0 30px 40px;text-align:center;\">",
+    renderRecapCtaHtml(copy.ctaLabel, payload.ctaUrl),
+    "</td></tr>",
+    renderRecapFooterHtml(copy.whyReceivedActive, context.unsubscribeUrl),
+  ].join("");
+
+  const textLines = [
+    copy.headlineLead + " " + copy.headlineAccent,
+    payload.periodLabel,
+    "",
+    ...buildRecapActiveTextLines(payload),
+    "",
+    `${copy.ctaLabel}: ${payload.ctaUrl}`,
+    "",
+    copy.whyReceivedActive,
+    `Privacy Policy: ${getMarketingWebsiteUrl()}/privacy`,
+    ...(context.unsubscribeUrl ?
+      [`Unsubscribe: ${context.unsubscribeUrl}`] :
+      []),
+  ].join("\n");
+
+  return {
+    html: renderRecapShellHtml(
+      `${formatCount(payload.climbsCompleted)} climbs, ` +
+        `${formatCount(payload.totalSteps)} steps ${copy.periodNoun}.`,
+      bodyRowsHtml
+    ),
+    subject: copy.subject,
+    text: textLines,
+  };
+}
+
+/**
+ * Names the gap sentence and the first-ascents-or-suggestion line shared by
+ * both the html and text renders of the inactive email.
+ * @param {RecapCadenceCopy} copy - Cadence-specific copy
+ * @param {RecapInactivePayload} payload - Template payload
+ * @return {{gapSentence: string, secondLine: string | undefined}} Body copy
+ */
+function buildRecapInactiveBodyCopy(
+  copy: RecapCadenceCopy,
+  payload: RecapInactivePayload
+): {gapSentence: string; secondLine: string | undefined} {
+  const gapNoun = payload.gapCount === 1 ? copy.gapNoun : `${copy.gapNoun}s`;
+  const gapSentence = `We haven't seen you in ${payload.gapCount} ${gapNoun}.`;
+
+  if (payload.firstAscents.length === 1) {
+    return {
+      gapSentence,
+      secondLine: `You hold the First Ascent of ${payload.firstAscents[0]}.`,
+    };
+  }
+  if (payload.firstAscents.length > 1) {
+    return {
+      gapSentence,
+      secondLine: `You hold ${payload.firstAscents.length} First Ascents: ` +
+        `${payload.firstAscents.join(", ")}.`,
+    };
+  }
+  return {
+    gapSentence,
+    secondLine: payload.suggestedClimbName ?
+      `${payload.suggestedClimbName} is open and ready.` :
+      undefined,
+  };
+}
+
+/**
+ * Renders the zero-activity re-engagement email for either cadence. Gentle
+ * by design - the real gap, then one clear thing to look at (First Ascents
+ * they hold, or a comeback climb), then one clear action - never a
+ * guilt-trip about the gap.
+ * @param {RecapCadenceCopy} copy - Cadence-specific copy
+ * @param {RecapInactivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+function renderRecapInactiveEmail(
+  copy: RecapCadenceCopy,
+  payload: RecapInactivePayload,
+  context: EmailRenderContext
+): TransactionalEmailRenderResult {
+  const {gapSentence, secondLine} = buildRecapInactiveBodyCopy(copy, payload);
+
+  const secondLineHtml = secondLine ? [
+    "<p style=\"margin:14px 0 0;font-size:16px;line-height:1.6;color:",
+    `${RECAP_TEXT};">`,
+    escapeHtml(secondLine),
+    "</p>",
+  ].join("") : "";
+
+  const bodyRowsHtml = [
+    "<tr><td style=\"padding:40px 30px 40px;\">",
+    "<p style=\"margin:0 0 14px;font-size:12px;letter-spacing:0.22em;",
+    `text-transform:uppercase;color:${BRAND_ACCENT_COLOR};font-weight:700;">`,
+    "Next Climb",
+    "</p>",
+    "<h1 style=\"margin:0 0 18px;font-size:34px;line-height:1.1;",
+    "font-weight:800;color:#ffffff;letter-spacing:-0.02em;\">",
+    "WE MISSED YOU.",
+    "</h1>",
+    "<p style=\"margin:0;font-size:16px;line-height:1.6;color:",
+    `${RECAP_TEXT_MUTED};">${escapeHtml(gapSentence)} Pick a climb and `,
+    "get back on the stair stepper.</p>",
+    secondLineHtml,
+    renderAchievementBadgesHtml(payload.earnedBadges),
+    "<div style=\"padding-top:28px;\">",
+    renderRecapCtaHtml("Open Ascend", payload.ctaUrl),
+    "</div></td></tr>",
+    renderRecapFooterHtml(copy.whyReceivedInactive, context.unsubscribeUrl),
+  ].join("");
+
+  const textLines = [
+    "WE MISSED YOU.",
+    "",
+    `${gapSentence} Pick a climb and get back on the stair stepper.`,
+    ...(secondLine ? [secondLine] : []),
+    ...buildEarnedBadgeTextLines(payload.earnedBadges),
+    "",
+    `Open Ascend: ${payload.ctaUrl}`,
+    "",
+    copy.whyReceivedInactive,
+    `Privacy Policy: ${getMarketingWebsiteUrl()}/privacy`,
+    ...(context.unsubscribeUrl ?
+      [`Unsubscribe: ${context.unsubscribeUrl}`] :
+      []),
+  ].join("\n");
+
+  return {
+    html: renderRecapShellHtml(gapSentence, bodyRowsHtml),
+    subject: copy.subjectInactive,
+    text: textLines,
+  };
+}
+
+/**
+ * Renders the weekly recap email for a climber active in the window.
+ * @param {RecapActivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderWeeklyRecapActiveEmail(
+  payload: RecapActivePayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderRecapActiveEmail(WEEKLY_RECAP_COPY, payload, context);
+}
+
+/**
+ * Validates and renders the weekly recap email for an active climber.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderWeeklyRecapActiveEmailFromPayload(
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderWeeklyRecapActiveEmail(
+    parseRecapActivePayload(payload, "invalid_weekly_recap_active_payload"),
+    context
+  );
+}
+
+/**
+ * Renders the weekly re-engagement email for a climber with no activity in
+ * the window.
+ * @param {RecapInactivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderWeeklyRecapInactiveEmail(
+  payload: RecapInactivePayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderRecapInactiveEmail(WEEKLY_RECAP_COPY, payload, context);
+}
+
+/**
+ * Validates and renders the weekly re-engagement email.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderWeeklyRecapInactiveEmailFromPayload(
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderWeeklyRecapInactiveEmail(
+    parseRecapInactivePayload(payload, "invalid_weekly_recap_inactive_payload"),
+    context
+  );
+}
+
+/**
+ * Renders the monthly recap email for a climber active in the window.
+ * @param {RecapActivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderMonthlyRecapActiveEmail(
+  payload: RecapActivePayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderRecapActiveEmail(MONTHLY_RECAP_COPY, payload, context);
+}
+
+/**
+ * Validates and renders the monthly recap email for an active climber.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderMonthlyRecapActiveEmailFromPayload(
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderMonthlyRecapActiveEmail(
+    parseRecapActivePayload(payload, "invalid_monthly_recap_active_payload"),
+    context
+  );
+}
+
+/**
+ * Renders the monthly re-engagement email for a climber with no activity in
+ * the window.
+ * @param {RecapInactivePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderMonthlyRecapInactiveEmail(
+  payload: RecapInactivePayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderRecapInactiveEmail(MONTHLY_RECAP_COPY, payload, context);
+}
+
+/**
+ * Validates and renders the monthly re-engagement email.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderMonthlyRecapInactiveEmailFromPayload(
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderMonthlyRecapInactiveEmail(
+    parseRecapInactivePayload(
+      payload,
+      "invalid_monthly_recap_inactive_payload"
+    ),
     context
   );
 }

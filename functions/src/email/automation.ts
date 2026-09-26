@@ -1,16 +1,10 @@
 import * as admin from "firebase-admin";
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
-import {normalizeEmail, sha256Hex} from "./crypto";
-import {isLifecycleEmailAllowed} from "./preferences";
-import {buildEmailJobId, createQueuedEmailJob} from "./queue";
+import {normalizeEmail} from "./crypto";
+import {enqueueLifecycleEmailIfAllowed} from "./queue";
 import type {EmailType} from "./types";
 
 type PlainObject = Record<string, unknown>;
-type QueueOutcome =
-  | "already_queued"
-  | "missing_email"
-  | "preferences_disabled"
-  | "queued";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RATING_PROMPT_EVENT_ID = "rating_prompt_answered_v1";
@@ -122,57 +116,21 @@ function emailTypeFromRatingPromptEvent(data: PlainObject): EmailType | null {
  * Queues a rating prompt follow-up email idempotently.
  * @param {{emailType: EmailType, recipientEmail: string, sourceRef: string,
  * uid: string}} input Queue input.
- * @return {Promise<QueueOutcome>} Queue result.
+ * @return {ReturnType<typeof enqueueLifecycleEmailIfAllowed>} Queue result.
  */
-async function queueRatingPromptEmail(input: {
+function queueRatingPromptEmail(input: {
   emailType: EmailType;
   recipientEmail: string;
   sourceRef: string;
   uid: string;
-}): Promise<QueueOutcome> {
-  const firestore = admin.firestore();
-  const normalizedEmail = normalizeEmail(input.recipientEmail);
-  const recipientHash = sha256Hex(normalizedEmail);
-  const dedupeKey = buildRatingPromptEmailDedupeKey(input.uid);
-  const jobRef = firestore
-    .collection("email_jobs")
-    .doc(buildEmailJobId(dedupeKey));
-  const preferencesRef = firestore
-    .collection("users")
-    .doc(input.uid)
-    .collection("communication_preferences")
-    .doc("current");
-
-  return firestore.runTransaction(async (transaction) => {
-    const [jobSnapshot, preferencesSnapshot] = await Promise.all([
-      transaction.get(jobRef),
-      transaction.get(preferencesRef),
-    ]);
-
-    if (jobSnapshot.exists) {
-      return "already_queued";
-    }
-
-    const preferences = preferencesSnapshot.exists ?
-      preferencesSnapshot.data() as PlainObject :
-      null;
-    if (!isLifecycleEmailAllowed(preferences)) {
-      return "preferences_disabled";
-    }
-
-    const now = admin.firestore.Timestamp.now();
-    const job = createQueuedEmailJob(
-      input.emailType,
-      normalizedEmail,
-      recipientHash,
-      dedupeKey,
-      {},
-      now,
-      input.sourceRef,
-      input.uid
-    );
-    transaction.set(jobRef, job);
-    return "queued";
+}): ReturnType<typeof enqueueLifecycleEmailIfAllowed> {
+  return enqueueLifecycleEmailIfAllowed(admin.firestore(), {
+    dedupeKey: buildRatingPromptEmailDedupeKey(input.uid),
+    emailType: input.emailType,
+    payload: {},
+    recipientEmail: input.recipientEmail,
+    sourceRef: input.sourceRef,
+    uid: input.uid,
   });
 }
 

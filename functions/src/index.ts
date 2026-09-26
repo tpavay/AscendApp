@@ -45,5 +45,6 @@ export {reconcileAppAccess} from "./revenueCat/reconciliation";
 export {
   expireRevenueCatEntitlements,
 } from "./revenueCat/expiration";
+export {monthlyRecapEmails, weeklyRecapEmails} from "./recapEmails";
 
 setGlobalOptions({maxInstances: 10});
