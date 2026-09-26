@@ -116,6 +116,16 @@ struct LiveReplayPreviousBestMarkerLayoutTests {
         #expect(marker.showsLabel == false)
     }
 
+    /// Before the word has been measured its frame is empty and touches
+    /// nothing, so it would pass every check and flash in before being withheld.
+    @Test(arguments: [CGSize.zero, CGSize(width: 22, height: 0), CGSize(width: 0, height: 9.75)])
+    func anUnmeasuredWordIsWithheld(labelSize: CGSize) {
+        let nearTheEnd = layout(at: 360, labelSize: labelSize, obstacles: [])
+
+        #expect(nearTheEnd.showsLabel == false)
+        #expect(layout(at: 194, labelSize: labelSize).showsLabel == false)
+    }
+
     /// The vertical word the 2026-09-01 design centred on the line is exactly
     /// what cut through the name. Centred on the row, it is withheld there.
     @Test

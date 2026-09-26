@@ -73,7 +73,8 @@ struct LiveReplayPreviousBestMarkerLayout: Equatable {
             height: labelSize.height
         )
         self.labelFrame = labelFrame
-        showsLabel = labelFrame.maxX <= width - trailingInset
+        showsLabel = labelSize.width > 0 && labelSize.height > 0
+            && labelFrame.maxX <= width - trailingInset
             && !content.contains {
                 $0.insetBy(dx: -Self.labelClearance, dy: -Self.labelClearance).intersects(labelFrame)
             }
