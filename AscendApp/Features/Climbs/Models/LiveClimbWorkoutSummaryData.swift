@@ -15,6 +15,27 @@ struct LiveClimbPaceSplit: Identifiable, Equatable {
     let endElapsedSeconds: Int
     let steps: Int
     let stepsPerMinute: Double
+    /// False for the one row standing for a stretch the recorder never split - everything after
+    /// the last checkpoint of a climb the pre-fix sampler clamped at the hour. Its steps and pace
+    /// are that stretch's real total and average, and a surface must say so rather than present
+    /// them as one segment's pace.
+    let isMeasured: Bool
+
+    init(
+        index: Int,
+        startElapsedSeconds: Int,
+        endElapsedSeconds: Int,
+        steps: Int,
+        stepsPerMinute: Double,
+        isMeasured: Bool = true
+    ) {
+        self.index = index
+        self.startElapsedSeconds = startElapsedSeconds
+        self.endElapsedSeconds = endElapsedSeconds
+        self.steps = steps
+        self.stepsPerMinute = stepsPerMinute
+        self.isMeasured = isMeasured
+    }
 
     var id: Int { index }
 
@@ -91,20 +112,46 @@ enum LiveClimbWorkoutSummaryData {
         )
     }
 
+    /// The whole climb's progress, a clamped curve's unrecorded tail included as the straight line
+    /// its repair draws. Fit for a chart of the climb; not for a record - see `recordedProgressPoints`.
     static func progressPoints(for workout: Workout, targetSteps: Int) -> [LiveClimbProgressPoint] {
-        normalizedProgressPoints(for: workout, targetSteps: targetSteps)
+        normalizedProgressPoints(for: workout, metadata: metadata(for: workout), targetSteps: targetSteps)
+    }
+
+    /// The progress points a record may be claimed from. A curve recorded through its finish gives
+    /// every point; a curve the pre-fix sampler clamped gives only what it recorded, because the
+    /// straight line after its last checkpoint is a drawing of the average, not a measurement.
+    static func recordedProgressPoints(for workout: Workout, targetSteps: Int) -> [LiveClimbProgressPoint] {
+        let metadata = metadata(for: workout)
+        let points = normalizedProgressPoints(for: workout, metadata: metadata, targetSteps: targetSteps)
+        guard let recordedThrough = recordedThroughElapsedSeconds(metadata: metadata, workout: workout) else {
+            return points
+        }
+
+        return points.filter { $0.elapsedSeconds <= recordedThrough }
     }
 
     static func paceSplits(for workout: Workout, targetSteps: Int) -> [LiveClimbPaceSplit] {
         let durationSeconds = max(Int(workout.duration.rounded(.down)), 1)
         let splitDurationSeconds = paceSplitDurationSeconds(for: durationSeconds)
-        let points = normalizedProgressPoints(for: workout, targetSteps: targetSteps)
+        let metadata = metadata(for: workout)
+        let points = normalizedProgressPoints(for: workout, metadata: metadata, targetSteps: targetSteps)
+        // Splits run on their usual grid through the last recorded moment, and the stretch from the
+        // first boundary past it to the finish is one row: its total and its average are known, what
+        // happened inside it is not.
+        let unsplitFromSeconds = recordedThroughElapsedSeconds(metadata: metadata, workout: workout)
+            .map { recordedThrough in
+                Int((Double(recordedThrough) / Double(splitDurationSeconds)).rounded(.up)) * splitDurationSeconds
+            }
 
         var splits: [LiveClimbPaceSplit] = []
         var startElapsedSeconds = 0
 
         while startElapsedSeconds < durationSeconds {
-            let endElapsedSeconds = min(startElapsedSeconds + splitDurationSeconds, durationSeconds)
+            let isMeasured = unsplitFromSeconds.map { startElapsedSeconds < $0 } ?? true
+            let endElapsedSeconds = isMeasured
+                ? min(startElapsedSeconds + splitDurationSeconds, durationSeconds)
+                : durationSeconds
             let startSteps = cumulativeSteps(at: startElapsedSeconds, in: points)
             let endSteps = cumulativeSteps(at: endElapsedSeconds, in: points)
             let steps = max(endSteps - startSteps, 0)
@@ -116,7 +163,8 @@ enum LiveClimbWorkoutSummaryData {
                     startElapsedSeconds: startElapsedSeconds,
                     endElapsedSeconds: endElapsedSeconds,
                     steps: steps,
-                    stepsPerMinute: Double(steps) / splitDurationMinutes
+                    stepsPerMinute: Double(steps) / splitDurationMinutes,
+                    isMeasured: isMeasured
                 )
             )
 
@@ -151,10 +199,33 @@ enum LiveClimbWorkoutSummaryData {
         }
     }
 
-    private static func normalizedProgressPoints(for workout: Workout, targetSteps: Int) -> [LiveClimbProgressPoint] {
+    /// The last moment a stored curve recorded, when it stops short of the finish: the end of the
+    /// last trusted bucket of a curve the pre-fix sampler clamped (59:50 at 10 seconds). Nil for every
+    /// curve recorded through its finish.
+    private static func recordedThroughElapsedSeconds(
+        metadata: HeadphoneMotionWorkoutMetadata?,
+        workout: Workout
+    ) -> Int? {
+        guard let intervalSeconds = metadata?.splitIntervalSeconds,
+              let stepCount = metadata?.splitSteps?.count,
+              LiveReplaySplitCurve.isPreFixSamplerClamp(
+                  stepCount: stepCount,
+                  intervalSeconds: intervalSeconds,
+                  finalDurationSeconds: max(Int(workout.duration.rounded(.down)), 1)
+              ) else {
+            return nil
+        }
+
+        return (stepCount - 1) * max(intervalSeconds, 1)
+    }
+
+    private static func normalizedProgressPoints(
+        for workout: Workout,
+        metadata: HeadphoneMotionWorkoutMetadata?,
+        targetSteps: Int
+    ) -> [LiveClimbProgressPoint] {
         let resolvedTargetSteps = max(targetSteps, workout.steps, 1)
         let durationSeconds = max(Int(workout.duration.rounded(.down)), 1)
-        let metadata = metadata(for: workout)
         let intervalSeconds = max(metadata?.splitIntervalSeconds ?? 0, 0)
         let splitSteps = metadata?.splitSteps ?? []
 
