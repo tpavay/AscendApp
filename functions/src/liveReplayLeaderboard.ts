@@ -1,5 +1,6 @@
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
+import * as logger from "firebase-functions/logger";
 import {
   PRE_FIX_SAMPLER_CHECKPOINTS,
   REPLAY_BOARD_INTERVAL_SECONDS,
@@ -1610,171 +1611,234 @@ async function publishReplayEntries(
   // Buckets past the first commit land first, each commit in its own
   // identity-protected transaction. Bucket zero is the row every reader
   // indexes an attempt by, and it states the attempt's whole span, so it is
-  // written last and never claims a bucket that is not there yet.
-  for (
-    let start = REPLAY_ENTRY_COMMIT_SIZE;
-    start < payload.splitSteps.length;
-    start += REPLAY_ENTRY_COMMIT_SIZE
-  ) {
+  // written last and never claims a bucket that is not there yet. A publish
+  // that fails takes its tail back out, because a live race past the hour
+  // reads those buckets directly and would race an attempt nobody published.
+  try {
+    for (
+      let start = REPLAY_ENTRY_COMMIT_SIZE;
+      start < payload.splitSteps.length;
+      start += REPLAY_ENTRY_COMMIT_SIZE
+    ) {
+      await runIdentityProtectedTransaction(
+        firestoreIdentityTransactionPort(db),
+        userId,
+        async (transaction, publicUser) => {
+          setReplayEntries(transaction, {
+            ...entryWrites,
+            publicUser,
+            fromBucket: start,
+            toBucket: start + REPLAY_ENTRY_COMMIT_SIZE,
+          });
+        }
+      );
+    }
+
     await runIdentityProtectedTransaction(
       firestoreIdentityTransactionPort(db),
       userId,
       async (transaction, publicUser) => {
-        setReplayEntries(transaction, {
-          ...entryWrites,
-          publicUser,
-          fromBucket: start,
-          toBucket: start + REPLAY_ENTRY_COMMIT_SIZE,
+        const completionField = await readCompletionField(
+          transaction,
+          payload,
+          entryId,
+          userId
+        );
+        const leaderboardSnapshot = await transaction.get(leaderboardRef);
+        const finisherSnapshot = await transaction.get(finisherRef);
+        const completionSnapshot = await transaction.get(completionSnapshotRef);
+        const leaderboardData = leaderboardSnapshot.data();
+        const existingFinisherData = finisherSnapshot.data();
+        const existingOrder = positiveIntegerValue(
+          existingFinisherData?.globalCompletionOrder
+        );
+        const isNewFinisher = existingOrder === null;
+        const previousCompletedCount = nonNegativeIntegerValue(
+          leaderboardData?.completedCount
+        ) ?? 0;
+        const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
+        const canClaimFirstAscent = payload.firstAscentEligible &&
+        !hasFirstAscent &&
+        previousCompletedCount === 0;
+        const globalCompletionOrder = nextGlobalCompletionOrder({
+          existingOrder,
+          previousCompletedCount,
         });
-      }
-    );
-  }
-
-  await runIdentityProtectedTransaction(
-    firestoreIdentityTransactionPort(db),
-    userId,
-    async (transaction, publicUser) => {
-      const completionField = await readCompletionField(
-        transaction,
-        payload,
-        entryId,
-        userId
-      );
-      const leaderboardSnapshot = await transaction.get(leaderboardRef);
-      const finisherSnapshot = await transaction.get(finisherRef);
-      const completionSnapshot = await transaction.get(completionSnapshotRef);
-      const leaderboardData = leaderboardSnapshot.data();
-      const existingFinisherData = finisherSnapshot.data();
-      const existingOrder = positiveIntegerValue(
-        existingFinisherData?.globalCompletionOrder
-      );
-      const isNewFinisher = existingOrder === null;
-      const previousCompletedCount = nonNegativeIntegerValue(
-        leaderboardData?.completedCount
-      ) ?? 0;
-      const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
-      const canClaimFirstAscent = payload.firstAscentEligible &&
-      !hasFirstAscent &&
-      previousCompletedCount === 0;
-      const globalCompletionOrder = nextGlobalCompletionOrder({
-        existingOrder,
-        previousCompletedCount,
-      });
-      const completedCount = isNewFinisher ?
-        Math.max(previousCompletedCount + 1, globalCompletionOrder) :
-        Math.max(previousCompletedCount, globalCompletionOrder);
-      // Resolved only where a write consumes it. `completionSnapshots` is
-      // write-once, so a republish of an already-frozen attempt discards the
-      // standing entirely - and resolving one anyway let a discarded number
-      // abort a trigger that had already committed another context's publish,
-      // reporting "couldn't sync" for a climb that did sync.
-      //
-      // This narrows WHEN the guard runs and nothing else. Where a standing is
-      // resolved, an impossible rank/population pairing still throws: the
-      // deleted Math.min clamp is not back under another name, there is no
-      // fallback number, and nothing swallows the error.
-      const freezesCompletionSnapshot = !completionSnapshot.exists;
-      const publishesLiveClimbStatus =
-        payload.contextType === LIVE_CLIMB_CONTEXT_TYPE;
-      const standing = freezesCompletionSnapshot || publishesLiveClimbStatus ?
-        frozenCompletionStanding({
-          reading: completionField,
+        const completedCount = isNewFinisher ?
+          Math.max(previousCompletedCount + 1, globalCompletionOrder) :
+          Math.max(previousCompletedCount, globalCompletionOrder);
+        // Resolved only where a write consumes it. `completionSnapshots` is
+        // write-once, so a republish of an already-frozen attempt discards the
+        // standing entirely - and resolving one anyway let a discarded
+        // number abort a trigger that had already committed another
+        // context's publish, reporting "couldn't sync" for a climb that did
+        // sync.
+        //
+        // This narrows WHEN the guard runs and nothing else. Where a standing
+        // is resolved, an impossible rank/population pairing still throws:
+        // the deleted Math.min clamp is not back under another name, there is
+        // no fallback number, and nothing swallows the error.
+        const freezesCompletionSnapshot = !completionSnapshot.exists;
+        const publishesLiveClimbStatus =
+          payload.contextType === LIVE_CLIMB_CONTEXT_TYPE;
+        const standing = freezesCompletionSnapshot || publishesLiveClimbStatus ?
+          frozenCompletionStanding({
+            reading: completionField,
+            completedCount,
+            contextKey: payload.contextKey,
+          }) :
+          null;
+        const summaryWrite = replaySummaryWrite({
+          payload,
           completedCount,
-          contextKey: payload.contextKey,
-        }) :
-        null;
-      const summaryWrite = replaySummaryWrite({
-        payload,
-        completedCount,
-      });
-      summaryWrite.updatedAt = now;
+        });
+        summaryWrite.updatedAt = now;
 
-      if (canClaimFirstAscent) {
-        Object.assign(
-          summaryWrite,
-          firstAscentWrite({
+        if (canClaimFirstAscent) {
+          Object.assign(
+            summaryWrite,
+            firstAscentWrite({
+              userId,
+              entryId,
+              publicUser,
+              claimedAt: now,
+            })
+          );
+        }
+
+        transaction.set(leaderboardRef, summaryWrite, {merge: true});
+        transaction.set(
+          finisherRef,
+          finisherStatusWrite({
+            payload,
             userId,
             entryId,
             publicUser,
-            claimedAt: now,
-          })
-        );
-      }
-
-      transaction.set(leaderboardRef, summaryWrite, {merge: true});
-      transaction.set(
-        finisherRef,
-        finisherStatusWrite({
-          payload,
-          userId,
-          entryId,
-          publicUser,
-          globalCompletionOrder,
-          existingData: existingFinisherData,
-          completedAt: now,
-        }),
-        {merge: true}
-      );
-
-      if (standing !== null && freezesCompletionSnapshot) {
-        transaction.set(
-          completionSnapshotRef,
-          completionRankSnapshotWrite({
-            payload,
-            userId,
-            entryId,
-            rank: standing.rank,
-            completedCount: standing.population,
-            rankedAt: now,
-          })
-        );
-      }
-
-      if (standing !== null && publishesLiveClimbStatus) {
-        transaction.set(
-          publishStatusRef,
-          liveClimbPublishStatusPublishedWrite({
-            payload,
-            userId,
-            entryId,
-            updatedAt: now,
-            rankAtCompletion: standing.rank,
-            completedCountAtCompletion: standing.population,
-            finisherOrder: globalCompletionOrder,
+            globalCompletionOrder,
+            existingData: existingFinisherData,
+            completedAt: now,
           }),
           {merge: true}
         );
+
+        if (standing !== null && freezesCompletionSnapshot) {
+          transaction.set(
+            completionSnapshotRef,
+            completionRankSnapshotWrite({
+              payload,
+              userId,
+              entryId,
+              rank: standing.rank,
+              completedCount: standing.population,
+              rankedAt: now,
+            })
+          );
+        }
+
+        if (standing !== null && publishesLiveClimbStatus) {
+          transaction.set(
+            publishStatusRef,
+            liveClimbPublishStatusPublishedWrite({
+              payload,
+              userId,
+              entryId,
+              updatedAt: now,
+              rankAtCompletion: standing.rank,
+              completedCountAtCompletion: standing.population,
+              finisherOrder: globalCompletionOrder,
+            }),
+            {merge: true}
+          );
+        }
+
+        // The goal keys are seeded empty and filled by the reconciliation that
+        // follows in this same trigger: they depend on every other attempt's
+        // curve, which is the reconciliation's read, and a climber who has just
+        // finished is seconds away from racing nobody.
+        setReplayEntries(transaction, {
+          ...entryWrites,
+          publicUser,
+          fromBucket: 0,
+          toBucket: REPLAY_ENTRY_COMMIT_SIZE,
+        });
+
+        if (racesGoals) {
+          transaction.set(
+            attemptCurveReference(payload, entryId),
+            attemptCurveWrite(
+              userId,
+              {
+                workoutId: entryId,
+                finalSteps: payload.finalSteps,
+                finalDurationSeconds: payload.finalDurationSeconds,
+                splitIntervalSeconds: payload.splitIntervalSeconds,
+                splitSteps: payload.splitSteps,
+              },
+              now
+            )
+          );
+        }
+      }
+    );
+  } catch (error) {
+    await deleteReplayTailEntries(payload, entryId);
+    throw error;
+  }
+}
+
+/**
+ * Best-effort removal of the bucket entries a failed publish committed past
+ * the first commit. It never throws: the publish's own error is the one the
+ * trigger has to surface and retry on.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} entryId Public row document ID.
+ */
+async function deleteReplayTailEntries(
+  payload: LiveReplayIndexPayload,
+  entryId: string
+): Promise<void> {
+  if (payload.splitSteps.length <= REPLAY_ENTRY_COMMIT_SIZE) {
+    return;
+  }
+
+  try {
+    const writer = admin.firestore().bulkWriter();
+    writer.onWriteError((error) => {
+      if (error.code === FIRESTORE_NOT_FOUND_CODE) {
+        return false;
       }
 
-      // The goal keys are seeded empty and filled by the reconciliation that
-      // follows in this same trigger: they depend on every other attempt's
-      // curve, which is the reconciliation's read, and a climber who has just
-      // finished is seconds away from racing nobody.
-      setReplayEntries(transaction, {
-        ...entryWrites,
-        publicUser,
-        fromBucket: 0,
-        toBucket: REPLAY_ENTRY_COMMIT_SIZE,
-      });
-
-      if (racesGoals) {
-        transaction.set(
-          attemptCurveReference(payload, entryId),
-          attemptCurveWrite(
-            userId,
-            {
-              workoutId: entryId,
-              finalSteps: payload.finalSteps,
-              finalDurationSeconds: payload.finalDurationSeconds,
-              splitIntervalSeconds: payload.splitIntervalSeconds,
-              splitSteps: payload.splitSteps,
-            },
-            now
-          )
-        );
-      }
+      return error.failedAttempts < BULK_WRITER_MAX_ATTEMPTS;
+    });
+    let failedDeletes = 0;
+    for (
+      let index = REPLAY_ENTRY_COMMIT_SIZE;
+      index < payload.splitSteps.length;
+      index += 1
+    ) {
+      writer
+        .delete(entryReference(payload, index, entryId))
+        .catch((error) => {
+          if (!isNotFoundWriteError(error)) {
+            failedDeletes += 1;
+          }
+        });
     }
-  );
+    await writer.close();
+    if (failedDeletes > 0) {
+      logger.error("liveReplay.publish.tailCleanupFailed", {
+        contextKey: payload.contextKey,
+        entryId,
+        failedDeletes,
+      });
+    }
+  } catch (cleanupError) {
+    logger.error("liveReplay.publish.tailCleanupFailed", {
+      contextKey: payload.contextKey,
+      entryId,
+      error: String(cleanupError),
+    });
+  }
 }
 
 /** One contiguous run of an attempt's bucket entries, written together. */

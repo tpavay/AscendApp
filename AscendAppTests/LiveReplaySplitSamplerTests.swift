@@ -124,5 +124,8 @@ struct LiveReplaySplitSamplerTests {
         #expect(!LiveReplaySplitCurve.isPreFixSamplerClamp(stepCount: 360, intervalSeconds: 10, finalDurationSeconds: 3_599))
         // A compacted curve always runs past its finish.
         #expect(!LiveReplaySplitCurve.isPreFixSamplerClamp(stepCount: 271, intervalSeconds: 20, finalDurationSeconds: 5_407))
+        // A compacted curve that happens to hold 360 checkpoints and end before its finish is still
+        // a real sample: the pre-fix sampler only ever wrote 10 seconds.
+        #expect(!LiveReplaySplitCurve.isPreFixSamplerClamp(stepCount: 360, intervalSeconds: 20, finalDurationSeconds: 7_300))
     }
 }

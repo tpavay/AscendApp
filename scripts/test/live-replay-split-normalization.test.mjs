@@ -43,4 +43,5 @@ test("recognises only the clamp the pre-fix sampler wrote", () => {
   assert.equal(isPreFixSamplerClamp(360, 10, 5407.98), true);
   assert.equal(isPreFixSamplerClamp(360, 10, 3599.9), false);
   assert.equal(isPreFixSamplerClamp(271, 20, 5407.98), false);
+  assert.equal(isPreFixSamplerClamp(360, 20, 7300), false);
 });

@@ -138,6 +138,9 @@ test("a curve the pre-fix sampler never clamped is not repaired", () => {
   // Compacted curves always run past their finish.
   assert.equal(isPreFixSamplerClamp(271, 20, 5407.98), false);
   assert.equal(isPreFixSamplerClamp(181, 20, 3605), false);
+  // A compacted curve with 360 checkpoints ending before its finish is still
+  // a real sample: the pre-fix sampler only ever wrote 10 seconds.
+  assert.equal(isPreFixSamplerClamp(360, 20, 7300), false);
 });
 
 test("a ten-hour compacted curve publishes every board bucket", () => {

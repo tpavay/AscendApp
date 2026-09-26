@@ -171,6 +171,61 @@ test("a clamped stored curve no longer wins goals it reached hours later", async
   assert.ok((stored.splitSteps as number[])[359] < 2600);
 });
 
+test("a long publish that fails leaves no bucket behind", async () => {
+  // Two rivals already home on a board whose summary counts none: the
+  // standing this climb would freeze, third of one, is a pairing the publish
+  // refuses, so its bucket-zero commit throws after the buckets past the hour
+  // have already landed.
+  const board = "live_climb__empire-state-building";
+  for (const [rival, duration] of [["rival-a", 3000], ["rival-b", 3200]]) {
+    await db.doc(`${LIVE_REPLAY_COLLECTION}/${board}/finishers/${rival}`).set({
+      bestCompletionDurationSeconds: duration,
+      globalCompletionOrder: 1,
+      userId: rival,
+    });
+  }
+  await db.doc(`${LIVE_REPLAY_COLLECTION}/${board}`).set({completedCount: 0});
+
+  const durationSeconds = 4000;
+  const targetSteps = 2096;
+  const workoutRef = db.doc(`users/${CLIMBER}/workouts/long-refused`);
+  const before = await workoutRef.get();
+  await workoutRef.set({
+    durationSeconds,
+    participations: [
+      {contextType: "climb_attempt", leaderboardEligible: true},
+    ],
+    source: "headphone_motion",
+    sourceMetadata: JSON.stringify({
+      climbId: "empire-state-building",
+      climbTargetStepCount: targetSteps,
+      splitIntervalSeconds: 20,
+      splitSteps: Array.from({length: 201}, (_, index) =>
+        Math.min(targetSteps, Math.floor(((index * 20) + 19) * 2096 / 4000))
+      ),
+      stopReason: "target_reached",
+      targetStepCount: targetSteps,
+      trackingMode: "live_climb",
+    }),
+    steps: targetSteps,
+  });
+  const after = await workoutRef.get();
+
+  await assert.rejects(
+    onWorkoutReplaySplitsWritten.run({
+      data: {before, after},
+      params: {userId: CLIMBER, workoutId: "long-refused"},
+    } as unknown as ReplayTriggerEvent),
+    /Refusing to freeze rank 3 of 1/
+  );
+
+  const entries = await db
+    .collectionGroup("entries")
+    .where("workoutId", "==", "long-refused")
+    .get();
+  assert.deepEqual(entries.docs.map((doc) => doc.ref.path), []);
+});
+
 /**
  * Publishes one open Just Climb session through the trigger.
  * @param {string} userId Owner.

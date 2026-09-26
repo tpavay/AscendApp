@@ -23,6 +23,7 @@ struct LiveReplaySplitCurve: Codable, Equatable, Sendable {
     /// finish in bucket 359 and nothing about the climb after 59:50. Those curves are still
     /// stored on devices and in backups, and old builds keep writing them.
     static let preFixSamplerCheckpoints = 360
+    static let preFixSamplerIntervalSeconds = 10
 
     let intervalSeconds: Int
     let steps: [Int]
@@ -31,15 +32,19 @@ struct LiveReplaySplitCurve: Codable, Equatable, Sendable {
         max(steps.count - 1, 0)
     }
 
-    /// Whether a stored curve is the pre-fix sampler's clamp: its full 360 checkpoints, with the
-    /// last window closing no later than the finish. The current sampler compacts before a sample
-    /// could land past its last checkpoint, so a curve it wrote always runs past the finish.
+    /// Whether a stored curve is the pre-fix sampler's clamp: its full 360 checkpoints at the only
+    /// interval it ever wrote, 10 seconds, with the last window closing no later than the finish.
+    /// The current sampler compacts before a sample could land past its last checkpoint, so a
+    /// 10-second curve it wrote always runs past the finish. A compacted curve can end before the
+    /// finish (a recovered draft, or steps that stopped before the timer), but its last bucket is
+    /// still a real sample, so the interval rules it out.
     static func isPreFixSamplerClamp(
         stepCount: Int,
         intervalSeconds: Int,
         finalDurationSeconds: Int
     ) -> Bool {
         stepCount == preFixSamplerCheckpoints
+            && intervalSeconds == preFixSamplerIntervalSeconds
             && stepCount * max(intervalSeconds, 1) <= finalDurationSeconds
     }
 }

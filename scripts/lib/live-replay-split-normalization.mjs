@@ -19,6 +19,9 @@
  */
 export const PRE_FIX_SAMPLER_CHECKPOINTS = 360;
 
+/** The only interval the pre-fix iOS sampler ever wrote. */
+export const PRE_FIX_SAMPLER_INTERVAL_SECONDS = 10;
+
 /** The live race's bucket grid: every client reads `floor(elapsed / 10)`. */
 export const REPLAY_BOARD_INTERVAL_SECONDS = 10;
 
@@ -117,8 +120,10 @@ export function replayBoardSplitSteps(input) {
 }
 
 /**
- * Whether a curve is the pre-fix sampler's clamp: its full 360 checkpoints,
- * with the last window closing no later than the finish.
+ * Whether a curve is the pre-fix sampler's clamp: its full 360 checkpoints
+ * at the only interval it ever wrote, 10 seconds, with the last window closing
+ * no later than the finish. A compacted curve can end before the finish, but
+ * its last bucket is still a real sample, so the interval rules it out.
  * @param {number} stepCount Checkpoints in the stored curve.
  * @param {number} intervalSeconds Stored interval.
  * @param {number} finalDurationSeconds Final duration.
@@ -126,6 +131,7 @@ export function replayBoardSplitSteps(input) {
  */
 export function isPreFixSamplerClamp(stepCount, intervalSeconds, finalDurationSeconds) {
   return stepCount === PRE_FIX_SAMPLER_CHECKPOINTS &&
+    intervalSeconds === PRE_FIX_SAMPLER_INTERVAL_SECONDS &&
     stepCount * Math.max(Math.floor(intervalSeconds), 1) <= finalDurationSeconds;
 }
 
