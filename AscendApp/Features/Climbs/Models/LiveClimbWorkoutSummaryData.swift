@@ -24,8 +24,6 @@ struct LiveClimbPaceSplit: Identifiable, Equatable {
 }
 
 enum LiveClimbWorkoutSummaryData {
-    private static let maxReplaySplitCheckpoints = 360
-
     static func metadata(for workout: Workout) -> HeadphoneMotionWorkoutMetadata? {
         guard workout.source == .headphoneMotion,
               let sourceMetadata = workout.sourceMetadata,
@@ -225,8 +223,13 @@ enum LiveClimbWorkoutSummaryData {
     /// Twin of the server's `normalizeReplaySplitSteps`. Both sides are pinned to the same
     /// end-anchored bucket contract by `SharedTestVectors/live-replay-split-normalization-vector.json`,
     /// so this stays module-visible for that parity test rather than private.
+    ///
+    /// The result runs through the finish at the curve's own interval however long the climb was,
+    /// and a curve the pre-fix sampler clamped at an hour (`LiveReplaySplitCurve.isPreFixSamplerClamp`)
+    /// has its unrecorded tail drawn straight from the last trusted bucket to the finish - the one
+    /// repair every stored copy of such a climb gets, on this device and in every backup.
     static func normalizedSplitSteps(
-        _ splitSteps: [Int],
+        _ rawSplitSteps: [Int],
         intervalSeconds: Int,
         finalDurationSeconds: Int,
         finalSteps: Int
@@ -234,10 +237,19 @@ enum LiveClimbWorkoutSummaryData {
         let resolvedFinalSteps = max(finalSteps, 0)
         let resolvedIntervalSeconds = max(intervalSeconds, 1)
         let expectedFinalBucketIndex = max(finalDurationSeconds / resolvedIntervalSeconds, 0)
-        let bucketCount = min(
-            max(splitSteps.count, expectedFinalBucketIndex + 1),
-            maxReplaySplitCheckpoints
+        let splitSteps = LiveReplaySplitCurve.isPreFixSamplerClamp(
+            stepCount: rawSplitSteps.count,
+            intervalSeconds: resolvedIntervalSeconds,
+            finalDurationSeconds: finalDurationSeconds
         )
+            ? withInterpolatedUnrecordedTail(
+                rawSplitSteps,
+                intervalSeconds: resolvedIntervalSeconds,
+                finalDurationSeconds: finalDurationSeconds,
+                finalSteps: resolvedFinalSteps
+            )
+            : rawSplitSteps
+        let bucketCount = max(splitSteps.count, expectedFinalBucketIndex + 1)
         var clampedSteps = monotonicClampedSteps(
             splitSteps,
             bucketCount: bucketCount,
@@ -271,6 +283,43 @@ enum LiveClimbWorkoutSummaryData {
         }
 
         return clampedSteps
+    }
+
+    /// A clamped curve with its last bucket dropped and the unrecorded time from the last trusted
+    /// bucket to the finish drawn as a straight line. The total and the clock are all the evidence
+    /// left about that stretch, so an even pace between them is the most the curve can honestly say.
+    private static func withInterpolatedUnrecordedTail(
+        _ splitSteps: [Int],
+        intervalSeconds: Int,
+        finalDurationSeconds: Int,
+        finalSteps: Int
+    ) -> [Int] {
+        var steps = monotonicClampedSteps(
+            splitSteps,
+            bucketCount: splitSteps.count - 1,
+            finalSteps: finalSteps
+        )
+        let anchorSeconds = steps.count * intervalSeconds
+        let anchorSteps = steps.last ?? 0
+        let tailSeconds = max(finalDurationSeconds - anchorSeconds, 1)
+        let finalBucketIndex = finalDurationSeconds / intervalSeconds
+        guard finalBucketIndex >= steps.count else { return steps }
+
+        for index in steps.count...finalBucketIndex {
+            let seconds = (index + 1) * intervalSeconds
+            let projectedStep = seconds >= finalDurationSeconds
+                ? finalSteps
+                : Int(
+                    (
+                        Double(anchorSteps)
+                            + Double((finalSteps - anchorSteps) * (seconds - anchorSeconds))
+                            / Double(tailSeconds)
+                    ).rounded()
+                )
+            steps.append(min(max(projectedStep, anchorSteps), finalSteps))
+        }
+
+        return steps
     }
 
     private static func monotonicClampedSteps(

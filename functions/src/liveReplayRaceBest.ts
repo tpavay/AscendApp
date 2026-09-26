@@ -51,8 +51,12 @@ export const RACE_DURATION_GOAL_MAX_SECONDS = 10800;
  * `splitSteps[i]` is the cumulative step count at
  * `(i + 1) * splitIntervalSeconds` - the anchoring
  * `liveReplaySplitNormalization.ts` states - and the curve may stop short of
- * the finish (`MAX_REPLAY_SPLIT_CHECKPOINTS`), in which case the finish itself
- * is the last known point.
+ * the finish (a curve rebuilt from entries that ran out), in which case the
+ * finish itself is the last known point. A published curve runs through the
+ * finish however long the climb was; one stored before attempts could run
+ * past the hour is re-derived before it reaches these rules
+ * (`isPreFixSamplerClamp`), because its last point stands at 60:00 carrying
+ * the final steps.
  */
 export interface RaceAttemptCurve {
   workoutId: string;

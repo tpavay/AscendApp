@@ -128,6 +128,37 @@ A dry run that plans any commit over the budget names that climber under `Over t
 A binary shipped ahead of the script renders a Just Climb run against a goal over an empty field, because the goal keys it filters on are what the script writes - the ordering (indexes and Functions, the script on every environment, then the binary) is owned by `ascend-live-climbs`.
 Measured on production (`ascend-prod-9c8f2`) on 2026-09-22, before the script ran: `just_climb__global` held 12 bucket-zero entries from 4 climbers over 234 buckets, only 5 entries carried any `isBestForUser`, none carried `bestForGoals`, and the captain's one flagged row was his shortest climb rather than his most steps - which is the defect the script corrects.
 
+### Long-attempt republish backfill
+
+Attempts published before the split fix that ran past the hour sit on their boards with 360 entries, the last one holding the final steps, and a `splitBucketCount` of 360, so a live race counts every such rival home at 60:00 (`ascend-live-climbs`).
+The fixed Cloud Function publishes new and re-published long attempts correctly on its own; `scripts/backfill-live-replay-long-attempts.mjs` rewrites the ones already there, and it is a required step of the release that ships the fix, in this order:
+
+1. Deploy the Cloud Functions.
+2. Run the long-attempt backfill on staging, plan first, then the race-best backfill, because the goal keys it copies onto the new entries were derived from the bent curves:
+
+```sh
+node scripts/backfill-live-replay-long-attempts.mjs --env staging
+node scripts/backfill-live-replay-long-attempts.mjs --env staging --apply
+node scripts/backfill-live-replay-best-per-user.mjs --env staging --dry-run
+node scripts/backfill-live-replay-best-per-user.mjs --env staging
+```
+
+3. Run both on production the same way, and verify a long attempt's bucket zero now states its whole span:
+
+```sh
+node scripts/backfill-live-replay-long-attempts.mjs --env prod --confirm-production ascend-prod-9c8f2
+node scripts/backfill-live-replay-long-attempts.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
+node scripts/backfill-live-replay-best-per-user.mjs --env prod --confirm-production ascend-prod-9c8f2 --dry-run
+node scripts/backfill-live-replay-best-per-user.mjs --env prod --confirm-production ascend-prod-9c8f2
+node scripts/firestore-query.mjs get live_replay_leaderboards/just_climb__global/splitBuckets/0/entries/<workoutId> --env prod --confirm-production
+```
+
+The long-attempt script is idempotent - bucket zero is written last and is what it diffs against, so a second plan reports `Attempts to republish: 0` - and it names every attempt it left alone under `Left alone, needing a look` with exit code 1.
+It never writes a climber's private workout: every reader repairs a clamped curve on read, on the device and on the server.
+Seeded rows have no workout behind them and are skipped; the seed's own Just Climb window now reaches its slowest rival, so reseeding a board (`content:staging`) republishes its seeded long rivals.
+Measured on production (`ascend-prod-9c8f2`) on 2026-09-26, before the script existed: 29 bucket-zero entries across 10 boards, 4 of them an hour or longer, all on `just_climb__global` (74, 90, 101 and 150 minutes), each with `splitBucketCount` 360 and its final steps in bucket 359.
+The same day staging (`ascend-staging-fa7d5`) planned no writes: its 78 long rows across 62 boards are all seeded.
+
 ### Public identity backfill
 
 Deploy the moderation rules, identity policy rules, required indexes, `onPublicProfileIdentityWritten`, and `onPublicIdentityPropagationJobWritten` before the binary that publishes identity, so a published profile is validated and propagated by the server from the start.
