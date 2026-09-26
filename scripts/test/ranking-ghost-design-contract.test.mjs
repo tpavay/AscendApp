@@ -94,8 +94,9 @@ test("the marker states a position and never a step count or a time", () => {
   );
   assert.deepEqual(
     renderedText,
-    ["String(letter.element)"],
-    "the marker renders text other than its own vertical BEST label",
+    ['"BEST"', "String(letter.element)"],
+    "the marker renders text other than its own BEST label - the flag and " +
+      "the vertical letters",
   );
   assert.ok(
     marker.includes('"BEST"'),
@@ -105,14 +106,24 @@ test("the marker states a position and never a step count or a time", () => {
 
 test("the marker is a single line, not a two-sided box", () => {
   const marker = read(MARKER_SURFACES[0]);
-  const rectangles = [...marker.matchAll(/Rectangle\(\)/g)].length;
 
+  // The line is one shape, drawn once. It is cut into pieces only where it
+  // passes behind a row's content, and every piece sits on the same x.
   assert.equal(
-    rectangles,
+    [...marker.matchAll(/LiveReplayPreviousBestLine\(/g)].length,
     1,
     "the marker draws more than one rule. It is one vertical line to the " +
       "LEFT of the word, so the progress fill passes one edge cleanly " +
       "instead of straddling a box through a half-passed state.",
+  );
+  assert.equal(
+    [...marker.matchAll(/Rectangle\(\)/g)].length,
+    0,
+    "the marker draws a rule other than its one line",
+  );
+  assert.ok(
+    /x: centerX - width \/ 2,/.test(marker),
+    "the line's pieces no longer share one x",
   );
 });
 
@@ -120,13 +131,52 @@ test("the marker's line never fades and never restyles once passed", () => {
   const marker = read(MARKER_SURFACES[0]);
 
   assert.ok(
-    /verticalLabel\s*\n\s*\.opacity\(/.test(marker),
+    /\n\s*label\n[\s\S]*?\.opacity\(layout\.showsLabel \? 1 : 0\)/.test(marker),
     "the fade is no longer applied to the label",
   );
   assert.ok(
-    !/Rectangle\(\)\s*\n\s*\.fill\(lineColor\)\s*\n\s*\.opacity\(/.test(marker),
+    !/\.fill\(lineColor\)\s*\n\s*\.opacity\(/.test(marker),
     "the line itself fades. It is the thing being raced: only the word fades.",
   );
+});
+
+test("the leaderboard row's marker never draws over the row's content", () => {
+  // Settled on 2026-09-26 (best-label-orientation) after production drew the
+  // line and the vertical word through the climber's name: the row hands the
+  // marker every piece of its content, the line passes behind each, and the
+  // word flies horizontally from the top of the line.
+  const panel = read(MARKER_SURFACES[1]);
+  const marker = panel.match(
+    /LiveReplayPreviousBestMarker\([\s\S]*?\n\s*\)/,
+  );
+
+  assert.ok(marker, "the leaderboard row no longer draws the marker");
+  assert.ok(
+    marker[0].includes("labelStyle: .flag"),
+    "the leaderboard row's marker is no longer the horizontal flag. The " +
+      "vertical word cannot sit beside the line without crossing the name.",
+  );
+  assert.ok(
+    marker[0].includes("obstacles: obstacles"),
+    "the leaderboard row no longer tells the marker where its content is",
+  );
+  for (const content of [
+    "Text(rankLabel)",
+    "avatarView",
+    "Text(row.identity.displayName)",
+    'Text("YOU")',
+    "Text(demographicSummaryText)",
+    "Text(row.stepsAtBucket.formatted())",
+  ]) {
+    const start = panel.indexOf(content);
+    assert.ok(start >= 0, `the row no longer draws ${content}`);
+    const declaration = panel.slice(start, panel.indexOf("\n\n", start));
+    assert.ok(
+      declaration.includes(".rowContentBounds()"),
+      `${content} is not reported to the marker, so the BEST marker can ` +
+        "draw over it",
+    );
+  }
 });
 
 test("Just Me reuses the leaderboard's own previous-best marker on its summit bar", () => {

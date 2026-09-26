@@ -478,7 +478,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
             Color(red: 1.0, green: 0.57, blue: 0.08),
             Color(red: 0.40, green: 0.34, blue: 0.86)
         ]
-        return colors[Int(row.id.hashValue.magnitude % UInt(colors.count))]
+        return colors[StableAvatarPalette.index(for: row.id, count: colors.count)]
     }
 
     private func isPodiumRank(_ rank: Int?) -> Bool {

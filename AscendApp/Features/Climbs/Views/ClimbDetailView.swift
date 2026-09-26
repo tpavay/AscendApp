@@ -1637,7 +1637,7 @@ struct ClimbDetailView: View {
             Color(red: 1.0, green: 0.57, blue: 0.08),
             Color(red: 0.40, green: 0.34, blue: 0.86)
         ]
-        return colors[Int(id.hashValue.magnitude % UInt(colors.count))]
+        return colors[StableAvatarPalette.index(for: id, count: colors.count)]
     }
 
     private var communityPrimaryColor: Color {

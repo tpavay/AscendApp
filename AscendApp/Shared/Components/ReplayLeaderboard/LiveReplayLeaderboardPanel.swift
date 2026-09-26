@@ -274,6 +274,22 @@ struct LiveReplayLeaderboardPanel: View {
 
 }
 
+/// Collects the bounds of everything a leaderboard row draws, so the `BEST`
+/// marker behind them can keep clear of each one.
+private struct LiveReplayRowContentBoundsKey: PreferenceKey {
+    static let defaultValue: [Anchor<CGRect>] = []
+
+    static func reduce(value: inout [Anchor<CGRect>], nextValue: () -> [Anchor<CGRect>]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+private extension View {
+    func rowContentBounds() -> some View {
+        anchorPreference(key: LiveReplayRowContentBoundsKey.self, value: .bounds) { [$0] }
+    }
+}
+
 /// The whole footer for a board nobody else has finished.
 ///
 /// It states the one placing that board can substantiate - where this run sits
@@ -332,87 +348,102 @@ private struct LiveReplayLeaderboardRowView: View {
     let effectiveColorScheme: ColorScheme
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            if row.isLiveAttempt {
-                progressBackground
-            }
-
-            HStack(spacing: 10) {
-                Group {
-                    if let rankLabel {
-                        Text(rankLabel)
-                            .font(.montserratBold(size: 16))
-                            .foregroundStyle(row.isLiveAttempt ? tint : secondaryColor)
-                            .monospacedDigit()
-                    }
+        HStack(spacing: 10) {
+            Group {
+                if let rankLabel {
+                    Text(rankLabel)
+                        .font(.montserratBold(size: 16))
+                        .foregroundStyle(row.isLiveAttempt ? tint : secondaryColor)
+                        .monospacedDigit()
+                        .rowContentBounds()
                 }
-                .frame(width: 38, alignment: .center)
+            }
+            .frame(width: 38, alignment: .center)
 
-                avatarView
+            avatarView
+                .rowContentBounds()
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 7) {
-                        Text(row.identity.displayName)
-                            .font(.montserratBold(size: 17))
-                            .foregroundStyle(primaryColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 7) {
+                    Text(row.identity.displayName)
+                        .font(.montserratBold(size: 17))
+                        .foregroundStyle(primaryColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                        .rowContentBounds()
 
-                        if row.isCurrentUser {
-                            Text("YOU")
-                                .font(.montserratBold(size: 9))
-                                .foregroundStyle(.black)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(
-                                    Capsule(style: .continuous)
-                                        .fill(Color.accent)
-                                )
-                        }
-                    }
-
-                    // A rival's row is worth characterising; the viewer's is
-                    // not. The attempt in progress can never carry demographics
-                    // - it is assembled from the live step count - so drawing
-                    // them under the climber's own finished attempt is what let
-                    // two rows belonging to one person disagree about whose
-                    // they were.
-                    if !row.isCurrentUser,
-                       let demographicSummaryText = row.demographicSummaryText {
-                        Text(demographicSummaryText)
-                            .font(.montserratSemiBold(size: 10))
-                            .foregroundStyle(secondaryColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
+                    if row.isCurrentUser {
+                        Text("YOU")
+                            .font(.montserratBold(size: 9))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(Color.accent)
+                            )
+                            .rowContentBounds()
                     }
                 }
 
-                Spacer(minLength: 0)
-
-                Text(row.stepsAtBucket.formatted())
-                    .font(.montserratBold(size: row.isLiveAttempt ? 24 : 22))
-                    .foregroundStyle(row.isLiveAttempt ? tint : primaryColor)
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.84)
+                // A rival's row is worth characterising; the viewer's is
+                // not. The attempt in progress can never carry demographics
+                // - it is assembled from the live step count - so drawing
+                // them under the climber's own finished attempt is what let
+                // two rows belonging to one person disagree about whose
+                // they were.
+                if !row.isCurrentUser,
+                   let demographicSummaryText = row.demographicSummaryText {
+                    Text(demographicSummaryText)
+                        .font(.montserratSemiBold(size: 10))
+                        .foregroundStyle(secondaryColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .rowContentBounds()
+                }
             }
-            .padding(.trailing, 4)
 
-            previousBestMarker
+            Spacer(minLength: 0)
+
+            Text(row.stepsAtBucket.formatted())
+                .font(.montserratBold(size: row.isLiveAttempt ? 24 : 22))
+                .foregroundStyle(row.isLiveAttempt ? tint : primaryColor)
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .lineLimit(1)
+                .minimumScaleFactor(0.84)
+                .rowContentBounds()
         }
-        .frame(height: row.isLiveAttempt ? 74 : 70)
+        .padding(.trailing, 4)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: row.isLiveAttempt ? 74 : 70)
+        // The fill and the marker sit behind the content, and the marker is
+        // handed every content frame so that nothing of it draws over them.
+        .backgroundPreferenceValue(LiveReplayRowContentBoundsKey.self) { anchors in
+            if row.isLiveAttempt {
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        progressBackground
+
+                        previousBestMarker(obstacles: anchors.map { proxy[$0] })
+                    }
+                }
+            }
+        }
         .accessibilityElement(children: .combine)
     }
 
-    /// The climber's previous best, drawn over their own row rather than beside
-    /// it. Drawn last so the line stays legible across the avatar and the name;
-    /// the word gets out of the trailing number's way on its own.
+    /// The climber's previous best, drawn inside their own row rather than
+    /// beside it, and never over the row's content: the line passes behind
+    /// every piece of it and the word flies from the top of the line.
     @ViewBuilder
-    private var previousBestMarker: some View {
+    private func previousBestMarker(obstacles: [CGRect]) -> some View {
         if let previousBestProgress {
             LiveReplayPreviousBestMarker(
                 progress: previousBestProgress,
+                labelStyle: .flag,
+                obstacles: obstacles,
                 lineColor: primaryColor
             )
         }
@@ -520,6 +551,6 @@ private struct LiveReplayLeaderboardRowView: View {
             Color(hex: "6E4E33"),
             Color(hex: "A36A42")
         ]
-        return colors[Int(row.id.hashValue.magnitude % UInt(colors.count))]
+        return colors[StableAvatarPalette.index(for: row.id, count: colors.count)]
     }
 }
