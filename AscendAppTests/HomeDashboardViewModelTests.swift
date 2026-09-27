@@ -35,7 +35,8 @@ struct HomeDashboardViewModelTests {
         // back; the climbs six and eight days back belong to the week before.
         #expect(viewModel.weekSummary?.weekWorkoutCount == 1)
         #expect(viewModel.weekSummary?.weekTotalValue == 1_000)
-        #expect(viewModel.currentStreakWeeks == Workout.calculateWeeklyStreak(from: workouts))
+        // A climb this Monday week and one in the week before it.
+        #expect(viewModel.weeklyStreak == WeeklyStreak(weeks: 2, isCurrentWeekSecured: true))
     }
 
     @Test
@@ -52,7 +53,7 @@ struct HomeDashboardViewModelTests {
         #expect(viewModel.workoutCount == 1)
         #expect(viewModel.weekSummary?.weekWorkoutCount == 0)
         #expect(viewModel.weekSummary?.weekTotalValue == 0)
-        #expect(viewModel.currentStreakWeeks == 0)
+        #expect(viewModel.weeklyStreak == .none)
     }
 
     private func makeModelContext() throws -> ModelContext {
