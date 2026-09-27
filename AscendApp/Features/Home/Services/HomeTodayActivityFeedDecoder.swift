@@ -41,6 +41,7 @@ enum HomeTodayActivityFeedDecoder {
             userId: userId,
             kind: kind,
             climbId: nonEmptyString(for: "climbId", in: data),
+            attemptClimbId: nonEmptyString(for: "attemptClimbId", in: data),
             routineTemplateId: nonEmptyString(for: "routineTemplateId", in: data),
             steps: steps,
             durationSeconds: durationSeconds,
@@ -48,6 +49,10 @@ enum HomeTodayActivityFeedDecoder {
             publishedAt: publishedAt,
             justClimbGoalKind: goalKind,
             justClimbGoalValue: intValue(for: "justClimbGoalValue", in: data),
+            isPartial: data["isPartial"] as? Bool ?? false,
+            targetSteps: intValue(for: "targetSteps", in: data).flatMap { $0 > 0 ? $0 : nil },
+            targetDurationSeconds: doubleValue(for: "targetDurationSeconds", in: data)
+                .flatMap { $0 > 0 ? $0 : nil },
             displayName: displayName,
             photoURL: photoURL,
             avatarToken: data["avatarToken"] as? String ?? "",
