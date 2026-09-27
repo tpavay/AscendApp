@@ -79,6 +79,51 @@ struct HomeTodayActivityFeedDecoderTests {
     }
 
     @Test
+    func aPartialSessionDecodesItsProgressAndItsLandmark() throws {
+        let feed = HomeTodayActivityFeedDecoder.feed(from: [
+            "rows": [
+                validRow(workoutId: "climb", kind: "live_climb", extra: [
+                    "attemptClimbId": "shanghai-tower",
+                    "isPartial": true,
+                    "targetSteps": 3_398,
+                ]),
+                validRow(workoutId: "routine", kind: "routine_template", extra: [
+                    "routineTemplateId": "pyramid_climb",
+                    "isPartial": true,
+                    "targetDurationSeconds": 1_200,
+                ]),
+            ],
+        ])
+
+        let climb = try #require(feed.rows.first)
+        #expect(climb.kind == .liveClimb)
+        #expect(climb.isPartial)
+        #expect(climb.climbId == nil, "a partial row never claims the landmark was finished")
+        #expect(climb.attemptClimbId == "shanghai-tower")
+        #expect(climb.landmarkClimbId == "shanghai-tower")
+        #expect(climb.targetSteps == 3_398)
+
+        let routine = try #require(feed.rows.last)
+        #expect(routine.isPartial)
+        #expect(routine.targetDurationSeconds == 1_200)
+        #expect(routine.landmarkClimbId == nil)
+    }
+
+    @Test
+    func aRowWrittenBeforePartialSessionsReadsAsAFinish() throws {
+        let feed = HomeTodayActivityFeedDecoder.feed(from: [
+            "rows": [validRow(workoutId: "w1", kind: "live_climb", extra: ["climbId": "eiffel-tower"])],
+        ])
+
+        let row = try #require(feed.rows.first)
+        #expect(!row.isPartial)
+        #expect(row.attemptClimbId == nil)
+        #expect(row.landmarkClimbId == "eiffel-tower")
+        #expect(row.targetSteps == nil)
+        #expect(row.targetDurationSeconds == nil)
+    }
+
+    @Test
     func aMissingDocumentIsAnEmptyFeed() {
         let feed = HomeTodayActivityFeedDecoder.feed(from: nil)
         #expect(feed == .empty)

@@ -65,7 +65,7 @@ struct HomeTodayActivityTitleResolver {
         for row in rows {
             presentations[row.id] = HomeTodayActivityRowPresentation(
                 row: row,
-                climbName: climbName(for: row.climbId),
+                climbName: climbName(for: row.landmarkClimbId),
                 routineTemplateName: row.routineTemplateId.flatMap { templateNames[$0] },
                 now: now
             )

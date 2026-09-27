@@ -241,13 +241,17 @@ struct ModeratedHomeTodayActivityRow: Identifiable, Equatable, Sendable {
     let identity: ResolvedUserIdentity
     let userId: String
     let kind: HomeTodayActivityKind
-    let climbId: String?
+    /// The landmark a Live Climb row stands on, finished or not.
+    let landmarkClimbId: String?
     let routineTemplateId: String?
     let steps: Int
     let durationSeconds: TimeInterval
     let completedAt: Date
     let publishedAt: Date
     let justClimbGoal: JustClimbGoal?
+    let isPartial: Bool
+    let targetSteps: Int?
+    let targetDurationSeconds: TimeInterval?
     let isCurrentUser: Bool
 
     fileprivate init(
@@ -258,13 +262,16 @@ struct ModeratedHomeTodayActivityRow: Identifiable, Equatable, Sendable {
         self.identity = identity
         userId = source.userId
         kind = source.kind
-        climbId = source.climbId
+        landmarkClimbId = source.landmarkClimbId
         routineTemplateId = source.routineTemplateId
         steps = source.steps
         durationSeconds = source.durationSeconds
         completedAt = source.completedAt
         publishedAt = source.publishedAt
         justClimbGoal = source.justClimbGoal
+        isPartial = source.isPartial
+        targetSteps = source.targetSteps
+        targetDurationSeconds = source.targetDurationSeconds
         isCurrentUser = source.isCurrentUser
     }
 }

@@ -1,4 +1,5 @@
 import CoreLocation
+import FirebaseFirestore
 import HealthKit
 import MapKit
 import SwiftData
@@ -236,6 +237,26 @@ struct HomeGlobeSheetEvidenceTests {
         }
     }
 
+    @Test
+    func sessionsStoppedShortReachTheTodayRowsAndSayHowFarTheyGot() async throws {
+        let screen = try await makeScreen(feed: Self.partialSessionFeed, detent: .expanded)
+
+        try await RenderedScreen.host(screen, settle: .turns(30, interval: .milliseconds(100))) { hosted in
+            let copy = try await hosted.copy()
+
+            // The Live Climb stopped short on its landmark reads its progress against the
+            // climb's step count, never as a finish.
+            #expect(copy.contains("shanghai tower"))
+            #expect(copy.contains("2,342 of 3,398 steps"))
+            // The template routine stopped early reads its time against the plan.
+            #expect(copy.contains("07:00 of 20:00"))
+            // The Just Climb stopped before its goal still reads "x of y".
+            #expect(copy.contains("500 of 1,000 steps"))
+
+            try hosted.photograph(named: "home-globe-sheet-partial-sessions")
+        }
+    }
+
     // MARK: - Screen
 
     private func makeScreen(
@@ -317,6 +338,47 @@ struct HomeGlobeSheetEvidenceTests {
             ],
             updatedAt: now
         )
+    }()
+}
+
+extension HomeGlobeSheetEvidenceTests {
+    /// Rows exactly as `onWorkoutWrittenHomeTodayActivity` writes them for sessions that
+    /// stopped short, read through the same decoder Home's listener uses.
+    fileprivate static let partialSessionFeed: HomeTodayActivityFeed = {
+        let now = Date()
+        func row(_ workoutId: String, name: String, kind: String, minutesAgo: Double, _ extra: [String: Any]) -> [String: Any] {
+            var data: [String: Any] = [
+                "workoutId": workoutId,
+                "userId": "user-\(workoutId)",
+                "kind": kind,
+                "completedAt": Timestamp(date: now.addingTimeInterval(-minutesAgo * 60)),
+                "publishedAt": Timestamp(date: now.addingTimeInterval(-minutesAgo * 60)),
+                "displayName": name,
+                "avatarToken": String(name.prefix(2)).uppercased(),
+                "photoURL": "",
+                "identityState": "published",
+                "isSynthetic": false,
+            ]
+            data.merge(extra) { _, new in new }
+            return data
+        }
+        return HomeTodayActivityFeedDecoder.feed(from: [
+            "rows": [
+                row("shanghai", name: "Captain Tyler", kind: "live_climb", minutesAgo: 2, [
+                    "attemptClimbId": "shanghai-tower", "isPartial": true, "targetSteps": 3_398,
+                    "steps": 2_342, "durationSeconds": 1_580,
+                ]),
+                row("routine", name: "Tomáš Král", kind: "routine_template", minutesAgo: 9, [
+                    "routineTemplateId": "pyramid_climb", "isPartial": true, "targetDurationSeconds": 1_200,
+                    "steps": 700, "durationSeconds": 420,
+                ]),
+                row("justclimb", name: "Maya Lindqvist", kind: "just_climb", minutesAgo: 15, [
+                    "justClimbGoalKind": "steps", "justClimbGoalValue": 1_000, "isPartial": true,
+                    "steps": 500, "durationSeconds": 300,
+                ]),
+            ],
+            "updatedAt": Timestamp(date: now),
+        ])
     }()
 }
 
