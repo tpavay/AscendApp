@@ -3,6 +3,7 @@ import UserNotifications
 
 struct NotificationSettingsView: View {
     @State private var notificationState: ClimbDropNotificationState
+    @State private var isChampionPushEnabled = ChampionPushPreferenceStore.isEnabled
 
     init(notificationState: ClimbDropNotificationState = .shared) {
         _notificationState = State(initialValue: notificationState)
@@ -18,6 +19,12 @@ struct NotificationSettingsView: View {
                 ProfileSection(title: "Climbs") {
                     ProfileCardSurface {
                         climbDropRow
+                    }
+                }
+
+                ProfileSection(title: "Leaderboards") {
+                    ProfileCardSurface {
+                        championPushRow
                     }
                 }
 
@@ -120,6 +127,49 @@ struct NotificationSettingsView: View {
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(notificationState.isUpdating ? 0.68 : 1)
+    }
+
+    private var championPushRow: some View {
+        HStack(spacing: 16) {
+            Image("LeaderboardCrown")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Crown alerts")
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(.white)
+
+                Text(championPushDetail)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(Color.white.opacity(0.64))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("", isOn: $isChampionPushEnabled)
+                .labelsHidden()
+                .tint(.accent)
+                .accessibilityLabel("Crown alerts")
+                .onChange(of: isChampionPushEnabled) { _, isEnabled in
+                    Task {
+                        await PushNotificationService.shared.setChampionPushEnabled(isEnabled)
+                    }
+                }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var championPushDetail: String {
+        if notificationState.authorizationStatus == .denied {
+            return "Allow notifications in iOS to get these."
+        }
+        return "You take a weekly, monthly or yearly crown."
     }
 
     private var notificationsDisabledBanner: some View {
