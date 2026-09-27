@@ -56,6 +56,14 @@ const CHAMPION_PUSH_WINDOW_MS = 48 * 60 * 60 * 1000;
 const CHAMPION_CONCURRENCY = 10;
 /** FCM's multicast ceiling. */
 const FCM_MULTICAST_LIMIT = 500;
+/**
+ * How long after a week or month closes the push waits for the champion's
+ * recap. The alert opens the app, and the recap's last page is the
+ * coronation, so a push that arrives before the 00:30 UTC compose opens to
+ * nothing. Compose itself waits up to an hour for the finalizer, so after 90
+ * minutes the push goes out without it rather than never.
+ */
+export const CHAMPION_PUSH_RECAP_WAIT_MS = 90 * 60 * 1000;
 
 export const CHAMPION_PUSH_TITLE = "You took the crown.";
 
@@ -100,6 +108,11 @@ export interface ChampionPushSummary {
   alreadyClaimed: number;
   /** Champions whose placing is not written yet; the event retries. */
   awaitingPlacing: number;
+  /**
+   * Champions whose recap (and its coronation) is not composed yet; the event
+   * retries.
+   */
+  awaitingRecap: number;
   /** Champions claimed, and sent to at least one device. */
   delivered: number;
   /** Champions whose pre-claim reads threw; the event retries. */
@@ -160,6 +173,26 @@ export function evaluateChampionPushEligibility(
     eligible: true,
     result: {championUserIds, periodEndAt: endAt, periodKey, timeFrame},
   };
+}
+
+/**
+ * Whether the push should still hold for the champion's recap: only a week or
+ * a month has one, and only within the wait after the period closed.
+ * @param {ChampionPushResult} result - The result being pushed
+ * @param {boolean} recapExists - Whether the champion's recap is composed
+ * @param {Date} now - The trigger's clock
+ * @return {boolean} True while the push should wait and retry
+ */
+export function shouldAwaitChampionRecap(
+  result: ChampionPushResult,
+  recapExists: boolean,
+  now: Date
+): boolean {
+  if (recapExists || result.timeFrame === "yearly") {
+    return false;
+  }
+  return now.getTime() - result.periodEndAt.getTime() <
+    CHAMPION_PUSH_RECAP_WAIT_MS;
 }
 
 /**
@@ -347,6 +380,7 @@ async function loadChampionPushDevices(
 type ChampionOutcome =
   | "already_claimed"
   | "awaiting_placing"
+  | "awaiting_recap"
   | "delivered"
   | "failed"
   | "no_devices"
@@ -359,6 +393,7 @@ type ChampionOutcome =
  */
 async function deliverToChampion(params: {
   firestore: admin.firestore.Firestore;
+  now: Date;
   result: ChampionPushResult;
   resultId: string;
   sender: ChampionPushSender;
@@ -368,10 +403,10 @@ async function deliverToChampion(params: {
   outcome: ChampionOutcome;
   sentCount: number;
 }> {
-  const {firestore, result, resultId, sender, uid} = params;
+  const {firestore, now, result, resultId, sender, uid} = params;
   const none = {invalidTokenHashes: [], sentCount: 0};
 
-  const [preferences, placing] = await Promise.all([
+  const [preferences, placing, recap] = await Promise.all([
     firestore
       .collection(USERS_COLLECTION)
       .doc(uid)
@@ -384,9 +419,18 @@ async function deliverToChampion(params: {
       .collection(PLACINGS_COLLECTION)
       .doc(uid)
       .get(),
+    firestore
+      .collection(USERS_COLLECTION)
+      .doc(uid)
+      .collection("recaps")
+      .doc(`${result.timeFrame}_${result.periodKey}`)
+      .get(),
   ]);
   if (!isChampionPushEnabled(preferences.data())) {
     return {...none, outcome: "opted_out"};
+  }
+  if (shouldAwaitChampionRecap(result, recap.exists, now)) {
+    return {...none, outcome: "awaiting_recap"};
   }
   const totalSteps = placing.get("totalSteps");
   if (!placing.exists || typeof totalSteps !== "number") {
@@ -480,6 +524,7 @@ export async function deliverChampionPush(params: {
   const summary: ChampionPushSummary = {
     alreadyClaimed: 0,
     awaitingPlacing: 0,
+    awaitingRecap: 0,
     delivered: 0,
     errors: 0,
     failed: 0,
@@ -496,6 +541,7 @@ export async function deliverChampionPush(params: {
     async (uid) => {
       const delivery = await deliverToChampion({
         firestore: params.firestore,
+        now: params.now,
         result,
         resultId: params.resultId,
         sender: params.sender,
@@ -509,6 +555,9 @@ export async function deliverChampionPush(params: {
         break;
       case "awaiting_placing":
         summary.awaitingPlacing += 1;
+        break;
+      case "awaiting_recap":
+        summary.awaitingRecap += 1;
         break;
       case "delivered":
         summary.delivered += 1;
@@ -573,13 +622,16 @@ export const onLeaderboardResultCreatedChampionPush = onDocumentCreated(
     }
 
     const {summary} = delivery;
-    const retry = summary.awaitingPlacing > 0 || summary.errors > 0;
+    const retry = summary.awaitingPlacing > 0 ||
+      summary.awaitingRecap > 0 ||
+      summary.errors > 0;
     const write = retry || summary.failed > 0 ? logger.error : logger.log;
     write("championPush.completed", {...summary, resultId});
     if (retry) {
       throw new Error(
         `championPush ${resultId}: ${summary.awaitingPlacing} awaiting ` +
-          `placing, ${summary.errors} failed before claim`
+          `placing, ${summary.awaitingRecap} awaiting recap, ` +
+          `${summary.errors} failed before claim`
       );
     }
   }

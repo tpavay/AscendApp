@@ -7,6 +7,7 @@ import {
   evaluateChampionPushEligibility,
   isChampionPushEnabled,
   selectChampionPushDevices,
+  shouldAwaitChampionRecap,
 } from "../src/championPush.js";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -67,6 +68,29 @@ test("one step is a step", () => {
   assert.equal(
     buildChampionPushMessage("weekly", "2026-W01", 1)?.body,
     "Week 1 champion. 1 step. Defend it this week."
+  );
+});
+
+test("the push holds for a week's or month's recap, never a year's", () => {
+  const closedAt = new Date("2026-09-28T00:00:00Z");
+  const weekly = {
+    championUserIds: ["a"],
+    periodEndAt: closedAt,
+    periodKey: "2026-W39",
+    timeFrame: "weekly" as const,
+  };
+  const at = (minutes: number) =>
+    new Date(closedAt.getTime() + minutes * 60_000);
+  assert.equal(shouldAwaitChampionRecap(weekly, false, at(16)), true);
+  assert.equal(shouldAwaitChampionRecap(weekly, true, at(16)), false);
+  assert.equal(shouldAwaitChampionRecap(weekly, false, at(91)), false);
+  assert.equal(
+    shouldAwaitChampionRecap(
+      {...weekly, periodKey: "2026", timeFrame: "yearly"},
+      false,
+      at(16)
+    ),
+    false
   );
 });
 

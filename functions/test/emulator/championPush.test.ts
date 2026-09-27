@@ -207,6 +207,7 @@ test("a champion with no deliverable device gets no push and no marker", async (
 
 test("a champion whose placing is not written yet is left for the retry", async () => {
   await seedDevice("champ-1", "hash-1", "token-1");
+  await seedRecap("champ-1");
   const {requests, sender} = recordingSender();
 
   const early = await deliver(sender);
@@ -222,6 +223,42 @@ test("a champion whose placing is not written yet is left for the retry", async 
     requests[0].body,
     "Week 39 champion. 777 steps. Defend it this week."
   );
+});
+
+test("the crown alert waits for the recap it opens, then goes without it", async () => {
+  await db.doc(`leaderboard_results/${RESULT_ID}/placings/champ-1`).set({
+    rank: 1,
+    schemaVersion: 1,
+    totalSteps: 5000,
+    totalWorkouts: 3,
+    userId: "champ-1",
+  });
+  await seedDevice("champ-1", "hash-1", "token-1");
+  const {requests, sender} = recordingSender();
+
+  // 00:16 UTC: the finalizer has written the result, compose has not run.
+  const early = await deliver(sender);
+  assert.equal(early.awaitingRecap, 1);
+  assert.equal(requests.length, 0);
+  assert.equal(await readMarker("champ-1"), undefined);
+
+  // 90 minutes after the close, a recap that never came no longer holds it.
+  const late = await deliverChampionPush({
+    data: {
+      championUserIds: ["champ-1"],
+      periodEndAt: admin.firestore.Timestamp.fromDate(periodEndAt),
+      periodKey: "2026-W39",
+      source: "leaderboard_finalizer",
+      timeFrame: "weekly",
+    },
+    firestore: db,
+    now: new Date("2026-09-28T01:31:00Z"),
+    resultId: RESULT_ID,
+    sender,
+  });
+  assert.equal(late.eligible, true);
+  assert.equal((late as {summary: ChampionPushSummary}).summary.delivered, 1);
+  assert.equal(requests.length, 1);
 });
 
 test("a dead token is unregistered after the send", async () => {
@@ -401,6 +438,21 @@ async function seedPlacing(uid: string, totalSteps: number): Promise<void> {
     totalSteps,
     totalWorkouts: 3,
     userId: uid,
+  });
+  await seedRecap(uid);
+}
+
+/**
+ * Seeds the champion's composed recap - the page the crown alert opens to.
+ * @param {string} uid - The champion
+ * @return {Promise<void>}
+ */
+async function seedRecap(uid: string): Promise<void> {
+  await db.doc(`users/${uid}/recaps/weekly_2026-W39`).set({
+    cadence: "weekly",
+    periodKey: "2026-W39",
+    seenAt: null,
+    variant: "active",
   });
 }
 

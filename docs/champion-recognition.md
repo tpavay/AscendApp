@@ -112,6 +112,7 @@ The owner may read it and may set `seenAt` once, to `request.time`; nothing else
 
 `users/{uid}/communication_preferences/current.pushChampionCrownEnabled` (absent means on) is set through the existing `updatePushNotificationPreferences` callable's new optional `championPushEnabled` field.
 A new result written by the finalizer sends one `champion_crowned` push to each champion's deliverable devices.
+For a week or a month it waits (by retrying) until the champion's recap is composed, because the alert opens the app and the recap's last page is the coronation; 90 minutes after the close it goes without it.
 `_champion_push_deliveries/{resultId}_{uid}` is created before a send so a retried trigger can never push twice, and a backfilled or stale result never pushes at all.
 
 ### Remote Config
