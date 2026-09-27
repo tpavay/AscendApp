@@ -71,6 +71,12 @@ final class ChampionRegistry {
     /// crowns the app already knew about.
     func refresh(now: Date? = nil) async {
         let now = now ?? clock()
+        #if DEBUG
+        if let debugReigns {
+            apply(debugReigns)
+            return
+        }
+        #endif
         syncFeatureFlag()
         generation &+= 1
         let expected = generation
@@ -128,6 +134,14 @@ final class ChampionRegistry {
         lastRefreshAt = nil
         apply([:])
     }
+
+    #if DEBUG
+    /// Reigns the Debug preview pins in place of the backend's, so a refresh cannot undo a
+    /// crown the climber put on themselves to look at. Nil returns to the live champions.
+    @ObservationIgnored var debugReigns: [ChampionTitle: ChampionReign]? {
+        didSet { apply(debugReigns ?? [:]) }
+    }
+    #endif
 
     /// Installs reigns directly - for previews, evidence tests and the debug fixtures that
     /// render a crowned board without a backend.

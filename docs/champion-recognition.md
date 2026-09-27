@@ -116,7 +116,7 @@ A new result written by the finalizer sends one `champion_crowned` push to each 
 
 ### Remote Config
 
-- `champion_recognition_enabled` hides every champion surface (crowns, strip, past boards, countdown colour) without touching data.
+- `champion_recognition_enabled` hides every champion surface (crowns, the champion strip, the board-coloured podium, past boards) without touching data; countdowns are not a champion surface and stay.
 - `period_recap_enabled` stops recap presentation and the `seenAt` write, the one new client write path.
 
 ## Reads the app makes

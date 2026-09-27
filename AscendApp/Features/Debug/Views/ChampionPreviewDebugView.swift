@@ -28,12 +28,19 @@ struct ChampionPreviewDebugView: View {
                 }
                 Button("Restore live champions") {
                     crownedTitles = []
+                    championRegistry.debugReigns = nil
                     Task { await championRegistry.refresh() }
                 }
             } header: {
                 Text("Crown me on this device")
             } footer: {
-                Text("Applies to this phone until the next refresh. Visit Profile, Settings and the boards to see the crown.")
+                Text("Applies to this phone until you restore live champions or relaunch. Visit Profile, Settings and the boards to see the crown.")
+            }
+
+            Section("Past champions") {
+                NavigationLink("Open past boards") {
+                    PastChampionsView()
+                }
             }
 
             Section("Recap") {
@@ -45,6 +52,9 @@ struct ChampionPreviewDebugView: View {
             }
         }
         .navigationTitle("Champions & Recap")
+        .onAppear {
+            crownedTitles = Set(championRegistry.debugReigns?.keys.map { $0 } ?? [])
+        }
         .fullScreenCover(item: $presentedStory) { story in
             PeriodRecapView(story: story, viewerId: authVM.user?.uid) { _ in
                 presentedStory = nil
@@ -61,7 +71,9 @@ struct ChampionPreviewDebugView: View {
                 } else {
                     crownedTitles.remove(title)
                 }
-                championRegistry.apply(fixtures.reigns(crowning: crownedTitles))
+                championRegistry.debugReigns = crownedTitles.isEmpty
+                    ? nil
+                    : fixtures.reigns(crowning: crownedTitles)
             }
         )
     }
