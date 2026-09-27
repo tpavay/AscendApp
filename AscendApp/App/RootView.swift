@@ -141,6 +141,7 @@ struct RootView: View {
             dismissGateAccountDeletionWhenResolved()
             moderationStore.clear()
             championRegistry.clear()
+            PeriodRecapCoordinator.shared.clear()
             AppDiagnosticsRecorder.shared.record(
                 "auth_user_changed",
                 details: [

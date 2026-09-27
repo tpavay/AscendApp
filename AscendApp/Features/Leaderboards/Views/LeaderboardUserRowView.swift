@@ -24,15 +24,23 @@ struct LeaderboardUserRowView: View {
     let standing: Standing
     let metric: LeaderboardMetric
     var crownGapText: String? = nil
+    /// The board's window. On its last day the chase line names the time left, in gold.
+    var countdownPeriod: LeaderboardPeriod? = nil
+    /// Fixes the clock for evidence tests and previews.
+    var now: Date? = nil
 
     init(
         entry: ModeratedLeaderboardEntry,
         metric: LeaderboardMetric,
-        crownGapText: String? = nil
+        crownGapText: String? = nil,
+        countdownPeriod: LeaderboardPeriod? = nil,
+        now: Date? = nil
     ) {
         self.standing = .ranked(entry)
         self.metric = metric
         self.crownGapText = crownGapText
+        self.countdownPeriod = countdownPeriod
+        self.now = now
     }
 
     init(
@@ -41,7 +49,9 @@ struct LeaderboardUserRowView: View {
         displayName: String,
         photoURL: URL?,
         metric: LeaderboardMetric,
-        crownGapText: String? = nil
+        crownGapText: String? = nil,
+        countdownPeriod: LeaderboardPeriod? = nil,
+        now: Date? = nil
     ) {
         self.standing = .unranked(
             userId: userId,
@@ -51,6 +61,8 @@ struct LeaderboardUserRowView: View {
         )
         self.metric = metric
         self.crownGapText = crownGapText
+        self.countdownPeriod = countdownPeriod
+        self.now = now
     }
 
     private var displayName: String {
@@ -136,18 +148,15 @@ struct LeaderboardUserRowView: View {
                     .minimumScaleFactor(0.74)
 
                 if let crownGapText {
-                    HStack(spacing: 5) {
-                        Image("LeaderboardCrown")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 16, height: 16)
-                            .accessibilityHidden(true)
-
-                        Text(crownGapText)
-                            .font(.montserratBold(size: 9))
-                            .foregroundStyle(Color.accent)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
+                    if let countdownPeriod, now == nil {
+                        TimelineView(.everyMinute) { context in
+                            crownGapLine(crownGapText, countdown: .make(period: countdownPeriod, now: context.date))
+                        }
+                    } else {
+                        crownGapLine(
+                            crownGapText,
+                            countdown: countdownPeriod.flatMap { .make(period: $0, now: now ?? .now) }
+                        )
                     }
                 }
             }
@@ -180,6 +189,26 @@ struct LeaderboardUserRowView: View {
         .padding(.horizontal, 20)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// On the board's last day the chase line names the time left and turns gold: the
+    /// crown is on the line.
+    private func crownGapLine(_ text: String, countdown: LeaderboardCountdown?) -> some View {
+        let isLastDay = countdown?.isLastDay ?? false
+        let line = isLastDay ? "\(text) · \(countdown?.remainingText ?? "")" : text
+        return HStack(spacing: 5) {
+            Image("LeaderboardCrown")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
+
+            Text(line)
+                .font(.montserratBold(size: 9))
+                .foregroundStyle(isLastDay ? Color.championGold : Color.accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
     }
 
     private var accessibilityLabel: String {

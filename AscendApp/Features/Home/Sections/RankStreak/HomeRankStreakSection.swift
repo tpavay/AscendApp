@@ -7,6 +7,8 @@ struct HomeRankStreakSection: View {
     let weeklyRankSummary: HomeWeeklyRankSummary?
     let isRankLoading: Bool
     let streak: WeeklyStreak
+    /// Fixes the countdown's clock for evidence tests.
+    var now: Date? = nil
     let onRankTapped: () -> Void
     let onStreakTapped: () -> Void
 
@@ -15,6 +17,7 @@ struct HomeRankStreakSection: View {
             HomeRankCard(
                 summary: weeklyRankSummary,
                 isLoading: isRankLoading,
+                now: now,
                 action: onRankTapped
             )
 
@@ -82,6 +85,7 @@ private struct HomeTileLine<Content: View>: View {
 private struct HomeRankCard: View {
     let summary: HomeWeeklyRankSummary?
     let isLoading: Bool
+    var now: Date?
     let action: () -> Void
 
     var body: some View {
@@ -97,6 +101,9 @@ private struct HomeRankCard: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.82)
                     .fixedSize(horizontal: false, vertical: true)
+
+                LeaderboardCountdownLabel(currentPeriodOf: .weekly, fontSize: 9, now: now)
+                    .tracking(0.6)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
