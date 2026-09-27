@@ -235,7 +235,7 @@ private struct ProfileComparisonTopBar: View {
     }
 }
 
-private struct ProfileComparisonHeader: View {
+struct ProfileComparisonHeader: View {
     @Environment(ChampionRegistry.self) private var championRegistry: ChampionRegistry?
 
     let viewerIdentity: ResolvedUserIdentity
@@ -244,7 +244,9 @@ private struct ProfileComparisonHeader: View {
     let isOtherLoading: Bool
 
     var body: some View {
-        HStack(alignment: .center, spacing: 18) {
+        // Top-aligned so a title line under one name never lifts that side's picture off
+        // the other's; VS sits at the pictures' centre.
+        HStack(alignment: .top, spacing: 18) {
             competitor(
                 identity: viewerIdentity,
                 tint: Color.ascendAccent,
@@ -255,7 +257,7 @@ private struct ProfileComparisonHeader: View {
             Text("VS")
                 .font(.montserratBold(size: 18))
                 .foregroundStyle(ProfileVisualStyle.tertiaryText)
-                .frame(width: 46)
+                .frame(width: 46, height: 76)
 
             competitor(
                 identity: otherIdentity,
@@ -303,8 +305,10 @@ private struct ProfileComparisonHeader: View {
                             .font(.montserratBold(size: 10))
                             .tracking(1.4)
                             .foregroundStyle(titleLine.leadingTitle.tint)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }

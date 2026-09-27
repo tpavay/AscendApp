@@ -231,6 +231,7 @@ struct ChampionCrownEvidenceTests {
         }
         let size = CGSize(width: 402, height: 420)
         try await RenderedScreen.host(
+            NavigationStack {
             ReplayCompletionLeaderboardView(
                 rows: rows,
                 completedCount: rows.count,
@@ -242,6 +243,7 @@ struct ChampionCrownEvidenceTests {
                 emptyMessage: "",
                 emphasis: .duration
             )
+            }
             .padding(16)
             .frame(width: size.width, height: size.height, alignment: .top)
             .background(Color.black)
@@ -307,6 +309,170 @@ struct ChampionCrownEvidenceTests {
         ) { screen in
             #expect(try await screen.copy().contains("ezra kim"))
             try screen.photograph(named: "champion-home-feed-row")
+        }
+    }
+
+    @Test
+    func homesWeeklyRankTileCountsDownTheWeek() async throws {
+        let summary = HomeWeeklyRankSummary(
+            rank: 9,
+            population: 38,
+            isTiedForGold: false,
+            stepsAheadOfSecond: nil,
+            stepsFromGold: nil,
+            stepsFromSilver: nil,
+            stepsToBronze: 1_618,
+            stepsToTop10: nil,
+            stepsToTop100: nil,
+            stepsToTop50Percent: nil
+        )
+        let week = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: Self.now)
+        for (name, now) in [
+            ("thursday", Self.now),
+            ("last-day", week.endAt!.addingTimeInterval(-4 * 3_600 - 12 * 60))
+        ] {
+            let size = CGSize(width: 402, height: 170)
+            try await RenderedScreen.host(
+                HomeRankStreakSection(
+                    weeklyRankSummary: summary,
+                    isRankLoading: false,
+                    streak: WeeklyStreak(weeks: 4, isCurrentWeekSecured: false),
+                    now: now,
+                    onRankTapped: {},
+                    onStreakTapped: {}
+                )
+                .padding(20)
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .background(Color.black)
+                .environment(\.colorScheme, .dark),
+                size: size
+            ) { screen in
+                try screen.photograph(named: "champion-home-rank-tile-\(name)")
+            }
+        }
+        #expect(LeaderboardCountdown.make(period: week, now: Self.now)?.text == "ENDS IN 3D 6H")
+    }
+
+    @Test
+    func yourProfileWearsTheLeadingCrownAndADotPerOtherTitle() async throws {
+        let identity = CrossUserIdentityResolver.resolve(
+            userId: "double",
+            displayName: "Tyler Pavay",
+            photoURL: nil,
+            isCurrentUser: true,
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        )
+        let size = CGSize(width: 402, height: 220)
+        try await RenderedScreen.host(
+            NavigationStack {
+                IdentityHeroSection(snapshot: Self.snapshot(userId: "double"), identity: identity)
+            }
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .background(Color.black)
+            .environment(registry())
+            .environment(\.colorScheme, .dark),
+            size: size
+        ) { screen in
+            #expect(try await screen.copy().contains("tyler pavay"))
+            try screen.photograph(named: "champion-own-profile-two-titles")
+        }
+    }
+
+    @Test
+    func theComparisonNamesEachTitleUnderTheName() async throws {
+        let viewer = CrossUserIdentityResolver.resolve(
+            userId: "viewer",
+            displayName: "Tyler Pavay",
+            photoURL: nil,
+            isCurrentUser: true,
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        )
+        let registry = registry()
+        for (userId, name, expected) in [
+            ("fixture-zoe", "Zoe Ramirez", "week 38 champion"),
+            ("double", "Ezra Kim", "august & week 38 champion")
+        ] {
+            let other = CrossUserIdentityResolver.resolve(
+                userId: userId,
+                displayName: name,
+                photoURL: nil,
+                isCurrentUser: false,
+                blockedUserIds: [],
+                isBlockListHydrated: true
+            )
+            let size = CGSize(width: 402, height: 240)
+            try await RenderedScreen.host(
+                ProfileComparisonHeader(
+                    viewerIdentity: viewer,
+                    otherIdentity: other,
+                    isViewerLoading: false,
+                    isOtherLoading: false
+                )
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .background(Color.black)
+                .environment(registry)
+                .environment(\.colorScheme, .dark),
+                size: size
+            ) { screen in
+                let copy = try await screen.copy()
+                #expect(copy.contains(expected), "\(copy)")
+                try screen.photograph(named: "champion-comparison-\(userId)")
+            }
+        }
+    }
+
+    @Test
+    func theLiveRaceRowWearsTheCompactCrown() async throws {
+        let rows = [
+            ("fixture-noah", "Noah Grant", 13, 1_688, false),
+            ("fixture-zoe", "Zoe Ramirez", 14, 1_637, false),
+            ("viewer", "Tyler Pavay", 15, 1_542, true)
+        ].map { userId, name, rank, steps, isCurrentUser in
+            CrossUserIdentityAdapter.replayRow(
+                LiveReplayLeaderboardRow(
+                    id: userId,
+                    rank: rank,
+                    displayName: name,
+                    avatarToken: "",
+                    photoURL: nil,
+                    stepsAtBucket: steps,
+                    finalSteps: steps,
+                    deltaFromUser: 0,
+                    isCurrentUser: isCurrentUser,
+                    isPersonalBest: false,
+                    completionDurationSeconds: nil,
+                    userId: userId,
+                    gender: nil,
+                    age: nil,
+                    locationCity: nil
+                ),
+                blockedUserIds: [],
+                isBlockListHydrated: true
+            )
+        }
+        let size = CGSize(width: 402, height: 360)
+        try await RenderedScreen.host(
+            LiveReplayLeaderboardPanel(
+                rows: rows,
+                progressScaleSteps: 2_000,
+                targetStepGoal: nil,
+                progress: 0.77,
+                currentUserPhotoURL: nil,
+                fetchFailed: false,
+                tint: .accent,
+                effectiveColorScheme: .dark,
+                showsFilter: false
+            )
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .background(Color.black)
+            .environment(registry())
+            .environment(\.colorScheme, .dark),
+            size: size
+        ) { screen in
+            #expect(try await screen.copy().contains("zoe ramirez"))
+            try screen.photograph(named: "champion-live-race-row")
         }
     }
 
@@ -447,6 +613,42 @@ struct ChampionCrownEvidenceTests {
                 return Ink(inPerch: count)
             }
         }
+    }
+
+    private static func snapshot(userId: String) -> ProfileSnapshot {
+        ProfileSnapshot(
+            demographics: ProfileDemographicsSnapshot(userId: userId),
+            stats: ProfileStatsSnapshot(
+                totalClimbsCompleted: 0,
+                totalFirstAscents: 0,
+                achievementCounts: .zero,
+                mostCompletedClimbId: nil,
+                currentStreakWeeks: 0,
+                bestStreakWeeks: 0,
+                prMostSteps: 0,
+                prLongestClimbSeconds: 0,
+                prHighestSPM: 0,
+                lifetimeTotalSteps: 0,
+                lifetimeDurationSeconds: 0,
+                totalClimbs: 0,
+                averageStepsPerMinute: 0
+            ),
+            standings: [],
+            activityWorkouts: [],
+            collection: ProfileCollectionSummary(
+                collectedCount: 0,
+                catalogCount: 0,
+                previewCards: [],
+                launchedCards: [],
+                comingSoonClimbs: []
+            ),
+            achievements: .empty,
+            firstAscentsHeld: [],
+            openFirstAscents: [],
+            records: ProfileRecordSummary(personalRecords: [], featuredBestEffort: nil),
+            trends: ProfileTrendSummary(currentSteps: 0, previousSteps: 0, daysWithData: 0),
+            recentWorkouts: []
+        )
     }
 
     private func hydratedModerationStore() async -> ModerationStore {

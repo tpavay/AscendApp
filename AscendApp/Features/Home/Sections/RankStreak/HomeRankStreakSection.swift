@@ -26,6 +26,8 @@ struct HomeRankStreakSection: View {
                 action: onStreakTapped
             )
         }
+        // The rank tile carries the countdown, so the pair is sized to the taller one.
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -107,7 +109,7 @@ private struct HomeRankCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
-            .frame(minHeight: 116, alignment: .top)
+            .frame(minHeight: 116, maxHeight: .infinity, alignment: .top)
             .background(HomeTileBackground())
         }
         .buttonStyle(.plain)
@@ -148,10 +150,15 @@ private struct HomeRankCard: View {
     }
 
     private var accessibilityLabel: String {
+        let countdown = LeaderboardCountdown.make(
+            period: LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: now ?? .now),
+            now: now ?? .now
+        )
+        let ends = countdown.map { " \($0.accessibilityLabel(now: now ?? .now))." } ?? ""
         guard let summary else {
-            return isLoading ? "Weekly rank by steps is updating." : "Not yet ranked. Climb to be ranked."
+            return (isLoading ? "Weekly rank by steps is updating." : "Not yet ranked. Climb to be ranked.") + ends
         }
-        return "Weekly rank by steps: number \(summary.rank). \(statusText)."
+        return "Weekly rank by steps: number \(summary.rank). \(statusText).\(ends)"
     }
 }
 
@@ -189,7 +196,7 @@ private struct HomeStreakCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
-            .frame(minHeight: 116, alignment: .top)
+            .frame(minHeight: 116, maxHeight: .infinity, alignment: .top)
             .background(HomeTileBackground())
         }
         .buttonStyle(.plain)

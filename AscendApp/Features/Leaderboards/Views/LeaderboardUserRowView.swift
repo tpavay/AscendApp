@@ -206,8 +206,9 @@ struct LeaderboardUserRowView: View {
             Text(line)
                 .font(.montserratBold(size: 9))
                 .foregroundStyle(isLastDay ? Color.championGold : Color.accent)
-                .lineLimit(1)
+                .lineLimit(isLastDay ? 2 : 1)
                 .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: false, vertical: isLastDay)
         }
     }
 
