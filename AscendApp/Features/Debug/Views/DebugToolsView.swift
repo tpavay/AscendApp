@@ -162,6 +162,18 @@ struct DebugToolsView: View {
                     )
                 }
                 .buttonStyle(.plain)
+
+                NavigationLink {
+                    AscendMountainSandboxView()
+                } label: {
+                    inspectionRow(
+                        title: "Ascend Mountain Sandbox",
+                        description: "Drive the Mountain scene from a simulated cadence",
+                        icon: "mountain.2.fill",
+                        iconColor: .accent
+                    )
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
         }

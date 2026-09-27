@@ -1,19 +1,26 @@
 import SwiftUI
 
 struct JustClimbSetupSheet: View {
+    /// The sheet's resting height: taller only where the experience picker is offered.
+    static var preferredHeight: CGFloat {
+        JustClimbExperience.isChoiceAvailable ? 432 : 360
+    }
+
     @Environment(\.dismiss) private var dismiss
 
-    let onStart: (JustClimbGoal) -> Void
+    let onStart: (JustClimbGoal, JustClimbExperience) -> Void
 
     @State private var selectedKind: JustClimbGoalKind
     @State private var durationMinutes: Int
     @State private var stepCount: Int
+    /// Remembered between climbs so a Dev build tuning Ascend Mountain opens straight on it.
+    @AppStorage("justClimb.lastExperience") private var selectedExperience: JustClimbExperience = .classic
 
     /// `initialGoal` pre-fills the sheet, which is how a today row re-opens the same
     /// Just Climb another climber ran; without one the sheet opens on its defaults.
     init(
         initialGoal: JustClimbGoal? = nil,
-        onStart: @escaping (JustClimbGoal) -> Void
+        onStart: @escaping (JustClimbGoal, JustClimbExperience) -> Void
     ) {
         self.onStart = onStart
         let goal = initialGoal ?? JustClimbGoal()
@@ -25,6 +32,9 @@ struct JustClimbSetupSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             header
+            if JustClimbExperience.isChoiceAvailable {
+                experiencePicker
+            }
             goalPicker
             goalControls
 
@@ -36,7 +46,8 @@ struct JustClimbSetupSheet: View {
                         kind: selectedKind,
                         durationMinutes: durationMinutes,
                         stepCount: stepCount
-                    )
+                    ),
+                    JustClimbExperience.isChoiceAvailable ? selectedExperience : .classic
                 )
                 dismiss()
             } label: {
@@ -73,24 +84,37 @@ struct JustClimbSetupSheet: View {
         }
     }
 
+    private var experiencePicker: some View {
+        capsulePicker(options: JustClimbExperience.allCases, selection: $selectedExperience, title: \.title)
+    }
+
     private var goalPicker: some View {
+        capsulePicker(options: JustClimbGoalKind.allCases, selection: $selectedKind, title: \.title)
+    }
+
+    private func capsulePicker<Option: Identifiable & Equatable>(
+        options: [Option],
+        selection: Binding<Option>,
+        title: KeyPath<Option, String>
+    ) -> some View {
         HStack(spacing: 6) {
-            ForEach(JustClimbGoalKind.allCases) { kind in
+            ForEach(options) { option in
+                let isSelected = selection.wrappedValue == option
                 Button {
                     withAnimation(.smooth(duration: 0.18)) {
-                        selectedKind = kind
+                        selection.wrappedValue = option
                     }
                 } label: {
-                    Text(kind.title.uppercased())
+                    Text(option[keyPath: title].uppercased())
                         .font(.montserratBold(size: 11))
                         .tracking(0.9)
-                        .foregroundStyle(selectedKind == kind ? .black : .white.opacity(0.58))
+                        .foregroundStyle(isSelected ? .black : .white.opacity(0.58))
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                         .frame(maxWidth: .infinity)
                         .frame(height: 38)
                         .background {
-                            if selectedKind == kind {
+                            if isSelected {
                                 Capsule(style: .continuous)
                                     .fill(Color.accent)
                             }
@@ -230,5 +254,5 @@ struct JustClimbSetupSheet: View {
 }
 
 #Preview {
-    JustClimbSetupSheet { _ in }
+    JustClimbSetupSheet { _, _ in }
 }

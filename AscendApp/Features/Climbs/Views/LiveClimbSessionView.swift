@@ -32,7 +32,10 @@ struct LiveClimbSessionView: View {
     /// to the calibration sheet, the summary must not remount underneath it.
     @State private var didHandOffToStepAccuracyCalibration = false
     @State private var didSubmitStepAccuracyCalibration = false
+    /// Ascend Mountain's developer read-out; only a Dev build running Mountain creates one.
+    @State private var mountainDebugState: MountainDebugState?
 
+    private let experience: JustClimbExperience
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(
@@ -43,20 +46,32 @@ struct LiveClimbSessionView: View {
             climb: climb,
             analyticsEntryPoint: analyticsEntryPoint
         ))
+        experience = .classic
     }
 
     init(
         justClimbGoal: JustClimbGoal,
+        experience: JustClimbExperience = .classic,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     ) {
-        _viewModel = State(initialValue: LiveClimbSessionViewModel(
-            justClimbGoal: justClimbGoal,
-            analyticsEntryPoint: analyticsEntryPoint
-        ))
+        self.init(
+            viewModel: LiveClimbSessionViewModel(
+                justClimbGoal: justClimbGoal,
+                analyticsEntryPoint: analyticsEntryPoint
+            ),
+            experience: experience
+        )
     }
 
-    init(viewModel: LiveClimbSessionViewModel) {
+    /// Ascend Mountain only ever presents a Just Climb; a landmark climb always runs Classic.
+    init(viewModel: LiveClimbSessionViewModel, experience: JustClimbExperience = .classic) {
         _viewModel = State(initialValue: viewModel)
+        self.experience = viewModel.mode.isLandmarkClimb ? .classic : experience
+#if DEBUG
+        if self.experience == .mountain {
+            _mountainDebugState = State(initialValue: MountainDebugState())
+        }
+#endif
     }
 
     var body: some View {
@@ -288,7 +303,9 @@ struct LiveClimbSessionView: View {
         ZStack {
             Color.black
 
-            if showsClimbPhotoBackground, let climb = viewModel.mode.climb {
+            if showsMountain {
+                mountainBackdrop
+            } else if showsClimbPhotoBackground, let climb = viewModel.mode.climb {
                 ClimbArtworkView(climb: climb, variant: .hero)
                     .overlay(
                         LinearGradient(
@@ -305,6 +322,35 @@ struct LiveClimbSessionView: View {
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.25), value: showsClimbPhotoBackground)
+    }
+
+    /// Ascend Mountain draws the world behind the countdown and the climb, and gives way to the
+    /// completion summary like any other backdrop.
+    private var showsMountain: Bool {
+        experience == .mountain && viewModel.savedWorkout == nil
+    }
+
+    private var mountainBackdrop: some View {
+        let viewModel = viewModel
+        return AscendMountainRealityView(
+            seed: MountainCourse.ascendMountainSeed,
+            stepSource: { viewModel.totalRecordedSteps },
+            debugState: mountainDebugState
+        )
+        .overlay {
+            // Legibility for the chrome above and the stat row and controls below.
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.55), location: 0),
+                    .init(color: .clear, location: 0.26),
+                    .init(color: .clear, location: 0.7),
+                    .init(color: .black.opacity(0.7), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+        }
     }
 
     /// Redundant against a full-bleed photo, so the small artwork thumbnail in
@@ -477,7 +523,27 @@ struct LiveClimbSessionView: View {
         }
     }
 
+    @ViewBuilder
     private var liveLeaderboardSection: some View {
+        if experience == .mountain {
+            mountainSection
+        } else {
+            classicLiveSection
+        }
+    }
+
+    /// Mountain keeps the world clear during the countdown and replaces the tabs with its own
+    /// read-out once the climb is recording.
+    @ViewBuilder
+    private var mountainSection: some View {
+        if viewModel.isRecording {
+            AscendMountainSessionHUD(viewModel: viewModel, debugState: mountainDebugState)
+        } else {
+            Color.clear
+        }
+    }
+
+    private var classicLiveSection: some View {
         VStack(spacing: 14) {
             if viewModel.isRecording {
                 LiveClimbSessionTabBar(selection: $selectedTab)

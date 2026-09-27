@@ -1,0 +1,38 @@
+import RealityKit
+import SwiftUI
+
+/// The Ascend Mountain world: RealityKit renders the staircase, athlete and sky; everything the
+/// climber reads sits in SwiftUI on top (spec 5).
+///
+/// `stepSource` is read once per rendered frame and is the scene's only input, so the view can
+/// be dropped and recreated freely - it resumes on the stair the count says, never from zero.
+struct AscendMountainRealityView: View {
+    @State private var controller: MountainSceneController
+
+    init(
+        seed: UInt64,
+        stepSource: @escaping @MainActor () -> Int,
+        debugState: MountainDebugState? = nil
+    ) {
+        _controller = State(
+            initialValue: MountainSceneController(
+                seed: seed,
+                stepSource: stepSource,
+                debugState: debugState
+            )
+        )
+    }
+
+    var body: some View {
+        let controller = controller
+        RealityView { content in
+            controller.install(in: &content)
+        } placeholder: {
+            Color.black
+        }
+        .onDisappear {
+            controller.stop()
+        }
+        .accessibilityHidden(true)
+    }
+}
