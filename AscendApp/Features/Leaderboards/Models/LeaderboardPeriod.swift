@@ -80,6 +80,18 @@ struct LeaderboardPeriod: Equatable, Hashable, Sendable {
         }
     }
 
+    /// The window immediately before this one, or nil for all-time, which never closes.
+    var previous: LeaderboardPeriod? {
+        guard timeFrame != .allTime else { return nil }
+        return timeFrame.currentPeriod(referenceDate: startAt.addingTimeInterval(-1))
+    }
+
+    /// The window immediately after this one, or nil for all-time.
+    var next: LeaderboardPeriod? {
+        guard let endAt else { return nil }
+        return timeFrame.currentPeriod(referenceDate: endAt)
+    }
+
     /// Last day the window includes. `endAt` is exclusive, so the label would otherwise
     /// name the Monday that belongs to the *next* week.
     private var inclusiveEndDate: Date? {

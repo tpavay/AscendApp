@@ -11,6 +11,10 @@ struct LeaderboardPodiumView: View {
     let entries: [ModeratedLeaderboardEntry]
     let metric: LeaderboardMetric
     var usesContainerBackground: Bool = false
+    /// The title this board awards, when it awards one. First place's crown, ring and number
+    /// take its colour - gold weekly, diamond monthly, mythic yearly - and every other board
+    /// keeps the gold podium it always had.
+    var awardedTitle: ChampionTitle? = nil
 
     private var layout: ModeratedLeaderboardPodiumLayout {
         ModeratedLeaderboardPodiumLayout(entries: entries)
@@ -49,12 +53,12 @@ struct LeaderboardPodiumView: View {
                     moderationSource: .globalLeaderboard
                 )
             } label: {
-                LeaderboardPodiumSlotView(slot: slot, metric: metric)
+                LeaderboardPodiumSlotView(slot: slot, metric: metric, awardedTitle: awardedTitle)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .bottom)
         } else {
-            LeaderboardPodiumSlotView(slot: slot, metric: metric)
+            LeaderboardPodiumSlotView(slot: slot, metric: metric, awardedTitle: awardedTitle)
                 .frame(maxWidth: .infinity, alignment: .bottom)
         }
     }
@@ -65,6 +69,7 @@ private struct LeaderboardPodiumSlotView: View {
 
     let slot: ModeratedLeaderboardPodiumLayout.Slot
     let metric: LeaderboardMetric
+    let awardedTitle: ChampionTitle?
 
     /// Which pedestal this is (1 centre, 2 left, 3 right). Drives geometry only.
     private var position: Int {
@@ -95,7 +100,7 @@ private struct LeaderboardPodiumSlotView: View {
     private var medalColor: Color {
         switch rank {
         case 1:
-            return LeaderboardMedal.gold
+            return firstPlaceColor
         case 2:
             return LeaderboardMedal.silver
         case 3:
@@ -105,16 +110,34 @@ private struct LeaderboardPodiumSlotView: View {
         }
     }
 
+    /// Weekly keeps the podium's own gold; monthly and yearly boards take their title's colour.
+    private var firstPlaceColor: Color {
+        switch awardedTitle {
+        case .monthly, .yearly:
+            return awardedTitle?.tint ?? LeaderboardMedal.gold
+        case .weekly, .none:
+            return LeaderboardMedal.gold
+        }
+    }
+
+    private var firstPlaceGlow: Color {
+        switch awardedTitle {
+        case .monthly, .yearly:
+            return awardedTitle?.glow ?? LeaderboardMedal.gold
+        case .weekly, .none:
+            return LeaderboardMedal.gold
+        }
+    }
+
+    private var crownAssetName: String {
+        awardedTitle?.crownAssetName ?? ChampionTitle.weekly.crownAssetName
+    }
+
     private var ringGradient: AngularGradient {
         switch rank {
         case 1:
             return AngularGradient(
-                colors: [
-                    Color(red: 1.0, green: 0.93, blue: 0.46),
-                    Color(red: 0.96, green: 0.75, blue: 0.16),
-                    Color(red: 0.58, green: 0.39, blue: 0.04),
-                    Color(red: 1.0, green: 0.93, blue: 0.46)
-                ],
+                colors: (awardedTitle ?? .weekly).podiumRingColors,
                 center: .center
             )
         case 2:
@@ -147,7 +170,7 @@ private struct LeaderboardPodiumSlotView: View {
 
     private var glowColor: Color {
         switch rank {
-        case 1: return LeaderboardMedal.gold
+        case 1: return firstPlaceGlow
         case 2: return LeaderboardMedal.silver
         case 3: return LeaderboardMedal.bronze
         default: return .clear
@@ -159,7 +182,7 @@ private struct LeaderboardPodiumSlotView: View {
     }
 
     private var valueColor: Color {
-        rank == 1 ? LeaderboardMedal.gold : (colorScheme == .dark ? .white.opacity(0.78) : .black.opacity(0.72))
+        rank == 1 ? firstPlaceColor : (colorScheme == .dark ? .white.opacity(0.78) : .black.opacity(0.72))
     }
 
     var body: some View {
@@ -212,56 +235,55 @@ private struct LeaderboardPodiumSlotView: View {
     }
 
     private var crownMarker: some View {
-        Image("LeaderboardCrown")
+        Image(crownAssetName)
             .resizable()
             .scaledToFit()
             .frame(width: 30, height: 30)
-            .shadow(color: LeaderboardMedal.gold.opacity(colorScheme == .dark ? 0.48 : 0.26), radius: 6, x: 0, y: 2)
+            .shadow(color: firstPlaceGlow.opacity(colorScheme == .dark ? 0.48 : 0.26), radius: 6, x: 0, y: 2)
             .accessibilityHidden(true)
     }
 
+    /// A podium picture already wears its medal ring, so a champion's own crown is hidden
+    /// here - the crown floating over first place is the only crown on the podium.
     @ViewBuilder
     private var avatar: some View {
-        if let photoURL = entry?.identity.photoURL {
-            AsyncImage(url: photoURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .clipShape(.circle)
-                case .failure:
-                    placeholderAvatar
-                case .empty:
-                    placeholderAvatar
-                        .overlay(
-                            ProgressView()
-                                .scaleEffect(0.55)
-                        )
-                @unknown default:
-                    placeholderAvatar
-                }
-            }
+        if let entry {
+            ClimberAvatar(
+                userId: entry.userId,
+                photoURL: entry.identity.photoURL,
+                placeholder: .glyph(
+                    systemName: "person.fill",
+                    fill: placeholderFill,
+                    foreground: placeholderForeground,
+                    glyphSize: position == 1 ? 24 : 20
+                ),
+                size: avatarSize,
+                showsChampionMark: false,
+                showsLoadingIndicator: true
+            )
             .podiumRing(gradient: ringGradient, glow: glowColor, lineWidth: position == 1 ? 4 : 3, colorScheme: colorScheme)
-            .id(photoURL)
         } else {
-            placeholderAvatar
+            Circle()
+                .fill(placeholderFill)
+                .overlay {
+                    if isChampionSlot {
+                        crownMarker
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: position == 1 ? 24 : 20, weight: .semibold))
+                            .foregroundStyle(placeholderForeground)
+                    }
+                }
                 .podiumRing(gradient: ringGradient, glow: glowColor, lineWidth: position == 1 ? 4 : 3, colorScheme: colorScheme)
         }
     }
 
-    private var placeholderAvatar: some View {
-        Circle()
-            .fill(colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08))
-            .overlay {
-                if isChampionSlot, entry == nil {
-                    crownMarker
-                } else {
-                    Image(systemName: entry == nil ? "sparkles" : "person.fill")
-                        .font(.system(size: position == 1 ? 24 : 20, weight: .semibold))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.56) : .black.opacity(0.42))
-                }
-            }
+    private var placeholderFill: Color {
+        colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08)
+    }
+
+    private var placeholderForeground: Color {
+        colorScheme == .dark ? .white.opacity(0.56) : .black.opacity(0.42)
     }
 }
 

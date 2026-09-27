@@ -470,6 +470,7 @@ struct LeaderboardView: View {
             case .unranked(let value, let formattedValue):
                 LeaderboardUserRowView(
                     unrankedFormattedValue: formattedValue,
+                    userId: authVM.user?.uid,
                     displayName: currentUserDisplayName,
                     photoURL: authVM.displayPhotoURL,
                     metric: viewModel.selectedMetric,

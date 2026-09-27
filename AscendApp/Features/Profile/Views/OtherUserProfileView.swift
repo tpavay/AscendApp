@@ -236,6 +236,8 @@ private struct ProfileComparisonTopBar: View {
 }
 
 private struct ProfileComparisonHeader: View {
+    @Environment(ChampionRegistry.self) private var championRegistry: ChampionRegistry?
+
     let viewerIdentity: ResolvedUserIdentity
     let otherIdentity: ResolvedUserIdentity
     let isViewerLoading: Bool
@@ -276,21 +278,47 @@ private struct ProfileComparisonHeader: View {
             if isLoading {
                 AscendSkeletonCircle(size: 76, tint: tint)
             } else {
-                ProfileAvatarImageView(photoURL: identity.photoURL, size: 76)
-                    .overlay(Circle().stroke(tint, lineWidth: 2))
+                ClimberAvatar(
+                    userId: identity.userId,
+                    photoURL: identity.photoURL,
+                    placeholder: .profileDefault,
+                    size: 76,
+                    border: .init(color: tint, width: 2)
+                )
+                .accessibilityHidden(true)
             }
 
             if isLoading {
                 AscendSkeletonText(width: 78, height: 18)
             } else {
-                Text(resolvedName(identity.displayName, fallback: fallbackName))
-                    .font(.montserratBold(size: 18))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                VStack(spacing: 6) {
+                    Text(resolvedName(identity.displayName, fallback: fallbackName))
+                        .font(.montserratBold(size: 18))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    if let titleLine = titleLine(for: identity) {
+                        Text(titleLine.text)
+                            .font(.montserratBold(size: 10))
+                            .tracking(1.4)
+                            .foregroundStyle(titleLine.leadingTitle.tint)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// The comparison names a champion's title under their name; the crown is on the picture.
+    private func titleLine(for identity: ResolvedUserIdentity) -> ChampionTitleLine? {
+        guard let championRegistry else { return nil }
+        return ChampionTitleLine.make(
+            titles: championRegistry.titles(for: identity.userId),
+            reigns: championRegistry.reigns
+        )
     }
 
     private func resolvedName(_ name: String, fallback: String) -> String {

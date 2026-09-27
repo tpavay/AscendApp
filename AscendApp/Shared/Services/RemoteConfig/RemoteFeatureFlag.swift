@@ -62,6 +62,16 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// Publishing the public profile mirror - identity, stats, and workout summaries.
     case publicProfilePublishing = "public_profile_publishing_enabled"
 
+    /// Every champion surface: crowns on pictures, the board's champion strip, past boards,
+    /// and the board-coloured podium. Display only - turning it off writes and deletes
+    /// nothing, and the next open after it returns shows the reigning champions again.
+    case championRecognition = "champion_recognition_enabled"
+
+    /// Presenting the period recap and writing its `seenAt`, the one client write the recap
+    /// adds. Off, unseen recaps stay unseen on the server and show on the first open after
+    /// the switch returns.
+    case periodRecap = "period_recap_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -103,6 +113,10 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Runs one-shot local backfills that rewrite stored workouts."
         case .publicProfilePublishing:
             return "Publishes the public profile mirror, stats, and workout summaries."
+        case .championRecognition:
+            return "Shows champion crowns, the champion strip, and past boards."
+        case .periodRecap:
+            return "Shows the period recap after a week or month closes and marks it seen."
         }
     }
 }

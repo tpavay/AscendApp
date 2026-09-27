@@ -14,6 +14,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(MediaUploadManager.self) private var uploadManager
     @Environment(ModerationStore.self) private var moderationStore
+    @Environment(ChampionRegistry.self) private var championRegistry
     @Environment(\.openURL) private var openURL
     @State private var appVersionGateState = AppVersionGateState.shared
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
@@ -139,6 +140,7 @@ struct RootView: View {
             // done rather than for the session to end.
             dismissGateAccountDeletionWhenResolved()
             moderationStore.clear()
+            championRegistry.clear()
             AppDiagnosticsRecorder.shared.record(
                 "auth_user_changed",
                 details: [
@@ -460,6 +462,10 @@ struct RootView: View {
         do {
             await moderationStore.hydrate(for: currentUserId)
             guard isCurrentAuthenticatedSession(currentUserId) else { return }
+
+            // Crowns change hands on the first foreground after a board closes. Not awaited:
+            // three small reads must never hold up hydration and sync behind them.
+            Task { await championRegistry.refreshIfStale() }
 
             switch try AccountDataOwnershipService.evaluateAccess(
                 modelContext: modelContext,

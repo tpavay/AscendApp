@@ -28,6 +28,7 @@ struct AccountView: View {
             VStack(spacing: 24) {
                 // Profile Header
                 ProfileHeaderView(
+                    userId: authVM.user?.uid,
                     photoURL: authVM.displayPhotoURL,
                     displayName: authVM.displayName,
                     email: authVM.user?.email,

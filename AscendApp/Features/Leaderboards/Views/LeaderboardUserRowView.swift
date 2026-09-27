@@ -16,7 +16,7 @@ struct LeaderboardUserRowView: View {
     /// assemble a row that carries a rank and an unranked treatment at the same time.
     enum Standing {
         case ranked(ModeratedLeaderboardEntry)
-        case unranked(displayName: String, formattedValue: String, photoURL: URL?)
+        case unranked(userId: String?, displayName: String, formattedValue: String, photoURL: URL?)
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -37,12 +37,14 @@ struct LeaderboardUserRowView: View {
 
     init(
         unrankedFormattedValue: String,
+        userId: String?,
         displayName: String,
         photoURL: URL?,
         metric: LeaderboardMetric,
         crownGapText: String? = nil
     ) {
         self.standing = .unranked(
+            userId: userId,
             displayName: displayName,
             formattedValue: unrankedFormattedValue,
             photoURL: photoURL
@@ -55,8 +57,17 @@ struct LeaderboardUserRowView: View {
         switch standing {
         case .ranked(let entry):
             return entry.identity.displayName
-        case .unranked(let displayName, _, _):
+        case .unranked(_, let displayName, _, _):
             return displayName
+        }
+    }
+
+    private var userId: String? {
+        switch standing {
+        case .ranked(let entry):
+            return entry.userId
+        case .unranked(let userId, _, _, _):
+            return userId
         }
     }
 
@@ -64,7 +75,7 @@ struct LeaderboardUserRowView: View {
         switch standing {
         case .ranked(let entry):
             return entry.identity.photoURL
-        case .unranked(_, _, let photoURL):
+        case .unranked(_, _, _, let photoURL):
             return photoURL
         }
     }
@@ -73,7 +84,7 @@ struct LeaderboardUserRowView: View {
         switch standing {
         case .ranked(let entry):
             return entry.formattedValue
-        case .unranked(_, let formattedValue, _):
+        case .unranked(_, _, let formattedValue, _):
             return formattedValue
         }
     }
@@ -188,50 +199,21 @@ struct LeaderboardUserRowView: View {
         return "\(base), \(crownGapText)"
     }
 
-    @ViewBuilder
     private var profileImage: some View {
-        if let photoURL {
-            AsyncImage(url: photoURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .clipShape(.circle)
-                case .failure:
-                    defaultAvatar
-                case .empty:
-                    defaultAvatar
-                        .overlay(
-                            ProgressView()
-                                .scaleEffect(0.5)
-                        )
-                @unknown default:
-                    defaultAvatar
-                }
-            }
-            .overlay(
-                Circle()
-                    .stroke(Color.accent.opacity(0.78), lineWidth: 1.5)
-            )
-            .id(photoURL)
-        } else {
-            defaultAvatar
-        }
-    }
-
-    private var defaultAvatar: some View {
-        Circle()
-            .fill(Color.accent.opacity(colorScheme == .dark ? 0.22 : 0.16))
-            .overlay(
-                Image(systemName: "person.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.accent)
-            )
-            .overlay(
-                Circle()
-                    .stroke(Color.accent.opacity(0.78), lineWidth: 1.5)
-            )
+        ClimberAvatar(
+            userId: userId,
+            photoURL: photoURL,
+            placeholder: .glyph(
+                systemName: "person.fill",
+                fill: Color.accent.opacity(colorScheme == .dark ? 0.22 : 0.16),
+                foreground: .accent,
+                glyphSize: 16
+            ),
+            size: 42,
+            border: .init(color: Color.accent.opacity(0.78), width: 1.5),
+            crownCutColor: colorScheme == .dark ? Color(white: 0.055) : Color(white: 0.955),
+            showsLoadingIndicator: true
+        )
     }
 }
 
@@ -254,6 +236,7 @@ struct LeaderboardUserRowView: View {
 #Preview("Unranked") {
     LeaderboardUserRowView(
         unrankedFormattedValue: "0",
+        userId: nil,
         displayName: "Maya Chen",
         photoURL: nil,
         metric: .climb,

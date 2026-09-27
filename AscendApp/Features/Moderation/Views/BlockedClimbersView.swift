@@ -41,12 +41,18 @@ struct BlockedClimbersView: View {
         List {
             ForEach(moderationStore.blockedClimbers) { blockedClimber in
                 HStack(spacing: 14) {
-                    Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.72))
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(.white.opacity(0.1)))
-                        .accessibilityHidden(true)
+                    ClimberAvatar(
+                        userId: blockedClimber.userId,
+                        photoURL: nil,
+                        placeholder: .glyph(
+                            systemName: PublicClimberIdentity.genericAvatarSystemName,
+                            fill: .white.opacity(0.1),
+                            foreground: .white.opacity(0.72),
+                            glyphSize: 18
+                        ),
+                        size: 44
+                    )
+                    .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(
