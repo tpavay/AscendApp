@@ -2,10 +2,14 @@ import {
   renderFirstAscentClaimedEmailFromPayload,
   renderFirstClimbCompletedEmailFromPayload,
   renderLeaderboardFirstPlaceEmailFromPayload,
+  renderMonthlyRecapActiveEmailFromPayload,
+  renderMonthlyRecapInactiveEmailFromPayload,
   renderOnboardingAbandonedAfterPaywallEmailFromPayload,
   renderOnboardingAbandonedBeforePaywallEmailFromPayload,
   renderRatingNegativeFeedbackEmailFromPayload,
   renderRatingPositiveFollowupEmailFromPayload,
+  renderWeeklyRecapActiveEmailFromPayload,
+  renderWeeklyRecapInactiveEmailFromPayload,
 } from "./templates";
 import type {
   EmailJobDocument,
@@ -64,6 +68,26 @@ export const emailTypeConfigs: Record<EmailType, EmailTypeDefinition> = {
   },
   leaderboard_first_place: {
     render: renderLeaderboardFirstPlaceEmailFromPayload,
+    retryDelaysMs: standardRetryDelaysMs,
+    sendPolicy: "send_now",
+  },
+  weekly_recap_active: {
+    render: renderWeeklyRecapActiveEmailFromPayload,
+    retryDelaysMs: standardRetryDelaysMs,
+    sendPolicy: "send_now",
+  },
+  weekly_recap_inactive: {
+    render: renderWeeklyRecapInactiveEmailFromPayload,
+    retryDelaysMs: standardRetryDelaysMs,
+    sendPolicy: "send_now",
+  },
+  monthly_recap_active: {
+    render: renderMonthlyRecapActiveEmailFromPayload,
+    retryDelaysMs: standardRetryDelaysMs,
+    sendPolicy: "send_now",
+  },
+  monthly_recap_inactive: {
+    render: renderMonthlyRecapInactiveEmailFromPayload,
     retryDelaysMs: standardRetryDelaysMs,
     sendPolicy: "send_now",
   },
