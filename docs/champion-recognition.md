@@ -85,12 +85,28 @@ The owner may read it and may set `seenAt` once, to `request.time`; nothing else
 |---|---|---|
 | `schemaVersion` | int | `1` |
 | `cadence` | string | `weekly` or `monthly` |
-| `periodKey`, `periodStartAt`, `periodEndAt` | | The closed window |
-| `variant` | string | `active`, `inactive` or `never_climbed` |
-| `active` | map or null | Rank, climber count, percentile band, climbs, steps and floors with their prior-period values, award rank, First Ascents claimed in the period |
-| `inactive` | map or null | Weeks or months since the last climb, and the suggested climb |
+| `periodKey` | string | The key `leaderboardPeriod.ts` derives, e.g. `2026-W39` or `2026-M09`; the document id is `{cadence}_{periodKey}` |
+| `periodStartAt`, `periodEndAt` | timestamp | The closed UTC window, end exclusive |
+| `periodLabel` | string | The window as the email names it: `Sep 21-27, 2026` weekly, `September 2026` monthly |
+| `variant` | string | `active` (ranked this period, steps above zero), `inactive` (climbed before, not this period) or `never_climbed` (holds `app_access`, has never climbed); a climber whose only session this period logged zero steps gets no recap |
+| `active` | map or null | Set only for `active`; the fields below |
+| `active.rank` | int | Standard-competition rank on the period's Steps totals, every climber with steps counted (not capped at 100) |
+| `active.climberCount` | int or null | How many climbers that rank is out of; null for a field of one, so "1st of 1" is never shown |
+| `active.percentileBand` | string or null | `Top 1%`, `Top 5%`, `Top 10%`, `Top 25%` or `Top 50%`; null below the top half and for a field of one |
+| `active.climbs`, `active.steps`, `active.floors` | int | The period's totals |
+| `active.previousClimbs`, `active.previousSteps`, `active.previousFloors` | int or null | The prior period's totals; null when the climber had no row that period |
+| `active.awardRank` | int or null | The exact rank on the period's `global_steps` achievement record (1-100), or null when none was earned |
+| `active.firstAscents` | array of maps | `{climbId, name}` for every First Ascent claimed by a workout that started in this period; `name` is null when the catalogue could not name the climb |
+| `active.landmarksFinished` | array of strings | Every landmark finished in the period, by name, or by climb id when the catalogue could not name it |
+| `active.currentStreakWeeks` | int or null | Consecutive UTC weeks with a climb, ending with this one; weekly only, null monthly |
+| `active.calendar` | array of maps | `{dayOfMonth, level}` per cell, Monday-aligned: `level` is `peak`, `active`, `none`, or `blank` for a filler cell whose `dayOfMonth` is null |
+| `inactive` | map or null | Set only for `inactive`; the fields below |
+| `inactive.gapCount` | int | Whole weeks (weekly) or months (monthly) since the last climb, at least 1, measured when the recap was composed |
+| `inactive.lastClimbAt` | timestamp or null | When the latest workout that started before the period closed began; null when none is found |
+| `inactive.suggestedClimbId`, `inactive.suggestedClimbName` | string or null | The shortest climb currently available, as a comeback; null when the catalogue could not be read |
+| `inactive.firstAscentsHeld` | array of strings | Every landmark the climber holds the First Ascent of, by name; a climb the catalogue cannot name is left out |
 | `composedAt` | timestamp | When the compose step wrote it |
-| `seenAt` | timestamp or null | When any of the owner's devices first showed it |
+| `seenAt` | timestamp or null | When any of the owner's devices first showed it; written null, and a re-run of compose never rewrites the document |
 
 ### Push
 

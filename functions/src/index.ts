@@ -10,6 +10,7 @@ import * as admin from "firebase-admin";
 admin.initializeApp();
 
 export {cleanupDeletedUserData} from "./accountCleanup";
+export {onLeaderboardResultCreatedChampionPush} from "./championPush";
 export {announceClimbDrops} from "./climbDropNotifications";
 export {onWorkoutWritten} from "./climbCompletions";
 export {processEmailJobs} from "./email/processor";
@@ -45,6 +46,11 @@ export {reconcileAppAccess} from "./revenueCat/reconciliation";
 export {
   expireRevenueCatEntitlements,
 } from "./revenueCat/expiration";
-export {monthlyRecapEmails, weeklyRecapEmails} from "./recapEmails";
+export {
+  composeMonthlyRecaps,
+  composeWeeklyRecaps,
+  monthlyRecapEmails,
+  weeklyRecapEmails,
+} from "./recapEmails";
 
 setGlobalOptions({maxInstances: 10});

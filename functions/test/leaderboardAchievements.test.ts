@@ -6,8 +6,14 @@ import {
   leaderboardAchievementsTestHooks,
 } from "../src/leaderboardAchievements.js";
 
-const {achievementType, profileStatsIncrement, previousPeriod} =
-  leaderboardAchievementsTestHooks;
+const {
+  achievementType,
+  maxWritesPerCommit,
+  packCommitUnits,
+  profileStatsIncrement,
+  previousPeriod,
+  rankedQualifiers,
+} = leaderboardAchievementsTestHooks;
 
 interface PeriodKeyCase {
   name: string;
@@ -146,4 +152,113 @@ test("achievement records stay namespaced per time frame and band", () => {
   assert.equal(achievementType("monthly", 2), "monthly_top_3");
   assert.equal(achievementType("yearly", 10), "yearly_top_10");
   assert.equal(achievementType("weekly", 42), "weekly_top_100");
+});
+
+test("a normal period finalizes in one commit", () => {
+  const units = [
+    ["award-a", "counter-a"],
+    ["award-b", "counter-b"],
+    ["placing-a"],
+    ["placing-b"],
+    ["result", "period-finalized"],
+  ];
+
+  assert.deepEqual(packCommitUnits(units, maxWritesPerCommit), [
+    [
+      "award-a",
+      "counter-a",
+      "award-b",
+      "counter-b",
+      "placing-a",
+      "placing-b",
+      "result",
+      "period-finalized",
+    ],
+  ]);
+});
+
+test("a pathological tie splits commits without splitting an award", () => {
+  // 250 climbers tied for first: the award query's whole read is awarded, so
+  // 500 award writes, 250 placings, and the result with the period status.
+  const units: string[][] = [];
+  for (let index = 0; index < 250; index += 1) {
+    units.push([`award-${index}`, `counter-${index}`]);
+  }
+  for (let index = 0; index < 250; index += 1) {
+    units.push([`placing-${index}`]);
+  }
+  units.push(["result", "period-finalized"]);
+
+  const commits = packCommitUnits(units, maxWritesPerCommit);
+
+  assert.ok(maxWritesPerCommit < 500, "headroom under Firestore's 500");
+  assert.ok(commits.length > 1);
+  for (const commit of commits) {
+    assert.ok(commit.length <= maxWritesPerCommit);
+    // An award and its profile counter always share a commit, so a retry
+    // that skips the existing award also skips its increment.
+    for (let index = 0; index < commit.length; index += 1) {
+      if (commit[index].startsWith("award-")) {
+        assert.equal(
+          commit[index + 1],
+          commit[index].replace("award-", "counter-")
+        );
+      }
+    }
+  }
+  // The result and the finalized status land last, together: a crash part-way
+  // leaves the period unfinalized and resultless.
+  const last = commits[commits.length - 1];
+  assert.deepEqual(last.slice(-2), ["result", "period-finalized"]);
+  assert.equal(
+    commits.slice(0, -1).flat().some((write) =>
+      write === "result" || write === "period-finalized"
+    ),
+    false
+  );
+  assert.equal(commits.flat().length, 752);
+});
+
+test("a unit larger than a commit is refused rather than split", () => {
+  assert.throws(
+    () => packCommitUnits([["a", "b", "c"]], 2),
+    /3-write unit cannot fit a 2-write commit/
+  );
+});
+
+test("every climber tied at the award cutoff is awarded", () => {
+  const lastUpdated = new Date("2026-09-27T00:00:00.000Z");
+  const identity = {
+    displayName: "Climber",
+    photoURL: "",
+    identityPolicyVersion: 1,
+    identityState: "published",
+    identityChangedAt: null,
+    isSynthetic: false,
+  };
+  const rows = Array.from({length: 102}, (_unused, index) => ({
+    documentId: `row-${index}`,
+    userId: `user-${String(index).padStart(3, "0")}`,
+    // Ranks 1-99 are distinct; the last three tie at rank 100.
+    totalSteps: index < 99 ? 100_000 - index : 1_000,
+    totalWorkouts: 1,
+    totalFloors: 0,
+    lastUpdated,
+    identity,
+  }));
+
+  const awarded = rankedQualifiers(rows);
+
+  assert.equal(awarded.length, 102);
+  assert.deepEqual(
+    awarded.slice(-3).map((row) => row.rank),
+    [100, 100, 100]
+  );
+  assert.equal(
+    rankedQualifiers([
+      ...rows,
+      {...rows[0], userId: "user-late", totalSteps: 10, documentId: "late"},
+    ]).length,
+    102
+  );
 });

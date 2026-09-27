@@ -136,6 +136,10 @@ A device must be `active`, `platform: "ios"`, hold a token, have `climbDropPushE
 
 The toggle is the climber's standing intent and outlives an iOS denial - the denial costs delivery, never the stored preference - so both facts are checked, never one standing in for the other.
 
+The champion push (`functions/src/championPush.ts`) shares the deliverable-authorization set (`isDeliverableAuthorizationStatus`), `fcmInvalidTokenCodes` and `deactivatePushTokensByHash` with this sweep, so the three answers cannot drift apart.
+It does not read `climbDropPushEnabled`: the crown alert has its own preference, `pushChampionCrownEnabled`, and turning one alert off never silences the other.
+`docs/champion-recognition.md` owns its contract, and the `ascend-web-email` skill its delivery rules.
+
 ## The payload
 
 ```json

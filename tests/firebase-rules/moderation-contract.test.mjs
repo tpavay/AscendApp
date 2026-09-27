@@ -619,6 +619,9 @@ test('identity propagation has collection-group user indexes', () => {
       {order: 'ASCENDING', queryScope: 'COLLECTION_GROUP'},
     ],
     finishers: [{order: 'ASCENDING', queryScope: 'COLLECTION_GROUP'}],
+    // Closed-board placings are addressed by uid within one result, so the
+    // champion propagation kind and account cleanup need only the group index.
+    placings: [{order: 'ASCENDING', queryScope: 'COLLECTION_GROUP'}],
   };
 
   for (const [collectionGroup, indexes] of Object.entries(expectedIndexes)) {

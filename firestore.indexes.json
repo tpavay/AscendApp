@@ -397,6 +397,34 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "recaps",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "seenAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodEndAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "recaps",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "cadence",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodKey",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -430,6 +458,16 @@
     },
     {
       "collectionGroup": "finishers",
+      "fieldPath": "userId",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "placings",
       "fieldPath": "userId",
       "indexes": [
         {

@@ -12,6 +12,7 @@ import {
   identityFieldsForProjection,
   identitySourceGeneration,
   processIdentityPropagationJob,
+  publicIdentityPropagationTestHooks,
   propagateCurrentPublicIdentity,
   publicIdentitySourceChanged,
   scheduledIdentityPropagationJob,
@@ -183,7 +184,147 @@ test("uses an independent bounded checkpoint for every projection kind", () => {
     "replayEntry",
     "replayFinisher",
     "firstAscent",
+    "champion",
   ]);
+});
+
+test("a closed-board placing carries exactly the leaderboard identity", () => {
+  const placing = {
+    displayName: "Old",
+    identityChangedAt: {seconds: 50, nanoseconds: 0},
+    identityPolicyVersion: 1,
+    identityState: "published",
+    isSynthetic: false,
+    periodKey: "2026-W38",
+    photoURL: "",
+    rank: 1,
+    timeFrame: "weekly",
+    totalSteps: 12_000,
+    totalWorkouts: 6,
+    userId: "user-1",
+  };
+
+  assert.deepEqual(
+    identityFieldsForProjection("champion", placing, identity),
+    identityFieldsForProjection("leaderboard", placing, identity)
+  );
+  assert.deepEqual(
+    Object.keys(identityFieldsForProjection("champion", placing, identity) ??
+      {}).sort(),
+    [
+      "displayName",
+      "identityChangedAt",
+      "identityPolicyVersion",
+      "identityState",
+      "photoURL",
+    ]
+  );
+});
+
+test("a champion placing never loses its deleted, seeded or current state",
+  () => {
+    const current = {
+      displayName: identity.displayName,
+      identityChangedAt: {seconds: 100, nanoseconds: 0},
+      identityPolicyVersion: 1,
+      identityState: "published",
+      photoURL: identity.photoURL,
+      rank: 1,
+      userId: "user-1",
+    };
+
+    assert.equal(
+      identityFieldsForProjection("champion", current, {
+        ...identity,
+        identityChangedAt: {seconds: 100, nanoseconds: 0},
+      }),
+      null
+    );
+    assert.equal(
+      identityFieldsForProjection(
+        "champion",
+        {...current, displayName: "Seeded Rival", isSynthetic: true},
+        identity
+      ),
+      null
+    );
+    assert.equal(
+      identityFieldsForProjection(
+        "champion",
+        {
+          ...current,
+          displayName: "Anonymous Climber",
+          identityState: "deleted",
+          photoURL: "",
+        },
+        identity
+      ),
+      null
+    );
+    // A placing frozen before the climber published an identity is the one
+    // anonymous state propagation may still fill in.
+    assert.notEqual(
+      identityFieldsForProjection(
+        "champion",
+        {
+          ...current,
+          displayName: "Anonymous Climber",
+          identityChangedAt: null,
+          identityState: "pending_public_profile",
+          photoURL: "",
+        },
+        identity
+      ),
+      null
+    );
+  });
+
+test("champion placings are found by uid across every closed board", () => {
+  const calls: unknown[][] = [];
+  const firestore = {
+    collectionGroup(collectionGroup: string) {
+      calls.push(["collectionGroup", collectionGroup]);
+      return {
+        where(field: string, operator: string, value: string) {
+          calls.push(["where", field, operator, value]);
+          return {};
+        },
+      };
+    },
+  } as unknown as FirebaseFirestore.Firestore;
+
+  publicIdentityPropagationTestHooks.identityProjectionQuery(firestore, {
+    ...propagationJob("champion"),
+  });
+
+  assert.deepEqual(calls, [
+    ["collectionGroup", "placings"],
+    ["where", "userId", "==", "user-1"],
+  ]);
+});
+
+test("a champion page resumes from the last placing's full path", () => {
+  const document = {
+    id: "user-1",
+    ref: {path: "leaderboard_results/weekly_2026-W38/placings/user-1"},
+  } as unknown as FirebaseFirestore.QueryDocumentSnapshot;
+
+  // Collection-group queries order by full path, so a bare uid - identical
+  // on every placing a climber holds - would name no position at all.
+  assert.equal(
+    publicIdentityPropagationTestHooks.identityProjectionCursor(
+      "champion",
+      document
+    ),
+    "leaderboard_results/weekly_2026-W38/placings/user-1"
+  );
+  assert.equal(
+    publicIdentityPropagationTestHooks.identityProjectionCursor(
+      "leaderboard",
+      document
+    ),
+    "user-1"
+  );
 });
 
 test("source generations preserve sub-millisecond Firestore precision", () => {
