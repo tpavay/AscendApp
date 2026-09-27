@@ -177,7 +177,7 @@ struct ActiveHeadphoneWorkoutDraftStore {
             totalUnavailableDurationSeconds: updatedIntegrity.totalUnavailableDuration,
             interruptionCount: updatedIntegrity.interruptionCount
         )
-        var recorder = LiveClimbStepTimelineRecorder(intervalSeconds: draft.splitCurve?.intervalSeconds ?? 10)
+        var recorder = LiveClimbStepTimelineRecorder()
         if let splitCurve = draft.splitCurve {
             recorder.restore(curve: splitCurve)
         }

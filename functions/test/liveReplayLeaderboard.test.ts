@@ -1234,13 +1234,15 @@ test("sweeps every bucket for entries predating the flag", () => {
     }),
     80
   );
+  // An attempt past the hour published one entry per ten seconds, and every
+  // one of them needs its flags: the stored span is never capped.
   assert.equal(
     liveReplayLeaderboardTestHooks.attemptSplitBucketCount({
-      completionDurationSeconds: 738,
+      completionDurationSeconds: 5407.98,
       splitIntervalSeconds: 10,
-      splitBucketCount: 4_000,
+      splitBucketCount: 541,
     }),
-    360
+    541
   );
 });
 
@@ -1964,3 +1966,104 @@ test("ranks a routine on steps and a climb on the clock", () => {
   assert.equal(beatsOnMetric("just_climb", 700, 738), true);
 });
 
+
+test("a clamped 1:30 Just Climb publishes one bucket per ten seconds it ran", () => {
+  // The pre-fix sampler's shape: 360 checkpoints at 10 s with the finish
+  // clamped into the last one, for a 5,407.98-second climb.
+  const splitSteps = Array.from({length: 360}, (_, index) =>
+    index < 359 ? 14 * (index + 1) : 7708
+  );
+  const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
+    makeWorkoutDocument({
+      durationSeconds: 5407.98,
+      participations: [],
+      sourceMetadata: makeSourceMetadata({
+        climbId: undefined,
+        splitSteps,
+        stopReason: "user_stopped",
+        trackingMode: "just_climb",
+      }),
+      steps: 7708,
+    }),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.ok(payload);
+  assert.equal(payload.splitIntervalSeconds, 10);
+  assert.equal(payload.splitSteps.length, 541);
+  // 60:00 carries what was climbed by then, not the finish.
+  assert.equal(payload.splitSteps[358], 5026);
+  assert.ok(payload.splitSteps[359] < 5050, `60:00 = ${payload.splitSteps[359]}`);
+  assert.equal(payload.splitSteps[540], 7708);
+  // Every bucket entry states the attempt's whole span.
+  const entry = liveReplayLeaderboardTestHooks.replayEntryWrite({
+    payload,
+    userId: "captain",
+    entryId: "workout-a",
+    publicUser: {
+      avatarToken: "token",
+      displayName: "Captain",
+      identityState: "published",
+      photoURL: null,
+    },
+    stepsAtBucket: payload.splitSteps[400],
+    isBestForUser: true,
+    bestForGoals: [],
+    updatedAt: "now",
+  });
+  assert.equal(entry.splitBucketCount, 541);
+  assert.equal(entry.splitIntervalSeconds, 10);
+});
+
+test("a compacted curve publishes on the ten-second board grid", () => {
+  // The current sampler's shape for the same climb: 271 checkpoints at 20 s.
+  const splitSteps = Array.from({length: 271}, (_, index) =>
+    Math.min(7708, Math.floor(((index * 20) + 19) * 7708 / 5408))
+  );
+  const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
+    makeWorkoutDocument({
+      durationSeconds: 5407.98,
+      participations: [],
+      sourceMetadata: makeSourceMetadata({
+        climbId: undefined,
+        splitIntervalSeconds: 20,
+        splitSteps,
+        stopReason: "user_stopped",
+        trackingMode: "just_climb",
+      }),
+      steps: 7708,
+    }),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.ok(payload);
+  // Every client reads bucket floor(elapsed / 10), so a 20-second curve
+  // published as-is would race at half its real pace.
+  assert.equal(payload.splitIntervalSeconds, 10);
+  assert.equal(payload.splitSteps.length, 541);
+  assert.ok(Math.abs(payload.splitSteps[179] - 2565) <= 15);
+  assert.ok(Math.abs(payload.splitSteps[449] - 6413) <= 15);
+  assert.equal(payload.splitSteps[540], 7708);
+});
+
+test("a session past the plausibility envelope publishes nothing", () => {
+  const document = makeWorkoutDocument({
+    durationSeconds: 24 * 60 * 60 + 1,
+    participations: [],
+    sourceMetadata: makeSourceMetadata({
+      climbId: undefined,
+      splitIntervalSeconds: 320,
+      splitSteps: [100, 200, 300],
+      stopReason: "user_stopped",
+      trackingMode: "just_climb",
+    }),
+    steps: 90000,
+  });
+
+  assert.deepEqual(
+    liveReplayLeaderboardTestHooks.replayPayloadsForWorkout(document, {
+      requireEligibleParticipation: true,
+    }),
+    []
+  );
+});

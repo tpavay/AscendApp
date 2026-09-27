@@ -177,7 +177,10 @@ struct ShareStatResolver {
 
     /// Resolve live sampled progress into split rows for the share sticker.
     /// Total-only/manual workouts do not get this even though split math could be
-    /// reconstructed, because splits should reflect recorded timeline data.
+    /// reconstructed, because splits should reflect recorded timeline data. A climb
+    /// the pre-fix sampler stopped splitting at the hour is partly total-only, and a
+    /// card has no room to say which rows were never split, so it does not get it
+    /// either - the summary and Workout Detail show that climb's honest splits.
     func resolveSplits() -> ResolvedShareSplits? {
         guard let metadata = Self.recordedSplitMetadata(for: workout) else { return nil }
 
@@ -190,7 +193,7 @@ struct ShareStatResolver {
             for: workout,
             targetSteps: timelineTargetSteps
         )
-        guard !splits.isEmpty else { return nil }
+        guard !splits.isEmpty, splits.allSatisfy(\.isMeasured) else { return nil }
 
         let minSPM = splits.map(\.stepsPerMinute).min() ?? 0
         let maxSPM = max(splits.map(\.stepsPerMinute).max() ?? 0, 1)

@@ -84,4 +84,44 @@ struct LiveClimbStepTimelineRecorderTests {
 
         #expect(recorder.curve.steps == [0, 50, 100, 100])
     }
+
+    @Test
+    func restoringACompactedCurveResumesItInsteadOfReBucketingIt() {
+        var recorder = LiveClimbStepTimelineRecorder()
+        for second in stride(from: 0, through: 5_000, by: 5) {
+            recorder.record(elapsedSeconds: second, cumulativeSteps: second, source: .headphoneMotion)
+        }
+        let saved = recorder.curve
+
+        var resumed = LiveClimbStepTimelineRecorder()
+        resumed.restore(curve: saved)
+
+        #expect(resumed.curve == saved)
+        #expect(resumed.curve.intervalSeconds == 20)
+    }
+
+    @Test
+    func aDownwardCorrectionPastAnHourScalesTheCompactedCurveInPlace() {
+        var recorder = LiveClimbStepTimelineRecorder()
+        for second in stride(from: 0, through: 4_000, by: 10) {
+            recorder.record(elapsedSeconds: second, cumulativeSteps: second, source: .headphoneMotion)
+        }
+
+        recorder.recordCorrection(
+            HeadphoneMotionStepCorrection(
+                elapsedSeconds: 4_000,
+                detectedSteps: 4_000,
+                correctedSteps: 2_000,
+                deltaSteps: -2_000,
+                trackingGapDurationSeconds: 0,
+                totalUnavailableDurationSeconds: 0,
+                interruptionCount: 0
+            )
+        )
+
+        #expect(recorder.curve.intervalSeconds == 20)
+        #expect(recorder.curve.steps.count == 4_000 / 20 + 1)
+        #expect(recorder.curve.steps[99] == 995)
+        #expect(recorder.curve.steps.last == 2_000)
+    }
 }

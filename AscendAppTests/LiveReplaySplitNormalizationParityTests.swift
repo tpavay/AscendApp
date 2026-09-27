@@ -23,7 +23,7 @@ struct LiveReplaySplitNormalizationParityTests {
     @Test
     func swiftNormalizationMatchesTheSharedParityVector() throws {
         let vector = try Self.sharedParityVector()
-        #expect(vector.cases.count >= 7)
+        #expect(vector.cases.count >= 10)
 
         for parityCase in vector.cases {
             let actual = LiveClimbWorkoutSummaryData.normalizedSplitSteps(

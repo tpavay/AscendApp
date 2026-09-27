@@ -77,6 +77,10 @@ import {
   contestedClimbIds,
   firstAscentOpenConfigs,
 } from "./seed/lib/live-replay-climb-tiers.mjs";
+import {
+  BUCKET_INTERVAL_SECONDS,
+  justClimbBucketLimit,
+} from "./seed/lib/live-replay-bucket-window.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -87,8 +91,6 @@ const JUST_CLIMB_GLOBAL_CONTEXT_ID = "global";
 const DEFAULT_DEV_SEED_PACK_ID = "live-replay-v1-dev";
 const DEFAULT_STAGING_SEED_PACK_ID = "live-replay-v1-staging";
 const DEFAULT_APPLE_HEALTH_STEP_FACTOR = 0.78;
-const BUCKET_INTERVAL_SECONDS = 10;
-const MAX_BUCKET_INDEX = 360;
 const ALLOWED_SEED_PROJECTS = new Map([
   [DEV_PROJECT_ID, {defaultSeedPackId: DEFAULT_DEV_SEED_PACK_ID}],
   [STAGING_PROJECT_ID, {defaultSeedPackId: DEFAULT_STAGING_SEED_PACK_ID}],
@@ -761,7 +763,7 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
   assertSeededIdentitySupply(climbPlans, avatarURLs);
 
   const justClimbAttempts = climbPlans.flatMap((plan) => plan.attempts);
-  const justClimbMaxBucketIndex = MAX_BUCKET_INDEX;
+  const justClimbMaxBucketIndex = justClimbBucketLimit(justClimbAttempts);
   // No clear id lists: this context is cleared by seed-pack query, because its
   // rows outlive the climb list that produced them.
   const justClimbPlan = {
@@ -851,10 +853,7 @@ function adjustedPaceForClimb(sourcePace, targetSteps, rng) {
 function bucketLimitForAttempts(attempts) {
   const durations = attempts.map((attempt) => attempt.durationSeconds).sort((lhs, rhs) => lhs - rhs);
   const p95Duration = percentile(durations, 0.95);
-  return Math.min(
-    MAX_BUCKET_INDEX,
-    Math.max(12, Math.ceil(p95Duration / BUCKET_INTERVAL_SECONDS) + 6)
-  );
+  return Math.max(12, Math.ceil(p95Duration / BUCKET_INTERVAL_SECONDS) + 6);
 }
 
 function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {

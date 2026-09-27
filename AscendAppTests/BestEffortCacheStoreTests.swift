@@ -181,6 +181,42 @@ struct BestEffortCacheStoreTests {
         #expect(refreshedEntries.allSatisfy { $0.cacheVersion == BestEffortCacheStore.currentVersion })
     }
 
+    @Test
+    @MainActor
+    func rebuildIfNeededReplacesEffortsCachedFromAClampedCurve() throws {
+        let modelContext = try makeModelContext()
+        let referenceDate = makeDate(year: 2026, month: 9, day: 20)
+        let workout = try makePreFixSamplerWorkout(date: referenceDate)
+
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        try BestEffortCacheStore.rebuild(
+            modelContext: modelContext,
+            referenceDate: referenceDate
+        )
+        let repairedValues = try fetchCacheEntries(in: modelContext).map { [$0.id: $0.value] }
+
+        // What a v2 install cached for this climb: timeline efforts read off the clamped tail,
+        // which put the whole last half hour inside the 50:00-1:00:00 bucket.
+        let staleMetadata = try #require(try fetchCacheMetadata(in: modelContext))
+        staleMetadata.cacheVersion = 2
+        for entry in try fetchCacheEntries(in: modelContext) {
+            entry.cacheVersion = 2
+            entry.value = -1
+        }
+        try modelContext.save()
+
+        try BestEffortCacheStore.rebuildIfNeeded(
+            modelContext: modelContext,
+            referenceDate: referenceDate
+        )
+
+        let refreshed = try fetchCacheEntries(in: modelContext)
+        #expect(!refreshed.isEmpty)
+        #expect(refreshed.map { [$0.id: $0.value] } == repairedValues)
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: Workout.self,
@@ -233,6 +269,53 @@ struct BestEffortCacheStoreTests {
             workout.markPendingRemoteUpsert(ownerUserId: ownerUserId, modifiedAt: date)
         }
         return workout
+    }
+
+    /// The captain's 1:30:07 climb exactly as the pre-fix sampler stored it.
+    private func makePreFixSamplerWorkout(date: Date) throws -> Workout {
+        struct Climbs: Decodable {
+            struct Climb: Decodable {
+                let name: String
+                let steps: Int
+                let durationSeconds: Double
+                let splitIntervalSeconds: Int
+                let splitSteps: [Int]
+            }
+            let climbs: [Climb]
+        }
+
+        let repoRoot = URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(
+            contentsOf: repoRoot.appending(path: "SharedTestVectors/pre-fix-sampler-long-climbs.json")
+        )
+        let climb = try #require(
+            try JSONDecoder().decode(Climbs.self, from: data).climbs
+                .first { $0.name == "steady-84-spm-1h30m" }
+        )
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: climb.splitSteps.count,
+            trackingMode: .justClimb,
+            climbId: nil,
+            targetStepCount: nil,
+            stopReason: .userStopped,
+            splitCurve: LiveReplaySplitCurve(
+                intervalSeconds: climb.splitIntervalSeconds,
+                steps: climb.splitSteps
+            )
+        )
+
+        return Workout(
+            name: "Just Climb",
+            date: date,
+            duration: climb.durationSeconds,
+            steps: climb.steps,
+            floors: Workout.stepsToFloors(climb.steps, stepsPerFloor: 16),
+            stepsPerFloor: 16,
+            source: .headphoneMotion,
+            sourceMetadata: metadata.jsonString
+        )
     }
 
     private func makeDate(year: Int, month: Int, day: Int) -> Date {

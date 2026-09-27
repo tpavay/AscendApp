@@ -57,10 +57,13 @@ struct LiveClimbCompletionSummaryView: View {
         self.achievementTitleOverride = achievementTitleOverride
         self.achievementIconNameOverride = achievementIconNameOverride
         self.onDone = onDone
-        self.paceSplits = LiveClimbWorkoutSummaryData.paceSplits(
+        let paceSplits = LiveClimbWorkoutSummaryData.paceSplits(
             for: workout,
             targetSteps: climb?.referenceStepCount ?? max(workout.steps, 1)
         )
+        self.paceSplits = paceSplits
+        self.measuredPaceSplits = paceSplits.filter(\.isMeasured)
+        self.unsplitStretch = paceSplits.first { !$0.isMeasured }
     }
 
     /// Built once per view value. The body reads it eleven times - segment count,
@@ -68,6 +71,11 @@ struct LiveClimbCompletionSummaryView: View {
     /// computed property that meant eleven metadata decodes and eleven curve
     /// rebuilds per render pass.
     private let paceSplits: [LiveClimbPaceSplit]
+    /// The splits that measured a segment's own pace - every one, unless the climb was recorded
+    /// before splits ran past the hour. Only these set the bars' scale and draw the trend.
+    private let measuredPaceSplits: [LiveClimbPaceSplit]
+    /// The one row standing for the stretch that was never split, drawn as its average.
+    private let unsplitStretch: LiveClimbPaceSplit?
 
     private var primaryBestEffort: RankedBestEffort? {
         BestEffortCacheSnapshot(
@@ -240,6 +248,17 @@ struct LiveClimbCompletionSummaryView: View {
                     )
                 }
             }
+
+            if let unsplitStretch {
+                Text(
+                    LiveClimbPaceSplitCopy.unsplitStretchNote(
+                        fromClockText: clockTime(unsplitStretch.startElapsedSeconds)
+                    )
+                )
+                .font(.montserratMedium(size: 12))
+                .foregroundStyle(.white.opacity(0.54))
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -251,7 +270,7 @@ struct LiveClimbCompletionSummaryView: View {
                         .font(.montserratBold(size: 16))
                         .foregroundStyle(.white)
 
-                    Text("Pace throughout the climb")
+                    Text(paceTrendSubtitle)
                         .font(.montserratMedium(size: 12))
                         .foregroundStyle(.white.opacity(0.54))
                 }
@@ -265,7 +284,7 @@ struct LiveClimbCompletionSummaryView: View {
                             .foregroundStyle(.accent)
                             .monospacedDigit()
 
-                        Text("Start to Finish")
+                        Text(paceTrendDeltaLabel)
                             .font(.montserratMedium(size: 10))
                             .foregroundStyle(.white.opacity(0.54))
                     }
@@ -273,7 +292,7 @@ struct LiveClimbCompletionSummaryView: View {
             }
 
             AscendTrendChart(
-                values: paceSplits.map(\.stepsPerMinute),
+                values: measuredPaceSplits.map(\.stepsPerMinute),
                 highlightsLastPoint: true
             )
             .frame(height: 132)
@@ -497,20 +516,30 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var maxSplitSPM: Double {
-        max(paceSplits.map(\.stepsPerMinute).max() ?? 0, 1)
+        max(measuredPaceSplits.map(\.stepsPerMinute).max() ?? 0, 1)
     }
 
     private var minSplitSPM: Double {
-        paceSplits.map(\.stepsPerMinute).min() ?? 0
+        measuredPaceSplits.map(\.stepsPerMinute).min() ?? 0
     }
 
     private var paceTrendDelta: Int {
-        guard let firstSPM = paceSplits.first?.stepsPerMinute,
-              let lastSPM = paceSplits.last?.stepsPerMinute else {
+        guard let firstSPM = measuredPaceSplits.first?.stepsPerMinute,
+              let lastSPM = measuredPaceSplits.last?.stepsPerMinute else {
             return 0
         }
 
         return Int((lastSPM - firstSPM).rounded())
+    }
+
+    private var paceTrendSubtitle: String {
+        guard let unsplitStretch else { return "Pace throughout the climb" }
+        return "Pace through \(clockTime(unsplitStretch.startElapsedSeconds))"
+    }
+
+    private var paceTrendDeltaLabel: String {
+        guard let unsplitStretch else { return "Start to Finish" }
+        return "Start to \(clockTime(unsplitStretch.startElapsedSeconds))"
     }
 
     private var paceTrendDeltaText: String {
@@ -747,7 +776,7 @@ private struct LiveClimbPaceSplitRow: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
 
-                        Text("SPM")
+                        Text(split.isMeasured ? "SPM" : LiveClimbPaceSplitCopy.unsplitPaceUnit)
                             .font(.montserratBold(size: 8))
                             .foregroundStyle(.white.opacity(0.5))
                     }
@@ -759,10 +788,18 @@ private struct LiveClimbPaceSplitRow: View {
                         Capsule()
                             .fill(.white.opacity(0.08))
 
-                        Capsule()
-                            .fill(splitBarGradient)
-                            .frame(width: max(proxy.size.width * barProgress, 12))
-                            .shadow(color: .accent.opacity(0.34), radius: 10, x: 0, y: 0)
+                        // Lime means a pace the climber earned in that segment; an unsplit stretch
+                        // only has its average, so it is drawn without it.
+                        if split.isMeasured {
+                            Capsule()
+                                .fill(splitBarGradient)
+                                .frame(width: max(proxy.size.width * barProgress, 12))
+                                .shadow(color: .accent.opacity(0.34), radius: 10, x: 0, y: 0)
+                        } else {
+                            Capsule()
+                                .fill(.white.opacity(0.24))
+                                .frame(width: max(proxy.size.width * barProgress, 12))
+                        }
                     }
                 }
                 .frame(height: 10)
@@ -770,7 +807,7 @@ private struct LiveClimbPaceSplitRow: View {
         }
         .padding(.vertical, 8)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(timeRangeText), \(split.steps.formatted()) steps, \(Int(split.stepsPerMinute.rounded()).formatted()) steps per minute")
+        .accessibilityLabel(LiveClimbPaceSplitCopy.accessibilityLabel(for: split, timeRangeText: timeRangeText))
     }
 
     private var splitBarGradient: LinearGradient {
