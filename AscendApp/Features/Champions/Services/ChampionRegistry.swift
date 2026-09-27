@@ -26,6 +26,7 @@ final class ChampionRegistry {
 
     @ObservationIgnored private let repository: any LeaderboardResultsReading
     @ObservationIgnored private let isFeatureEnabled: @MainActor () -> Bool
+    @ObservationIgnored private let clock: @MainActor () -> Date
     @ObservationIgnored private var lastRefreshAt: Date?
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var flagObserver: Task<Void, Never>?
@@ -34,10 +35,12 @@ final class ChampionRegistry {
         repository: any LeaderboardResultsReading = LeaderboardResultsRepository.shared,
         isFeatureEnabled: @escaping @MainActor () -> Bool = {
             RemoteFeatureFlagStore.shared.isEnabled(.championRecognition)
-        }
+        },
+        clock: @escaping @MainActor () -> Date = { .now }
     ) {
         self.repository = repository
         self.isFeatureEnabled = isFeatureEnabled
+        self.clock = clock
         isEnabled = isFeatureEnabled()
         flagObserver = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .remoteFeatureFlagsDidChange) {
@@ -66,7 +69,8 @@ final class ChampionRegistry {
     /// Reads the reigning result for every frame. A frame that fails to load keeps its last
     /// known reign while that reign is still current, so an offline foreground never strips
     /// crowns the app already knew about.
-    func refresh(now: Date = .now) async {
+    func refresh(now: Date? = nil) async {
+        let now = now ?? clock()
         syncFeatureFlag()
         generation &+= 1
         let expected = generation
@@ -106,7 +110,8 @@ final class ChampionRegistry {
 
     /// Re-reads when the last read is stale or a period rolled since, so crowns change
     /// hands on the first foreground after a board closes.
-    func refreshIfStale(now: Date = .now) async {
+    func refreshIfStale(now: Date? = nil) async {
+        let now = now ?? clock()
         let expired = reigns.values.contains { !$0.isCurrent(at: now) }
         if !expired,
            let lastRefreshAt,

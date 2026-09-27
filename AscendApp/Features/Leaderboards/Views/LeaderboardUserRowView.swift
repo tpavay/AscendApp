@@ -225,7 +225,11 @@ struct LeaderboardUserRowView: View {
         guard let crownGapText else {
             return base
         }
-        return "\(base), \(crownGapText)"
+        let countdown = countdownPeriod.flatMap { LeaderboardCountdown.make(period: $0, now: now ?? .now) }
+        guard let countdown, countdown.isLastDay else {
+            return "\(base), \(crownGapText)"
+        }
+        return "\(base), \(crownGapText) · \(countdown.remainingText)"
     }
 
     private var profileImage: some View {

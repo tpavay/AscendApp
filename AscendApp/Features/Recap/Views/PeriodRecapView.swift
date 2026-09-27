@@ -129,8 +129,15 @@ struct PeriodRecapView: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Page \(pageIndex + 1) of \(story.pages.count)")
+            .accessibilityLabel(chapterAccessibilityLabel)
         }
+    }
+
+    private var chapterAccessibilityLabel: String {
+        let chapter = story.chapters.first { $0.pageRange.contains(pageIndex) }
+        let page = "page \(pageIndex + 1) of \(story.pages.count)"
+        guard let chapter else { return page.capitalized }
+        return "\(chapter.label.capitalized), \(page)"
     }
 
     private func chapterFill(_ chapter: PeriodRecapStory.Chapter) -> CGFloat {

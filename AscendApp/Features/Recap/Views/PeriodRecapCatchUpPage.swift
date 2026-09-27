@@ -51,7 +51,8 @@ struct PeriodRecapCatchUpPage: View {
                         photoURL: champion.identity.photoURL,
                         placeholder: RecapAvatarStyle.placeholder(for: champion, fontSize: 12),
                         size: 36,
-                        showsChampionMark: line.isReigning
+                        showsChampionMark: line.isReigning,
+                        championTitlesOverride: ChampionTitles([line.crown.title])
                     )
                 }
             }
