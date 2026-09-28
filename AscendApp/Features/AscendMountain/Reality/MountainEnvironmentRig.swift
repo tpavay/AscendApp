@@ -16,6 +16,8 @@ final class MountainEnvironmentRig {
     private let floor: ModelEntity
     private let cloudSea: ModelEntity
     private let cloudBanks: ModelEntity
+    private let mist: ModelEntity
+    private let veil: ModelEntity
     private var markerEntities: [String: Entity] = [:]
     private var appliedSkyKey: [Int]?
     private var seaDepth: Float = 400
@@ -33,9 +35,21 @@ final class MountainEnvironmentRig {
             mesh: try MountainMeshResource.make(MountainFarGeometry.clouds(count: 34, innerRadius: 90, outerRadius: 420, heightSpread: 50, puffSize: 10...26, seed: 4)),
             materials: [Self.cloudMaterial()]
         )
+        // Close puffs, starting just past the climber so they never veil them, translucent so the
+        // stairs fade into them rather than vanish.
+        mist = ModelEntity(
+            mesh: try MountainMeshResource.make(MountainFarGeometry.clouds(count: 240, innerRadius: 6.8, outerRadius: 50, heightSpread: 14, puffSize: 2.2...5.5, seed: 5)),
+            materials: [Self.cloudMaterial()]
+        )
+        mist.components.set(OpacityComponent(opacity: 0.5))
+        veil = ModelEntity(mesh: .generatePlane(width: Self.veilWidth, height: Self.veilHeight), materials: [Self.veilMaterial()])
+        veil.position = [0, 0, -Self.veilDistance]
+        veil.components.set(OpacityComponent(opacity: 0))
+        veil.isEnabled = false
         cloudSea.isEnabled = false
         cloudBanks.isEnabled = false
-        for entity in [sky, peaks, floor, cloudSea, cloudBanks] {
+        mist.isEnabled = false
+        for entity in [sky, peaks, floor, cloudSea, cloudBanks, mist] {
             root.addChild(entity)
         }
     }
@@ -54,12 +68,21 @@ final class MountainEnvironmentRig {
         floor.position = SIMD3(camera.x, climberY - Float(230 + altitude * 0.3), camera.z)
 
         let region = regions.region(atSteps: steps)
-        let seaTarget: Float = region.environment.clouds == .below ? 48 : 400
+        let seaTarget: Float = switch region.environment.clouds {
+        case .below: 48
+        case .through: 5
+        case .none, .around: 400
+        }
         seaDepth += (seaTarget - seaDepth) * Float(min(deltaTime / 6, 1))
         cloudSea.isEnabled = seaDepth < 380
         cloudSea.position = SIMD3(camera.x, climberY - seaDepth, camera.z)
-        cloudBanks.isEnabled = region.environment.clouds == .around
+        cloudBanks.isEnabled = region.environment.clouds == .around || region.environment.clouds == .through
         cloudBanks.position = SIMD3(camera.x, climberY + 6, camera.z)
+        mist.isEnabled = region.environment.clouds == .through
+        mist.position = SIMD3(camera.x, climberY + 1, camera.z)
+        let insideCloud = Float(regions.blended({ $0.clouds == .through ? 1 : 0 }, atSteps: steps))
+        veil.isEnabled = insideCloud > 0.01
+        veil.components.set(OpacityComponent(opacity: insideCloud))
         floor.isEnabled = seaDepth > 120
 
         restyle(steps: steps)
@@ -93,6 +116,57 @@ final class MountainEnvironmentRig {
         ]
         let grass = regions.blendedColor({ $0.palette.grass }, atSteps: steps)
         floor.model?.materials = [Self.flat(grass.mixed(with: haze, amount: 0.8))]
+    }
+
+    // MARK: - Cloud veil
+
+    /// RealityKit has no fog, and inside a cloud the stairs have to fade away a few steps ahead.
+    /// The camera looks up the staircase, so the far stairs fill the top of the screen: a white
+    /// veil hung just in front of the lens, dense at the top and clear before it reaches the
+    /// climber, reads as cloud without a per-material fog pass.
+    func attachVeil(to camera: Entity) {
+        camera.addChild(veil)
+    }
+
+    private static let veilDistance: Float = 0.3
+    /// The camera's 60 degree vertical view is 0.35 m tall at the veil's distance; the plane
+    /// overhangs it, and is wide enough for any screen shape.
+    private static let veilHeight: Float = 0.4
+    private static let veilWidth: Float = 0.9
+
+    private static func veilMaterial() -> UnlitMaterial {
+        var material = UnlitMaterial(applyPostProcessToneMap: false)
+        let width = 4
+        let rows = 256
+        let visibleHeight = 2 * veilDistance * tan(Float.pi / 6)
+        let hidden = (veilHeight - visibleHeight) / 2
+        var pixels = [UInt8](repeating: 0, count: width * rows * 4)
+        for row in 0..<rows {
+            // Where this row lands on screen, 0 at the top edge.
+            let screen = ((Float(row) + 0.5) / Float(rows) * veilHeight - hidden) / visibleHeight
+            let t = min(max((screen - 0.04) / 0.36, 0), 1)
+            let alpha = 0.92 * (1 - t * t * (3 - 2 * t))
+            for column in 0..<width {
+                let offset = (row * width + column) * 4
+                // Premultiplied: a near-white cloud colour scaled by its own coverage.
+                pixels[offset] = UInt8(alpha * 0.96 * 255)
+                pixels[offset + 1] = UInt8(alpha * 0.97 * 255)
+                pixels[offset + 2] = UInt8(alpha * 0.98 * 255)
+                pixels[offset + 3] = UInt8(alpha * 255)
+            }
+        }
+        if let provider = CGDataProvider(data: Data(pixels) as CFData),
+           let image = CGImage(
+               width: width, height: rows, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+               space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+               bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+               provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
+           ),
+           let texture = try? TextureResource(image: image, withName: nil, options: .init(semantic: .color)) {
+            material.color = .init(tint: .white, texture: .init(texture))
+            material.blending = .transparent(opacity: .init(floatLiteral: 1))
+        }
+        return material
     }
 
     // MARK: - Markers

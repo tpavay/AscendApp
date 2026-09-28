@@ -3,22 +3,13 @@
   "status": "Provisional placeholders. Region count, ids, step thresholds, looks, marker steps and designs are undecided; replace freely.",
   "markers": [
     {"id": "marker_01", "step": 500, "kind": "gate", "design": "gate_stone", "title": "500", "subtitle": "STEPS"},
-    {"id": "marker_02", "step": 1000, "kind": "gate", "design": "gate_stone", "title": "1,000", "subtitle": "STEPS"},
-    {"id": "marker_03", "step": 2000, "kind": "gate", "design": "gate_stone", "title": "2,000", "subtitle": "STEPS"},
-    {"id": "marker_04", "step": 3000, "kind": "gate", "design": "gate_stone", "title": "3,000", "subtitle": "STEPS"},
-    {"id": "marker_05", "step": 5000, "kind": "gate", "design": "gate_stone", "title": "5,000", "subtitle": "STEPS"},
-    {"id": "marker_06", "step": 7500, "kind": "gate", "design": "gate_stone", "title": "7,500", "subtitle": "STEPS"},
-    {"id": "marker_07", "step": 10000, "kind": "gate", "design": "gate_grand", "title": "10,000", "subtitle": "STEPS"},
-    {"id": "marker_08", "step": 15000, "kind": "gate", "design": "gate_stone", "title": "15,000", "subtitle": "STEPS"},
-    {"id": "marker_09", "step": 20000, "kind": "gate", "design": "gate_grand", "title": "20,000", "subtitle": "STEPS"},
-    {"id": "marker_10", "step": 25000, "kind": "gate", "design": "gate_stone", "title": "25,000", "subtitle": "STEPS"},
-    {"id": "marker_11", "step": 30000, "kind": "gate", "design": "gate_stone", "title": "30,000", "subtitle": "STEPS"},
-    {"id": "marker_12", "step": 40000, "kind": "gate", "design": "gate_stone", "title": "40,000", "subtitle": "STEPS"},
-    {"id": "marker_13", "step": 50000, "kind": "gate", "design": "gate_grand", "title": "50,000", "subtitle": "STEPS"},
-    {"id": "marker_14", "step": 75000, "kind": "gate", "design": "gate_stone", "title": "75,000", "subtitle": "STEPS"},
-    {"id": "marker_15", "step": 100000, "kind": "gate", "design": "gate_grand", "title": "100,000", "subtitle": "STEPS"}
+    {"id": "marker_02", "step": 10000, "kind": "gate", "design": "gate_grand", "title": "10,000", "subtitle": "STEPS"},
+    {"id": "marker_03", "step": 20000, "kind": "gate", "design": "gate_grand", "title": "20,000", "subtitle": "STEPS"},
+    {"id": "marker_04", "step": 50000, "kind": "gate", "design": "gate_grand", "title": "50,000", "subtitle": "STEPS"},
+    {"id": "marker_05", "step": 100000, "kind": "gate", "design": "gate_grand", "title": "100,000", "subtitle": "STEPS"}
   ],
   "markerSeries": [
+    {"id": "gate", "every": 1000, "kind": "gate", "design": "gate_stone", "subtitle": "STEPS"},
     {"id": "post", "every": 100, "kind": "post", "design": "post_stone"}
   ],
   "regions": [
@@ -80,27 +71,38 @@
     {
       "id": "region_06",
       "startStep": 8000,
-      "endStep": 12000,
+      "endStep": 10000,
       "environment": {
         "terrain": {"steepness": 0.9, "treeDensity": 0, "rockDensity": 0.14, "snowCover": 0.85},
         "palette": {"grass": "#8C8A74", "rock": "#5F6068", "snow": "#F3F5F8", "haze": "#D6E2EE", "foliage": "#3A5A40"},
         "sky": {"zenith": "#123F94", "horizon": "#D8E6F3", "sun": "#FFFFFF", "sunIntensity": 3.8},
-        "clouds": "below"
+        "clouds": "around"
       }
     },
     {
       "id": "region_07",
-      "startStep": 12000,
-      "endStep": 16000,
+      "startStep": 10000,
+      "endStep": 12000,
       "environment": {
-        "terrain": {"steepness": 1.2, "treeDensity": 0, "rockDensity": 0.3, "snowCover": 0.3},
-        "palette": {"grass": "#6E6A5E", "rock": "#4A4543", "snow": "#F2F4F7", "haze": "#C9D6E2", "foliage": "#3A5A40"},
-        "sky": {"zenith": "#0F3888", "horizon": "#CADCEF", "sun": "#FFFFFF", "sunIntensity": 3.9},
-        "clouds": "below"
+        "terrain": {"steepness": 0.7, "treeDensity": 0, "rockDensity": 0.08, "snowCover": 1},
+        "palette": {"grass": "#C9CFD6", "rock": "#B7BDC6", "snow": "#F2F4F7", "haze": "#F4F6F8", "foliage": "#3A5A40"},
+        "sky": {"zenith": "#B9CCE2", "horizon": "#F2F5F8", "sun": "#FFFFFF", "sunIntensity": 2.6},
+        "clouds": "through"
       }
     },
     {
       "id": "region_08",
+      "startStep": 12000,
+      "endStep": 16000,
+      "environment": {
+        "terrain": {"steepness": 1.1, "treeDensity": 0, "rockDensity": 0.18, "snowCover": 0.9},
+        "palette": {"grass": "#8C8A74", "rock": "#585A64", "snow": "#F4F6F9", "haze": "#CCDCEC", "foliage": "#3A5A40"},
+        "sky": {"zenith": "#0F3888", "horizon": "#CADCEF", "sun": "#FFFFFF", "sunIntensity": 4.0},
+        "clouds": "below"
+      }
+    },
+    {
+      "id": "region_09",
       "startStep": 16000,
       "endStep": 22000,
       "environment": {
@@ -111,7 +113,7 @@
       }
     },
     {
-      "id": "region_09",
+      "id": "region_10",
       "startStep": 22000,
       "endStep": 30000,
       "environment": {
@@ -122,7 +124,7 @@
       }
     },
     {
-      "id": "region_10",
+      "id": "region_11",
       "startStep": 30000,
       "endStep": 40000,
       "environment": {
@@ -133,7 +135,7 @@
       }
     },
     {
-      "id": "region_11",
+      "id": "region_12",
       "startStep": 40000,
       "endStep": 52000,
       "environment": {
@@ -144,7 +146,7 @@
       }
     },
     {
-      "id": "region_12",
+      "id": "region_13",
       "startStep": 52000,
       "endStep": 70000,
       "environment": {
@@ -155,7 +157,7 @@
       }
     },
     {
-      "id": "region_13",
+      "id": "region_14",
       "startStep": 70000,
       "endStep": 100000,
       "environment": {
@@ -166,7 +168,7 @@
       }
     },
     {
-      "id": "region_14",
+      "id": "region_15",
       "startStep": 100000,
       "environment": {
         "terrain": {"steepness": 0.85, "treeDensity": 0, "rockDensity": 0.18, "snowCover": 0.5},

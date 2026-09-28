@@ -156,6 +156,34 @@ struct AscendMountainRegionTests {
 
         #expect(Set(ids).count == ids.count, "\(ids)")
     }
+
+    /// A gate at 500 and then every thousand steps, a trail post every hundred, and the heavier
+    /// gate at the numbers the captain approved (2026-09-28); a post never takes a gate's stair.
+    @Test
+    func theBundledWorldStandsAGateEveryThousandStepsAndAPostEveryHundred() throws {
+        let world = try MountainWorld.bundled()
+        let markers = world.markers(near: 5_000, behind: 1_000, ahead: 1_000)
+
+        #expect(markers.filter { $0.kind == .gate }.map(\.step) == [4_000, 5_000, 6_000])
+        #expect(markers.filter { $0.kind == .post }.count == 18, "21 hundreds from 4,000 to 6,000, three of them gates")
+        #expect(Set(markers.map(\.step)).count == markers.count)
+        #expect(world.markers(near: 490, behind: 0, ahead: 20).map(\.kind) == [.gate])
+        for grand in [10_000, 20_000, 50_000, 100_000] {
+            let gate = try #require(world.markers(near: Double(grand), behind: 0, ahead: 0).first)
+            #expect(gate.kind == .gate && gate.design == "gate_grand", "\(grand)")
+        }
+    }
+
+    /// "The user should be able to start climbing in the clouds at some point if they're climbing
+    /// for long enough" (captain, 2026-09-28): somewhere up the bundled mountain the climb enters
+    /// the cloud layer and comes out above it.
+    @Test
+    func aLongEnoughClimbEntersTheCloudsAndComesOutAboveThem() throws {
+        let regions = try MountainWorld.bundled().regions.regions
+        let inside = try #require(regions.firstIndex { $0.environment.clouds == .through })
+
+        #expect(regions[(inside + 1)...].contains { $0.environment.clouds == .below })
+    }
 }
 
 struct AscendMountainTerrainTests {

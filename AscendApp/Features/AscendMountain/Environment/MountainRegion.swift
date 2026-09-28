@@ -50,6 +50,9 @@ struct MountainEnvironmentProfile: Decodable, Equatable, Sendable {
         case around
         /// A sea of cloud below the climber.
         case below
+        /// Inside the cloud layer: the sea of cloud lies level with the climber and mist drifts
+        /// across the stairs.
+        case through
     }
 
     let terrain: Terrain

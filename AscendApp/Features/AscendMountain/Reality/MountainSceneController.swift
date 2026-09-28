@@ -141,6 +141,7 @@ final class MountainSceneController {
         camera.camera.near = 0.05
         camera.camera.far = MountainEnvironmentRig.skyRadius * 1.8
         root.addChild(camera)
+        far.attachVeil(to: camera)
 
         let sun = DirectionalLight()
         sun.light.intensity = 3_000
