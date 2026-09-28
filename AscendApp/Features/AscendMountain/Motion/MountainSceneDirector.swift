@@ -63,8 +63,10 @@ struct MountainSceneDirector: Sendable {
         /// Camera offset behind and above the athlete, in the athlete's frame.
         var offset = SIMD3<Double>(0, 3.0, 5.6)
         /// How many steps ahead of the athlete the camera looks, so upcoming stairs stay in view.
-        var lookAheadSteps = 6.0
+        var lookAheadSteps = 8.0
         var lookHeight = 0.0
+        /// How far toward the look-ahead point, rather than the athlete, the camera aims.
+        var lookAheadWeight = 0.7
         var positionSmoothingSeconds = 0.22
         var targetSmoothingSeconds = 0.3
         var headingSmoothingSeconds = 0.55
@@ -198,7 +200,10 @@ struct MountainSceneDirector: Sendable {
         let desiredPosition = framing.composed(
             with: MountainPose(position: cameraTuning.offset, heading: 0)
         ).position
-        let desiredTarget = lookAhead + SIMD3(0, cameraTuning.lookHeight, 0)
+        // Aim between the athlete and the stairs ahead: straight up a flight that is the stairs,
+        // and round a turn the athlete stays in frame instead of the view swinging off them.
+        let aim = athletePose.position + (lookAhead - athletePose.position) * cameraTuning.lookAheadWeight
+        let desiredTarget = aim + SIMD3(0, cameraTuning.lookHeight, 0)
 
         let position: SIMD3<Double>
         let target: SIMD3<Double>
