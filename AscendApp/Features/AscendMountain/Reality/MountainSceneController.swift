@@ -37,7 +37,15 @@ final class MountainSceneController {
     /// it is handed a new piece.
     private var decorBuiltFor: [Int: Int] = [:]
 
+    /// A gap this long between rendered frames means rendering was paused - the app went to the
+    /// background, the phone locked - and the scene resynchronizes to the workout on return.
+    static let resynchronizeAfterSeconds = 0.75
+    /// Surround meshes built per frame at most, nearest pieces first, so a big jump in the count
+    /// (a return from the background) never builds a whole window in one frame.
+    static let decorBuildsPerFrame = 2
+
     private var clock: Double = 0
+    private var lastFrameAt: TimeInterval?
     private var smoothedFrameSeconds = 1.0 / 60
     private var lastDebugPublishAt: Double = -1
     private var lastDecorBuildMilliseconds = 0.0
@@ -157,6 +165,12 @@ final class MountainSceneController {
     private func step(deltaTime: TimeInterval) {
         guard let scene else { return }
 
+        let now = Date.timeIntervalSinceReferenceDate
+        if let lastFrameAt, now - lastFrameAt > Self.resynchronizeAfterSeconds {
+            director.resynchronize()
+        }
+        lastFrameAt = now
+
         clock += deltaTime
         if deltaTime > 0 {
             smoothedFrameSeconds += (deltaTime - smoothedFrameSeconds) * 0.1
@@ -171,12 +185,24 @@ final class MountainSceneController {
                let mesh = scene.resources.chunkMeshes[slotFrame.kind] {
                 entity.model = ModelComponent(mesh: mesh, materials: scene.environment.stairMaterials)
             }
-            if decorBuiltFor[slotFrame.slot] != slotFrame.chunkIndex {
-                buildDecor(for: slotFrame, into: scene.decorSlots[slotFrame.slot], environment: scene.environment)
-            }
             entity.position = slotFrame.renderPosition
             entity.orientation = simd_quatf(angle: slotFrame.heading, axis: [0, 1, 0])
             entity.isEnabled = true
+        }
+
+        // Surrounds for newly assigned pieces, nearest first; a piece whose surround is still
+        // waiting shows no stale ground from the piece it replaced.
+        var builds = 0
+        for slotFrame in frame.slots.sorted(by: { abs($0.chunkIndex - frame.progress.chunkIndex) < abs($1.chunkIndex - frame.progress.chunkIndex) })
+            where decorBuiltFor[slotFrame.slot] != slotFrame.chunkIndex {
+            let decor = scene.decorSlots[slotFrame.slot]
+            guard builds < Self.decorBuildsPerFrame else {
+                decor.isEnabled = false
+                continue
+            }
+            buildDecor(for: slotFrame, into: decor, environment: scene.environment)
+            decor.isEnabled = true
+            builds += 1
         }
 
         scene.athlete.apply(frame.athlete, origin: frame.renderOrigin)

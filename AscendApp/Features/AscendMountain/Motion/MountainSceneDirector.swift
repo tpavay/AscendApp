@@ -91,6 +91,10 @@ struct MountainSceneDirector: Sendable {
     private var cameraHeading: Double?
     private var smoothedIntensity = 0.0
     private var smoothedMovement = 0.0
+    /// Set when rendering stopped for a while (the app was in the background, the view was torn
+    /// down); the next frame places everything from the authoritative count instead of climbing
+    /// through the steps the climber took off screen.
+    private var needsResynchronization = false
 
     init(seed: UInt64, world: MountainWorld? = nil, cameraTuning: CameraTuning = .standard) {
         self.course = MountainCourse(seed: seed)
@@ -99,9 +103,26 @@ struct MountainSceneDirector: Sendable {
         self.cameraTuning = cameraTuning
     }
 
+    /// The mountain is a renderer of the workout, never a record of it: after rendering pauses,
+    /// the next frame shows exactly where the authoritative count says, with no replay of the
+    /// steps taken while nobody was watching.
+    mutating func resynchronize() {
+        needsResynchronization = true
+    }
+
     mutating func advance(logicalSteps: Int, time: Double, deltaTime: Double) -> MountainSceneFrame {
         let steps = max(logicalSteps, 0)
         let dt = deltaTime.isFinite ? min(max(deltaTime, 0), 0.25) : 0
+
+        if needsResynchronization {
+            needsResynchronization = false
+            follower = MountainStepFollower(visualSteps: Double(steps))
+            cadence = MountainCadenceEstimator()
+            cameraPosition = nil
+            cameraTarget = nil
+            cameraHeading = nil
+            smoothedMovement = 0
+        }
 
         cadence.observe(stepCount: steps, at: time)
         let stepsPerSecond = cadence.stepsPerSecond(at: time)

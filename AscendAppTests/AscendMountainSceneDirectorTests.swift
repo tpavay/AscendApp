@@ -36,6 +36,30 @@ struct AscendMountainSceneDirectorTests {
         #expect(director.course.retainedPlacementCount <= MountainCourse.retainedPlacementsBehind * 8)
     }
 
+    /// "The mountain is a renderer of the state" (captain, 2026-09-28): steps taken while the app
+    /// was in the background are not climbed again on screen when the climber comes back.
+    @Test
+    func returningFromTheBackgroundShowsTheLiveStairWithoutReplayingTheMissedSteps() {
+        var director = MountainSceneDirector(seed: MountainCourse.ascendMountainSeed)
+        var time = 0.0
+        for _ in 0..<30 {
+            time += Self.frameSeconds
+            _ = director.advance(logicalSteps: 1_200, time: time, deltaTime: Self.frameSeconds)
+        }
+
+        // Eighteen steps were climbed off screen - within the follower's normal catch-up range,
+        // so without a resynchronization the athlete would visibly climb them again.
+        var replaying = director
+        let replayed = replaying.advance(logicalSteps: 1_218, time: time + 20, deltaTime: Self.frameSeconds)
+        #expect(replayed.visualSteps < 1_218)
+
+        director.resynchronize()
+        let frame = director.advance(logicalSteps: 1_218, time: time + 20, deltaTime: Self.frameSeconds)
+        #expect(frame.visualSteps == 1_218)
+        #expect(frame.progress.totalSteps == 1_218)
+        #expect(frame.followerVelocity == 0, "standing on the stair the count says, not climbing to it")
+    }
+
     @Test
     func aRebuiltSceneResumesOnTheLiveStairInsteadOfReclimbing() {
         var director = MountainSceneDirector(seed: MountainCourse.ascendMountainSeed)
