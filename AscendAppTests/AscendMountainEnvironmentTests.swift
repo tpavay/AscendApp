@@ -308,6 +308,26 @@ struct AscendMountainTerrainTests {
     }
 }
 
+struct AscendMountainPropTests {
+    /// The props are assets: a missing or truncated file would silently leave the mountain bare.
+    @Test
+    func theBundledPropsAreAPineAndABoulderOfSensibleSize() throws {
+        let props = try MountainPropTemplate.load(from: .main)
+        let pine = try #require(props["pine"])
+        let boulder = try #require(props["boulder"])
+
+        #expect((150...2_000).contains(pine.triangles.count))
+        #expect((100...2_000).contains(boulder.triangles.count))
+        #expect(Set(pine.triangles.map(\.part)) == [0, 1], "foliage and trunk")
+        let heights = pine.triangles.flatMap { [$0.corners.0.y, $0.corners.1.y, $0.corners.2.y] }
+        #expect((3...4.5).contains(heights.max() ?? 0), "a pine about 3.6 m tall")
+        let widths = boulder.triangles.flatMap { triangle in
+            [triangle.corners.0, triangle.corners.1, triangle.corners.2].map { max(abs($0.x), abs($0.z)) }
+        }
+        #expect((0.4...0.7).contains(widths.max() ?? 0), "a boulder about a metre across")
+    }
+}
+
 struct AscendMountainAthleteTests {
     private static func poser() throws -> (MountainAthletePoser, MountainAthleteAsset) {
         let asset = try MountainAthleteAsset.bundled()

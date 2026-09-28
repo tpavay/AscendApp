@@ -11,8 +11,11 @@ Nothing here was paid for; everything is CC0 (public domain), so no attribution 
 | `ascend-mountain-ground-grass*.jpg` | Poly Haven, [rocky_terrain_02](https://polyhaven.com/a/rocky_terrain_02) | CC0 1.0 | `fetch-mountain-textures.sh` (greyed; each area's colour tints it) |
 | `ascend-mountain-ground-rock*.jpg` | Poly Haven, [rock_face](https://polyhaven.com/a/rock_face) | CC0 1.0 | `fetch-mountain-textures.sh` (greyed) |
 | `ascend-mountain-ground-snow*.jpg` | Poly Haven, [snow_02](https://polyhaven.com/a/snow_02) | CC0 1.0 | `fetch-mountain-textures.sh` (greyed) |
+| `ascend-mountain-props.{json,bin}` (pine) | Modelled by the script | Ours | `build-mountain-props.py` (Blender) |
+| `ascend-mountain-props.{json,bin}` (boulder) | Poly Haven, [boulder_01](https://polyhaven.com/a/boulder_01), reduced to about 260 triangles | CC0 1.0 | `build-mountain-props.py` (Blender) |
 
 ## Rebuilding
 
 - Textures: `scripts/mountain-art/fetch-mountain-textures.sh` (curl, python3, ffmpeg, ImageMagick).
+- Props: the command at the top of `scripts/mountain-art/build-mountain-props.py` (Blender, curl).
 - Athlete: download the Standard pack from itch.io with a price of $0 (the site only serves it to a browser), then run the command at the top of `scripts/athlete/build-ascend-athlete.py` with Blender 5.2 or later (`brew install --cask blender`).
