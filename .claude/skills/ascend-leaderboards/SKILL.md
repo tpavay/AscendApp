@@ -152,6 +152,8 @@ What each surface counts, and why the two Just Climb / routine numbers are allow
 ### Week boundaries
 - Monday is the single app-wide week start. Don't reintroduce a user-configurable week-start preference or selection UI.
 - Home summaries use Monday-based weeks in the user's local timezone.
+- The weekly streak (`WeeklyStreak`, on Home and Profile) is those same local Monday weeks, built from `WeekConfiguration.calendar()` and never `Calendar.current`: an en_US device starts its week on Sunday, which split a climbed Monday week in two and let a Sunday read as a new, unclimbed week.
+  This week counts as soon as it holds a climb; only a week with no climb yet carries the "by Sunday" deadline.
 - Competitive / global leaderboards use canonical Monday-based weeks in UTC.
 - **A week is not contained by a month.** The weekly window straddles the month boundary for up to six days a month, so a populated weekly board beside an empty monthly board is arithmetic, not data loss - on 2026-08-01 the weekly window had been open since Jul 27 while the monthly window was hours old.
   Do not "fix" that by nesting the windows; it would change what the weekly board measures.

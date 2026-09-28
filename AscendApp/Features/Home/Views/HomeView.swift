@@ -425,7 +425,7 @@ struct HomeView: View {
                     HomeRankStreakSection(
                         weeklyRankSummary: homeDashboard.weeklyRankSummary,
                         isRankLoading: homeDashboard.isRankLoading,
-                        currentStreakWeeks: homeDashboard.currentStreakWeeks,
+                        streak: homeDashboard.weeklyStreak,
                         onRankTapped: { tabRouter.select(.leaderboard, reason: .homeRankCard) },
                         onStreakTapped: { tabRouter.select(.profile, reason: .appRouting) }
                     )

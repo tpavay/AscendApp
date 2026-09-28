@@ -36,8 +36,9 @@ final class HomeDashboardViewModel {
     /// the same refresh as the records, from the array Home already holds, so Home's
     /// body never walks the history and no refresh fetches every climb again.
     var weekSummary: WeekActivitySummary?
-    /// Consecutive weeks with a climb, the same figure Profile shows.
-    var currentStreakWeeks: Int = 0
+    /// Consecutive weeks with a climb, the same figure Profile shows, and whether this
+    /// week already counts toward it.
+    var weeklyStreak: WeeklyStreak = .none
 
     private let leaderboardRepository: LeaderboardRepository
     private let leaderboardSessionCache: LeaderboardSessionCache
@@ -91,9 +92,9 @@ final class HomeDashboardViewModel {
             self.weekSummary = weekSummary
         }
 
-        let streak = Workout.calculateWeeklyStreak(from: workouts)
-        if currentStreakWeeks != streak {
-            currentStreakWeeks = streak
+        let streak = WeeklyStreak.current(climbDates: workouts.map(\.date), referenceDate: referenceDate)
+        if weeklyStreak != streak {
+            weeklyStreak = streak
         }
     }
 
