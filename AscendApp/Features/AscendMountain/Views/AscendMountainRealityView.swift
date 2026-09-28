@@ -12,13 +12,15 @@ struct AscendMountainRealityView: View {
     init(
         seed: UInt64,
         stepSource: @escaping @MainActor () -> Int,
-        debugState: MountainDebugState? = nil
+        debugState: MountainDebugState? = nil,
+        worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() }
     ) {
         _controller = State(
             initialValue: MountainSceneController(
                 seed: seed,
                 stepSource: stepSource,
-                debugState: debugState
+                debugState: debugState,
+                worldSource: worldSource
             )
         )
     }

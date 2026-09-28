@@ -29,6 +29,7 @@ final class MountainSceneController {
     private let stepSource: @MainActor () -> Int
     private let debugState: MountainDebugState?
     private let seed: UInt64
+    private let worldSource: @Sendable () throws -> MountainWorld
     private var director: MountainSceneDirector
     private var scene: Scene?
     private var updateSubscription: EventSubscription?
@@ -41,8 +42,16 @@ final class MountainSceneController {
     private var lastDebugPublishAt: Double = -1
     private var lastDecorBuildMilliseconds = 0.0
 
-    init(seed: UInt64, stepSource: @escaping @MainActor () -> Int, debugState: MountainDebugState?) {
+    /// - Parameter worldSource: where the regions and markers come from; the bundled world file
+    ///   unless a caller is previewing another.
+    init(
+        seed: UInt64,
+        stepSource: @escaping @MainActor () -> Int,
+        debugState: MountainDebugState?,
+        worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() }
+    ) {
         self.seed = seed
+        self.worldSource = worldSource
         self.stepSource = stepSource
         self.debugState = debugState
         self.director = MountainSceneDirector(seed: seed)
@@ -86,7 +95,7 @@ final class MountainSceneController {
         let environment: MountainEnvironmentResources
         let athlete: MountainAthleteRig
         do {
-            world = try MountainWorld.bundled()
+            world = try worldSource()
             let pixels = await Task.detached(priority: .userInitiated) { MountainStonePixels.make() }.value
             environment = MountainEnvironmentResources.make(world: world, stonePixels: pixels)
             resources = try MountainSceneResources.make()
