@@ -8,7 +8,7 @@ import simd
 /// Ascend kit.
 struct MountainAthleteLook: Equatable, Sendable {
     var skin = MountainColor(red: 0.78, green: 0.58, blue: 0.43)
-    var hair = MountainColor(red: 0.2, green: 0.13, blue: 0.08)
+    var hair = MountainColor(red: 0.42, green: 0.27, blue: 0.16)
     var top = MountainColor(red: 0.53, green: 0.83, blue: 0.04)
     var bottom = MountainColor(red: 0.1, green: 0.11, blue: 0.13)
     var shoe = MountainColor(red: 0.95, green: 0.95, blue: 0.95)
@@ -44,7 +44,7 @@ final class MountainAthleteRig {
     /// the tread.
     private static let footSetback = 0.05
 
-    init(asset: MountainAthleteAsset, look: MountainAthleteLook = .ascendKit) throws {
+    init(asset: MountainAthleteAsset, look: MountainAthleteLook = .ascendKit, bundle: Bundle = .main) throws {
         guard let poser = MountainAthletePoser(asset: asset) else {
             throw MountainAthleteAsset.LoadError.unsupportedFormat("rig is missing a joint the poser needs")
         }
@@ -75,6 +75,7 @@ final class MountainAthleteRig {
             var meshPart = MeshResource.Part(id: "part-\(index)", materialIndex: slots.firstIndex(of: part.slot) ?? 0)
             meshPart.positions = MeshBuffers.Positions(Array(asset.positions[vertices]))
             meshPart.normals = MeshBuffers.Normals(Array(asset.normals[vertices]))
+            meshPart.textureCoordinates = MeshBuffers.TextureCoordinates(Array(asset.uvs[vertices]))
             meshPart.triangleIndices = MeshBuffers.TriangleIndices(
                 asset.indices[part.indexStart..<(part.indexStart + part.indexCount)].map { $0 - UInt32(part.vertexStart) }
             )
@@ -94,14 +95,46 @@ final class MountainAthleteRig {
         contents.instances = MeshInstanceCollection([MeshResource.Instance(id: "athlete-0", model: "athlete")])
 
         let materials: [any RealityKit.Material] = slots.map { slot in
-            var material = PhysicallyBasedMaterial()
-            material.baseColor = .init(tint: look.color(forSlot: slot).uiColor)
-            material.roughness = .init(floatLiteral: slot == "hair" ? 0.55 : 0.72)
-            material.metallic = .init(floatLiteral: 0)
-            return material
+            Self.material(for: slot, textures: asset.textures[slot], look: look, bundle: bundle)
         }
         model = ModelEntity(mesh: try MeshResource.generate(from: contents), materials: materials)
         root.addChild(model)
+    }
+
+    /// A slot drawn from its textures (skin, eyes, hair) or as a flat colour (the kit). Textured
+    /// slots are still multiplied by the look's colour, so the grey hair texture takes the
+    /// climber's hair colour; skin and eyes carry their colour in the texture itself.
+    private static func material(for slot: String, textures: MountainAthleteAsset.Textures?, look: MountainAthleteLook, bundle: Bundle) -> PhysicallyBasedMaterial {
+        func texture(_ name: String?, _ semantic: TextureResource.Semantic) -> TextureResource? {
+            guard let name, let url = bundle.url(forResource: name, withExtension: nil) else { return nil }
+            return try? TextureResource.load(contentsOf: url, options: .init(semantic: semantic))
+        }
+        var material = PhysicallyBasedMaterial()
+        material.metallic = .init(floatLiteral: 0)
+        let tint: UIColor = switch slot {
+        case "skin", "eyes": .white
+        default: look.color(forSlot: slot).uiColor
+        }
+        if let base = texture(textures?.baseColor, .color) {
+            material.baseColor = .init(tint: tint, texture: .init(base))
+        } else {
+            material.baseColor = .init(tint: tint)
+        }
+        if let normal = texture(textures?.normal, .normal) {
+            material.normal = .init(texture: .init(normal))
+        }
+        if let roughness = texture(textures?.roughness, .raw) {
+            material.roughness = .init(texture: .init(roughness))
+        } else {
+            let roughness: Float = switch slot {
+            case "hair": 0.6
+            case "eyes": 0.2
+            case "shoeAccent": 0.9
+            default: 0.78
+            }
+            material.roughness = .init(floatLiteral: roughness)
+        }
+        return material
     }
 
     /// Poses the athlete for this frame. `origin` is the course point at the render origin.

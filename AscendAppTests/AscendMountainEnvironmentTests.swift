@@ -317,14 +317,20 @@ struct AscendMountainAthleteTests {
     func theAthleteAssetIsOneCleanSkinnedHuman() throws {
         let asset = try MountainAthleteAsset.bundled()
 
-        #expect(asset.joints.count == 62)
+        #expect(asset.joints.count == 65)
         #expect((1.6...2.0).contains(asset.height), "life size: \(asset.height) m")
         #expect(asset.positions.count == asset.normals.count)
+        #expect(asset.positions.count == asset.uvs.count)
         #expect(asset.indices.allSatisfy { Int($0) < asset.positions.count })
         #expect(asset.jointIndices.allSatisfy { indices in (0..<4).allSatisfy { indices[$0] >= 0 && Int(indices[$0]) < asset.joints.count } })
         #expect(asset.jointWeights.allSatisfy { abs(($0.x + $0.y + $0.z + $0.w) - 1) < 1e-3 })
-        let known: Set<String> = ["skin", "skinShade", "hair", "eyes", "top", "bottom", "shoe", "shoeAccent"]
-        #expect(Set(asset.parts.map(\.slot)).isSubset(of: known))
+        let known: Set<String> = ["skin", "hair", "eyes", "top", "bottom", "shoe", "shoeAccent"]
+        #expect(Set(asset.parts.map(\.slot)) == known, "the whole kit is dressed")
+        for textures in asset.textures.values {
+            for file in [textures.baseColor, textures.normal, textures.roughness].compactMap({ $0 }) {
+                #expect(Bundle.main.url(forResource: file, withExtension: nil) != nil, "\(file) ships with the app")
+            }
+        }
         #expect(asset.parts.reduce(0) { $0 + $1.indexCount } == asset.indices.count)
     }
 
@@ -349,9 +355,9 @@ struct AscendMountainAthleteTests {
         let local = poser.pose(Self.targets(left: left, right: right))
         let global = poser.globalPositions(of: local)
 
-        #expect(simd_distance(global[names.firstIndex(of: "Foot.L")!], left) < 1e-4)
-        #expect(simd_distance(global[names.firstIndex(of: "Foot.R")!], right) < 1e-4)
-        #expect(simd_distance(global[names.firstIndex(of: "Body")!], SIMD3(0, 0.76, 0)) < 1e-4)
+        #expect(simd_distance(global[names.firstIndex(of: asset.roles.legs[0][2])!], left) < 1e-4)
+        #expect(simd_distance(global[names.firstIndex(of: asset.roles.legs[1][2])!], right) < 1e-4)
+        #expect(simd_distance(global[names.firstIndex(of: asset.roles.body)!], SIMD3(0, 0.76, 0)) < 1e-4)
     }
 
     @Test
@@ -361,10 +367,10 @@ struct AscendMountainAthleteTests {
         let rest = poser.globalPositions(of: asset.joints.map { .init(translation: SIMD3<Float>($0.restTranslation), rotation: $0.restRotation.float) })
         let posed = poser.globalPositions(of: poser.pose(Self.targets(left: SIMD3(0.12, 0.25, 0.15), right: SIMD3(-0.12, 0.03, -0.12))))
 
-        for side in ["L", "R"] {
-            let hip = names.firstIndex(of: "UpperLeg.\(side)")!, knee = names.firstIndex(of: "LowerLeg.\(side)")!
+        for (side, leg) in zip(["left", "right"], asset.roles.legs) {
+            let hip = names.firstIndex(of: leg[0])!, knee = names.firstIndex(of: leg[1])!
             #expect(abs(simd_distance(posed[hip], posed[knee]) - simd_distance(rest[hip], rest[knee])) < 1e-4)
-            let foot = names.firstIndex(of: "Foot.\(side)")!
+            let foot = names.firstIndex(of: leg[2])!
             let midpoint = (posed[hip] + posed[foot]) / 2
             #expect(posed[knee].z > midpoint.z, "the \(side) knee points up the stairs")
         }
@@ -377,8 +383,8 @@ struct AscendMountainAthleteTests {
         let farBelow = SIMD3<Double>(0.12, -0.6, 0)
 
         let global = poser.globalPositions(of: poser.pose(Self.targets(left: farBelow, right: SIMD3(-0.12, 0.03, 0))))
-        let hip = global[names.firstIndex(of: "UpperLeg.L")!]
-        let foot = global[names.firstIndex(of: "Foot.L")!]
+        let hip = global[names.firstIndex(of: asset.roles.legs[0][0])!]
+        let foot = global[names.firstIndex(of: asset.roles.legs[0][2])!]
 
         #expect(foot.y > farBelow.y)
         #expect(simd_distance(hip, foot) < 1.2)

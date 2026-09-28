@@ -66,16 +66,20 @@ struct MountainAthletePoser: Sendable {
     /// Height of a foot joint above the ground at rest.
     let restFootHeight: Double
 
-    init?(joints: [(name: String, parent: Int?, translation: SIMD3<Double>, rotation: simd_quatd)]) {
+    init?(joints: [(name: String, parent: Int?, translation: SIMD3<Double>, rotation: simd_quatd)], roles: MountainAthleteAsset.Roles) {
         func index(_ name: String) -> Int? { joints.firstIndex { $0.name == name } }
-        guard let body = index("Body"), let hips = index("Hips"), let abdomen = index("Abdomen"),
-              let torso = index("Torso"), let chest = index("Chest"), let neck = index("Neck"), let head = index("Head"),
-              let upperLegL = index("UpperLeg.L"), let lowerLegL = index("LowerLeg.L"), let footL = index("Foot.L"),
-              let upperLegR = index("UpperLeg.R"), let lowerLegR = index("LowerLeg.R"), let footR = index("Foot.R"),
-              let upperArmL = index("UpperArm.L"), let lowerArmL = index("LowerArm.L"), let wristL = index("Wrist.L"),
-              let upperArmR = index("UpperArm.R"), let lowerArmR = index("LowerArm.R"), let wristR = index("Wrist.R") else {
+        let spine = roles.spine.compactMap(index)
+        guard let body = index(roles.body), !spine.isEmpty, spine.count == roles.spine.count,
+              let neck = index(roles.neck), let head = index(roles.head),
+              roles.legs.count == 2, roles.arms.count == 2,
+              roles.legs.allSatisfy({ $0.count == 3 }), roles.arms.allSatisfy({ $0.count == 3 }),
+              let upperLegL = index(roles.legs[0][0]), let lowerLegL = index(roles.legs[0][1]), let footL = index(roles.legs[0][2]),
+              let upperLegR = index(roles.legs[1][0]), let lowerLegR = index(roles.legs[1][1]), let footR = index(roles.legs[1][2]),
+              let upperArmL = index(roles.arms[0][0]), let lowerArmL = index(roles.arms[0][1]), let wristL = index(roles.arms[0][2]),
+              let upperArmR = index(roles.arms[1][0]), let lowerArmR = index(roles.arms[1][1]), let wristR = index(roles.arms[1][2]) else {
             return nil
         }
+        let chest = spine[spine.count - 1]
 
         jointCount = joints.count
         parents = joints.map(\.parent)
@@ -109,7 +113,7 @@ struct MountainAthletePoser: Sendable {
         restGlobalRotation = rotations
 
         self.body = body
-        spine = [hips, abdomen, torso, chest]
+        self.spine = spine
         self.neck = neck
         self.head = head
         legs = [(upperLegL, lowerLegL, footL), (upperLegR, lowerLegR, footR)].map { upper, lower, end in
@@ -139,7 +143,7 @@ struct MountainAthletePoser: Sendable {
     }
 
     init?(asset: MountainAthleteAsset) {
-        self.init(joints: asset.joints.map { ($0.name, $0.parentIndex, $0.restTranslation, $0.restRotation) })
+        self.init(joints: asset.joints.map { ($0.name, $0.parentIndex, $0.restTranslation, $0.restRotation) }, roles: asset.roles)
     }
 
     // MARK: - Solving

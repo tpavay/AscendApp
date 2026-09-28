@@ -18,9 +18,8 @@ struct MountainEnvironmentResources {
     let layout: MountainDecorMaterialLayout
     let skybox: EnvironmentResource?
 
-    static func make(world: MountainWorld, stonePixels: MountainStonePixels) -> MountainEnvironmentResources {
+    static func make(world: MountainWorld, stone: MountainScannedMaterial?, kerb: MountainScannedMaterial?) -> MountainEnvironmentResources {
         let regions = world.regions.regions
-        let stone = MountainStoneTexture(pixels: stonePixels)
 
         var decor: [any RealityKit.Material] = []
         for region in regions {
@@ -47,10 +46,7 @@ struct MountainEnvironmentResources {
 
         return MountainEnvironmentResources(
             world: world,
-            stairMaterials: [
-                Self.stone(stone, tint: UIColor(white: 1, alpha: 1)),
-                Self.stone(stone, tint: UIColor(red: 0.8, green: 0.79, blue: 0.76, alpha: 1))
-            ],
+            stairMaterials: [Self.scanned(stone), Self.scanned(kerb)],
             decorMaterials: decor,
             layout: MountainDecorMaterialLayout(regionCount: regions.count),
             skybox: MountainSkyImage.image(for: regions[0].environment.sky, haze: regions[0].environment.palette.haze)
@@ -66,15 +62,16 @@ struct MountainEnvironmentResources {
         return material
     }
 
-    private static func stone(_ texture: MountainStoneTexture?, tint: UIColor) -> PhysicallyBasedMaterial {
+    private static func scanned(_ scan: MountainScannedMaterial?) -> PhysicallyBasedMaterial {
         var material = PhysicallyBasedMaterial()
-        if let texture {
-            material.baseColor = .init(tint: tint, texture: .init(texture.color))
-            material.normal = .init(texture: .init(texture.normal))
+        if let scan {
+            material.baseColor = .init(tint: .white, texture: .init(scan.color))
+            material.normal = .init(texture: .init(scan.normal))
+            material.roughness = .init(texture: .init(scan.roughness))
         } else {
             material.baseColor = .init(tint: UIColor(red: 0.62, green: 0.6, blue: 0.57, alpha: 1))
+            material.roughness = .init(floatLiteral: 0.88)
         }
-        material.roughness = .init(floatLiteral: 0.88)
         material.metallic = .init(floatLiteral: 0)
         return material
     }
@@ -86,96 +83,26 @@ extension MountainColor {
     }
 }
 
-/// A procedural granite: mottled grey, speckled, with fine cracks, and a normal map from the same
-/// height field so the stairs catch the light like cut stone. The pixels are pure computation and
-/// are built off the main actor; only the texture upload runs on it.
-struct MountainStonePixels: Sendable {
-    static let size = 256
-
-    let color: [UInt8]
-    let normal: [UInt8]
-
-    static func make() -> MountainStonePixels {
-        let size = Self.size
-        var height = [Double](repeating: 0, count: size * size)
-        var albedo = [Double](repeating: 0, count: size * size)
-
-        for y in 0..<size {
-            for x in 0..<size {
-                let u = Double(x) / Double(size), v = Double(y) / Double(size)
-                let broad = tiled(u, v, cells: 4, seed: 1)
-                let grain = tiled(u, v, cells: 32, seed: 2)
-                let speck = MountainNoise.hash(x, y, seed: 3)
-                height[y * size + x] = broad * 0.6 + grain * 0.35
-                albedo[y * size + x] = 0.6 + broad * 0.09 + grain * 0.05 + (speck > 0.93 ? 0.08 : speck < 0.05 ? -0.1 : 0)
-            }
-        }
-
-        // Cracks: short random walks cut into the height and darkened.
-        var walker = 0
-        for crack in 0..<14 {
-            var px = MountainNoise.hash(crack, 1, seed: 9) * Double(size)
-            var py = MountainNoise.hash(crack, 2, seed: 9) * Double(size)
-            var angle = MountainNoise.hash(crack, 3, seed: 9) * 2 * .pi
-            for _ in 0..<60 {
-                walker += 1
-                angle += (MountainNoise.hash(walker, crack, seed: 10) - 0.5) * 0.9
-                px += cos(angle) * 1.3
-                py += sin(angle) * 1.3
-                let ix = (Int(px) % size + size) % size, iy = (Int(py) % size + size) % size
-                height[iy * size + ix] -= 0.6
-                albedo[iy * size + ix] -= 0.14
-            }
-        }
-
-        var colorPixels = [UInt8](repeating: 255, count: size * size * 4)
-        var normalPixels = [UInt8](repeating: 255, count: size * size * 4)
-        let warm = SIMD3<Double>(1.0, 0.975, 0.93)
-        for y in 0..<size {
-            for x in 0..<size {
-                let i = y * size + x
-                let rgb = warm * min(max(albedo[i], 0), 1) * 255
-                colorPixels[i * 4] = UInt8(min(rgb.x, 255))
-                colorPixels[i * 4 + 1] = UInt8(min(rgb.y, 255))
-                colorPixels[i * 4 + 2] = UInt8(min(rgb.z, 255))
-
-                let left = height[y * size + (x + size - 1) % size], right = height[y * size + (x + 1) % size]
-                let up = height[((y + size - 1) % size) * size + x], down = height[((y + 1) % size) * size + x]
-                let n = simd_normalize(SIMD3<Double>((left - right) * 2.2, (up - down) * 2.2, 1))
-                normalPixels[i * 4] = UInt8((n.x * 0.5 + 0.5) * 255)
-                normalPixels[i * 4 + 1] = UInt8((n.y * 0.5 + 0.5) * 255)
-                normalPixels[i * 4 + 2] = UInt8((n.z * 0.5 + 0.5) * 255)
-            }
-        }
-        return MountainStonePixels(color: colorPixels, normal: normalPixels)
-    }
-
-    private static func tiled(_ u: Double, _ v: Double, cells: Int, seed: UInt64) -> Double {
-        var sum = 0.0, amplitude = 0.5, period = cells
-        for octave in 0..<3 {
-            sum += amplitude * MountainNoise.periodicValue(u * Double(period), v * Double(period), period: period, seed: seed &+ UInt64(octave))
-            period *= 2
-            amplitude *= 0.5
-        }
-        return sum
-    }
-}
-
+/// A photoscanned surface bundled with the app (`scripts/mountain-art/fetch-mountain-textures.sh`,
+/// CC0 from Poly Haven): colour with its ambient occlusion baked in, a normal map and roughness.
 @MainActor
-struct MountainStoneTexture {
+struct MountainScannedMaterial {
     let color: TextureResource
     let normal: TextureResource
+    let roughness: TextureResource
 
-    init?(pixels: MountainStonePixels) {
-        let size = MountainStonePixels.size
-        guard let colorImage = cgImage(pixels.color, size: size, sRGB: true),
-              let normalImage = cgImage(pixels.normal, size: size, sRGB: false),
-              let color = try? TextureResource(image: colorImage, withName: "mountain-stone-color", options: .init(semantic: .color)),
-              let normal = try? TextureResource(image: normalImage, withName: "mountain-stone-normal", options: .init(semantic: .normal)) else {
-            return nil
+    static func load(_ name: String, bundle: Bundle = .main) async throws -> MountainScannedMaterial {
+        func texture(_ suffix: String, _ semantic: TextureResource.Semantic) async throws -> TextureResource {
+            guard let url = bundle.url(forResource: name + suffix, withExtension: "jpg") else {
+                throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: name + suffix + ".jpg"])
+            }
+            return try await TextureResource(contentsOf: url, options: .init(semantic: semantic))
         }
-        self.color = color
-        self.normal = normal
+        return MountainScannedMaterial(
+            color: try await texture("", .color),
+            normal: try await texture("-normal", .normal),
+            roughness: try await texture("-roughness", .raw)
+        )
     }
 }
 

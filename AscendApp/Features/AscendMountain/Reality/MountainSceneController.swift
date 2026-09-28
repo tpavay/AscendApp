@@ -104,8 +104,11 @@ final class MountainSceneController {
         let athlete: MountainAthleteRig
         do {
             world = try worldSource()
-            let pixels = await Task.detached(priority: .userInitiated) { MountainStonePixels.make() }.value
-            environment = MountainEnvironmentResources.make(world: world, stonePixels: pixels)
+            environment = MountainEnvironmentResources.make(
+                world: world,
+                stone: try? await MountainScannedMaterial.load("ascend-mountain-stone"),
+                kerb: try? await MountainScannedMaterial.load("ascend-mountain-kerb")
+            )
             resources = try MountainSceneResources.make()
             far = try MountainEnvironmentRig(resources: environment)
             let asset = try await Task.detached(priority: .userInitiated) { try MountainAthleteAsset.bundled() }.value

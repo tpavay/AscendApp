@@ -1,8 +1,9 @@
 import Foundation
 import simd
 
-/// The athlete's skinned mesh and skeleton, read from the bundled `ascend-athlete.json` and
-/// `.bin` (built by `scripts/build-ascend-athlete.mjs` from CC0 Quaternius characters).
+/// The athlete's skinned mesh, skeleton and textures, read from the bundled `ascend-athlete.json`,
+/// `.bin` and image files (built by `scripts/athlete/build-ascend-athlete.py` in Blender from
+/// Quaternius's CC0 Universal Base Characters, with the running kit modelled on the body).
 ///
 /// Model space is metres, +Y up, the athlete standing on y = 0 and facing +Z. Vertices are baked
 /// in the rest pose, and every joint's inverse bind matrix is the inverse of its rest frame, so
@@ -30,6 +31,25 @@ struct MountainAthleteAsset: Sendable {
         }
     }
 
+    /// Which joints play which part in a stride, so the poser works on any humanoid skeleton.
+    struct Roles: Decodable, Sendable {
+        let body: String
+        let spine: [String]
+        let neck: String
+        let head: String
+        /// Left then right: hip, knee and ankle joints.
+        let legs: [[String]]
+        /// Left then right: shoulder, elbow and wrist joints.
+        let arms: [[String]]
+    }
+
+    /// The image files a material slot is drawn with; a slot without one is a flat tinted colour.
+    struct Textures: Decodable, Sendable {
+        let baseColor: String?
+        let normal: String?
+        let roughness: String?
+    }
+
     /// One primitive of the mesh and the colour slot it is tinted with.
     struct Part: Decodable, Sendable {
         let name: String
@@ -45,6 +65,8 @@ struct MountainAthleteAsset: Sendable {
         let height: Double
         let vertexCount: Int
         let indexCount: Int
+        let roles: Roles
+        let textures: [String: Textures]
         let joints: [Joint]
         let parts: [Part]
     }
@@ -56,13 +78,16 @@ struct MountainAthleteAsset: Sendable {
     }
 
     static let resourceName = "ascend-athlete"
-    static let floatsPerVertex = 14
+    static let floatsPerVertex = 16
 
     let joints: [Joint]
+    let roles: Roles
+    let textures: [String: Textures]
     let parts: [Part]
     let height: Double
     let positions: [SIMD3<Float>]
     let normals: [SIMD3<Float>]
+    let uvs: [SIMD2<Float>]
     /// Four joint indices and weights per vertex.
     let jointIndices: [SIMD4<Int32>]
     let jointWeights: [SIMD4<Float>]
@@ -70,14 +95,15 @@ struct MountainAthleteAsset: Sendable {
 
     init(header data: Data, buffer: Data) throws {
         let header = try JSONDecoder().decode(Header.self, from: data)
-        guard header.format == "ascend-athlete-v1" else { throw LoadError.unsupportedFormat(header.format) }
+        guard header.format == "ascend-athlete-v2" else { throw LoadError.unsupportedFormat(header.format) }
         let floatCount = header.vertexCount * Self.floatsPerVertex
         guard buffer.count >= floatCount * 4 + header.indexCount * 4 else { throw LoadError.truncatedBuffer }
 
-        var positions: [SIMD3<Float>] = [], normals: [SIMD3<Float>] = []
+        var positions: [SIMD3<Float>] = [], normals: [SIMD3<Float>] = [], uvs: [SIMD2<Float>] = []
         var jointIndices: [SIMD4<Int32>] = [], jointWeights: [SIMD4<Float>] = []
         positions.reserveCapacity(header.vertexCount)
         normals.reserveCapacity(header.vertexCount)
+        uvs.reserveCapacity(header.vertexCount)
         jointIndices.reserveCapacity(header.vertexCount)
         jointWeights.reserveCapacity(header.vertexCount)
         var indices: [UInt32] = []
@@ -89,8 +115,9 @@ struct MountainAthleteAsset: Sendable {
                 let base = vertex * Self.floatsPerVertex
                 positions.append(SIMD3(float(base), float(base + 1), float(base + 2)))
                 normals.append(SIMD3(float(base + 3), float(base + 4), float(base + 5)))
-                jointIndices.append(SIMD4(Int32(float(base + 6)), Int32(float(base + 7)), Int32(float(base + 8)), Int32(float(base + 9))))
-                jointWeights.append(SIMD4(float(base + 10), float(base + 11), float(base + 12), float(base + 13)))
+                uvs.append(SIMD2(float(base + 6), float(base + 7)))
+                jointIndices.append(SIMD4(Int32(float(base + 8)), Int32(float(base + 9)), Int32(float(base + 10)), Int32(float(base + 11))))
+                jointWeights.append(SIMD4(float(base + 12), float(base + 13), float(base + 14), float(base + 15)))
             }
             for index in 0..<header.indexCount {
                 indices.append(raw.loadUnaligned(fromByteOffset: (floatCount + index) * 4, as: UInt32.self))
@@ -98,10 +125,13 @@ struct MountainAthleteAsset: Sendable {
         }
 
         self.joints = header.joints
+        self.roles = header.roles
+        self.textures = header.textures
         self.parts = header.parts
         self.height = header.height
         self.positions = positions
         self.normals = normals
+        self.uvs = uvs
         self.jointIndices = jointIndices
         self.jointWeights = jointWeights
         self.indices = indices
