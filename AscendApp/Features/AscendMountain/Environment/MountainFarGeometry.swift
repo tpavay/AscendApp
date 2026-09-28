@@ -59,35 +59,44 @@ enum MountainFarGeometry {
         return mesh
     }
 
-    /// A ring of snow-capped peaks around the origin. Material 0 is rock, 1 is snow.
-    static func peakRing(count: Int = 26, seed: UInt64 = 5) -> MountainMeshData {
+    /// Two rings of mountain range around the horizon: ridged crests that wrap seamlessly all the
+    /// way round, rock up to a shoulder and snow above it on the high crests. The nearer ring is
+    /// lower; the farther one stands taller behind it. Material 0 is rock, 1 is snow.
+    static func mountainRanges(seed: UInt64 = 5) -> MountainMeshData {
         var mesh = MountainMeshData()
-        for peak in 0..<count {
-            let r = { (salt: Int) in Float(MountainNoise.hash(peak, salt, seed: seed)) }
-            let angle = Float(peak) / Float(count) * 2 * .pi + (r(1) - 0.5) * 0.3
-            let distance = 520 + r(2) * 420
-            let height = 150 + r(3) * 260
-            let radius = height * (0.9 + r(4) * 0.7)
-            let centre = SIMD3<Float>(sin(angle) * distance, 0, -cos(angle) * distance)
-            let sides = 7 + Int(r(5) * 4)
-            let apex = centre + SIMD3(r(6) * 30 - 15, height, r(7) * 30 - 15)
-            let snowLine: Float = 0.55 + r(8) * 0.12
-
-            // Two rings of jagged points: the base and a shoulder at the snow line.
-            var base: [SIMD3<Float>] = [], shoulder: [SIMD3<Float>] = []
-            for side in 0..<sides {
-                let a = Float(side) / Float(sides) * 2 * .pi
-                let wobble = 0.75 + Float(MountainNoise.hash(peak * 31 + side, 9, seed: seed)) * 0.5
-                let outward = SIMD3<Float>(cos(a), 0, sin(a))
-                base.append(centre + outward * radius * wobble)
-                shoulder.append(centre + (apex - centre) * snowLine + outward * radius * wobble * (1 - snowLine) * 0.9)
+        let segments = 180
+        let layers: [(distance: Float, depth: Float, height: Float, period: Int, salt: UInt64)] = [
+            (560, 150, 240, 9, 1),
+            (930, 210, 430, 7, 2)
+        ]
+        for layer in layers {
+            var crest: [SIMD3<Float>] = [], shoulder: [SIMD3<Float>] = [], base: [SIMD3<Float>] = [], heights: [Float] = []
+            for i in 0..<segments {
+                let t = Double(i) / Double(segments) * Double(layer.period)
+                var ridged = 0.0, amplitude = 0.6, frequency = 1
+                for octave in 0..<4 {
+                    let n = MountainNoise.periodicValue(Double(frequency) * t, 3.7 + Double(octave), period: layer.period * frequency, seed: seed &+ layer.salt &+ UInt64(octave))
+                    ridged += amplitude * (1 - abs(n))
+                    frequency *= 2
+                    amplitude *= 0.5
+                }
+                let height = layer.height * Float(0.38 + 0.9 * pow(min(ridged / 1.05, 1), 1.6))
+                let angle = Float(i) / Float(segments) * 2 * .pi
+                let out = SIMD3<Float>(sin(angle), 0, -cos(angle))
+                let wobble = Float(MountainNoise.periodicValue(t * 3, 9.1, period: layer.period * 3, seed: seed &+ 40)) * 40
+                crest.append(out * (layer.distance + wobble) + SIMD3(0, height, 0))
+                shoulder.append(out * (layer.distance + wobble - layer.depth * 0.42) + SIMD3(0, height * 0.58, 0))
+                base.append(out * (layer.distance - layer.depth) + SIMD3(0, -40, 0))
+                heights.append(height)
             }
-            for side in 0..<sides {
-                let next = (side + 1) % sides
-                let out = simd_normalize(SIMD3(base[side].x - centre.x, 0.4, base[side].z - centre.z))
-                mesh.addFlat(base[side], base[next], shoulder[next], material: 0, facing: out)
-                mesh.addFlat(base[side], shoulder[next], shoulder[side], material: 0, facing: out)
-                mesh.addFlat(shoulder[side], shoulder[next], apex, material: 1, facing: out + SIMD3(0, 0.6, 0))
+            for i in 0..<segments {
+                let j = (i + 1) % segments
+                let inward = -simd_normalize(SIMD3(crest[i].x, 0, crest[i].z)) + SIMD3(0, 0.35, 0)
+                mesh.addFlat(base[i], base[j], shoulder[j], material: 0, facing: inward)
+                mesh.addFlat(base[i], shoulder[j], shoulder[i], material: 0, facing: inward)
+                let snow: UInt32 = (heights[i] + heights[j]) / 2 > layer.height * 0.42 ? 1 : 0
+                mesh.addFlat(shoulder[i], shoulder[j], crest[j], material: snow, facing: inward + SIMD3(0, 0.3, 0))
+                mesh.addFlat(shoulder[i], crest[j], crest[i], material: snow, facing: inward + SIMD3(0, 0.3, 0))
             }
         }
         return mesh

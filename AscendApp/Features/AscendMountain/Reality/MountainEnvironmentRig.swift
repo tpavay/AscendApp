@@ -25,7 +25,7 @@ final class MountainEnvironmentRig {
     init(resources: MountainEnvironmentResources) throws {
         self.resources = resources
         sky = ModelEntity(mesh: try MountainMeshResource.make(MountainFarGeometry.skyDome(radius: Self.skyRadius)), materials: [UnlitMaterial()])
-        peaks = ModelEntity(mesh: try MountainMeshResource.make(MountainFarGeometry.peakRing()), materials: [UnlitMaterial(), UnlitMaterial()])
+        peaks = ModelEntity(mesh: try MountainMeshResource.make(MountainFarGeometry.mountainRanges()), materials: [UnlitMaterial(), UnlitMaterial()])
         floor = ModelEntity(mesh: try MountainMeshResource.make(MountainFarGeometry.disc(radius: 2_400)), materials: [UnlitMaterial()])
         cloudSea = ModelEntity(
             mesh: try MountainMeshResource.make(MountainFarGeometry.clouds(count: 260, innerRadius: 40, outerRadius: 1_100, heightSpread: 14, puffSize: 18...46, seed: 3)),
