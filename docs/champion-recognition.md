@@ -22,6 +22,7 @@ The rank model itself - what a rank counts and how ties resolve - stays owned by
 - **Several titles.** The rarest title leads (all-time, then yearly, monthly, weekly); large pictures carry a small dot per other title; holding every title at once is "Undisputed".
 - **Blocked climbers** keep their crown on the placeholder picture: a title is a standing, not identity.
 - **The board.** A slim champion strip leads the weekly, monthly and yearly Steps boards, with a chevron to past champions.
+  It names the reign relative to now - `LAST WEEK'S CHAMPION`, `LAST MONTH'S CHAMPION`, `LAST YEAR'S CHAMPION`, plural for co-champions - because it only ever shows the period that just closed (the captain, 2026-09-28); past boards and the recap keep the dated names history needs.
   First place on the podium takes the board's colour - crown, ring and number - gold weekly, diamond monthly, ruby yearly, mythic all-time; #2 and #3 keep silver and bronze.
 - **Past champions are past boards.** The board frozen at each final result, stepped back one period at a time, with the climber count and most climbs underneath.
 - **Profiles.** The crown sits on the picture; there is no title bar.

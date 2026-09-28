@@ -23,7 +23,7 @@ struct ChampionStripView: View {
             avatars
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("\(ChampionTitleLine.periodName(for: reign.result.period)) CHAMPION")
+                Text(Self.label(for: reign.title, championCount: reign.result.championUserIds.count))
                     .font(.montserratBold(size: 10))
                     .tracking(1.6)
                     .foregroundStyle(tint)
@@ -96,7 +96,19 @@ struct ChampionStripView: View {
     }
 
     private var accessibilityLabel: String {
-        "\(ChampionTitleLine.periodName(for: reign.result.period)) champion, \(nameLine)"
+        "\(Self.label(for: reign.title, championCount: reign.result.championUserIds.count).capitalized), \(nameLine)"
+    }
+
+    /// The strip names the reign relative to now - `LAST WEEK'S CHAMPION` - because it only
+    /// ever shows the period that just closed; past boards keep the dates history needs.
+    static func label(for title: ChampionTitle, championCount: Int) -> String {
+        let noun = championCount > 1 ? "CHAMPIONS" : "CHAMPION"
+        switch title {
+        case .weekly: return "LAST WEEK'S \(noun)"
+        case .monthly: return "LAST MONTH'S \(noun)"
+        case .yearly: return "LAST YEAR'S \(noun)"
+        case .allTime: return "ALL-TIME \(noun)"
+        }
     }
 }
 

@@ -544,7 +544,7 @@ struct ChampionCrownEvidenceTests {
             size: size
         ) { screen in
             let copy = try await screen.copy()
-            #expect(copy.contains("week 38 champion"), "no champion strip: \(copy)")
+            #expect(copy.contains("last week's champion"), "no champion strip: \(copy)")
             #expect(copy.contains("zoe ramirez · 8,836 steps"), "\(copy)")
             #expect(copy.contains("ends "), "no countdown on the window line: \(copy)")
             try screen.photograph(named: "champion-strip-weekly-board")

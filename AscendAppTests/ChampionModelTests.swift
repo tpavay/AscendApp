@@ -248,6 +248,14 @@ struct ChampionModelTests {
     }
 
     @Test
+    func theStripNamesTheReignRelativeToNow() {
+        #expect(ChampionStripView.label(for: .weekly, championCount: 1) == "LAST WEEK'S CHAMPION")
+        #expect(ChampionStripView.label(for: .monthly, championCount: 1) == "LAST MONTH'S CHAMPION")
+        #expect(ChampionStripView.label(for: .yearly, championCount: 1) == "LAST YEAR'S CHAMPION")
+        #expect(ChampionStripView.label(for: .weekly, championCount: 2) == "LAST WEEK'S CHAMPIONS")
+    }
+
+    @Test
     func championNamesJoinTwoAndCountTheRest() {
         #expect(ChampionNames.joined(["Zoe R."]) == "Zoe R.")
         #expect(ChampionNames.joined(["Zoe R.", "Noah G."]) == "Zoe R. & Noah G.")
