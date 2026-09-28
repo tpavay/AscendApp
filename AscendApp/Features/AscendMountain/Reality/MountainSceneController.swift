@@ -117,10 +117,15 @@ final class MountainSceneController {
         let asset: MountainAthleteAsset
         do {
             world = try worldSource()
+            var ground: [MountainTerrainBucket.Surface: MountainScannedMaterial] = [:]
+            for surface in MountainTerrainBucket.Surface.allCases {
+                ground[surface] = try? await MountainScannedMaterial.load("ascend-mountain-ground-\(surface)")
+            }
             environment = MountainEnvironmentResources.make(
                 world: world,
                 stone: try? await MountainScannedMaterial.load("ascend-mountain-stone"),
-                kerb: try? await MountainScannedMaterial.load("ascend-mountain-kerb")
+                kerb: try? await MountainScannedMaterial.load("ascend-mountain-kerb"),
+                ground: ground
             )
             resources = try MountainSceneResources.make()
             far = try MountainEnvironmentRig(resources: environment)
@@ -282,6 +287,7 @@ final class MountainSceneController {
         var descriptor = MeshDescriptor(name: "mountain-decor")
         descriptor.positions = MeshBuffers.Positions(data.positions)
         descriptor.normals = MeshBuffers.Normals(data.normals)
+        descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(data.uvs)
         descriptor.primitives = .triangles(data.indices)
         descriptor.materials = .perFace(data.faceMaterials)
         if let mesh = try? MeshResource.generate(from: [descriptor]) {

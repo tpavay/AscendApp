@@ -18,7 +18,15 @@ struct MountainEnvironmentResources {
     let layout: MountainDecorMaterialLayout
     let skybox: EnvironmentResource?
 
-    static func make(world: MountainWorld, stone: MountainScannedMaterial?, kerb: MountainScannedMaterial?) -> MountainEnvironmentResources {
+    /// Haze levels close enough for ground detail to read; farther ground stays flat colour.
+    static let detailedHazeLevels = 0...1
+
+    static func make(
+        world: MountainWorld,
+        stone: MountainScannedMaterial?,
+        kerb: MountainScannedMaterial?,
+        ground: [MountainTerrainBucket.Surface: MountainScannedMaterial] = [:]
+    ) -> MountainEnvironmentResources {
         let regions = world.regions.regions
 
         var decor: [any RealityKit.Material] = []
@@ -32,7 +40,12 @@ struct MountainEnvironmentResources {
                 case .snow: color = palette.snow
                 }
                 for haze in 0..<MountainTerrainBucket.hazeLevels {
-                    decor.append(Self.matte(color.mixed(with: palette.haze, amount: hazeMix[haze]), roughness: surface == .snow ? 0.8 : 0.96))
+                    let tint = color.mixed(with: palette.haze, amount: hazeMix[haze])
+                    if detailedHazeLevels.contains(haze), let detail = ground[surface] {
+                        decor.append(Self.detailed(tint, detail))
+                    } else {
+                        decor.append(Self.matte(tint, roughness: surface == .snow ? 0.8 : 0.96))
+                    }
                 }
             }
         }
@@ -58,6 +71,16 @@ struct MountainEnvironmentResources {
         var material = PhysicallyBasedMaterial()
         material.baseColor = .init(tint: color.uiColor)
         material.roughness = .init(floatLiteral: roughness)
+        material.metallic = .init(floatLiteral: 0)
+        return material
+    }
+
+    /// Ground in the area's own colour with a scanned grey detail pressed into it.
+    private static func detailed(_ tint: MountainColor, _ detail: MountainScannedMaterial) -> PhysicallyBasedMaterial {
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: tint.uiColor, texture: .init(detail.color))
+        material.normal = .init(texture: .init(detail.normal))
+        material.roughness = .init(texture: .init(detail.roughness))
         material.metallic = .init(floatLiteral: 0)
         return material
     }

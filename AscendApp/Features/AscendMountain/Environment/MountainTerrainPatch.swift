@@ -41,8 +41,13 @@ struct MountainTerrainPatch: Sendable {
     /// Depths below the stairs at which the ground steps to its next haze level.
     static let hazeDepths: [Double] = [6, 16, 32]
 
+    /// Metres of ground one repeat of a detail texture covers.
+    static let detailTileMetres = 3.2
+
     private(set) var positions: [SIMD3<Float>] = []
     private(set) var normals: [SIMD3<Float>] = []
+    /// Texture coordinates from course space, so a detail texture runs unbroken across pieces.
+    private(set) var uvs: [SIMD2<Float>] = []
     /// Triangle vertex indices per material bucket; every triangle owns its three vertices,
     /// so the ground is flat-shaded.
     private(set) var triangles: [MountainTerrainBucket: [UInt32]] = [:]
@@ -302,6 +307,11 @@ struct MountainTerrainPatch: Sendable {
         let n = SIMD3<Float>(normal)
         positions.append(contentsOf: [SIMD3<Float>(a), SIMD3<Float>(b), SIMD3<Float>(c)])
         normals.append(contentsOf: [n, n, n])
+        for corner in [a, b, c] {
+            // Wrapped well inside Float precision however far up the mountain the piece is.
+            let point = context.world(SIMD2(corner.x, corner.z)) / Self.detailTileMetres
+            uvs.append(SIMD2<Float>(Float(point.x.truncatingRemainder(dividingBy: 512)), Float(point.y.truncatingRemainder(dividingBy: 512))))
+        }
         triangles[bucket, default: []].append(contentsOf: [base, base + 1, base + 2])
     }
 

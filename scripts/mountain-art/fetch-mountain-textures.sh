@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fetches the CC0 Poly Haven materials Ascend Mountain draws its stairs and kerbs with, and
 # prepares them for the phone: 1K colour with the ambient occlusion multiplied in, a 1K normal
-# map, and a roughness map. Needs curl, python3 and ffmpeg.
+# map, and a roughness map, plus grey ground detail for grass, rock and snow. Needs curl,
+# python3, ffmpeg and ImageMagick.
 #
 #   scripts/mountain-art/fetch-mountain-textures.sh
 #
@@ -34,4 +35,17 @@ ffmpeg -loglevel error -y -i "$WORK/kerb-diff.jpg" -q:v 3 "$OUT/ascend-mountain-
 ffmpeg -loglevel error -y -i "$WORK/kerb-nor.jpg" -q:v 2 "$OUT/ascend-mountain-kerb-normal.jpg"
 ffmpeg -loglevel error -y -i "$WORK/kerb-rough.jpg" -vf "format=gray,scale=512:512" -q:v 3 "$OUT/ascend-mountain-kerb-roughness.jpg"
 
-ls -la "$OUT"/ascend-mountain-stone* "$OUT"/ascend-mountain-kerb*
+# Ground detail: grey, lifted, so each area's own colour tints it (grass, rock, snow).
+ground() { # surface asset roughness-map
+  get "$2" "$1-diff.jpg" Diffuse
+  get "$2" "$1-nor.jpg" nor_gl
+  get "$2" "$1-arm.jpg" arm
+  magick "$WORK/$1-diff.jpg" -colorspace gray -auto-level +level 55%,100% -resize 512x512 -quality 86 "$OUT/ascend-mountain-ground-$1.jpg"
+  ffmpeg -loglevel error -y -i "$WORK/$1-nor.jpg" -vf "scale=512:512" -q:v 2 "$OUT/ascend-mountain-ground-$1-normal.jpg"
+  ffmpeg -loglevel error -y -i "$WORK/$1-arm.jpg" -vf "format=gbrp,extractplanes=g,scale=256:256" -q:v 3 "$OUT/ascend-mountain-ground-$1-roughness.jpg"
+}
+ground grass rocky_terrain_02
+ground rock rock_face
+ground snow snow_02
+
+ls -la "$OUT"/ascend-mountain-stone* "$OUT"/ascend-mountain-kerb* "$OUT"/ascend-mountain-ground*

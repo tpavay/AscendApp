@@ -300,6 +300,7 @@ struct AscendMountainTerrainTests {
             let patch = MountainTerrainPatch(placement: course.placement(at: index), regions: regions)
             let mesh = MountainDecorMeshData(patch: patch, layout: layout)
             #expect(mesh.positions.count == mesh.indices.count)
+            #expect(mesh.uvs.count == mesh.positions.count)
             #expect(mesh.faceMaterials.count == mesh.indices.count / 3)
             #expect(mesh.faceMaterials.allSatisfy { Int($0) < layout.materialCount })
             #expect(mesh.triangleCount >= patch.triangleCount)

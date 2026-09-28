@@ -26,6 +26,7 @@ struct MountainDecorMaterialLayout: Equatable, Sendable {
 struct MountainDecorMeshData: Sendable {
     private(set) var positions: [SIMD3<Float>] = []
     private(set) var normals: [SIMD3<Float>] = []
+    private(set) var uvs: [SIMD2<Float>] = []
     private(set) var indices: [UInt32] = []
     private(set) var faceMaterials: [UInt32] = []
 
@@ -36,7 +37,8 @@ struct MountainDecorMeshData: Sendable {
             let material = UInt32(layout.terrain(bucket))
             for start in stride(from: 0, to: triangleIndices.count, by: 3) {
                 let a = Int(triangleIndices[start]), b = Int(triangleIndices[start + 1]), c = Int(triangleIndices[start + 2])
-                append(patch.positions[a], patch.positions[b], patch.positions[c], normal: patch.normals[a], material: material)
+                append(patch.positions[a], patch.positions[b], patch.positions[c], normal: patch.normals[a], material: material,
+                       uvs: (patch.uvs[a], patch.uvs[b], patch.uvs[c]))
             }
         }
         for tree in patch.trees {
@@ -63,10 +65,14 @@ struct MountainDecorMeshData: Sendable {
         }
     }
 
-    private mutating func append(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>, normal: SIMD3<Float>, material: UInt32) {
+    private mutating func append(
+        _ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>, normal: SIMD3<Float>, material: UInt32,
+        uvs corners: (SIMD2<Float>, SIMD2<Float>, SIMD2<Float>) = (.zero, .zero, .zero)
+    ) {
         let base = UInt32(positions.count)
         positions.append(contentsOf: [a, b, c])
         normals.append(contentsOf: [normal, normal, normal])
+        uvs.append(contentsOf: [corners.0, corners.1, corners.2])
         indices.append(contentsOf: [base, base + 1, base + 2])
         faceMaterials.append(material)
     }
