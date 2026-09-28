@@ -157,6 +157,16 @@ struct AscendMountainRegionTests {
         #expect(Set(ids).count == ids.count, "\(ids)")
     }
 
+    /// Half of all production climbs end before about 1,100 steps (2026-09-28), so the mountain has
+    /// to visibly change inside the first 2,000 or most climbers never see it evolve.
+    @Test
+    func aTypicalClimbPassesThroughSeveralAreas() throws {
+        let regions = try MountainWorld.bundled().regions
+        let ids = Set(stride(from: 0.0, through: 2_000, by: 50).map { regions.region(atSteps: $0).id })
+
+        #expect(ids.count >= 4, "\(ids.sorted())")
+    }
+
     /// A gate at 500 and then every thousand steps, a trail post every hundred, and the heavier
     /// gate at the numbers the captain approved (2026-09-28); a post never takes a gate's stair.
     @Test

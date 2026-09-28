@@ -16,9 +16,9 @@
     {
       "id": "region_01",
       "startStep": 0,
-      "endStep": 500,
+      "endStep": 300,
       "environment": {
-        "terrain": {"steepness": 0.55, "treeDensity": 0.5, "rockDensity": 0.05, "snowCover": 0},
+        "terrain": {"steepness": 0.45, "treeDensity": 0.6, "rockDensity": 0.04, "snowCover": 0},
         "palette": {"grass": "#5E8C3A", "rock": "#7D7A72", "snow": "#F3F6F8", "haze": "#C4D8E4", "foliage": "#2F5A33"},
         "sky": {"zenith": "#2F6FC4", "horizon": "#D2E6F2", "sun": "#FFF2D8", "sunIntensity": 3.2},
         "clouds": "none"
@@ -26,51 +26,62 @@
     },
     {
       "id": "region_02",
-      "startStep": 500,
-      "endStep": 1500,
+      "startStep": 300,
+      "endStep": 700,
       "environment": {
-        "terrain": {"steepness": 0.85, "treeDensity": 0.36, "rockDensity": 0.08, "snowCover": 0},
-        "palette": {"grass": "#52803A", "rock": "#767470", "snow": "#F3F6F8", "haze": "#BFD3E1", "foliage": "#2A5230"},
+        "terrain": {"steepness": 0.8, "treeDensity": 0.45, "rockDensity": 0.08, "snowCover": 0},
+        "palette": {"grass": "#4F7F34", "rock": "#767470", "snow": "#F3F6F8", "haze": "#BFD3E1", "foliage": "#264E2C"},
         "sky": {"zenith": "#2C68BE", "horizon": "#CFE3F1", "sun": "#FFF4DC", "sunIntensity": 3.3},
         "clouds": "none"
       }
     },
     {
       "id": "region_03",
-      "startStep": 1500,
-      "endStep": 3000,
+      "startStep": 700,
+      "endStep": 1200,
       "environment": {
-        "terrain": {"steepness": 1.15, "treeDensity": 0.1, "rockDensity": 0.14, "snowCover": 0.05},
-        "palette": {"grass": "#7D8A4A", "rock": "#7A7670", "snow": "#F3F6F8", "haze": "#C9D9E6", "foliage": "#35583A"},
+        "terrain": {"steepness": 0.9, "treeDensity": 0.12, "rockDensity": 0.1, "snowCover": 0},
+        "palette": {"grass": "#8FA04E", "rock": "#7A7670", "snow": "#F3F6F8", "haze": "#C9D9E6", "foliage": "#35583A"},
         "sky": {"zenith": "#2862B8", "horizon": "#D5E6F2", "sun": "#FFF6E4", "sunIntensity": 3.4},
         "clouds": "none"
       }
     },
     {
       "id": "region_04",
-      "startStep": 3000,
-      "endStep": 5000,
+      "startStep": 1200,
+      "endStep": 2000,
       "environment": {
-        "terrain": {"steepness": 1.05, "treeDensity": 0.025, "rockDensity": 0.18, "snowCover": 0.35},
+        "terrain": {"steepness": 1.2, "treeDensity": 0.02, "rockDensity": 0.22, "snowCover": 0.1},
+        "palette": {"grass": "#7D7A5C", "rock": "#6E6A66", "snow": "#F3F6F8", "haze": "#CFDCE7", "foliage": "#3A5A40"},
+        "sky": {"zenith": "#245CB2", "horizon": "#D8E7F2", "sun": "#FFF7E8", "sunIntensity": 3.45},
+        "clouds": "none"
+      }
+    },
+    {
+      "id": "region_05",
+      "startStep": 2000,
+      "endStep": 3500,
+      "environment": {
+        "terrain": {"steepness": 1.05, "treeDensity": 0.025, "rockDensity": 0.18, "snowCover": 0.4},
         "palette": {"grass": "#8A8660", "rock": "#6F6D6A", "snow": "#EEF2F6", "haze": "#D3DEE8", "foliage": "#3A5A40"},
         "sky": {"zenith": "#1F57AE", "horizon": "#DCE8F2", "sun": "#FFF8EC", "sunIntensity": 3.5},
         "clouds": "around"
       }
     },
     {
-      "id": "region_05",
-      "startStep": 5000,
-      "endStep": 8000,
+      "id": "region_06",
+      "startStep": 3500,
+      "endStep": 6000,
       "environment": {
-        "terrain": {"steepness": 0.95, "treeDensity": 0, "rockDensity": 0.16, "snowCover": 0.7},
+        "terrain": {"steepness": 0.95, "treeDensity": 0, "rockDensity": 0.16, "snowCover": 0.72},
         "palette": {"grass": "#8C8A74", "rock": "#6B6A6C", "snow": "#EEF2F6", "haze": "#E4EBF2", "foliage": "#3A5A40"},
         "sky": {"zenith": "#1A4FA6", "horizon": "#E6EEF5", "sun": "#FFFAF0", "sunIntensity": 3.6},
         "clouds": "around"
       }
     },
     {
-      "id": "region_06",
-      "startStep": 8000,
+      "id": "region_07",
+      "startStep": 6000,
       "endStep": 10000,
       "environment": {
         "terrain": {"steepness": 0.9, "treeDensity": 0, "rockDensity": 0.14, "snowCover": 0.85},
@@ -80,7 +91,7 @@
       }
     },
     {
-      "id": "region_07",
+      "id": "region_08",
       "startStep": 10000,
       "endStep": 12000,
       "environment": {
@@ -91,7 +102,7 @@
       }
     },
     {
-      "id": "region_08",
+      "id": "region_09",
       "startStep": 12000,
       "endStep": 16000,
       "environment": {
@@ -102,7 +113,7 @@
       }
     },
     {
-      "id": "region_09",
+      "id": "region_10",
       "startStep": 16000,
       "endStep": 22000,
       "environment": {
@@ -113,7 +124,7 @@
       }
     },
     {
-      "id": "region_10",
+      "id": "region_11",
       "startStep": 22000,
       "endStep": 30000,
       "environment": {
@@ -124,7 +135,7 @@
       }
     },
     {
-      "id": "region_11",
+      "id": "region_12",
       "startStep": 30000,
       "endStep": 40000,
       "environment": {
@@ -135,7 +146,7 @@
       }
     },
     {
-      "id": "region_12",
+      "id": "region_13",
       "startStep": 40000,
       "endStep": 52000,
       "environment": {
@@ -146,7 +157,7 @@
       }
     },
     {
-      "id": "region_13",
+      "id": "region_14",
       "startStep": 52000,
       "endStep": 70000,
       "environment": {
@@ -157,7 +168,7 @@
       }
     },
     {
-      "id": "region_14",
+      "id": "region_15",
       "startStep": 70000,
       "endStep": 100000,
       "environment": {
@@ -168,7 +179,7 @@
       }
     },
     {
-      "id": "region_15",
+      "id": "region_16",
       "startStep": 100000,
       "environment": {
         "terrain": {"steepness": 0.85, "treeDensity": 0, "rockDensity": 0.18, "snowCover": 0.5},
