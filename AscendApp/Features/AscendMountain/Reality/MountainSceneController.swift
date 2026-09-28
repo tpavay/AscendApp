@@ -21,6 +21,7 @@ final class MountainSceneController {
         let chunkSlots: [ModelEntity]
         let decorSlots: [ModelEntity]
         let athlete: MountainAthleteRig
+        let athleteAsset: MountainAthleteAsset
         let camera: PerspectiveCamera
         let sun: DirectionalLight
         let far: MountainEnvironmentRig
@@ -30,6 +31,9 @@ final class MountainSceneController {
     private let debugState: MountainDebugState?
     private let seed: UInt64
     private let worldSource: @Sendable () throws -> MountainWorld
+    private let ghosts: [MountainGhost]
+    private let elapsedSource: (@MainActor () -> TimeInterval)?
+    private var ghostRigs: [String: MountainAthleteRig] = [:]
     private var director: MountainSceneDirector
     private var scene: Scene?
     private var updateSubscription: EventSubscription?
@@ -50,16 +54,24 @@ final class MountainSceneController {
     private var lastDebugPublishAt: Double = -1
     private var lastDecorBuildMilliseconds = 0.0
 
-    /// - Parameter worldSource: where the regions and markers come from; the bundled world file
-    ///   unless a caller is previewing another.
+    /// - Parameters:
+    ///   - worldSource: where the regions and markers come from; the bundled world file unless a
+    ///     caller is previewing another.
+    ///   - ghosts: other athletes on the stairs - a best, a pacer, a rival.
+    ///   - elapsedSource: the climb's own elapsed time, which places every ghost; the scene's
+    ///     clock when a caller has no workout.
     init(
         seed: UInt64,
         stepSource: @escaping @MainActor () -> Int,
         debugState: MountainDebugState?,
-        worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() }
+        worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
+        ghosts: [MountainGhost] = [],
+        elapsedSource: (@MainActor () -> TimeInterval)? = nil
     ) {
         self.seed = seed
         self.worldSource = worldSource
+        self.ghosts = ghosts
+        self.elapsedSource = elapsedSource
         self.stepSource = stepSource
         self.debugState = debugState
         self.director = MountainSceneDirector(seed: seed)
@@ -102,6 +114,7 @@ final class MountainSceneController {
         let far: MountainEnvironmentRig
         let environment: MountainEnvironmentResources
         let athlete: MountainAthleteRig
+        let asset: MountainAthleteAsset
         do {
             world = try worldSource()
             environment = MountainEnvironmentResources.make(
@@ -111,7 +124,7 @@ final class MountainSceneController {
             )
             resources = try MountainSceneResources.make()
             far = try MountainEnvironmentRig(resources: environment)
-            let asset = try await Task.detached(priority: .userInitiated) { try MountainAthleteAsset.bundled() }.value
+            asset = try await Task.detached(priority: .userInitiated) { try MountainAthleteAsset.bundled() }.value
             athlete = try MountainAthleteRig(asset: asset)
         } catch {
             AppDiagnosticsRecorder.shared.record(
@@ -160,6 +173,7 @@ final class MountainSceneController {
             chunkSlots: chunkSlots,
             decorSlots: decorSlots,
             athlete: athlete,
+            athleteAsset: asset,
             camera: camera,
             sun: sun,
             far: far
@@ -181,7 +195,13 @@ final class MountainSceneController {
         }
 
         let logicalSteps = stepSource() + (debugState?.visualStepOffset ?? 0)
-        let frame = director.advance(logicalSteps: logicalSteps, time: clock, deltaTime: deltaTime)
+        let elapsed = elapsedSource?() ?? clock
+        let frame = director.advance(
+            logicalSteps: logicalSteps,
+            time: clock,
+            deltaTime: deltaTime,
+            ghosts: ghosts.map { MountainGhostSample(ghost: $0, elapsed: elapsed) }
+        )
 
         for slotFrame in frame.slots {
             let entity = scene.chunkSlots[slotFrame.slot]
@@ -210,6 +230,7 @@ final class MountainSceneController {
         }
 
         scene.athlete.apply(frame.athlete, origin: frame.renderOrigin)
+        placeGhosts(frame, in: scene)
         scene.camera.look(at: frame.cameraTarget, from: frame.cameraPosition, relativeTo: nil)
 
         let regions = scene.environment.world.regions
@@ -224,6 +245,32 @@ final class MountainSceneController {
         scene.far.place(markers: frame.markers)
 
         publishDebugMetricsIfDue(frame)
+    }
+
+    /// Stands each ghost in view on its stair, building its rig the first time it comes near.
+    private func placeGhosts(_ frame: MountainSceneFrame, in scene: Scene) {
+        let visible = Set(frame.ghosts.map(\.id))
+        for (id, rig) in ghostRigs where !visible.contains(id) {
+            rig.root.isEnabled = false
+        }
+        for ghost in frame.ghosts {
+            let rig: MountainAthleteRig
+            if let existing = ghostRigs[ghost.id] {
+                rig = existing
+            } else {
+                let style: MountainAthleteRig.Style = switch ghost.kind {
+                case .personalBest: .ghost(MountainColor(red: 0.83, green: 0.69, blue: 0.22))
+                case .pacer: .ghost(MountainColor(red: 0.75, green: 0.9, blue: 1))
+                case .rival: .athlete(.ascendKit)
+                }
+                guard let made = try? MountainAthleteRig(asset: scene.athleteAsset, style: style, label: ghost.label) else { continue }
+                scene.root.addChild(made.root)
+                ghostRigs[ghost.id] = made
+                rig = made
+            }
+            rig.apply(ghost.kinematics, origin: frame.renderOrigin)
+            rig.root.isEnabled = true
+        }
     }
 
     /// Bakes the mountainside for the piece a slot has just been handed. A slot is handed a piece

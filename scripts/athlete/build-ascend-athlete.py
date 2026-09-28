@@ -53,8 +53,8 @@ bpy.ops.import_scene.gltf(filepath=os.path.join(BASE_DIR, BODY["file"]))
 bpy.ops.import_scene.gltf(filepath=os.path.join(HAIR_DIR, HAIR + ".gltf"))
 
 armatures = [o for o in bpy.data.objects if o.type == "ARMATURE"]
-armature = next(a for a in armatures if any(c.type == "MESH" and c.name.startswith("SuperHero") for c in a.children))
-body = next(o for o in armature.children if o.type == "MESH" and o.name.startswith("SuperHero"))
+armature = next(a for a in armatures if any(c.type == "MESH" and c.name.lower().startswith("superhero") for c in a.children))
+body = next(o for o in armature.children if o.type == "MESH" and o.name.lower().startswith("superhero"))
 eyes = next(o for o in armature.children if o.type == "MESH" and o.name.startswith("Eyes"))
 brows = next(o for o in armature.children if o.type == "MESH" and o.name.startswith("Eyebrows"))
 hair = next(o for o in bpy.data.objects if o.type == "MESH" and o.name.startswith(HAIR))

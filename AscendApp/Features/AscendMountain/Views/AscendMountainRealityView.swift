@@ -13,14 +13,18 @@ struct AscendMountainRealityView: View {
         seed: UInt64,
         stepSource: @escaping @MainActor () -> Int,
         debugState: MountainDebugState? = nil,
-        worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() }
+        worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
+        ghosts: [MountainGhost] = [],
+        elapsedSource: (@MainActor () -> TimeInterval)? = nil
     ) {
         _controller = State(
             initialValue: MountainSceneController(
                 seed: seed,
                 stepSource: stepSource,
                 debugState: debugState,
-                worldSource: worldSource
+                worldSource: worldSource,
+                ghosts: ghosts,
+                elapsedSource: elapsedSource
             )
         )
     }

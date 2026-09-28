@@ -141,6 +141,26 @@ struct AscendMountainSceneDirectorTests {
         #expect(abs(simd_distance(knee, foot) - 0.46) < 1e-9)
         #expect(knee.z < -0.1, "the knee bends forward, over the stairs")
     }
+
+    /// A ghost stands on the stair its record says for the climb's elapsed time, and one far up
+    /// or down the mountain is left to the HUD rather than drawn.
+    @Test
+    func aGhostStandsOnItsOwnStairAndOnlyWhenNear() {
+        var director = MountainSceneDirector(seed: MountainCourse.ascendMountainSeed)
+        var course = MountainCourse(seed: MountainCourse.ascendMountainSeed)
+        let pacer = MountainGhost.pacer(stepsPerMinute: 90)
+        let near = MountainGhostSample(ghost: pacer, elapsed: 20)
+        let far = MountainGhostSample(id: "far", kind: .rival, label: "FAR", steps: 900, stepsPerMinute: 80)
+
+        let frame = director.advance(logicalSteps: 10, time: 0, deltaTime: 0, ghosts: [near, far])
+
+        #expect(near.steps == 30, "90 steps a minute for 20 seconds")
+        #expect(abs(near.stepsPerMinute - 90) < 1e-9)
+        #expect(frame.ghosts.map(\.id) == ["pacer"], "the far ghost is only a number")
+        let ghost = frame.ghosts[0]
+        #expect(abs(ghost.lead - 20) < 1e-9)
+        #expect(simd_distance(ghost.kinematics.bodyPose.position, course.progress(atSteps: 30).pose.position) < 1)
+    }
 }
 
 struct AscendMountainChunkPoolTests {

@@ -36,6 +36,13 @@ struct MountainAthleteLook: Equatable, Sendable {
 /// climb animation is the steps themselves rather than a clip played over them.
 @MainActor
 final class MountainAthleteRig {
+    /// How an athlete is drawn: as themselves, or as a ghost - one glowing colour, see-through,
+    /// so it never reads as a real climber on the stairs.
+    enum Style: Equatable {
+        case athlete(MountainAthleteLook)
+        case ghost(MountainColor)
+    }
+
     let root = Entity()
     private let model: ModelEntity
     private let poser: MountainAthletePoser
@@ -44,7 +51,7 @@ final class MountainAthleteRig {
     /// the tread.
     private static let footSetback = 0.05
 
-    init(asset: MountainAthleteAsset, look: MountainAthleteLook = .ascendKit, bundle: Bundle = .main) throws {
+    init(asset: MountainAthleteAsset, style: Style = .athlete(.ascendKit), label: String? = nil, bundle: Bundle = .main) throws {
         guard let poser = MountainAthletePoser(asset: asset) else {
             throw MountainAthleteAsset.LoadError.unsupportedFormat("rig is missing a joint the poser needs")
         }
@@ -95,10 +102,65 @@ final class MountainAthleteRig {
         contents.instances = MeshInstanceCollection([MeshResource.Instance(id: "athlete-0", model: "athlete")])
 
         let materials: [any RealityKit.Material] = slots.map { slot in
-            Self.material(for: slot, textures: asset.textures[slot], look: look, bundle: bundle)
+            switch style {
+            case .athlete(let look):
+                Self.material(for: slot, textures: asset.textures[slot], look: look, bundle: bundle)
+            case .ghost(let color):
+                Self.ghostMaterial(color)
+            }
         }
         model = ModelEntity(mesh: try MeshResource.generate(from: contents), materials: materials)
         root.addChild(model)
+        if case .ghost = style {
+            model.components.set(OpacityComponent(opacity: 0.5))
+        }
+        if let label, let tag = Self.tag(label, style: style) {
+            tag.position = [0, Float(asset.height) + 0.32, 0]
+            root.addChild(tag)
+        }
+    }
+
+    private static func ghostMaterial(_ color: MountainColor) -> PhysicallyBasedMaterial {
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: color.uiColor)
+        material.emissiveColor = .init(color: color.uiColor)
+        material.emissiveIntensity = 0.9
+        material.roughness = .init(floatLiteral: 0.35)
+        material.metallic = .init(floatLiteral: 0)
+        return material
+    }
+
+    /// The words over an athlete's head, drawn once into a texture and turned to face the
+    /// camera wherever the stairs bend.
+    private static func tag(_ text: String, style: Style) -> Entity? {
+        let accent: UIColor = switch style {
+        case .ghost(let color): color.uiColor
+        case .athlete: UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1)
+        }
+        let font = UIFont(name: "Montserrat-Bold", size: 64) ?? .systemFont(ofSize: 64, weight: .heavy)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.white, .kern: 3]
+        let textSize = (text as NSString).size(withAttributes: attributes)
+        let size = CGSize(width: ceil(textSize.width) + 88, height: 112)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            UIColor(red: 0.03, green: 0.04, blue: 0.05, alpha: 0.82).setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 56).fill()
+            accent.setFill()
+            UIBezierPath(ovalIn: CGRect(x: 30, y: 44, width: 24, height: 24)).fill()
+            (text as NSString).draw(at: CGPoint(x: 66, y: (size.height - textSize.height) / 2), withAttributes: attributes)
+        }
+        guard let cgImage = image.cgImage,
+              let texture = try? TextureResource(image: cgImage, withName: nil, options: .init(semantic: .color)) else {
+            return nil
+        }
+        var material = UnlitMaterial(applyPostProcessToneMap: false)
+        material.color = .init(tint: .white, texture: .init(texture))
+        material.blending = .transparent(opacity: .init(floatLiteral: 1))
+        let height: Float = 0.2
+        let plane = ModelEntity(mesh: .generatePlane(width: height * Float(size.width / size.height), height: height), materials: [material])
+        let tag = Entity()
+        tag.addChild(plane)
+        tag.components.set(BillboardComponent())
+        return tag
     }
 
     /// A slot drawn from its textures (skin, eyes, hair) or as a flat colour (the kit). Textured

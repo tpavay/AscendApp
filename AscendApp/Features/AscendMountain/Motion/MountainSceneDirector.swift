@@ -46,6 +46,8 @@ struct MountainSceneFrame: Equatable, Sendable {
     let recycleCount: Int
     let idleSlotCount: Int
     let markers: [MountainMarkerFrame]
+    /// Ghosts close enough to stand on the stairs in view.
+    let ghosts: [MountainGhostFrame]
 
     func renderPoint(_ coursePoint: SIMD3<Double>) -> SIMD3<Float> {
         SIMD3<Float>(coursePoint - renderOrigin)
@@ -110,7 +112,11 @@ struct MountainSceneDirector: Sendable {
         needsResynchronization = true
     }
 
-    mutating func advance(logicalSteps: Int, time: Double, deltaTime: Double) -> MountainSceneFrame {
+    /// How far from the climber a ghost is still drawn. Beyond this it is only a number in the
+    /// HUD, which also keeps the course from regenerating far-off pieces every frame.
+    static let ghostDrawRange: ClosedRange<Double> = -60...200
+
+    mutating func advance(logicalSteps: Int, time: Double, deltaTime: Double, ghosts: [MountainGhostSample] = []) -> MountainSceneFrame {
         let steps = max(logicalSteps, 0)
         let dt = deltaTime.isFinite ? min(max(deltaTime, 0), 0.25) : 0
 
@@ -170,6 +176,22 @@ struct MountainSceneDirector: Sendable {
             return MountainMarkerFrame(marker: marker, renderPosition: SIMD3<Float>(pose.position - origin), heading: Float(pose.heading))
         }
 
+        let ghostFrames = ghosts.compactMap { ghost -> MountainGhostFrame? in
+            let lead = ghost.steps - visualSteps
+            guard Self.ghostDrawRange.contains(lead) else { return nil }
+            let pacing = MountainAnimationPacing(stepsPerMinute: ghost.stepsPerMinute)
+            var course = self.course
+            let kinematics = MountainAthleteKinematics(
+                visualSteps: max(ghost.steps, 0),
+                intensity: pacing.intensity,
+                movement: ghost.stepsPerMinute > 1 ? 1 : 0,
+                time: time,
+                pose: { course.progress(atSteps: $0).pose }
+            )
+            self.course = course
+            return MountainGhostFrame(id: ghost.id, kind: ghost.kind, label: ghost.label, kinematics: kinematics, lead: lead)
+        }
+
         return MountainSceneFrame(
             logicalSteps: steps,
             visualSteps: visualSteps,
@@ -189,7 +211,8 @@ struct MountainSceneDirector: Sendable {
             cameraTarget: SIMD3<Float>(camera.target - origin),
             recycleCount: pool.recycleCount,
             idleSlotCount: pool.idleSlotCount,
-            markers: markers
+            markers: markers,
+            ghosts: ghostFrames
         )
     }
 
