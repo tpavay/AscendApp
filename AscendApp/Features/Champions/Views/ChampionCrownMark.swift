@@ -59,9 +59,9 @@ struct ChampionCrownMark: View {
 
     private func dotFill(_ title: ChampionTitle) -> AnyShapeStyle {
         switch title {
-        case .yearly:
+        case .allTime:
             AnyShapeStyle(AngularGradient(colors: Color.championMythicSpectrum, center: .center))
-        case .weekly, .monthly, .allTime:
+        case .weekly, .monthly, .yearly:
             AnyShapeStyle(title.tint)
         }
     }

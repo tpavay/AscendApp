@@ -156,7 +156,7 @@ let functionsURL = "https://\(region)-\(projectId).cloudfunctions.net"
 - **Fonts**: Montserrat (custom) - `montserratBold`, `montserratSemiBold`, `montserratMedium`, `montserratRegular`
 - **Accent color**: `#86D30A`
 - **Medal tokens**: Gold `#D4AF37`, Silver `#C0C0C0`, Bronze `#CD7F32`. Reserved for podium / rank-prestige moments. Apply sparingly, never as primary surface color.
-- **Champion tokens**: `Color.championDiamond` `#58E3FF` (monthly), `Color.championMythic` `#B184FF` with `championMythicSpectrum` (yearly) and `Color.championRuby` `#FF4D78` (all-time); weekly is the gold medal token. Reserved for champion crowns and first place on the board that awards them (`ChampionTitle`).
+- **Champion tokens**: `Color.championDiamond` `#58E3FF` (monthly), `Color.championRuby` `#FF4D78` (yearly) and `Color.championMythic` `#B184FF` with `championMythicSpectrum` (all-time); weekly is the gold medal token. Reserved for champion crowns and first place on the board that awards them (`ChampionTitle`).
 - **Caution token**: `Color.ascendCaution` - a climber's own work that has not reached their account. Deliberately not lime (which means "earned") and not the destructive red. These, the medal tokens and the champion tokens are the only sanctioned exceptions to lime-accent discipline.
 - **Theming**: `ThemeManager` with dark/light mode, `effectiveColorScheme`, `.themedBackground()`
 - **Icons**: SF Symbols

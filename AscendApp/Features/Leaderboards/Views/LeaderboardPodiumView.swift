@@ -12,8 +12,8 @@ struct LeaderboardPodiumView: View {
     let metric: LeaderboardMetric
     var usesContainerBackground: Bool = false
     /// The title this board awards, when it awards one. First place's crown, ring and number
-    /// take its colour - gold weekly, diamond monthly, mythic yearly - and every other board
-    /// keeps the gold podium it always had.
+    /// take its colour - gold weekly, diamond monthly, ruby yearly, mythic all-time - and
+    /// every other board keeps the gold podium it always had.
     var awardedTitle: ChampionTitle? = nil
 
     private var layout: ModeratedLeaderboardPodiumLayout {

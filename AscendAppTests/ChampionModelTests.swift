@@ -50,8 +50,8 @@ struct ChampionModelTests {
         #expect(ChampionTitle.yearly.isFinalized)
         #expect(ChampionTitle.weekly.crownAssetName == "LeaderboardCrown")
         #expect(ChampionTitle.monthly.crownAssetName == "LeaderboardCrownDiamond")
-        #expect(ChampionTitle.yearly.crownAssetName == "LeaderboardCrownMythic")
-        #expect(ChampionTitle.allTime.crownAssetName == "LeaderboardCrownRuby")
+        #expect(ChampionTitle.yearly.crownAssetName == "LeaderboardCrownRuby")
+        #expect(ChampionTitle.allTime.crownAssetName == "LeaderboardCrownMythic")
     }
 
     // MARK: - The perch
