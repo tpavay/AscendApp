@@ -14,6 +14,15 @@ struct AscendMountainRegionTests {
         )
     }
 
+    private static let profileJSON = """
+    {
+      "terrain": { "steepness": 1, "treeDensity": 0, "rockDensity": 0, "snowCover": 0 },
+      "palette": { "grass": "#000000", "rock": "#000000", "snow": "#000000", "haze": "#000000", "foliage": "#000000" },
+      "sky": { "zenith": "#000000", "horizon": "#000000", "sun": "#000000", "sunIntensity": 1 },
+      "clouds": "none"
+    }
+    """
+
     private static func map() throws -> MountainRegionMap {
         try MountainRegionMap(regions: [
             MountainRegion(id: "region_01", startStep: 0, endStep: 100, environment: profile(steepness: 1, grass: "#000000")),
@@ -97,6 +106,55 @@ struct AscendMountainRegionTests {
         #expect(world.markers(near: 200).map(\.id) == ["a"])
         #expect(world.markers(near: 305).map(\.id) == ["a"], "still standing just after it is passed")
         #expect(world.markers(near: 330).isEmpty)
+    }
+
+    /// Gates for big milestones, trail posts for small ones (captain, 2026-09-28): the posts repeat
+    /// by rule, and a step that has its own gate keeps the gate.
+    @Test
+    func aRepeatingSeriesStandsPostsBetweenTheGates() throws {
+        let world = MountainWorld(
+            regions: try Self.map(),
+            markers: [MountainMarker(id: "gate", step: 500, kind: .gate, design: "gate_stone", title: "500", subtitle: "STEPS")],
+            markerSeries: [MountainMarkerSeries(id: "post", every: 100, subtitle: "STEPS")]
+        )
+
+        let near = world.markers(near: 380, behind: 12, ahead: 160)
+        #expect(near.map(\.step) == [400, 500])
+        #expect(near.map(\.kind) == [.post, .gate])
+        #expect(near.first?.id == "post_400")
+        #expect(near.first?.title == 400.formatted())
+        #expect(world.markers(near: 0, behind: 12, ahead: 50).isEmpty, "no post at the start line")
+    }
+
+    @Test
+    func markersDecodeKindAndDesignAndFallBackForUnknownOnes() throws {
+        let data = Data("""
+        {
+          "regions": [{ "id": "region_01", "startStep": 0, "environment": \(Self.profileJSON) }],
+          "markers": [
+            { "id": "a", "step": 500, "title": "500" },
+            { "id": "b", "step": 900, "kind": "post", "design": "post_stone", "title": "900" },
+            { "id": "c", "step": 1000, "kind": "obelisk", "design": "not_in_this_build", "title": "1,000" }
+          ],
+          "markerSeries": [{ "id": "post", "every": 250, "subtitle": "STEPS" }]
+        }
+        """.utf8)
+
+        let world = try MountainWorld(data: data)
+
+        #expect(world.markers.map(\.kind) == [.gate, .post, .gate])
+        #expect(world.markers.map(\.design) == [nil, "post_stone", "not_in_this_build"])
+        #expect(world.markerSeries == [MountainMarkerSeries(id: "post", every: 250, kind: .post, subtitle: "STEPS")])
+    }
+
+    /// Climbers already pass 16,000 steps in one session (production, 2026-09-28), so the far end of
+    /// the climb may not be one unchanging place.
+    @Test
+    func theBundledWorldKeepsChangingThroughTheLongestClimbs() throws {
+        let regions = try MountainWorld.bundled().regions
+        let ids = [10_000, 16_000, 30_000, 52_000, 100_000].map { regions.region(atSteps: Double($0)).id }
+
+        #expect(Set(ids).count == ids.count, "\(ids)")
     }
 }
 
@@ -326,5 +384,20 @@ struct AscendMountainMarkerFrameTests {
         #expect(marker.marker.id == "m")
         #expect(simd_distance(SIMD3<Double>(marker.renderPosition), expected) < 1e-3)
         #expect(director.advance(logicalSteps: 300, time: 1, deltaTime: 0.016).markers.isEmpty)
+    }
+
+    /// A gate across a bend stood askew with a pillar in the path, so a marker never stands inside
+    /// a turn: it waits at the turn's exit, the first straight stair after the number is reached.
+    @Test
+    func aMarkerInsideATurnStandsAtTheTurnsExit() throws {
+        var course = MountainCourse(seed: MountainCourse.ascendMountainSeed)
+        let turn = try #require((0..<200).lazy.map { course.placement(at: $0) }.first { $0.kind == .leftTurn || $0.kind == .rightTurn })
+        let flight = try #require((0..<200).lazy.map { course.placement(at: $0) }.first { $0.kind != .leftTurn && $0.kind != .rightTurn && $0.stepCount > 3 })
+
+        #expect(course.markerStep(for: turn.firstStep) == turn.firstStep, "the turn's entry is still straight")
+        for step in (turn.firstStep + 1)..<turn.endStep {
+            #expect(course.markerStep(for: step) == turn.endStep)
+        }
+        #expect(course.markerStep(for: flight.firstStep + 2) == flight.firstStep + 2)
     }
 }

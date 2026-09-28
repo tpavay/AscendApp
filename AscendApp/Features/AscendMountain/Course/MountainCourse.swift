@@ -98,6 +98,19 @@ struct MountainCourse: Sendable {
         return placement
     }
 
+    /// Where a marker for `step` stands. A gate cannot stand across a turn, where the path bends
+    /// beneath it, so a step inside a turn stands at the turn's exit: the first straight stair,
+    /// never before the climber's count has reached the number it shows.
+    mutating func markerStep(for step: Int) -> Int {
+        let placement = placement(containingStep: step)
+        switch placement.kind {
+        case .leftTurn, .rightTurn:
+            return step == placement.firstStep ? step : placement.endStep
+        default:
+            return step
+        }
+    }
+
     mutating func progress(atSteps steps: Double) -> MountainCourseProgress {
         let safeSteps = steps.isFinite ? steps : 0
         let wholeStep = Int(safeSteps.rounded(.down))

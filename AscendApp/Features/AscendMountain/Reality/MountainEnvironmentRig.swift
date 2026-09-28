@@ -2,8 +2,8 @@ import Foundation
 import RealityKit
 import UIKit
 
-/// The far scenery and the markers: sky, distant peaks, valley floor, clouds, and the stone
-/// gates standing on the staircase. Everything here follows the camera or the course; nothing
+/// The far scenery and the markers: sky, distant peaks, valley floor, clouds, and the gates and
+/// trail posts standing on the staircase. Everything here follows the camera or the course; nothing
 /// decides anything about the climb.
 @MainActor
 final class MountainEnvironmentRig {
@@ -16,7 +16,7 @@ final class MountainEnvironmentRig {
     private let floor: ModelEntity
     private let cloudSea: ModelEntity
     private let cloudBanks: ModelEntity
-    private var gates: [String: Entity] = [:]
+    private var markerEntities: [String: Entity] = [:]
     private var appliedSkyKey: [Int]?
     private var seaDepth: Float = 400
 
@@ -97,45 +97,107 @@ final class MountainEnvironmentRig {
 
     // MARK: - Markers
 
-    /// Stands a gate at each marker's stair, building a marker's gate the first time it is near.
+    /// Stands each marker at its stair, building it the first time it is near and letting it go
+    /// once it is behind, so a climb of any length holds only the few markers in view.
     func place(markers: [MountainMarkerFrame]) {
         let live = Set(markers.map(\.marker.id))
-        for (id, gate) in gates where !live.contains(id) {
-            gate.isEnabled = false
+        for (id, entity) in markerEntities where !live.contains(id) {
+            entity.removeFromParent()
+            markerEntities[id] = nil
         }
         for frame in markers {
-            let gate = gates[frame.marker.id] ?? makeGate(for: frame.marker)
-            gate.position = frame.renderPosition
-            gate.orientation = simd_quatf(angle: frame.heading, axis: [0, 1, 0])
-            gate.isEnabled = true
+            let entity = markerEntities[frame.marker.id] ?? makeMarker(frame.marker)
+            entity.position = frame.renderPosition
+            entity.orientation = simd_quatf(angle: frame.heading, axis: [0, 1, 0])
         }
     }
 
-    private func makeGate(for marker: MountainMarker) -> Entity {
+    private func makeMarker(_ marker: MountainMarker) -> Entity {
+        let entity: Entity
+        switch marker.kind {
+        case .gate:
+            entity = makeGate(for: marker, proportions: marker.design == "gate_grand" ? .grand : .standard)
+        case .post:
+            entity = makePost(for: marker)
+        }
+        markerEntities[marker.id] = entity
+        root.addChild(entity)
+        return entity
+    }
+
+    private struct GateProportions {
+        static let standard = GateProportions(pillarWidth: 0.46, pillarHeight: 3.3, lintelHeight: 0.5, crown: false, plaqueWidth: 1.9)
+        static let grand = GateProportions(pillarWidth: 0.62, pillarHeight: 3.5, lintelHeight: 0.64, crown: true, plaqueWidth: 2.4)
+
+        let pillarWidth: Float
+        let pillarHeight: Float
+        let lintelHeight: Float
+        /// A second, narrower block stacked on the lintel.
+        let crown: Bool
+        let plaqueWidth: Float
+    }
+
+    /// A stone gate spanning the staircase, its number on the lintel facing the approaching climber.
+    private func makeGate(for marker: MountainMarker, proportions: GateProportions) -> Entity {
         let gate = Entity()
         let stone = resources.stairMaterials[0]
-        let span = Float(MountainStairGeometry.width / 2 + MountainChunkGeometry.kerbWidth) + 0.28
-        let pillar = MeshResource.generateBox(size: [0.46, 4.2, 0.46], cornerRadius: 0.04)
+        let span = Float(MountainStairGeometry.width / 2 + MountainChunkGeometry.kerbWidth) + 0.28 + (proportions.pillarWidth - 0.46) / 2
+        // Pillars reach a metre below the tread so they stand in the ground on any slope.
+        let pillarBottom: Float = -1
+        let pillarTop = proportions.pillarHeight - 1
+        let pillar = MeshResource.generateBox(size: [proportions.pillarWidth, pillarTop - pillarBottom, proportions.pillarWidth], cornerRadius: 0.04)
         for side: Float in [-1, 1] {
             let entity = ModelEntity(mesh: pillar, materials: [stone])
-            entity.position = [side * span, 1.1, 0]
+            entity.position = [side * span, (pillarTop + pillarBottom) / 2, 0]
             gate.addChild(entity)
-            let cap = ModelEntity(mesh: .generateBox(size: [0.6, 0.18, 0.6], cornerRadius: 0.03), materials: [stone])
-            cap.position = [side * span, 3.25, 0]
+            let capWidth = proportions.pillarWidth + 0.14
+            let cap = ModelEntity(mesh: .generateBox(size: [capWidth, 0.18, capWidth], cornerRadius: 0.03), materials: [stone])
+            cap.position = [side * span, pillarTop + 0.05, 0]
             gate.addChild(cap)
         }
-        let lintel = ModelEntity(mesh: .generateBox(size: [span * 2 + 0.9, 0.5, 0.52], cornerRadius: 0.05), materials: [stone])
-        lintel.position = [0, 3.55, 0]
+        let lintelY = pillarTop + proportions.lintelHeight / 2 + 0.1
+        let lintelDepth = proportions.pillarWidth + 0.06
+        let lintel = ModelEntity(mesh: .generateBox(size: [span * 2 + proportions.pillarWidth * 2, proportions.lintelHeight, lintelDepth], cornerRadius: 0.05), materials: [stone])
+        lintel.position = [0, lintelY, 0]
         gate.addChild(lintel)
+        if proportions.crown {
+            let crown = ModelEntity(mesh: .generateBox(size: [span * 1.1, proportions.lintelHeight * 0.7, lintelDepth * 0.8], cornerRadius: 0.05), materials: [stone])
+            crown.position = [0, lintelY + proportions.lintelHeight * 0.85, 0]
+            gate.addChild(crown)
+        }
 
         if let plaque = Self.plaqueMaterial(title: marker.title, subtitle: marker.subtitle) {
-            let face = ModelEntity(mesh: .generatePlane(width: 1.9, height: 0.95, cornerRadius: 0.06), materials: [plaque])
-            face.position = [0, 3.55, 0.27]
+            let width = proportions.plaqueWidth
+            let face = ModelEntity(mesh: .generatePlane(width: width, height: width / 2, cornerRadius: 0.06), materials: [plaque])
+            face.position = [0, lintelY, lintelDepth / 2 + 0.01]
             gate.addChild(face)
         }
-        gates[marker.id] = gate
-        root.addChild(gate)
         return gate
+    }
+
+    /// A stone trail post just outside the right kerb, its sign turned in toward the climber.
+    private func makePost(for marker: MountainMarker) -> Entity {
+        let post = Entity()
+        let stone = resources.stairMaterials[0]
+        let side = Float(MountainStairGeometry.width / 2 + MountainChunkGeometry.kerbWidth) + 0.3
+        let top: Float = 1.15
+        let bottom: Float = -1
+        let shaft = ModelEntity(mesh: .generateBox(size: [0.2, top - bottom, 0.2], cornerRadius: 0.03), materials: [stone])
+        shaft.position = [side, (top + bottom) / 2, 0]
+        post.addChild(shaft)
+
+        let sign = Entity()
+        sign.position = [side - 0.06, top - 0.04, 0]
+        sign.orientation = simd_quatf(angle: -0.35, axis: [0, 1, 0])
+        let board = ModelEntity(mesh: .generateBox(size: [0.86, 0.46, 0.07], cornerRadius: 0.03), materials: [stone])
+        sign.addChild(board)
+        if let plaque = Self.plaqueMaterial(title: marker.title, subtitle: marker.subtitle) {
+            let face = ModelEntity(mesh: .generatePlane(width: 0.8, height: 0.4, cornerRadius: 0.04), materials: [plaque])
+            face.position = [0, 0, 0.04]
+            sign.addChild(face)
+        }
+        post.addChild(sign)
+        return post
     }
 
     /// The marker's words on dark stone: the number large, the unit in the lime accent, drawn once

@@ -166,7 +166,7 @@ struct MountainSceneDirector: Sendable {
         let lookAhead = self.course.progress(atSteps: visualSteps + cameraTuning.lookAheadSteps).pose.position
         let camera = updateCamera(athletePose: progress.pose, lookAhead: lookAhead, deltaTime: dt)
         let markers = (world?.markers(near: visualSteps) ?? []).map { marker -> MountainMarkerFrame in
-            let pose = self.course.progress(atSteps: Double(marker.step)).pose
+            let pose = self.course.progress(atSteps: Double(self.course.markerStep(for: marker.step))).pose
             return MountainMarkerFrame(marker: marker, renderPosition: SIMD3<Float>(pose.position - origin), heading: Float(pose.heading))
         }
 
