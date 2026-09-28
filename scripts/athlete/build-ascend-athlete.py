@@ -231,13 +231,13 @@ def trainers():
             bmesh.ops.smooth_vert(hull, verts=hull.verts[:], factor=0.6, use_axis_x=True, use_axis_y=True, use_axis_z=True)
         hull.normal_update()
         for v in hull.verts:
-            v.co += v.normal * 0.006
+            v.co += v.normal * 0.009
             if v.co.z < 0.02 * k:
                 v.co.z = -0.004
         for v in hull.verts:
             hit, normal, _, _ = SKIN.find_nearest(v.co)
-            if hit is not None and (v.co - hit).dot(normal) < 0.006:
-                v.co += normal * (0.006 - (v.co - hit).dot(normal))
+            if hit is not None and (v.co - hit).dot(normal) < 0.01:
+                v.co += normal * (0.01 - (v.co - hit).dot(normal))
         index_map = {}
         for v in hull.verts:
             nv = out.verts.new(v.co)

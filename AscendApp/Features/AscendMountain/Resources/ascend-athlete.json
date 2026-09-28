@@ -6,7 +6,7 @@
  "hairStyle": "Hair_SimpleParted",
  "height": 1.839722,
  "vertexLayout": "positions f32x3, normals f32x3, uv f32x2, joints f32x4, weights f32x4 (interleaved, 16 floats); indices u32 absolute",
- "vertexCount": 12293,
+ "vertexCount": 12421,
  "indexCount": 62187,
  "roles": {
   "body": "pelvis",
@@ -2580,17 +2580,17 @@
    "name": "shoe-upper",
    "slot": "shoe",
    "vertexStart": 10542,
-   "vertexCount": 893,
+   "vertexCount": 1035,
    "indexStart": 53115,
-   "indexCount": 4557
+   "indexCount": 4956
   },
   {
    "name": "shoe-sole",
    "slot": "shoeAccent",
-   "vertexStart": 11435,
-   "vertexCount": 858,
-   "indexStart": 57672,
-   "indexCount": 4515
+   "vertexStart": 11577,
+   "vertexCount": 844,
+   "indexStart": 58071,
+   "indexCount": 4116
   }
  ]
 }
