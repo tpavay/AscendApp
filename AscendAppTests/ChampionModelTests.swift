@@ -147,7 +147,7 @@ struct ChampionModelTests {
         let fixtures = ChampionRecapFixtures(viewerId: "me", now: now)
         let reigns = fixtures.reigns(crowning: [.weekly, .monthly])
         let line = try #require(ChampionTitleLine.make(titles: ChampionTitles([.weekly, .monthly]), reigns: reigns))
-        #expect(line.text == "AUGUST & WEEK 38 CHAMPION")
+        #expect(line.text == "LAST MONTH'S & LAST WEEK'S CHAMPION")
         #expect(line.leadingTitle == .monthly)
 
         let undisputed = try #require(ChampionTitleLine.make(
@@ -161,7 +161,24 @@ struct ChampionModelTests {
             titles: ChampionTitles([.allTime, .weekly]),
             reigns: fixtures.reigns(crowning: [.allTime, .weekly])
         ))
-        #expect(allTime.text == "ALL-TIME & WEEK 38 CHAMPION")
+        #expect(allTime.text == "ALL-TIME & LAST WEEK'S CHAMPION")
+
+        // An exact tie on every held title is a co-championship.
+        let week = fixtures.periods().week
+        let tied = [ChampionTitle.weekly: ChampionReign(
+            title: .weekly,
+            result: LeaderboardResult(
+                period: week,
+                climberCount: 12,
+                championUserIds: ["a", "b"],
+                podiumUserIds: ["a", "b"],
+                mostClimbs: nil,
+                community: .empty
+            ),
+            champions: []
+        )]
+        let coChampion = try #require(ChampionTitleLine.make(titles: ChampionTitles([.weekly]), reigns: tied))
+        #expect(coChampion.text == "LAST WEEK'S CO-CHAMPION")
     }
 
     // MARK: - Parsing a result

@@ -408,8 +408,9 @@ struct ChampionCrownEvidenceTests {
         )
         let registry = registry()
         for (userId, name, expected) in [
-            ("fixture-zoe", "Zoe Ramirez", "week 38 champion"),
-            ("double", "Ezra Kim", "august & week 38 champion")
+            // This registry crowns several climbers per title, so every title here is shared.
+            ("fixture-zoe", "Zoe Ramirez", "last week's co-champion"),
+            ("double", "Ezra Kim", "last month's & last week's co-champion")
         ] {
             let other = CrossUserIdentityResolver.resolve(
                 userId: userId,

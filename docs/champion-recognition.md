@@ -26,7 +26,8 @@ The rank model itself - what a rank counts and how ties resolve - stays owned by
   First place on the podium takes the board's colour - crown, ring and number - gold weekly, diamond monthly, ruby yearly, mythic all-time; #2 and #3 keep silver and bronze.
 - **Past champions are past boards.** The board frozen at each final result, stepped back one period at a time, with the climber count and most climbs underneath.
 - **Profiles.** The crown sits on the picture; there is no title bar.
-  The comparison screen names the title under the other climber's name.
+  The comparison screen names the title under the climber's name, relative to now like the strip - `LAST WEEK'S CHAMPION`, `ALL-TIME & LAST MONTH'S CHAMPION`, `LAST WEEK'S CO-CHAMPION` on an exact tie.
+  A held title is only ever the reigning one, so an older title (July, read in September) never appears there; history lives on past boards and the profile's CHAMPION history.
 - **Countdown.** Every board's window line and the Home weekly rank tile read `ENDS IN 2D 14H`, hours and minutes on the last day, and turn gold on the last day.
   All-time has none.
 - **Recap.** The first open after a week or month closes shows a story: everyone's period, then your period (rank, climbs and steps with gains, badges earned named in words, new best efforts), then the crown (the winner's coronation page when the viewer won).

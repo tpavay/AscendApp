@@ -102,13 +102,7 @@ struct ChampionStripView: View {
     /// The strip names the reign relative to now - `LAST WEEK'S CHAMPION` - because it only
     /// ever shows the period that just closed; past boards keep the dates history needs.
     static func label(for title: ChampionTitle, championCount: Int) -> String {
-        let noun = championCount > 1 ? "CHAMPIONS" : "CHAMPION"
-        switch title {
-        case .weekly: return "LAST WEEK'S \(noun)"
-        case .monthly: return "LAST MONTH'S \(noun)"
-        case .yearly: return "LAST YEAR'S \(noun)"
-        case .allTime: return "ALL-TIME \(noun)"
-        }
+        "\(ChampionTitleLine.relativeName(for: title)) \(championCount > 1 ? "CHAMPIONS" : "CHAMPION")"
     }
 }
 
