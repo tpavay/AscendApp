@@ -11,6 +11,13 @@ import SwiftUI
 struct AscendMountainSandboxView: View {
     static let launchArgument = "-AscendMountainSandbox"
 
+    /// Your best a few steps ahead at a slightly slower pace, and a pacer slightly faster, so
+    /// both ghosts can be seen racing the default 90 SPM climber.
+    static let demoGhosts: [MountainGhost] = [
+        MountainGhost(id: "best", kind: .personalBest, label: "YOUR BEST") { elapsed in 6 + elapsed * 88 / 60 },
+        .pacer(stepsPerMinute: 95)
+    ]
+
     static var isRequestedAtLaunch: Bool {
         ProcessInfo.processInfo.arguments.contains(launchArgument)
     }
@@ -32,7 +39,8 @@ struct AscendMountainSandboxView: View {
             AscendMountainRealityView(
                 seed: MountainCourse.ascendMountainSeed,
                 stepSource: { simulator.steps },
-                debugState: debugState
+                debugState: debugState,
+                ghosts: Self.demoGhosts
             )
             .ignoresSafeArea()
 
