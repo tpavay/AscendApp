@@ -26,7 +26,7 @@ struct AscendMountainRealityView: View {
     var body: some View {
         let controller = controller
         RealityView { content in
-            controller.install(in: &content)
+            await controller.install(in: &content)
         } placeholder: {
             Color.black
         }

@@ -8,7 +8,8 @@ import Foundation
 /// re-created - so a 60-minute climb allocates no more entities than its first second did.
 struct MountainChunkPool: Equatable, Sendable {
     static let chunksBehind = 2
-    static let chunksAhead = 3
+    /// Far enough ahead that the stairs and mountainside are built well before they can be seen.
+    static let chunksAhead = 6
     static var windowSize: Int { chunksBehind + 1 + chunksAhead }
 
     struct Assignment: Equatable, Sendable {

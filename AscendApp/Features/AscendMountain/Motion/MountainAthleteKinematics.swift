@@ -8,19 +8,23 @@ import simd
 /// one stair with it. A foot therefore lands on its tread exactly as the body arrives, at any
 /// speed, and cannot slide - the animation plays faster only because the steps do.
 struct MountainAthleteKinematics: Equatable, Sendable {
-    static let hipHeight = 0.84
-    static let footSpacing = 0.14
-    static let thighLength = 0.46
-    static let shinLength = 0.46
+    /// Pelvis height over the ground midway between the feet: knees soft, as on a stair.
+    static let pelvisHeight = 0.76
+    static let footSpacing = 0.12
 
     let bodyPose: MountainPose
     let hipCentre: SIMD3<Double>
+    /// Ground contact points of each foot (tread top), in course space.
     let leftFoot: SIMD3<Double>
     let rightFoot: SIMD3<Double>
     /// Forward lean of the torso, radians.
     let torsoLean: Double
     /// Shoulder swing of the left arm, radians forward; the right arm mirrors it.
     let leftArmSwing: Double
+    /// Elbow bend, radians.
+    let elbowBend: Double
+    /// Hip counter-twist with the stride, radians about the vertical.
+    let twist: Double
 
     /// - Parameters:
     ///   - visualSteps: the follower's smoothed step count.
@@ -37,7 +41,6 @@ struct MountainAthleteKinematics: Equatable, Sendable {
     ) {
         let wholeStep = visualSteps.rounded(.down)
         let stride = visualSteps - wholeStep
-        let eased = stride * stride * (3 - 2 * stride)
         let clampedIntensity = min(max(intensity, 0), 1)
         let clampedMovement = min(max(movement, 0), 1)
 
@@ -47,8 +50,14 @@ struct MountainAthleteKinematics: Equatable, Sendable {
         let stanceFoot = Self.footPosition(onTread: stanceTread, isLeft: stanceIsLeft, pose: pose)
         let swingFrom = Self.footPosition(onTread: stanceTread - 1, isLeft: !stanceIsLeft, pose: pose)
         let swingTo = Self.footPosition(onTread: stanceTread + 1, isLeft: !stanceIsLeft, pose: pose)
-        let lift = (0.06 + 0.06 * clampedIntensity) * sin(.pi * stride)
-        let swingFoot = swingFrom + (swingTo - swingFrom) * eased + SIMD3(0, lift, 0)
+
+        // The swinging foot rises early and travels late, so it clears the nose of the stair it
+        // passes over instead of scuffing the riser.
+        let across = stride * stride * (3 - 2 * stride)
+        let up = sin(stride * .pi / 2)
+        let lift = (0.05 + 0.05 * clampedIntensity) * sin(.pi * stride)
+        let horizontal = swingFrom + (swingTo - swingFrom) * across
+        let swingFoot = SIMD3(horizontal.x, swingFrom.y + (swingTo.y - swingFrom.y) * up + lift, horizontal.z)
 
         leftFoot = stanceIsLeft ? stanceFoot : swingFoot
         rightFoot = stanceIsLeft ? swingFoot : stanceFoot
@@ -56,42 +65,18 @@ struct MountainAthleteKinematics: Equatable, Sendable {
         // The body sits over the middle of its two feet: half a step behind the leading tread.
         bodyPose = pose(visualSteps - 0.5)
         let breath = (1 - clampedMovement) * 0.008 * sin(time * 2 * .pi / 3.4)
-        let bob = clampedMovement * 0.025 * clampedIntensity * cos(2 * .pi * stride)
-        hipCentre = bodyPose.position + SIMD3(0, Self.hipHeight - 0.04 * clampedMovement + breath + bob, 0)
+        let bob = clampedMovement * 0.02 * clampedIntensity * cos(2 * .pi * stride)
+        hipCentre = bodyPose.position + SIMD3(0, Self.pelvisHeight - 0.03 * clampedMovement + breath + bob, 0)
 
-        torsoLean = 0.08 + clampedMovement * (0.06 + 0.14 * clampedIntensity)
+        torsoLean = 0.1 + clampedMovement * (0.08 + 0.16 * clampedIntensity)
         let swingDirection: Double = stanceIsLeft ? 1 : -1
-        leftArmSwing = swingDirection * clampedMovement * (0.25 + 0.45 * clampedIntensity) * sin(.pi * stride)
+        leftArmSwing = swingDirection * clampedMovement * (0.25 + 0.4 * clampedIntensity) * sin(.pi * stride)
+        elbowBend = 0.3 + clampedMovement * (0.35 + 0.7 * clampedIntensity)
+        twist = -swingDirection * clampedMovement * 0.12 * sin(.pi * stride)
     }
 
     private static func footPosition(onTread tread: Double, isLeft: Bool, pose: (Double) -> MountainPose) -> SIMD3<Double> {
         let treadPose = pose(tread)
         return treadPose.position + treadPose.right * (isLeft ? -footSpacing : footSpacing)
-    }
-
-    /// Two-bone leg solve: where the knee goes for a hip and a foot, bending toward `forward`.
-    /// A foot beyond reach straightens the leg toward it rather than detaching.
-    static func knee(
-        hip: SIMD3<Double>,
-        foot: SIMD3<Double>,
-        forward: SIMD3<Double>,
-        thigh: Double = thighLength,
-        shin: Double = shinLength
-    ) -> SIMD3<Double> {
-        let toFoot = foot - hip
-        let rawDistance = simd_length(toFoot)
-        guard rawDistance > 1e-6 else { return hip + SIMD3(0, -thigh, 0) }
-
-        let direction = toFoot / rawDistance
-        let distance = min(max(rawDistance, abs(thigh - shin) + 1e-4), thigh + shin - 1e-4)
-        let along = (thigh * thigh - shin * shin + distance * distance) / (2 * distance)
-        let height = sqrt(max(thigh * thigh - along * along, 0))
-
-        // Bend direction: `forward` with the component along the leg removed.
-        var bend = forward - direction * simd_dot(forward, direction)
-        let bendLength = simd_length(bend)
-        bend = bendLength > 1e-6 ? bend / bendLength : SIMD3(0, 0, -1)
-
-        return hip + direction * along + bend * height
     }
 }

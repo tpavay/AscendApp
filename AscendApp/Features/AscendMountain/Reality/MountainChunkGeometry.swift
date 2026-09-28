@@ -1,129 +1,218 @@
 import Foundation
 import simd
 
-/// Flat-shaded triangle data for one course piece, built from axis-aligned boxes in the
-/// piece's own frame (entry at the origin, facing -Z).
+/// Flat-shaded, textured stone for one course piece's stairs, in the piece's own frame (entry at
+/// the origin, facing -Z).
 ///
 /// Every piece of one kind shares a single mesh built from this once per scene, so a chunk slot
 /// changes what it shows by swapping a mesh reference, never by building geometry mid-climb.
+/// The walking surface is exactly the step path - each tread top sits at its stair's height - so
+/// the athlete's feet land where the course says they do.
 struct MountainChunkGeometry: Equatable, Sendable {
     enum Surface: UInt32, CaseIterable, Sendable {
-        /// Treads, risers and slabs.
+        /// Treads, risers and platforms.
         case stone = 0
-        /// The front edge of each tread, so every stair reads as its own step as it passes.
-        case nosing = 1
-        /// The low walls along the sides.
-        case curb = 2
+        /// The kerb stones along the sides.
+        case kerb = 1
     }
 
-    static let slabThickness = 0.28
-    static let curbWidth = 0.12
-    static let curbHeight = 0.22
-    static let nosingDepth = 0.035
+    /// How far a stair block reaches below its tread, into the mountainside.
+    static let blockDepth = 0.75
+    static let chamfer = 0.022
+    static let kerbWidth = MountainTerrainPatch.kerbWidth
+    static let kerbHeight = 0.16
+    /// Texture repeats per metre.
+    static let textureScale = 0.55
 
     private(set) var positions: [SIMD3<Float>] = []
     private(set) var normals: [SIMD3<Float>] = []
+    private(set) var uvs: [SIMD2<Float>] = []
     private(set) var indices: [UInt32] = []
     /// One surface per triangle.
     private(set) var triangleSurfaces: [UInt32] = []
-    private(set) var boxCount = 0
+    /// Stair blocks, platforms and kerb stones laid.
+    private(set) var pieceCount = 0
 
     init(kind: MountainChunkKind) {
         let rise = MountainStairGeometry.rise
         let run = MountainStairGeometry.run
         let width = MountainStairGeometry.width
-        let curbOffset = width / 2 + Self.curbWidth / 2
 
         switch kind {
         case .shortFlight, .mediumFlight, .longFlight:
             for stair in 1...kind.stepCount {
                 let top = Double(stair) * rise
-                let centreZ = -Double(stair) * run
-                let blockHeight = rise + Self.slabThickness
-                addBox(
-                    centre: SIMD3(0, top - blockHeight / 2, centreZ),
-                    size: SIMD3(width, blockHeight, run),
-                    surface: .stone
-                )
-                addBox(
-                    centre: SIMD3(0, top + 0.001 - 0.006, centreZ + run / 2 - Self.nosingDepth / 2),
-                    size: SIMD3(width + 0.002, 0.012, Self.nosingDepth),
-                    surface: .nosing
-                )
+                let front = -Double(stair) * run + run / 2
+                addStairBlock(front: front, back: front - run, top: top, seed: stair)
                 for side in [-1.0, 1.0] {
-                    let curbHeight = blockHeight + Self.curbHeight
+                    let lift = Self.kerbHeight + (Self.jitter(stair, side, 1) - 0.5) * 0.05
+                    let out = (Self.jitter(stair, side, 2) - 0.5) * 0.03
                     addBox(
-                        centre: SIMD3(side * curbOffset, top + Self.curbHeight - curbHeight / 2, centreZ),
-                        size: SIMD3(Self.curbWidth, curbHeight, run),
-                        surface: .curb
+                        minX: side < 0 ? -width / 2 - Self.kerbWidth - out : width / 2,
+                        maxX: side < 0 ? -width / 2 : width / 2 + Self.kerbWidth + out,
+                        minY: top - rise - Self.blockDepth,
+                        maxY: top + lift,
+                        minZ: front - run,
+                        maxZ: front,
+                        surface: .kerb,
+                        seed: stair * 7 + (side < 0 ? 1 : 2)
                     )
                 }
             }
 
         case .landing:
             let length = Double(kind.stepCount) * MountainStairGeometry.flatStride
-            let centreZ = -run / 2 - length / 2
-            addBox(
-                centre: SIMD3(0, -Self.slabThickness / 2, centreZ),
-                size: SIMD3(width, Self.slabThickness, length),
-                surface: .stone
-            )
+            addBox(minX: -width / 2, maxX: width / 2, minY: -Self.blockDepth, maxY: 0, minZ: -run / 2 - length, maxZ: -run / 2, surface: .stone, seed: 3)
             for side in [-1.0, 1.0] {
-                addCurb(centreX: side * curbOffset, centreZ: centreZ, sizeX: Self.curbWidth, sizeZ: length)
+                addKerbRun(alongX: side * (width / 2 + Self.kerbWidth / 2), fromZ: -run / 2, toZ: -run / 2 - length, seed: side < 0 ? 11 : 12)
             }
 
         case .leftTurn, .rightTurn:
-            let centreZ = -run / 2 - width / 2
-            addBox(
-                centre: SIMD3(0, -Self.slabThickness / 2, centreZ),
-                size: SIMD3(width, Self.slabThickness, width),
-                surface: .stone
-            )
-            // Walls on the far edge and the outside of the corner; the open side leads on.
-            let outsideX = kind == .leftTurn ? curbOffset : -curbOffset
-            addCurb(centreX: outsideX, centreZ: centreZ, sizeX: Self.curbWidth, sizeZ: width + 2 * Self.curbWidth)
-            addCurb(
-                centreX: 0,
-                centreZ: centreZ - width / 2 - Self.curbWidth / 2,
-                sizeX: width,
-                sizeZ: Self.curbWidth
-            )
+            let farZ = -run / 2 - width
+            addBox(minX: -width / 2, maxX: width / 2, minY: -Self.blockDepth, maxY: 0, minZ: farZ, maxZ: -run / 2, surface: .stone, seed: 5)
+            // Kerbs on the outside of the corner; the open side leads on.
+            let outside = kind == .leftTurn ? 1.0 : -1.0
+            addKerbRun(alongX: outside * (width / 2 + Self.kerbWidth / 2), fromZ: -run / 2, toZ: farZ - Self.kerbWidth, seed: 21)
+            addKerbRow(alongZ: farZ - Self.kerbWidth / 2, fromX: -width / 2, toX: width / 2, seed: 22)
         }
     }
 
-    private mutating func addCurb(centreX: Double, centreZ: Double, sizeX: Double, sizeZ: Double) {
-        let height = Self.slabThickness + Self.curbHeight
-        addBox(
-            centre: SIMD3(centreX, Self.curbHeight - height / 2, centreZ),
-            size: SIMD3(sizeX, height, sizeZ),
-            surface: .curb
-        )
-    }
+    // MARK: - Pieces
 
-    /// Adds a box as six outward-facing quads, counter-clockwise seen from outside.
-    private mutating func addBox(centre: SIMD3<Double>, size: SIMD3<Double>, surface: Surface) {
-        let half = SIMD3<Float>(size / 2)
-        let centre = SIMD3<Float>(centre)
-        let faces: [(normal: SIMD3<Float>, u: SIMD3<Float>, v: SIMD3<Float>)] = [
-            (SIMD3(1, 0, 0), SIMD3(0, 0, -half.z), SIMD3(0, half.y, 0)),
-            (SIMD3(-1, 0, 0), SIMD3(0, 0, half.z), SIMD3(0, half.y, 0)),
-            (SIMD3(0, 1, 0), SIMD3(half.x, 0, 0), SIMD3(0, 0, -half.z)),
-            (SIMD3(0, -1, 0), SIMD3(half.x, 0, 0), SIMD3(0, 0, half.z)),
-            (SIMD3(0, 0, 1), SIMD3(half.x, 0, 0), SIMD3(0, half.y, 0)),
-            (SIMD3(0, 0, -1), SIMD3(-half.x, 0, 0), SIMD3(0, half.y, 0))
+    /// A stair block with a chamfered front edge, extruded across the staircase.
+    private mutating func addStairBlock(front: Double, back: Double, top: Double, seed: Int) {
+        let width = MountainStairGeometry.width
+        let bottom = top - MountainStairGeometry.rise - Self.blockDepth
+        let c = Self.chamfer
+        // Cross-section in (z, y), counter-clockwise seen from +X.
+        let profile: [SIMD2<Double>] = [
+            SIMD2(front, bottom),
+            SIMD2(front, top - c),
+            SIMD2(front - c, top),
+            SIMD2(back, top),
+            SIMD2(back, bottom)
         ]
+        let offset = Self.uvOffset(seed)
 
-        for face in faces {
-            let faceCentre = centre + face.normal * abs(simd_dot(face.normal, half))
-            let base = UInt32(positions.count)
-            positions.append(faceCentre - face.u - face.v)
-            positions.append(faceCentre + face.u - face.v)
-            positions.append(faceCentre + face.u + face.v)
-            positions.append(faceCentre - face.u + face.v)
-            normals.append(contentsOf: repeatElement(face.normal, count: 4))
-            indices.append(contentsOf: [base, base + 1, base + 2, base, base + 2, base + 3])
-            triangleSurfaces.append(contentsOf: [surface.rawValue, surface.rawValue])
+        // Faces along the profile, extruded from -X to +X.
+        for index in 0..<profile.count {
+            let a = profile[index], b = profile[(index + 1) % profile.count]
+            let edge = b - a
+            let normal = simd_normalize(SIMD3(0, -edge.x, edge.y))
+            let p0 = SIMD3(-width / 2, a.y, a.x), p1 = SIMD3(width / 2, a.y, a.x)
+            let p2 = SIMD3(width / 2, b.y, b.x), p3 = SIMD3(-width / 2, b.y, b.x)
+            // Treads map by (x, z), risers by (x, y), so the stone never smears along a face.
+            let alongV: (SIMD3<Double>) -> Double = abs(normal.y) > 0.7 ? { $0.z } : { $0.y }
+            addQuad(p0, p1, p2, p3, normal: SIMD3<Float>(normal), surface: .stone) { point in
+                SIMD2(point.x, alongV(point)) * Self.textureScale + offset
+            }
         }
-        boxCount += 1
+
+        // End caps, fanned from the profile's first corner (the profile is convex).
+        for side in [-1.0, 1.0] {
+            let x = side * width / 2
+            let normal = SIMD3<Float>(Float(side), 0, 0)
+            for index in 1..<(profile.count - 1) {
+                let corners = [profile[0], profile[index], profile[index + 1]].map { SIMD3(x, $0.y, $0.x) }
+                addTriangle(corners[0], corners[1], corners[2], normal: normal, surface: .stone) { point in
+                    SIMD2(point.z, point.y) * Self.textureScale + offset
+                }
+            }
+        }
+        pieceCount += 1
+    }
+
+    /// Kerb stones of uneven length laid along a side of a platform.
+    private mutating func addKerbRun(alongX x: Double, fromZ: Double, toZ: Double, seed: Int) {
+        var z = fromZ
+        var stone = 0
+        while z > toZ + 0.01 {
+            let length = min(0.45 + Self.jitter(seed, Double(stone), 3) * 0.35, z - toZ)
+            let lift = Self.kerbHeight + (Self.jitter(seed, Double(stone), 4) - 0.5) * 0.05
+            addBox(
+                minX: x - Self.kerbWidth / 2, maxX: x + Self.kerbWidth / 2,
+                minY: -Self.blockDepth, maxY: lift,
+                minZ: z - length, maxZ: z,
+                surface: .kerb, seed: seed * 31 + stone
+            )
+            z -= length
+            stone += 1
+        }
+    }
+
+    private mutating func addKerbRow(alongZ z: Double, fromX: Double, toX: Double, seed: Int) {
+        var x = fromX
+        var stone = 0
+        while x < toX - 0.01 {
+            let length = min(0.45 + Self.jitter(seed, Double(stone), 3) * 0.35, toX - x)
+            let lift = Self.kerbHeight + (Self.jitter(seed, Double(stone), 4) - 0.5) * 0.05
+            addBox(
+                minX: x, maxX: x + length,
+                minY: -Self.blockDepth, maxY: lift,
+                minZ: z - Self.kerbWidth / 2, maxZ: z + Self.kerbWidth / 2,
+                surface: .kerb, seed: seed * 31 + stone
+            )
+            x += length
+            stone += 1
+        }
+    }
+
+    private mutating func addBox(
+        minX: Double, maxX: Double, minY: Double, maxY: Double, minZ: Double, maxZ: Double,
+        surface: Surface, seed: Int
+    ) {
+        let offset = Self.uvOffset(seed)
+        let s = Self.textureScale
+        let faces: [(SIMD3<Double>, [SIMD3<Double>], (SIMD3<Double>) -> SIMD2<Double>)] = [
+            (SIMD3(0, 1, 0), [SIMD3(minX, maxY, maxZ), SIMD3(maxX, maxY, maxZ), SIMD3(maxX, maxY, minZ), SIMD3(minX, maxY, minZ)], { SIMD2($0.x, $0.z) }),
+            (SIMD3(0, 0, 1), [SIMD3(minX, minY, maxZ), SIMD3(maxX, minY, maxZ), SIMD3(maxX, maxY, maxZ), SIMD3(minX, maxY, maxZ)], { SIMD2($0.x, $0.y) }),
+            (SIMD3(0, 0, -1), [SIMD3(maxX, minY, minZ), SIMD3(minX, minY, minZ), SIMD3(minX, maxY, minZ), SIMD3(maxX, maxY, minZ)], { SIMD2($0.x, $0.y) }),
+            (SIMD3(1, 0, 0), [SIMD3(maxX, minY, maxZ), SIMD3(maxX, minY, minZ), SIMD3(maxX, maxY, minZ), SIMD3(maxX, maxY, maxZ)], { SIMD2($0.z, $0.y) }),
+            (SIMD3(-1, 0, 0), [SIMD3(minX, minY, minZ), SIMD3(minX, minY, maxZ), SIMD3(minX, maxY, maxZ), SIMD3(minX, maxY, minZ)], { SIMD2($0.z, $0.y) })
+        ]
+        for (normal, corners, mapping) in faces {
+            addQuad(corners[0], corners[1], corners[2], corners[3], normal: SIMD3<Float>(normal), surface: surface) { point in
+                mapping(point) * s + offset
+            }
+        }
+        pieceCount += 1
+    }
+
+    // MARK: - Primitives
+
+    /// Adds a quad wound counter-clockwise as given, seen from the side `normal` points to.
+    private mutating func addQuad(
+        _ a: SIMD3<Double>, _ b: SIMD3<Double>, _ c: SIMD3<Double>, _ d: SIMD3<Double>,
+        normal: SIMD3<Float>, surface: Surface, uv: (SIMD3<Double>) -> SIMD2<Double>
+    ) {
+        addTriangle(a, b, c, normal: normal, surface: surface, uv: uv)
+        addTriangle(a, c, d, normal: normal, surface: surface, uv: uv)
+    }
+
+    private mutating func addTriangle(
+        _ a: SIMD3<Double>, _ b: SIMD3<Double>, _ c: SIMD3<Double>,
+        normal: SIMD3<Float>, surface: Surface, uv: (SIMD3<Double>) -> SIMD2<Double>
+    ) {
+        // Keep every face's winding consistent with its normal, whatever order it was given in.
+        let wound = SIMD3<Float>(simd_cross(b - a, c - a))
+        let corners = simd_dot(wound, normal) >= 0 ? [a, b, c] : [a, c, b]
+        let base = UInt32(positions.count)
+        for corner in corners {
+            positions.append(SIMD3<Float>(corner))
+            normals.append(normal)
+            uvs.append(SIMD2<Float>(uv(corner)))
+        }
+        indices.append(contentsOf: [base, base + 1, base + 2])
+        triangleSurfaces.append(surface.rawValue)
+    }
+
+    private static func jitter(_ a: Int, _ b: Double, _ salt: Int) -> Double {
+        MountainNoise.hash(a &* 131 &+ salt, Int(b * 7) &+ salt &* 17, seed: 41)
+    }
+
+    /// A different patch of the stone texture for every block, so neighbouring stairs never
+    /// share a grain.
+    private static func uvOffset(_ seed: Int) -> SIMD2<Double> {
+        SIMD2(MountainNoise.hash(seed, 1, seed: 43), MountainNoise.hash(seed, 2, seed: 43)) * 8
     }
 }

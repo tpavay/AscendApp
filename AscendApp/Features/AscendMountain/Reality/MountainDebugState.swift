@@ -24,7 +24,7 @@ final class MountainDebugState {
         var chunkKind = ""
         var virtualAltitudeMetres = 0.0
         var renderOriginDistanceMetres = 0.0
-        var biome = "Prototype (gray)"
+        var biome = "-"
         var ghostCount = 0
         var residentMemoryMegabytes: Double?
     }

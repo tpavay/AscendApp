@@ -56,7 +56,7 @@ struct MountainCourse: Sendable {
 
     static let leadInKind = MountainChunkKind.mediumFlight
     /// Placements kept behind the most recently resolved one.
-    static let retainedPlacementsBehind = 16
+    static let retainedPlacementsBehind = 32
 
     let seed: UInt64
     private var generator: MountainCourseGenerator

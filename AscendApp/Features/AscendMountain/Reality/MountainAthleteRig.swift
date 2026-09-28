@@ -1,100 +1,137 @@
+import Foundation
 import RealityKit
 import UIKit
 import simd
 
-/// The placeholder athlete: primitive shapes posed every frame from `MountainAthleteKinematics`.
-///
-/// Deliberately plain - spec 6 asks for an ugly engineering prototype - but its joints follow
-/// the real stride, so the feel of the step-to-stair link can be judged now and a rigged model
-/// can later take the same inputs.
+/// The colours the athlete is tinted with, one per material slot the asset names. The avatar
+/// system will fill this from the climber's saved look; until then every climber wears the
+/// Ascend kit.
+struct MountainAthleteLook: Equatable, Sendable {
+    var skin = MountainColor(red: 0.78, green: 0.58, blue: 0.43)
+    var hair = MountainColor(red: 0.2, green: 0.13, blue: 0.08)
+    var top = MountainColor(red: 0.53, green: 0.83, blue: 0.04)
+    var bottom = MountainColor(red: 0.1, green: 0.11, blue: 0.13)
+    var shoe = MountainColor(red: 0.95, green: 0.95, blue: 0.95)
+    var shoeAccent = MountainColor(red: 0.13, green: 0.14, blue: 0.16)
+
+    static let ascendKit = MountainAthleteLook()
+
+    func color(forSlot slot: String) -> MountainColor {
+        switch slot {
+        case "skin": return skin
+        case "skinShade": return skin.mixed(with: MountainColor(red: 0, green: 0, blue: 0), amount: 0.12)
+        case "hair": return hair
+        case "eyes": return MountainColor(red: 0.05, green: 0.04, blue: 0.04)
+        case "top": return top
+        case "bottom": return bottom
+        case "shoe": return shoe
+        case "shoeAccent": return shoeAccent
+        default: return MountainColor(red: 0.5, green: 0.5, blue: 0.5)
+        }
+    }
+}
+
+/// The athlete: the CC0 skinned character, posed every frame by `MountainAthletePoser` from
+/// `MountainAthleteKinematics`. Feet are planted by IK on the treads the course says, so the
+/// climb animation is the steps themselves rather than a clip played over them.
 @MainActor
 final class MountainAthleteRig {
     let root = Entity()
+    private let model: ModelEntity
+    private let poser: MountainAthletePoser
 
-    private let torso: ModelEntity
-    private let head: ModelEntity
-    private let thighs: [ModelEntity]
-    private let shins: [ModelEntity]
-    private let feet: [ModelEntity]
-    private let arms: [ModelEntity]
+    /// How far the foot joint sits behind the middle of the foot, so the sole lands centred on
+    /// the tread.
+    private static let footSetback = 0.05
 
-    private static let torsoLength: Float = 0.56
-    private static let armLength: Float = 0.6
-    private static let hipHalfWidth: Double = 0.1
-    private static let shoulderHalfWidth: Float = 0.225
-
-    init() {
-        let kit = SimpleMaterial(color: UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1), roughness: 0.6, isMetallic: false)
-        let tights = SimpleMaterial(color: UIColor(white: 0.16, alpha: 1), roughness: 0.8, isMetallic: false)
-        let skin = SimpleMaterial(color: UIColor(red: 0.8, green: 0.64, blue: 0.52, alpha: 1), roughness: 0.7, isMetallic: false)
-        let shoe = SimpleMaterial(color: UIColor(white: 0.97, alpha: 1), roughness: 0.5, isMetallic: false)
-
-        torso = ModelEntity(mesh: .generateBox(size: [0.36, Self.torsoLength, 0.2], cornerRadius: 0.07), materials: [kit])
-        head = ModelEntity(mesh: .generateSphere(radius: 0.12), materials: [skin])
-        let thighMesh = MeshResource.generateCylinder(height: Float(MountainAthleteKinematics.thighLength), radius: 0.075)
-        let shinMesh = MeshResource.generateCylinder(height: Float(MountainAthleteKinematics.shinLength), radius: 0.06)
-        let footMesh = MeshResource.generateBox(size: [0.11, 0.08, 0.26], cornerRadius: 0.03)
-        let armMesh = MeshResource.generateCylinder(height: Self.armLength, radius: 0.045)
-        thighs = (0..<2).map { _ in ModelEntity(mesh: thighMesh, materials: [tights]) }
-        shins = (0..<2).map { _ in ModelEntity(mesh: shinMesh, materials: [tights]) }
-        feet = (0..<2).map { _ in ModelEntity(mesh: footMesh, materials: [shoe]) }
-        arms = (0..<2).map { _ in ModelEntity(mesh: armMesh, materials: [skin]) }
-
-        for part in [torso, head] + thighs + shins + feet + arms {
-            root.addChild(part)
+    init(asset: MountainAthleteAsset, look: MountainAthleteLook = .ascendKit) throws {
+        guard let poser = MountainAthletePoser(asset: asset) else {
+            throw MountainAthleteAsset.LoadError.unsupportedFormat("rig is missing a joint the poser needs")
         }
+        self.poser = poser
+
+        let slots = Array(Set(asset.parts.map(\.slot))).sorted()
+        var contents = MeshResource.Contents()
+        guard let skeleton = MeshResource.Skeleton(
+            id: "athlete",
+            jointNames: asset.joints.map(\.name),
+            inverseBindPoseMatrices: asset.joints.map(\.inverseBindMatrix),
+            restPoseTransforms: asset.joints.map { joint in
+                Transform(
+                    scale: .one,
+                    rotation: joint.restRotation.float,
+                    translation: SIMD3<Float>(joint.restTranslation)
+                )
+            },
+            parentIndices: asset.joints.map(\.parentIndex)
+        ) else {
+            throw MountainAthleteAsset.LoadError.unsupportedFormat("skeleton rejected")
+        }
+        contents.skeletons = MeshSkeletonCollection([skeleton])
+
+        var parts: [MeshResource.Part] = []
+        for (index, part) in asset.parts.enumerated() {
+            let vertices = part.vertexStart..<(part.vertexStart + part.vertexCount)
+            var meshPart = MeshResource.Part(id: "part-\(index)", materialIndex: slots.firstIndex(of: part.slot) ?? 0)
+            meshPart.positions = MeshBuffers.Positions(Array(asset.positions[vertices]))
+            meshPart.normals = MeshBuffers.Normals(Array(asset.normals[vertices]))
+            meshPart.triangleIndices = MeshBuffers.TriangleIndices(
+                asset.indices[part.indexStart..<(part.indexStart + part.indexCount)].map { $0 - UInt32(part.vertexStart) }
+            )
+            var influences: [MeshJointInfluence] = []
+            influences.reserveCapacity(part.vertexCount * 4)
+            for vertex in vertices {
+                let joints = asset.jointIndices[vertex], weights = asset.jointWeights[vertex]
+                for k in 0..<4 {
+                    influences.append(MeshJointInfluence(jointIndex: Int(joints[k]), weight: weights[k]))
+                }
+            }
+            meshPart.skeletonID = "athlete"
+            meshPart.jointInfluences = .init(influences: MeshBuffers.JointInfluences(influences), influencesPerVertex: 4)
+            parts.append(meshPart)
+        }
+        contents.models = MeshModelCollection([MeshResource.Model(id: "athlete", parts: parts)])
+        contents.instances = MeshInstanceCollection([MeshResource.Instance(id: "athlete-0", model: "athlete")])
+
+        let materials: [any RealityKit.Material] = slots.map { slot in
+            var material = PhysicallyBasedMaterial()
+            material.baseColor = .init(tint: look.color(forSlot: slot).uiColor)
+            material.roughness = .init(floatLiteral: slot == "hair" ? 0.55 : 0.72)
+            material.metallic = .init(floatLiteral: 0)
+            return material
+        }
+        model = ModelEntity(mesh: try MeshResource.generate(from: contents), materials: materials)
+        root.addChild(model)
     }
 
-    /// Poses every part in render space. `origin` is the course point at the render origin.
+    /// Poses the athlete for this frame. `origin` is the course point at the render origin.
     func apply(_ kinematics: MountainAthleteKinematics, origin: SIMD3<Double>) {
-        func render(_ point: SIMD3<Double>) -> SIMD3<Float> {
-            SIMD3<Float>(point - origin)
+        let body = kinematics.bodyPose
+        // Model space faces +Z; the course faces -Z at heading 0.
+        let facing = simd_quatd(angle: body.heading + .pi, axis: SIMD3(0, 1, 0))
+        let toModel = facing.inverse
+        func toModelSpace(_ course: SIMD3<Double>) -> SIMD3<Double> {
+            toModel.act(course - body.position)
         }
 
-        let pose = kinematics.bodyPose
-        let forward = pose.forward
-        let right = pose.right
-        let heading = Float(pose.heading)
-        let yaw = simd_quatf(angle: heading, axis: [0, 1, 0])
-
-        // Legs: hip -> knee -> foot, knees bending forward.
-        let footTargets = [kinematics.leftFoot, kinematics.rightFoot]
-        for (side, sign) in [(0, -1.0), (1, 1.0)] {
-            let hip = kinematics.hipCentre + right * (sign * Self.hipHalfWidth)
-            let ankle = footTargets[side] + SIMD3(0, 0.07, 0)
-            let knee = MountainAthleteKinematics.knee(hip: hip, foot: ankle, forward: forward)
-            place(thighs[side], from: render(hip), to: render(knee))
-            place(shins[side], from: render(knee), to: render(ankle))
-            feet[side].position = render(footTargets[side] + SIMD3(0, 0.04, 0) + forward * 0.04)
-            feet[side].orientation = yaw
+        let forward = SIMD3<Double>(0, 0, 1)
+        func foot(_ ground: SIMD3<Double>) -> SIMD3<Double> {
+            toModelSpace(ground) + SIMD3(0, poser.restFootHeight, 0) - forward * Self.footSetback
         }
 
-        // Torso leans forward from the hips; head and shoulders ride on it.
-        let lean = Float(kinematics.torsoLean)
-        let torsoRotation = yaw * simd_quatf(angle: -lean, axis: [1, 0, 0])
-        let spine = torsoRotation.act([0, 1, 0])
-        let hipCentre = render(kinematics.hipCentre)
-        torso.position = hipCentre + spine * (Self.torsoLength / 2 + 0.02)
-        torso.orientation = torsoRotation
-        head.position = hipCentre + spine * (Self.torsoLength + 0.17)
-
-        let renderRight = SIMD3<Float>(right)
-        let renderForward = SIMD3<Float>(forward)
-        let shoulderCentre = hipCentre + spine * (Self.torsoLength - 0.04)
-        for (side, sign) in [(0, Float(-1)), (1, Float(1))] {
-            let swing = Float(kinematics.leftArmSwing) * (side == 0 ? 1 : -1)
-            let shoulder = shoulderCentre + renderRight * (sign * Self.shoulderHalfWidth)
-            let armDirection = simd_normalize(SIMD3<Float>(0, -cos(swing), 0) + renderForward * sin(swing))
-            place(arms[side], from: shoulder, to: shoulder + armDirection * Self.armLength)
+        let targets = MountainAthletePoseTargets(
+            pelvis: toModelSpace(kinematics.hipCentre),
+            leftFoot: foot(kinematics.leftFoot),
+            rightFoot: foot(kinematics.rightFoot),
+            torsoLean: kinematics.torsoLean,
+            leftArmSwing: kinematics.leftArmSwing,
+            elbowBend: kinematics.elbowBend,
+            twist: kinematics.twist
+        )
+        model.jointTransforms = poser.pose(targets).map { local in
+            Transform(scale: .one, rotation: local.rotation, translation: local.translation)
         }
-    }
-
-    /// Stretches a Y-axis cylinder between two render-space points.
-    private func place(_ entity: ModelEntity, from start: SIMD3<Float>, to end: SIMD3<Float>) {
-        let span = end - start
-        let length = simd_length(span)
-        entity.position = (start + end) / 2
-        guard length > 1e-5 else { return }
-        entity.orientation = simd_quatf(from: [0, 1, 0], to: span / length)
+        root.position = SIMD3<Float>(body.position - origin)
+        root.orientation = facing.float
     }
 }

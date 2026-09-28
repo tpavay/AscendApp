@@ -4,10 +4,11 @@ import SwiftUI
 
 /// Applies `MountainSceneDirector`'s frames to RealityKit entities.
 ///
-/// It owns the entities - six pooled chunk slots, the athlete, one camera, one light - and
-/// nothing else: every decision is the director's, and the only input is the workout's step
-/// count, read once per rendered frame. The workout never waits on this and never reads from it,
-/// so the scene can be torn down and rebuilt at any moment without touching the climb (spec 28).
+/// It owns the entities - the pooled chunk slots with their stairs and mountainside, the athlete,
+/// one camera, one sun, the far scenery - and nothing else: every decision is the director's,
+/// and the only input is the workout's step count, read once per rendered frame. The workout
+/// never waits on this and never reads from it, so the scene can be torn down and rebuilt at any
+/// moment without touching the climb (spec 28).
 ///
 /// Construction is deliberately cheap - SwiftUI may build and discard the owning view's initial
 /// state on any parent update - and every entity is created on the first `install`.
@@ -15,23 +16,33 @@ import SwiftUI
 final class MountainSceneController {
     private struct Scene {
         let resources: MountainSceneResources
+        let environment: MountainEnvironmentResources
         let root: Entity
         let chunkSlots: [ModelEntity]
+        let decorSlots: [ModelEntity]
         let athlete: MountainAthleteRig
         let camera: PerspectiveCamera
+        let sun: DirectionalLight
+        let far: MountainEnvironmentRig
     }
 
     private let stepSource: @MainActor () -> Int
     private let debugState: MountainDebugState?
+    private let seed: UInt64
     private var director: MountainSceneDirector
     private var scene: Scene?
     private var updateSubscription: EventSubscription?
+    /// Which placement each slot's mountainside was baked for, so a slot is rebuilt only when
+    /// it is handed a new piece.
+    private var decorBuiltFor: [Int: Int] = [:]
 
     private var clock: Double = 0
     private var smoothedFrameSeconds = 1.0 / 60
     private var lastDebugPublishAt: Double = -1
+    private var lastDecorBuildMilliseconds = 0.0
 
     init(seed: UInt64, stepSource: @escaping @MainActor () -> Int, debugState: MountainDebugState?) {
+        self.seed = seed
         self.stepSource = stepSource
         self.debugState = debugState
         self.director = MountainSceneDirector(seed: seed)
@@ -40,11 +51,14 @@ final class MountainSceneController {
     /// Called from `RealityView`'s make closure. Safe to call again with fresh content when
     /// SwiftUI rebuilds the view: the entities and the director's state carry over, so the
     /// athlete reappears where the step count says.
-    func install(in content: inout RealityViewCameraContent) {
-        guard let scene = scene ?? buildScene() else { return }
+    func install(in content: inout RealityViewCameraContent) async {
+        if scene == nil {
+            await buildScene()
+        }
+        guard let scene else { return }
 
         content.camera = .virtual
-        if let skybox = scene.resources.skybox {
+        if let skybox = scene.environment.skybox {
             content.environment = .skybox(skybox)
         }
         content.renderingEffects.motionBlur = .disabled
@@ -65,45 +79,70 @@ final class MountainSceneController {
         updateSubscription = nil
     }
 
-    private func buildScene() -> Scene? {
+    private func buildScene() async {
+        let world: MountainWorld
         let resources: MountainSceneResources
+        let far: MountainEnvironmentRig
+        let environment: MountainEnvironmentResources
+        let athlete: MountainAthleteRig
         do {
+            world = try MountainWorld.bundled()
+            let pixels = await Task.detached(priority: .userInitiated) { MountainStonePixels.make() }.value
+            environment = MountainEnvironmentResources.make(world: world, stonePixels: pixels)
             resources = try MountainSceneResources.make()
+            far = try MountainEnvironmentRig(resources: environment)
+            let asset = try await Task.detached(priority: .userInitiated) { try MountainAthleteAsset.bundled() }.value
+            athlete = try MountainAthleteRig(asset: asset)
         } catch {
             AppDiagnosticsRecorder.shared.record(
                 "ascend_mountain_scene_build_failed",
                 level: .error,
-                details: ["error": error.localizedDescription]
+                details: ["error": String(describing: error)]
             )
-            return nil
+            return
         }
+        guard scene == nil else { return }
+        director = MountainSceneDirector(seed: seed, world: world)
 
         let root = Entity()
+        root.addChild(far.root)
+        var decorSlots: [ModelEntity] = []
         let chunkSlots = (0..<MountainChunkPool.windowSize).map { _ in
             let slot = ModelEntity()
             slot.isEnabled = false
+            let decor = ModelEntity()
+            slot.addChild(decor)
+            decorSlots.append(decor)
             root.addChild(slot)
             return slot
         }
 
-        let athlete = MountainAthleteRig()
         root.addChild(athlete.root)
 
         let camera = PerspectiveCamera()
         camera.camera.fieldOfViewInDegrees = 60
         camera.camera.near = 0.05
-        camera.camera.far = 400
+        camera.camera.far = MountainEnvironmentRig.skyRadius * 1.8
         root.addChild(camera)
 
         let sun = DirectionalLight()
-        sun.light.intensity = 4_200
-        sun.shadow = DirectionalLightComponent.Shadow(maximumDistance: 10, depthBias: 1.5)
-        sun.look(at: [0, 0, 0], from: [2.5, 6, 1.5], relativeTo: nil)
+        sun.light.intensity = 3_000
+        sun.shadow = DirectionalLightComponent.Shadow(maximumDistance: 12, depthBias: 1.5)
+        let toSun = SIMD3<Float>(MountainSkyImage.sunDirection)
+        sun.look(at: .zero, from: toSun * 10, relativeTo: nil)
         root.addChild(sun)
 
-        let scene = Scene(resources: resources, root: root, chunkSlots: chunkSlots, athlete: athlete, camera: camera)
-        self.scene = scene
-        return scene
+        scene = Scene(
+            resources: resources,
+            environment: environment,
+            root: root,
+            chunkSlots: chunkSlots,
+            decorSlots: decorSlots,
+            athlete: athlete,
+            camera: camera,
+            sun: sun,
+            far: far
+        )
     }
 
     private func step(deltaTime: TimeInterval) {
@@ -121,7 +160,10 @@ final class MountainSceneController {
             let entity = scene.chunkSlots[slotFrame.slot]
             if frame.reassignedSlots.contains(slotFrame.slot) || entity.model == nil,
                let mesh = scene.resources.chunkMeshes[slotFrame.kind] {
-                entity.model = ModelComponent(mesh: mesh, materials: scene.resources.chunkMaterials)
+                entity.model = ModelComponent(mesh: mesh, materials: scene.environment.stairMaterials)
+            }
+            if decorBuiltFor[slotFrame.slot] != slotFrame.chunkIndex {
+                buildDecor(for: slotFrame, into: scene.decorSlots[slotFrame.slot], environment: scene.environment)
             }
             entity.position = slotFrame.renderPosition
             entity.orientation = simd_quatf(angle: slotFrame.heading, axis: [0, 1, 0])
@@ -131,7 +173,36 @@ final class MountainSceneController {
         scene.athlete.apply(frame.athlete, origin: frame.renderOrigin)
         scene.camera.look(at: frame.cameraTarget, from: frame.cameraPosition, relativeTo: nil)
 
+        let regions = scene.environment.world.regions
+        scene.sun.light.intensity = Float(regions.blended({ $0.sky.sunIntensity }, atSteps: frame.visualSteps) * 950)
+        scene.far.update(
+            camera: frame.cameraPosition,
+            climberY: frame.athleteRenderHipCentre.y,
+            steps: frame.visualSteps,
+            altitude: frame.progress.virtualAltitude,
+            deltaTime: deltaTime
+        )
+        scene.far.place(markers: frame.markers)
+
         publishDebugMetricsIfDue(frame)
+    }
+
+    /// Bakes the mountainside for the piece a slot has just been handed. A slot is handed a piece
+    /// six pieces ahead of the climber, long before it can be seen.
+    private func buildDecor(for slot: MountainChunkSlotFrame, into entity: ModelEntity, environment: MountainEnvironmentResources) {
+        let started = Date()
+        let patch = MountainTerrainPatch(placement: slot.placement, regions: environment.world.regions)
+        let data = MountainDecorMeshData(patch: patch, layout: environment.layout)
+        var descriptor = MeshDescriptor(name: "mountain-decor")
+        descriptor.positions = MeshBuffers.Positions(data.positions)
+        descriptor.normals = MeshBuffers.Normals(data.normals)
+        descriptor.primitives = .triangles(data.indices)
+        descriptor.materials = .perFace(data.faceMaterials)
+        if let mesh = try? MeshResource.generate(from: [descriptor]) {
+            entity.model = ModelComponent(mesh: mesh, materials: environment.decorMaterials)
+        }
+        decorBuiltFor[slot.slot] = slot.chunkIndex
+        lastDecorBuildMilliseconds = Date().timeIntervalSince(started) * 1_000
     }
 
     private func publishDebugMetricsIfDue(_ frame: MountainSceneFrame) {
@@ -139,6 +210,7 @@ final class MountainSceneController {
         lastDebugPublishAt = clock
 
         let currentKind = frame.slots.first { $0.chunkIndex == frame.progress.chunkIndex }?.kind
+        let region = scene?.environment.world.regions.region(atSteps: frame.visualSteps)
         debugState.metrics = MountainDebugState.Metrics(
             framesPerSecond: smoothedFrameSeconds > 0 ? 1 / smoothedFrameSeconds : 0,
             logicalSteps: frame.logicalSteps,
@@ -153,6 +225,7 @@ final class MountainSceneController {
             chunkKind: currentKind?.rawValue ?? "-",
             virtualAltitudeMetres: frame.progress.virtualAltitude,
             renderOriginDistanceMetres: Double(simd_length(frame.athleteRenderHipCentre)),
+            biome: region.map { "\($0.id) (decor \(Int(lastDecorBuildMilliseconds.rounded())) ms)" } ?? "-",
             ghostCount: 0,
             residentMemoryMegabytes: MountainDebugState.residentMemoryMegabytes()
         )

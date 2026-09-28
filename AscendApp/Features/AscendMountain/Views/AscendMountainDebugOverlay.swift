@@ -41,7 +41,7 @@ struct AscendMountainDebugOverlay: View {
             row("chunk", "#\(metrics.chunkIndex) \(metrics.chunkKind)")
             row("altitude", metrics.virtualAltitudeMetres.formatted(.number.precision(.fractionLength(1))) + " m")
             row("origin", metrics.renderOriginDistanceMetres.formatted(.number.precision(.fractionLength(1))) + " m")
-            row("biome", metrics.biome)
+            row("region", metrics.biome)
             row("ghosts", "\(metrics.ghostCount)")
             row("memory", metrics.residentMemoryMegabytes.map { $0.formatted(.number.precision(.fractionLength(0))) + " MB" } ?? "-")
         }

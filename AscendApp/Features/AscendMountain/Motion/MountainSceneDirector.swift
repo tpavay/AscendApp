@@ -6,6 +6,8 @@ struct MountainChunkSlotFrame: Equatable, Sendable {
     let slot: Int
     let chunkIndex: Int
     let kind: MountainChunkKind
+    /// Where the piece sits on the course, for building the mountainside around it.
+    let placement: MountainChunkPlacement
     /// The piece's entry, relative to the render origin.
     let renderPosition: SIMD3<Float>
     let heading: Float
@@ -16,6 +18,13 @@ struct MountainChunkSlotFrame: Equatable, Sendable {
 /// Render space is course space shifted by `renderOrigin`, which is re-anchored near the
 /// athlete as they climb, so every coordinate handed to RealityKit stays within tens of metres
 /// of zero whether the climb is at step 100 or step 1,000,000 (spec 10).
+/// A marker standing on the course this frame, placed in render space.
+struct MountainMarkerFrame: Equatable, Sendable {
+    let marker: MountainMarker
+    let renderPosition: SIMD3<Float>
+    let heading: Float
+}
+
 struct MountainSceneFrame: Equatable, Sendable {
     let logicalSteps: Int
     let visualSteps: Double
@@ -36,6 +45,7 @@ struct MountainSceneFrame: Equatable, Sendable {
     let cameraTarget: SIMD3<Float>
     let recycleCount: Int
     let idleSlotCount: Int
+    let markers: [MountainMarkerFrame]
 
     func renderPoint(_ coursePoint: SIMD3<Double>) -> SIMD3<Float> {
         SIMD3<Float>(coursePoint - renderOrigin)
@@ -69,6 +79,7 @@ struct MountainSceneDirector: Sendable {
 
     private(set) var course: MountainCourse
     private(set) var pool: MountainChunkPool
+    private let world: MountainWorld?
     private(set) var cadence = MountainCadenceEstimator()
     private(set) var follower: MountainStepFollower?
     private let cameraTuning: CameraTuning
@@ -79,9 +90,10 @@ struct MountainSceneDirector: Sendable {
     private var smoothedIntensity = 0.0
     private var smoothedMovement = 0.0
 
-    init(seed: UInt64, cameraTuning: CameraTuning = .standard) {
+    init(seed: UInt64, world: MountainWorld? = nil, cameraTuning: CameraTuning = .standard) {
         self.course = MountainCourse(seed: seed)
         self.pool = MountainChunkPool()
+        self.world = world
         self.cameraTuning = cameraTuning
     }
 
@@ -122,6 +134,7 @@ struct MountainSceneDirector: Sendable {
                 slot: slot,
                 chunkIndex: chunkIndex,
                 kind: placement.kind,
+                placement: placement,
                 renderPosition: SIMD3<Float>(placement.entry.position - origin),
                 heading: Float(placement.entry.heading)
             )
@@ -129,6 +142,10 @@ struct MountainSceneDirector: Sendable {
 
         let lookAhead = self.course.progress(atSteps: visualSteps + cameraTuning.lookAheadSteps).pose.position
         let camera = updateCamera(athletePose: progress.pose, lookAhead: lookAhead, deltaTime: dt)
+        let markers = (world?.markers(near: visualSteps) ?? []).map { marker -> MountainMarkerFrame in
+            let pose = self.course.progress(atSteps: Double(marker.step)).pose
+            return MountainMarkerFrame(marker: marker, renderPosition: SIMD3<Float>(pose.position - origin), heading: Float(pose.heading))
+        }
 
         return MountainSceneFrame(
             logicalSteps: steps,
@@ -148,7 +165,8 @@ struct MountainSceneDirector: Sendable {
             cameraPosition: SIMD3<Float>(camera.position - origin),
             cameraTarget: SIMD3<Float>(camera.target - origin),
             recycleCount: pool.recycleCount,
-            idleSlotCount: pool.idleSlotCount
+            idleSlotCount: pool.idleSlotCount,
+            markers: markers
         )
     }
 

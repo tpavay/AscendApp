@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "status": "Provisional placeholders for Visual V1. Region count, ids, step thresholds, looks and markers are undecided; replace freely.",
+  "markers": [
+    { "id": "marker_01", "step": 500, "title": "500", "subtitle": "STEPS" }
+  ],
+  "regions": [
+    {
+      "id": "region_01",
+      "startStep": 0,
+      "endStep": 500,
+      "environment": {
+        "terrain": { "steepness": 0.55, "treeDensity": 0.5, "rockDensity": 0.05, "snowCover": 0 },
+        "palette": { "grass": "#5E8C3A", "rock": "#7D7A72", "snow": "#F3F6F8", "haze": "#C4D8E4", "foliage": "#2F5A33" },
+        "sky": { "zenith": "#2F6FC4", "horizon": "#D2E6F2", "sun": "#FFF2D8", "sunIntensity": 3.2 },
+        "clouds": "none"
+      }
+    },
+    {
+      "id": "region_02",
+      "startStep": 500,
+      "endStep": 1500,
+      "environment": {
+        "terrain": { "steepness": 0.85, "treeDensity": 0.36, "rockDensity": 0.08, "snowCover": 0 },
+        "palette": { "grass": "#52803A", "rock": "#767470", "snow": "#F3F6F8", "haze": "#BFD3E1", "foliage": "#2A5230" },
+        "sky": { "zenith": "#2C68BE", "horizon": "#CFE3F1", "sun": "#FFF4DC", "sunIntensity": 3.3 },
+        "clouds": "none"
+      }
+    },
+    {
+      "id": "region_03",
+      "startStep": 1500,
+      "endStep": 3000,
+      "environment": {
+        "terrain": { "steepness": 1.15, "treeDensity": 0.1, "rockDensity": 0.14, "snowCover": 0.05 },
+        "palette": { "grass": "#7D8A4A", "rock": "#7A7670", "snow": "#F3F6F8", "haze": "#C9D9E6", "foliage": "#35583A" },
+        "sky": { "zenith": "#2862B8", "horizon": "#D5E6F2", "sun": "#FFF6E4", "sunIntensity": 3.4 },
+        "clouds": "none"
+      }
+    },
+    {
+      "id": "region_04",
+      "startStep": 3000,
+      "endStep": 5000,
+      "environment": {
+        "terrain": { "steepness": 1.05, "treeDensity": 0.025, "rockDensity": 0.18, "snowCover": 0.35 },
+        "palette": { "grass": "#8A8660", "rock": "#6F6D6A", "snow": "#EEF2F6", "haze": "#D3DEE8", "foliage": "#3A5A40" },
+        "sky": { "zenith": "#1F57AE", "horizon": "#DCE8F2", "sun": "#FFF8EC", "sunIntensity": 3.5 },
+        "clouds": "around"
+      }
+    },
+    {
+      "id": "region_05",
+      "startStep": 5000,
+      "endStep": 8000,
+      "environment": {
+        "terrain": { "steepness": 0.95, "treeDensity": 0, "rockDensity": 0.16, "snowCover": 0.7 },
+        "palette": { "grass": "#8C8A74", "rock": "#6B6A6C", "snow": "#EEF2F6", "haze": "#E4EBF2", "foliage": "#3A5A40" },
+        "sky": { "zenith": "#1A4FA6", "horizon": "#E6EEF5", "sun": "#FFFAF0", "sunIntensity": 3.6 },
+        "clouds": "around"
+      }
+    },
+    {
+      "id": "region_06",
+      "startStep": 8000,
+      "environment": {
+        "terrain": { "steepness": 0.9, "treeDensity": 0, "rockDensity": 0.14, "snowCover": 0.85 },
+        "palette": { "grass": "#8C8A74", "rock": "#5F6068", "snow": "#F3F5F8", "haze": "#D6E2EE", "foliage": "#3A5A40" },
+        "sky": { "zenith": "#123F94", "horizon": "#D8E6F3", "sun": "#FFFFFF", "sunIntensity": 3.8 },
+        "clouds": "below"
+      }
+    }
+  ]
+}

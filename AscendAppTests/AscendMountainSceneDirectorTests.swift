@@ -47,7 +47,7 @@ struct AscendMountainSceneDirectorTests {
     }
 
     @Test
-    func aLongClimbKeepsExactlySixChunksAroundTheAthlete() {
+    func aLongClimbKeepsItsFixedWindowOfChunksAroundTheAthlete() {
         var director = MountainSceneDirector(seed: MountainCourse.ascendMountainSeed)
         var time = 0.0
         var reassignments = 0
@@ -111,10 +111,10 @@ struct AscendMountainSceneDirectorTests {
         let hip = SIMD3<Double>(0, 0.9, 0)
         let foot = SIMD3<Double>(0.05, 0.25, -0.3)
 
-        let knee = MountainAthleteKinematics.knee(hip: hip, foot: foot, forward: SIMD3(0, 0, -1))
+        let knee = MountainAthletePoser.knee(root: hip, end: foot, upper: 0.46, lower: 0.46, bendToward: SIMD3(0, 0, -1))
 
-        #expect(abs(simd_distance(hip, knee) - MountainAthleteKinematics.thighLength) < 1e-9)
-        #expect(abs(simd_distance(knee, foot) - MountainAthleteKinematics.shinLength) < 1e-9)
+        #expect(abs(simd_distance(hip, knee) - 0.46) < 1e-9)
+        #expect(abs(simd_distance(knee, foot) - 0.46) < 1e-9)
         #expect(knee.z < -0.1, "the knee bends forward, over the stairs")
     }
 }
@@ -126,8 +126,8 @@ struct AscendMountainChunkPoolTests {
 
         let assignments = pool.update(currentChunk: 0)
 
-        #expect(assignments.map(\.chunkIndex).sorted() == Array(-2...3))
-        #expect(pool.activeSlotCount == 6)
+        #expect(assignments.map(\.chunkIndex).sorted() == Array(-2...6))
+        #expect(pool.activeSlotCount == MountainChunkPool.windowSize)
         #expect(pool.idleSlotCount == 0)
         #expect(pool.recycleCount == 0)
     }
@@ -140,7 +140,7 @@ struct AscendMountainChunkPoolTests {
 
         let assignments = pool.update(currentChunk: 1)
 
-        #expect(assignments == [MountainChunkPool.Assignment(slot: oldestSlot!, chunkIndex: 4)])
+        #expect(assignments == [MountainChunkPool.Assignment(slot: oldestSlot!, chunkIndex: 7)])
         #expect(pool.recycleCount == 1)
     }
 
@@ -159,8 +159,8 @@ struct AscendMountainChunkPoolTests {
 
         let assignments = pool.update(currentChunk: 94_000)
 
-        #expect(assignments.count == 6)
-        #expect(pool.slotCount == 6)
+        #expect(assignments.count == MountainChunkPool.windowSize)
+        #expect(pool.slotCount == MountainChunkPool.windowSize)
         #expect(Set(pool.slotChunkIndices.compactMap(\.self)) == Set(MountainChunkPool.window(around: 94_000)))
     }
 
@@ -172,20 +172,19 @@ struct AscendMountainChunkPoolTests {
         let assignments = pool.update(currentChunk: 9)
 
         #expect(assignments.map(\.chunkIndex) == [7])
-        #expect(!pool.slotChunkIndices.contains(13))
+        #expect(!pool.slotChunkIndices.contains(16))
     }
 }
 
 struct AscendMountainChunkGeometryTests {
     @Test(arguments: [MountainChunkKind.shortFlight, .mediumFlight, .longFlight])
-    func aFlightBuildsOneStairPerStep(kind: MountainChunkKind) {
+    func aFlightLaysOneStoneBlockAndTwoKerbsPerStep(kind: MountainChunkKind) {
         let geometry = MountainChunkGeometry(kind: kind)
 
-        // Each stair is a block, a nosing strip and a curb either side.
-        #expect(geometry.boxCount == kind.stepCount * 4)
-        #expect(geometry.positions.count == geometry.boxCount * 24)
+        #expect(geometry.pieceCount == kind.stepCount * 3)
+        #expect(geometry.positions.count == geometry.indices.count, "flat shading: every triangle owns its corners")
         #expect(geometry.normals.count == geometry.positions.count)
-        #expect(geometry.indices.count == geometry.boxCount * 36)
+        #expect(geometry.uvs.count == geometry.positions.count)
         #expect(geometry.triangleSurfaces.count == geometry.indices.count / 3)
     }
 
@@ -204,9 +203,27 @@ struct AscendMountainChunkGeometryTests {
         #expect(abs(Double(highestStone) - kind.exitPose.position.y) < 1e-4)
     }
 
-    @Test
-    func facesPointOutOfTheirBoxes() {
-        let geometry = MountainChunkGeometry(kind: .landing)
+    @Test(arguments: [(MountainChunkKind.mediumFlight, 7), (.mediumFlight, 16), (.longFlight, 1)])
+    func everyTreadTopSitsAtItsStairsHeight(kind: MountainChunkKind, stair: Int) {
+        let geometry = MountainChunkGeometry(kind: kind)
+        let stone = MountainChunkGeometry.Surface.stone.rawValue
+        let treadCentre = kind.localPose(atStep: stair).position
+
+        // The upward-facing stone face over the tread centre is at exactly the stair's height.
+        var found = false
+        for (triangle, surface) in geometry.triangleSurfaces.enumerated() where surface == stone {
+            let corners = (0..<3).map { geometry.positions[Int(geometry.indices[triangle * 3 + $0])] }
+            guard geometry.normals[Int(geometry.indices[triangle * 3])].y > 0.99,
+                  corners.allSatisfy({ abs(Double($0.y) - treadCentre.y) < 1e-4 }) else { continue }
+            let zs = corners.map { Double($0.z) }
+            if zs.min()! <= treadCentre.z && zs.max()! >= treadCentre.z { found = true }
+        }
+        #expect(found)
+    }
+
+    @Test(arguments: MountainChunkKind.allCases)
+    func facesPointTheWayTheirNormalsSay(kind: MountainChunkKind) {
+        let geometry = MountainChunkGeometry(kind: kind)
 
         for triangle in 0..<(geometry.indices.count / 3) {
             let a = geometry.positions[Int(geometry.indices[triangle * 3])]
