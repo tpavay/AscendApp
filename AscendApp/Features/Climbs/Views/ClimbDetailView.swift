@@ -1225,7 +1225,8 @@ struct ClimbDetailView: View {
             currentUserAvatar.identity.avatarToken :
             row.identity.avatarToken
         return ClimberAvatar(
-            userId: row.isCurrentUser ? currentUserAvatar.identity.userId : row.userId,
+            userId: row.userId,
+            isCurrentUser: row.isCurrentUser,
             photoURL: row.isCurrentUser ?
                 (row.identity.photoURL ?? currentUserPhotoURL) :
                 row.identity.photoURL,
@@ -1936,6 +1937,7 @@ private struct ClimbCommunityAvatarView: View {
     var body: some View {
         ClimberAvatar(
             userId: avatar.identity.userId,
+            isCurrentUser: avatar.isCurrentUser,
             photoURL: avatar.identity.photoURL,
             placeholder: placeholder,
             size: 44,

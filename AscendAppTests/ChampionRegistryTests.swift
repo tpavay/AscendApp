@@ -27,6 +27,14 @@ final class FakeLeaderboardResults: LeaderboardResultsReading, @unchecked Sendab
         (placings[resultID] ?? []).filter { userIds.contains($0.userId) }
     }
 
+    /// The all-time board's current leaders.
+    var allTimeLeaders: [LeaderboardPlacing] = []
+
+    func fetchAllTimeLeaders() async throws -> [LeaderboardPlacing] {
+        if failsFor.contains("all_time") { throw URLError(.notConnectedToInternet) }
+        return allTimeLeaders
+    }
+
     func store(_ bundle: PeriodRecapResultBundle) {
         results[bundle.result.id] = bundle.result
         placings[bundle.result.id] = bundle.placings
@@ -104,6 +112,32 @@ struct ChampionRegistryTests {
         #expect(registry.reign(for: .weekly)?.isCurrent(at: nextWeek) == false)
         await registry.refreshIfStale(now: nextWeek)
         #expect(registry.titles(for: "me").isEmpty)
+    }
+
+    @Test
+    func theAllTimeCrownIsLiveOnWhoeverLeadsTheAllTimeBoard() async {
+        let results = store(crowning: false)
+        results.allTimeLeaders = [
+            fixtures.placing(3, rank: 1, steps: 120_000, climbs: 80),
+            fixtures.placing(4, rank: 1, steps: 120_000, climbs: 61)
+        ]
+        let registry = ChampionRegistry(repository: results, isFeatureEnabled: { true })
+        await registry.refresh(now: Self.now)
+
+        #expect(registry.titles(for: "fixture-ezra") == ChampionTitles([.monthly, .allTime]))
+        #expect(registry.titles(for: "fixture-vera") == ChampionTitles([.allTime]))
+        #expect(registry.reign(for: .allTime)?.isCurrent(at: Self.now.addingTimeInterval(400 * 86_400)) == true)
+        #expect(registry.reign(for: .allTime)?.endsAt == nil)
+    }
+
+    @Test
+    func theSignedInClimbersOwnRowIsCrownedWithoutAUid() async {
+        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { true })
+        await registry.refresh(now: Self.now)
+        registry.setCurrentUser("me")
+
+        #expect(registry.titles(for: nil, isCurrentUser: true) == ChampionTitles([.weekly]))
+        #expect(registry.titles(for: nil, isCurrentUser: false) == .none)
     }
 
     @Test

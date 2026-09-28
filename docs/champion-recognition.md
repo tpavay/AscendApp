@@ -8,17 +8,20 @@ The rank model itself - what a rank counts and how ties resolve - stays owned by
 
 - **The reign.** The #1 of a closed weekly, monthly or yearly Steps board wears that board's crown on their picture for the whole of the next period, on every surface, and loses it when the next champion is crowned.
   Every #1 is crowned however many climbed, and an exact tie crowns every tied climber (co-champions).
-- **Three crowns.** Weekly is gold (`LeaderboardCrown`), monthly is diamond (`LeaderboardCrownDiamond`), yearly is mythic (`LeaderboardCrownMythic`).
-  All-time has no crown yet.
+- **Four crowns.** Weekly is gold (`LeaderboardCrown`), monthly is diamond (`LeaderboardCrownDiamond`), yearly is mythic (`LeaderboardCrownMythic`), all-time is ruby (`LeaderboardCrownRuby`).
+- **The all-time crown is live.** All-time never closes, so it is not frozen or finalized: it sits on whoever leads the all-time Steps board right now (every climber tied at the top) and passes the moment someone takes #1.
+  The captain asked for it on 2026-09-28 after testing the Dev build, because the all-time podium looked like the weekly one; the design had parked it as "all-time later".
+  It is read from the all-time board itself (`LeaderboardResultsReading.fetchAllTimeLeaders`), has no strip, no past boards and no recap, and it inherits the all-time board's known exposure: its plausibility envelope is anchored at the climber's own earliest workout, so a backdated climb can stretch it (`ascend-leaderboards`).
 - **Steps only.** Only the unfiltered Steps board crowns, because it is the only board the finalizer awards.
   The climber with the most climbs is named on past boards and in the recap, and never crowned.
 - **The mark.** A crown perched on the picture, tilted, at the top right.
   Pictures 56pt and larger wear the full perch; smaller pictures wear the compact perch at half the picture's width.
   It is hidden on a picture that already wears a gold, silver or bronze ring (the global podium, and the top three rows of ALL TIMES and routine boards), and there is never a crown beside a name in a list row.
-- **Several titles.** The rarest title leads (yearly, then monthly, then weekly); large pictures carry a small dot per other title; holding all three is "Undisputed".
+  That includes the live race, Just Climb and routine boards: a climber's attempt in progress carries no uid on its row, so their own picture finds their crown through `ChampionRegistry.currentUserId`.
+- **Several titles.** The rarest title leads (all-time, then yearly, monthly, weekly); large pictures carry a small dot per other title; holding every title at once is "Undisputed".
 - **Blocked climbers** keep their crown on the placeholder picture: a title is a standing, not identity.
 - **The board.** A slim champion strip leads the weekly, monthly and yearly Steps boards, with a chevron to past champions.
-  First place on the podium takes the board's colour - crown, ring and number - gold weekly, diamond monthly, mythic yearly; #2 and #3 keep silver and bronze.
+  First place on the podium takes the board's colour - crown, ring and number - gold weekly, diamond monthly, mythic yearly, ruby all-time; #2 and #3 keep silver and bronze.
 - **Past champions are past boards.** The board frozen at each final result, stepped back one period at a time, with the climber count and most climbs underneath.
 - **Profiles.** The crown sits on the picture; there is no title bar.
   The comparison screen names the title under the other climber's name.

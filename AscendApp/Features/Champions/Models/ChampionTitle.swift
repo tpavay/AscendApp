@@ -1,20 +1,23 @@
 import SwiftUI
 
-/// A title the Steps board awards when a period closes: weekly gold, monthly diamond,
-/// yearly mythic. All-time has no crown - it never closes, so there is nothing to freeze.
+/// A title the Steps board awards: weekly gold, monthly diamond and yearly mythic when a
+/// period closes, and all-time ruby, held live by whoever leads the all-time board now -
+/// it never closes, so there is nothing to freeze and it passes the moment someone takes #1.
 ///
 /// `docs/champion-recognition.md` owns the product rules; this type only names them.
 enum ChampionTitle: String, CaseIterable, Comparable, Sendable {
     case weekly
     case monthly
     case yearly
+    case allTime = "all_time"
 
     init?(timeFrame: LeaderboardTimeFrame) {
         switch timeFrame {
         case .weekly: self = .weekly
         case .monthly: self = .monthly
         case .yearly: self = .yearly
-        case .daily, .allTime: return nil
+        case .allTime: self = .allTime
+        case .daily: return nil
         }
     }
 
@@ -23,15 +26,23 @@ enum ChampionTitle: String, CaseIterable, Comparable, Sendable {
         case .weekly: .weekly
         case .monthly: .monthly
         case .yearly: .yearly
+        case .allTime: .allTime
         }
     }
 
-    /// Rarer titles lead: a climber holding the year and the week wears the mythic crown.
+    /// Whether the title is won when a period closes, rather than held live.
+    var isFinalized: Bool {
+        self != .allTime
+    }
+
+    /// Rarer titles lead: a climber holding the year and the week wears the mythic crown,
+    /// and the all-time leader's ruby crown leads every other.
     var rarity: Int {
         switch self {
         case .weekly: 0
         case .monthly: 1
         case .yearly: 2
+        case .allTime: 3
         }
     }
 
@@ -45,6 +56,7 @@ enum ChampionTitle: String, CaseIterable, Comparable, Sendable {
         case .weekly: "LeaderboardCrown"
         case .monthly: "LeaderboardCrownDiamond"
         case .yearly: "LeaderboardCrownMythic"
+        case .allTime: "LeaderboardCrownRuby"
         }
     }
 
@@ -54,6 +66,7 @@ enum ChampionTitle: String, CaseIterable, Comparable, Sendable {
         case .weekly: Color.championGold
         case .monthly: Color.championDiamond
         case .yearly: Color.championMythic
+        case .allTime: Color.championRuby
         }
     }
 
@@ -63,6 +76,7 @@ enum ChampionTitle: String, CaseIterable, Comparable, Sendable {
         case .weekly: Color.championGold
         case .monthly: Color.championDiamond
         case .yearly: Color(hex: "9B6BFF")
+        case .allTime: Color.championRuby
         }
     }
 
@@ -80,6 +94,8 @@ enum ChampionTitle: String, CaseIterable, Comparable, Sendable {
             [Color(hex: "E6FBFF"), Color(hex: "58E3FF"), Color(hex: "1E82BF"), Color(hex: "E6FBFF")]
         case .yearly:
             Color.championMythicSpectrum
+        case .allTime:
+            [Color(hex: "FFD6DE"), Color(hex: "FF3D6E"), Color(hex: "7A0A24"), Color(hex: "FFD6DE")]
         }
     }
 }
@@ -93,6 +109,9 @@ extension Color {
 
     /// The yearly title's label violet, readable on black where the full mythic sweep is not.
     static let championMythic = Color(hex: "B184FF")
+
+    /// The all-time title's ruby.
+    static let championRuby = Color(hex: "FF4D78")
 
     /// The climb tier's mythic colours, swept around a ring.
     static let championMythicSpectrum: [Color] = [

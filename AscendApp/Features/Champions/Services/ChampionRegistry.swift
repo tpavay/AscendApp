@@ -56,9 +56,25 @@ final class ChampionRegistry {
         }
     }
 
+    /// The signed-in climber. A live race draws their attempt in progress with no uid on
+    /// the row, so their own picture is crowned through this instead.
+    private(set) var currentUserId: String?
+
+    func setCurrentUser(_ userId: String?) {
+        if currentUserId != userId {
+            currentUserId = userId
+        }
+    }
+
     func titles(for userId: String?) -> ChampionTitles {
         guard isEnabled, let userId, !userId.isEmpty else { return .none }
         return titlesByUserId[userId] ?? .none
+    }
+
+    /// The titles for a picture: its climber's, or the signed-in climber's for a row that
+    /// is theirs but carries no uid.
+    func titles(for userId: String?, isCurrentUser: Bool) -> ChampionTitles {
+        titles(for: userId ?? (isCurrentUser ? currentUserId : nil))
     }
 
     func reign(for timeFrame: LeaderboardTimeFrame) -> ChampionReign? {
@@ -132,6 +148,7 @@ final class ChampionRegistry {
     func clear() {
         generation &+= 1
         lastRefreshAt = nil
+        currentUserId = nil
         apply([:])
     }
 
@@ -173,6 +190,9 @@ final class ChampionRegistry {
         now: Date,
         repository: any LeaderboardResultsReading
     ) async -> ReignLoad {
+        guard title.isFinalized else {
+            return await loadAllTimeReign(now: now, repository: repository)
+        }
         guard let period = title.timeFrame.previousPeriod(referenceDate: now) else {
             return .loaded(nil)
         }
@@ -185,6 +205,29 @@ final class ChampionRegistry {
             }
             let champions = try await repository.fetchChampionPlacings(resultID: result.id)
             return .loaded(ChampionReign(title: title, result: result, champions: champions))
+        } catch {
+            return .failed
+        }
+    }
+
+    /// The all-time crown is live: it sits on whoever leads the all-time board now, read
+    /// from that board rather than from a frozen result, since all-time never closes.
+    nonisolated private static func loadAllTimeReign(
+        now: Date,
+        repository: any LeaderboardResultsReading
+    ) async -> ReignLoad {
+        do {
+            let leaders = try await repository.fetchAllTimeLeaders()
+            guard !leaders.isEmpty else { return .loaded(nil) }
+            let result = LeaderboardResult(
+                period: LeaderboardTimeFrame.allTime.currentPeriod(referenceDate: now),
+                climberCount: 0,
+                championUserIds: leaders.map(\.userId),
+                podiumUserIds: leaders.map(\.userId),
+                mostClimbs: nil,
+                community: .empty
+            )
+            return .loaded(ChampionReign(title: .allTime, result: result, champions: leaders))
         } catch {
             return .failed
         }

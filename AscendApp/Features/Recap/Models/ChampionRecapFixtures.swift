@@ -233,7 +233,9 @@ struct ChampionRecapFixtures {
     func reigns(crowning titles: Set<ChampionTitle>) -> [ChampionTitle: ChampionReign] {
         var reigns: [ChampionTitle: ChampionReign] = [:]
         for title in titles {
-            guard let period = title.timeFrame.previousPeriod(referenceDate: now) else { continue }
+            guard let period = title.isFinalized
+                ? title.timeFrame.previousPeriod(referenceDate: now)
+                : title.timeFrame.currentPeriod(referenceDate: now) else { continue }
             let champion = placing(0, rank: 1, steps: title == .weekly ? 8_836 : 52_300, climbs: 6, asViewer: true)
             let bundle = result(
                 period: period,

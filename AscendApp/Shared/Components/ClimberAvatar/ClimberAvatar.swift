@@ -20,6 +20,9 @@ struct ClimberAvatar: View {
     @Environment(ChampionRegistry.self) private var championRegistry: ChampionRegistry?
 
     let userId: String?
+    /// The signed-in climber's own row. Their live attempt carries no uid, so this is how
+    /// its picture finds their crown.
+    var isCurrentUser = false
     let photoURL: URL?
     let placeholder: ClimberAvatarPlaceholder
     let size: CGFloat
@@ -38,7 +41,7 @@ struct ClimberAvatar: View {
         if let championTitlesOverride {
             return (championRegistry?.isEnabled ?? true) ? championTitlesOverride : .none
         }
-        return championRegistry?.titles(for: userId) ?? .none
+        return championRegistry?.titles(for: userId, isCurrentUser: isCurrentUser) ?? .none
     }
 
     var body: some View {

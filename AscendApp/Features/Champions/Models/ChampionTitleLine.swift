@@ -37,7 +37,9 @@ struct ChampionTitleLine: Equatable, Sendable {
             return LeaderboardPeriod.monthStyle.format(period.startAt).uppercased()
         case .yearly:
             return LeaderboardPeriod.yearStyle.format(period.startAt)
-        case .daily, .allTime:
+        case .allTime:
+            return "ALL-TIME"
+        case .daily:
             return period.windowLabel.uppercased()
         }
     }

@@ -15,14 +15,17 @@ struct ChampionReign: Equatable, Sendable {
         Set(result.championUserIds)
     }
 
-    /// When the crown comes off: the end of the period after the one that was won.
+    /// When the crown comes off: the end of the period after the one that was won. The
+    /// all-time crown has no end - it passes when someone takes #1.
     var endsAt: Date? {
-        result.period.next?.endAt
+        title.isFinalized ? result.period.next?.endAt : nil
     }
 
-    /// Whether this reign is still the live one at `date`. The reigning result is always the
-    /// previous period's; anything older has been superseded.
+    /// Whether this reign is still the live one at `date`. A finalized reign is always the
+    /// previous period's; anything older has been superseded. The all-time reign is live,
+    /// and only a fresh read can tell it has changed hands.
     func isCurrent(at date: Date) -> Bool {
-        title.timeFrame.previousPeriod(referenceDate: date)?.key == result.period.key
+        guard title.isFinalized else { return true }
+        return title.timeFrame.previousPeriod(referenceDate: date)?.key == result.period.key
     }
 }

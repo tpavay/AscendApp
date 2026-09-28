@@ -23,7 +23,12 @@ struct ChampionModelTests {
         let titles = ChampionTitles([.weekly, .yearly, .monthly])
         #expect(titles.leading == .yearly)
         #expect(titles.others == [.monthly, .weekly])
-        #expect(titles.isUndisputed)
+        #expect(!titles.isUndisputed)
+
+        let every = ChampionTitles(Set(ChampionTitle.allCases))
+        #expect(every.leading == .allTime)
+        #expect(every.others == [.yearly, .monthly, .weekly])
+        #expect(every.isUndisputed)
 
         let two = ChampionTitles([.weekly, .monthly])
         #expect(two.leading == .monthly)
@@ -35,15 +40,18 @@ struct ChampionModelTests {
     }
 
     @Test
-    func onlyClosingFramesAwardATitle() {
+    func everyStepsBoardButTodayAwardsATitle() {
         #expect(ChampionTitle(timeFrame: .weekly) == .weekly)
         #expect(ChampionTitle(timeFrame: .monthly) == .monthly)
         #expect(ChampionTitle(timeFrame: .yearly) == .yearly)
-        #expect(ChampionTitle(timeFrame: .allTime) == nil)
+        #expect(ChampionTitle(timeFrame: .allTime) == .allTime)
         #expect(ChampionTitle(timeFrame: .daily) == nil)
+        #expect(ChampionTitle.allTime.isFinalized == false)
+        #expect(ChampionTitle.yearly.isFinalized)
         #expect(ChampionTitle.weekly.crownAssetName == "LeaderboardCrown")
         #expect(ChampionTitle.monthly.crownAssetName == "LeaderboardCrownDiamond")
         #expect(ChampionTitle.yearly.crownAssetName == "LeaderboardCrownMythic")
+        #expect(ChampionTitle.allTime.crownAssetName == "LeaderboardCrownRuby")
     }
 
     // MARK: - The perch
@@ -147,7 +155,13 @@ struct ChampionModelTests {
             reigns: fixtures.reigns(crowning: Set(ChampionTitle.allCases))
         ))
         #expect(undisputed.text == "UNDISPUTED CHAMPION")
-        #expect(undisputed.leadingTitle == .yearly)
+        #expect(undisputed.leadingTitle == .allTime)
+
+        let allTime = try #require(ChampionTitleLine.make(
+            titles: ChampionTitles([.allTime, .weekly]),
+            reigns: fixtures.reigns(crowning: [.allTime, .weekly])
+        ))
+        #expect(allTime.text == "ALL-TIME & WEEK 38 CHAMPION")
     }
 
     // MARK: - Parsing a result

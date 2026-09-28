@@ -33,7 +33,7 @@ struct ChampionCrownEvidenceTests {
         let year = LeaderboardTimeFrame.yearly.previousPeriod(referenceDate: Self.now)!
         for (title, period, champions) in [
             (ChampionTitle.weekly, week, ["fixture-zoe", "double"]),
-            (.monthly, month, ["fixture-ezra", "double"]),
+            (.monthly, month, ["fixture-ezra", "double", "viewer-monthly"]),
             (.yearly, year, ["fixture-vera"])
         ] {
             let result = LeaderboardResult(
@@ -46,7 +46,20 @@ struct ChampionCrownEvidenceTests {
             )
             reigns[title] = ChampionReign(title: title, result: result, champions: [])
         }
+        reigns[.allTime] = ChampionReign(
+            title: .allTime,
+            result: LeaderboardResult(
+                period: LeaderboardTimeFrame.allTime.currentPeriod(referenceDate: Self.now),
+                climberCount: 0,
+                championUserIds: ["fixture-noah"],
+                podiumUserIds: ["fixture-noah"],
+                mostClimbs: nil,
+                community: .empty
+            ),
+            champions: []
+        )
         registry.apply(reigns)
+        registry.setCurrentUser("viewer-monthly")
         return registry
     }
 
@@ -57,7 +70,7 @@ struct ChampionCrownEvidenceTests {
         let registry = registry()
         let sizes: [CGFloat] = [120, 88, 76, 50, 44, 42, 38, 32]
         for size in sizes {
-            for (userId, title) in [("fixture-zoe", ChampionTitle.weekly), ("fixture-ezra", .monthly), ("fixture-vera", .yearly)] {
+            for (userId, title) in [("fixture-zoe", ChampionTitle.weekly), ("fixture-ezra", .monthly), ("fixture-vera", .yearly), ("fixture-noah", .allTime)] {
                 let ink = try await crownInk(userId: userId, size: size, registry: registry)
                 #expect(ink.inPerch > 12, "no \(title) crown on a \(Int(size))pt picture (\(ink.inPerch) ink pixels)")
             }
@@ -105,6 +118,10 @@ struct ChampionCrownEvidenceTests {
                     avatar("fixture-vera", 42, label: "Pinned row")
                     avatar("fixture-zoe", 38, label: "Home feed")
                     avatar("fixture-ezra", 32, label: "Recap row")
+                }
+                HStack(spacing: 40) {
+                    avatar("fixture-noah", 88, label: "All-time")
+                    avatar("fixture-noah", 44, label: "All-time row")
                 }
             }
             .padding(.top, 60)
@@ -425,10 +442,9 @@ struct ChampionCrownEvidenceTests {
 
     @Test
     func theLiveRaceRowWearsTheCompactCrown() async throws {
-        let rows = [
+        let rivals = [
             ("fixture-noah", "Noah Grant", 13, 1_688, false),
-            ("fixture-zoe", "Zoe Ramirez", 14, 1_637, false),
-            ("viewer", "Tyler Pavay", 15, 1_542, true)
+            ("fixture-zoe", "Zoe Ramirez", 14, 1_637, false)
         ].map { userId, name, rank, steps, isCurrentUser in
             CrossUserIdentityAdapter.replayRow(
                 LiveReplayLeaderboardRow(
@@ -452,6 +468,16 @@ struct ChampionCrownEvidenceTests {
                 isBlockListHydrated: true
             )
         }
+        // The attempt in progress carries no uid; the signed-in climber's crown still finds it.
+        let liveAttempt = CrossUserIdentityAdapter.replayRow(
+            LiveReplayLeaderboardRow.currentUser(rank: 15, steps: 1_542, displayName: "Tyler Pavay"),
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        )
+        #expect(liveAttempt.userId == nil)
+        let rows = rivals + [liveAttempt]
+        let registry = registry()
+        #expect(registry.titles(for: nil, isCurrentUser: true) == ChampionTitles([.monthly]))
         let size = CGSize(width: 402, height: 360)
         try await RenderedScreen.host(
             LiveReplayLeaderboardPanel(
@@ -467,7 +493,7 @@ struct ChampionCrownEvidenceTests {
             )
             .frame(width: size.width, height: size.height, alignment: .top)
             .background(Color.black)
-            .environment(registry())
+            .environment(registry)
             .environment(\.colorScheme, .dark),
             size: size
         ) { screen in

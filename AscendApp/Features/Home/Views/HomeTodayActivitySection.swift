@@ -132,6 +132,7 @@ struct HomeTodayActivityRowView: View {
     private var avatar: some View {
         ClimberAvatar(
             userId: row.userId,
+            isCurrentUser: row.isCurrentUser,
             photoURL: row.identity.photoURL,
             placeholder: .initials(
                 row.identity.avatarToken,

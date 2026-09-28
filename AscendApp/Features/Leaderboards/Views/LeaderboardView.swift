@@ -285,8 +285,10 @@ struct LeaderboardView: View {
     }
 
     /// Last period's champion leads the Steps board all period, the Monday reset included.
+    /// All-time has no strip: its champion is whoever stands first on its podium right now.
     private var displayedReign: ChampionReign? {
-        guard viewModel.selectedMetric == .climb else { return nil }
+        guard viewModel.selectedMetric == .climb,
+              viewModel.selectedTimeFrame != .allTime else { return nil }
         return championRegistry?.reign(for: viewModel.selectedTimeFrame)
     }
 

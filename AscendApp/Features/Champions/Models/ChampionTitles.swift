@@ -3,7 +3,7 @@ import Foundation
 /// Every title one climber holds right now.
 ///
 /// The rarest title leads the crown on their picture; each other title is a dot beside
-/// it on large pictures; all three at once is "Undisputed".
+/// it on large pictures; every title at once is "Undisputed".
 struct ChampionTitles: Equatable, Hashable, Sendable {
     static let none = ChampionTitles([])
 

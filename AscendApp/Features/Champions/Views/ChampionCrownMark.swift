@@ -61,7 +61,7 @@ struct ChampionCrownMark: View {
         switch title {
         case .yearly:
             AnyShapeStyle(AngularGradient(colors: Color.championMythicSpectrum, center: .center))
-        case .weekly, .monthly:
+        case .weekly, .monthly, .allTime:
             AnyShapeStyle(title.tint)
         }
     }

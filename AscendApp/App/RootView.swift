@@ -465,7 +465,8 @@ struct RootView: View {
             guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             // Crowns change hands on the first foreground after a board closes. Not awaited:
-            // three small reads must never hold up hydration and sync behind them.
+            // a few small reads must never hold up hydration and sync behind them.
+            championRegistry.setCurrentUser(currentUserId)
             Task { await championRegistry.refreshIfStale() }
 
             switch try AccountDataOwnershipService.evaluateAccess(

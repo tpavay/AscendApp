@@ -379,6 +379,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
     private func avatarView(size: CGFloat, borderColor: Color?) -> some View {
         ClimberAvatar(
             userId: row.userId,
+            isCurrentUser: row.isCurrentUser,
             photoURL: row.isCurrentUser ?
                 (row.identity.photoURL ?? currentUserPhotoURL) :
                 row.identity.photoURL,

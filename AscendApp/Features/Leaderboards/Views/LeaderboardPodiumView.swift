@@ -113,7 +113,7 @@ private struct LeaderboardPodiumSlotView: View {
     /// Weekly keeps the podium's own gold; monthly and yearly boards take their title's colour.
     private var firstPlaceColor: Color {
         switch awardedTitle {
-        case .monthly, .yearly:
+        case .monthly, .yearly, .allTime:
             return awardedTitle?.tint ?? LeaderboardMedal.gold
         case .weekly, .none:
             return LeaderboardMedal.gold
@@ -122,7 +122,7 @@ private struct LeaderboardPodiumSlotView: View {
 
     private var firstPlaceGlow: Color {
         switch awardedTitle {
-        case .monthly, .yearly:
+        case .monthly, .yearly, .allTime:
             return awardedTitle?.glow ?? LeaderboardMedal.gold
         case .weekly, .none:
             return LeaderboardMedal.gold

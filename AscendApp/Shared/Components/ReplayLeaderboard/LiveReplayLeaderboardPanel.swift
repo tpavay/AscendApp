@@ -486,6 +486,7 @@ private struct LiveReplayLeaderboardRowView: View {
     private var avatarView: some View {
         ClimberAvatar(
             userId: row.userId,
+            isCurrentUser: row.isCurrentUser,
             photoURL: resolvedPhotoURL,
             placeholder: .initials(
                 row.identity.avatarToken,

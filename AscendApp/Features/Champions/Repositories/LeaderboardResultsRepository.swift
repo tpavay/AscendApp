@@ -10,6 +10,8 @@ protocol LeaderboardResultsReading: Sendable {
     func fetchPlacings(resultID: String, limit: Int) async throws -> [LeaderboardPlacing]
     func fetchChampionPlacings(resultID: String) async throws -> [LeaderboardPlacing]
     func fetchPlacings(resultID: String, userIds: [String]) async throws -> [LeaderboardPlacing]
+    /// Whoever leads the all-time Steps board right now - several on an exact tie.
+    func fetchAllTimeLeaders() async throws -> [LeaderboardPlacing]
 }
 
 final class LeaderboardResultsRepository: LeaderboardResultsReading, Sendable {
@@ -73,6 +75,31 @@ final class LeaderboardResultsRepository: LeaderboardResultsReading, Sendable {
         }
     }
 
+    /// Read through the board's own query and parser, so the all-time crown sits on exactly
+    /// the climber the all-time podium puts first.
+    func fetchAllTimeLeaders() async throws -> [LeaderboardPlacing] {
+        let stats = try await LeaderboardRepository.shared.fetchLeaderboard(
+            metric: .climb,
+            timeFrame: .allTime,
+            limit: Self.allTimeLeaderReadLimit
+        )
+        guard let top = stats.first?.totalSteps, top > 0 else { return [] }
+        return stats
+            .filter { $0.totalSteps == top }
+            .map {
+                LeaderboardPlacing(
+                    userId: $0.userId,
+                    unresolvedIdentity: $0.unresolvedIdentity,
+                    rank: 1,
+                    totalSteps: $0.totalSteps,
+                    totalWorkouts: $0.totalWorkouts
+                )
+            }
+    }
+
+    /// Enough rows to see every climber tied at the top of the all-time board.
+    static let allTimeLeaderReadLimit = 10
+
     private func placings(resultID: String) -> CollectionReference {
         db.collection(Self.resultsCollection)
             .document(resultID)
@@ -85,7 +112,7 @@ enum LeaderboardResultParser {
     static func result(from data: [String: Any]) -> LeaderboardResult? {
         guard let rawTimeFrame = data["timeFrame"] as? String,
               let timeFrame = LeaderboardTimeFrame(rawValue: rawTimeFrame),
-              ChampionTitle(timeFrame: timeFrame) != nil,
+              ChampionTitle(timeFrame: timeFrame)?.isFinalized == true,
               let periodKey = data["periodKey"] as? String,
               let startAt = date(data["periodStartAt"]),
               let endAt = date(data["periodEndAt"]) else {
