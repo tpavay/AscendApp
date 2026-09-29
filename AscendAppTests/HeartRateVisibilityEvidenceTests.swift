@@ -31,7 +31,7 @@ struct HeartRateVisibilityEvidenceTests {
 
             let privacy = try #require(text.range(of: "privacy", options: .backwards))
             let heartRate = try #require(
-                text.range(of: "heart rate on profile"),
+                text.range(of: "heart rate"),
                 "Settings never drew the heart rate row. Read: \(text)"
             )
             let blocked = try #require(text.range(of: "blocked climbers"))

@@ -26,7 +26,7 @@ struct SettingsReorganizationContractTests {
         #expect(source.contains("title: \"Units\""))
         #expect(source.contains("title: \"Integrations\""))
         #expect(source.contains("title: \"Blocked climbers\""))
-        #expect(source.contains("title: \"Heart rate on profile\""))
+        #expect(source.contains("title: \"Heart rate\""))
         #expect(source.contains("destination: HeartRateVisibilityView()"))
     }
 

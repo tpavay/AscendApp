@@ -252,7 +252,7 @@ struct AccountView: View {
         [
             SettingsOption(
                 icon: .settingsHeartRateVisibility,
-                title: "Heart rate on profile",
+                title: "Heart rate",
                 destination: HeartRateVisibilityView()
             ),
             SettingsOption(
