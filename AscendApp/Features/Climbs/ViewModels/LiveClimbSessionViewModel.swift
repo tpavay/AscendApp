@@ -562,6 +562,15 @@ final class LiveClimbSessionViewModel {
         )
     }
 
+    /// Where this climber stands, worded exactly as the Lock Screen words it.
+    var leaderboardStandingText: LiveClimbStandingText {
+        LiveClimbStandingText(
+            rank: currentLeaderboardRank,
+            rankTotal: leaderboardTotalClimbers,
+            standing: leaderboardStanding
+        )
+    }
+
     var leaderboardUpdatedElapsedSeconds: Int? {
         leaderboardWindow?.bucketElapsedSeconds
     }

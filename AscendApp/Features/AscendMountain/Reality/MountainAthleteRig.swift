@@ -62,6 +62,7 @@ final class MountainAthleteRig {
     private let model: ModelEntity
     private let poser: MountainAthletePoser
     private var groundRing: ModelEntity?
+    private var tag: Entity?
 
     /// How far the foot joint sits behind the middle of the foot, so the sole lands centred on
     /// the tread.
@@ -131,8 +132,9 @@ final class MountainAthleteRig {
             model.components.set(OpacityComponent(opacity: 0.5))
         }
         if let label, !label.isEmpty, let tag = Self.tag(label, style: style) {
-            tag.position = [0, Float(asset.height) + 0.32, 0]
+            tag.position = [0, Float(asset.height) + 0.2, 0]
             root.addChild(tag)
+            self.tag = tag
         }
     }
 
@@ -221,6 +223,13 @@ final class MountainAthleteRig {
             material.roughness = .init(floatLiteral: roughness)
         }
         return material
+    }
+
+    /// How much of the tag shows, from none to all.
+    func showTag(opacity: Float) {
+        guard let tag else { return }
+        tag.isEnabled = opacity > 0.01
+        tag.components.set(OpacityComponent(opacity: opacity))
     }
 
     /// The lime ring under the climber's feet that marks them out when others share the stairs

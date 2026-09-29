@@ -4,8 +4,8 @@ import SwiftUI
 /// from a stair-stepper console, and one row of pace, time and heart rate (spec 4, 20, 43).
 ///
 /// Every number is the session's own - `LiveClimbSessionViewModel` stays the authority - so
-/// this screen can never disagree with Classic. The phase-1 prototype carries no rank; the
-/// designed HUD with rank and ghosts replaces this once the feel is approved.
+/// this screen can never disagree with Classic. Where the climber stands is not here: it is the
+/// race pill in the top chrome, which also opens who they race.
 struct AscendMountainSessionHUD: View {
     let viewModel: LiveClimbSessionViewModel
     let debugState: MountainDebugState?

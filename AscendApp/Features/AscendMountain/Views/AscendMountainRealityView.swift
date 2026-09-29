@@ -4,8 +4,9 @@ import SwiftUI
 /// The Ascend Mountain world: RealityKit renders the staircase, athlete and sky; everything the
 /// climber reads sits in SwiftUI on top (spec 5).
 ///
-/// `stepSource` is read once per rendered frame and is the scene's only input, so the view can
-/// be dropped and recreated freely - it resumes on the stair the count says, never from zero.
+/// `stepSource` and `ghostSource` are read once per rendered frame and are the scene's only
+/// inputs, so the view can be dropped and recreated freely - it resumes on the stair the count
+/// says, never from zero, with whoever is racing at that moment.
 struct AscendMountainRealityView: View {
     @State private var controller: MountainSceneController
 
@@ -14,7 +15,7 @@ struct AscendMountainRealityView: View {
         stepSource: @escaping @MainActor () -> Int,
         debugState: MountainDebugState? = nil,
         worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
-        ghosts: [MountainGhost] = [],
+        ghostSource: @escaping @MainActor () -> [MountainGhost] = { [] },
         elapsedSource: (@MainActor () -> TimeInterval)? = nil
     ) {
         _controller = State(
@@ -23,7 +24,7 @@ struct AscendMountainRealityView: View {
                 stepSource: stepSource,
                 debugState: debugState,
                 worldSource: worldSource,
-                ghosts: ghosts,
+                ghostSource: ghostSource,
                 elapsedSource: elapsedSource
             )
         )

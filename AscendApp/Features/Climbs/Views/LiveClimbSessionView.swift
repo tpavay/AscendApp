@@ -34,6 +34,9 @@ struct LiveClimbSessionView: View {
     @State private var didSubmitStepAccuracyCalibration = false
     /// Ascend Mountain's developer read-out; only a Dev build running Mountain creates one.
     @State private var mountainDebugState: MountainDebugState?
+    /// Who races on the Mountain, and the ghosts that puts on the stairs.
+    @State private var mountainRace = AscendMountainRace()
+    @State private var showingMountainRaceSheet = false
 
     private let experience: JustClimbExperience
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -125,6 +128,14 @@ struct LiveClimbSessionView: View {
         .sheet(isPresented: $showingCompatibleHeadphones) {
             CompatibleHeadphonesHelpSheet()
                 .appSheetStyle(.fitted())
+        }
+        .sheet(isPresented: $showingMountainRaceSheet) {
+            AscendMountainRaceSheet(race: mountainRace, isAloneOnBoard: !viewModel.leaderboardStanding.showsLeaderboardRank)
+                .appSheetStyle(.fitted())
+        }
+        .onChange(of: viewModel.leaderboardWindow) { _, window in
+            guard experience == .mountain, let window else { return }
+            mountainRace.ingest(window, identities: moderationStore.moderate(window.rows))
         }
         .sheet(
             isPresented: $showingStepAccuracyCalibration,
@@ -305,6 +316,13 @@ struct LiveClimbSessionView: View {
 
             if showsMountain {
                 mountainBackdrop
+                    .overlay {
+                        // The leaderboard page reads over the world, not through it.
+                        Color.black
+                            .opacity(viewModel.isRecording && selectedTab == .leaderboard ? 0.95 : 0)
+                            .allowsHitTesting(false)
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: selectedTab)
             } else if showsClimbPhotoBackground, let climb = viewModel.mode.climb {
                 ClimbArtworkView(climb: climb, variant: .hero)
                     .overlay(
@@ -332,10 +350,13 @@ struct LiveClimbSessionView: View {
 
     private var mountainBackdrop: some View {
         let viewModel = viewModel
+        let race = mountainRace
         return AscendMountainRealityView(
             seed: MountainCourse.ascendMountainSeed,
             stepSource: { viewModel.totalRecordedSteps },
-            debugState: mountainDebugState
+            debugState: mountainDebugState,
+            ghostSource: { race.ghosts },
+            elapsedSource: { viewModel.displayedDuration }
         )
         .overlay {
             // Legibility for the chrome above and the stat row and controls below.
@@ -457,6 +478,13 @@ struct LiveClimbSessionView: View {
                     .padding(.leading, 10)
             }
 
+            if showsMountainRacePill {
+                AscendMountainRacePill(standing: viewModel.leaderboardStandingText) {
+                    showingMountainRaceSheet = true
+                }
+                .padding(.leading, 10)
+            }
+
             if !(viewModel.isRecording && selectedTab == .justMe) {
                 Text(viewModel.elapsedClock)
                     .font(.montserratBold(size: 13))
@@ -532,15 +560,32 @@ struct LiveClimbSessionView: View {
         }
     }
 
-    /// Mountain keeps the world clear during the countdown and replaces the tabs with its own
-    /// read-out once the climb is recording.
+    /// Mountain keeps the world clear during the countdown, then swipes between its own read-out
+    /// and the leaderboard once the climb is recording. The Mountain's page stands where Just Me
+    /// does, so the top chrome treats the two pages exactly as it treats Classic's two tabs.
     @ViewBuilder
     private var mountainSection: some View {
         if viewModel.isRecording {
-            AscendMountainSessionHUD(viewModel: viewModel, debugState: mountainDebugState)
+            VStack(spacing: 10) {
+                TabView(selection: $selectedTab) {
+                    AscendMountainSessionHUD(viewModel: viewModel, debugState: mountainDebugState)
+                        .tag(LiveClimbSessionTab.justMe)
+
+                    leaderboardPanel
+                        .tag(LiveClimbSessionTab.leaderboard)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+
+                AscendMountainPageDots(isOnLeaderboard: selectedTab == .leaderboard)
+            }
         } else {
             Color.clear
         }
+    }
+
+    /// The race pill lives on the Mountain's own page and nowhere else.
+    private var showsMountainRacePill: Bool {
+        experience == .mountain && viewModel.isRecording && selectedTab == .justMe
     }
 
     private var classicLiveSection: some View {

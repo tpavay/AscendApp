@@ -31,9 +31,12 @@ final class MountainSceneController {
     private let debugState: MountainDebugState?
     private let seed: UInt64
     private let worldSource: @Sendable () throws -> MountainWorld
-    private let ghosts: [MountainGhost]
+    private let ghostSource: @MainActor () -> [MountainGhost]
     private let elapsedSource: (@MainActor () -> TimeInterval)?
     private var ghostRigs: [String: MountainAthleteRig] = [:]
+    /// The tag each ghost's rig was built with; a tag is baked into its rig, so a new one means
+    /// a new rig.
+    private var ghostRigLabels: [String: String] = [:]
     private var director: MountainSceneDirector
     private var scene: Scene?
     private var updateSubscription: EventSubscription?
@@ -57,7 +60,7 @@ final class MountainSceneController {
     /// - Parameters:
     ///   - worldSource: where the regions and markers come from; the bundled world file unless a
     ///     caller is previewing another.
-    ///   - ghosts: other athletes on the stairs - a best, a pacer, a rival.
+    ///   - ghostSource: the other athletes on the stairs this frame - a best, a pacer, rivals.
     ///   - elapsedSource: the climb's own elapsed time, which places every ghost; the scene's
     ///     clock when a caller has no workout.
     init(
@@ -65,12 +68,12 @@ final class MountainSceneController {
         stepSource: @escaping @MainActor () -> Int,
         debugState: MountainDebugState?,
         worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
-        ghosts: [MountainGhost] = [],
+        ghostSource: @escaping @MainActor () -> [MountainGhost] = { [] },
         elapsedSource: (@MainActor () -> TimeInterval)? = nil
     ) {
         self.seed = seed
         self.worldSource = worldSource
-        self.ghosts = ghosts
+        self.ghostSource = ghostSource
         self.elapsedSource = elapsedSource
         self.stepSource = stepSource
         self.debugState = debugState
@@ -205,7 +208,7 @@ final class MountainSceneController {
             logicalSteps: logicalSteps,
             time: clock,
             deltaTime: deltaTime,
-            ghosts: ghosts.map { MountainGhostSample(ghost: $0, elapsed: elapsed) }
+            ghosts: ghostSource().map { MountainGhostSample(ghost: $0, elapsed: elapsed) }
         )
 
         for slotFrame in frame.slots {
@@ -261,9 +264,10 @@ final class MountainSceneController {
         }
         for ghost in frame.ghosts {
             let rig: MountainAthleteRig
-            if let existing = ghostRigs[ghost.id] {
+            if let existing = ghostRigs[ghost.id], ghostRigLabels[ghost.id] == ghost.label {
                 rig = existing
             } else {
+                ghostRigs[ghost.id]?.root.removeFromParent()
                 let style: MountainAthleteRig.Style = switch ghost.kind {
                 case .personalBest: .ghost(MountainColor(red: 0.83, green: 0.69, blue: 0.22))
                 case .pacer: .ghost(MountainColor(red: 0.75, green: 0.9, blue: 1))
@@ -272,11 +276,23 @@ final class MountainSceneController {
                 guard let made = try? MountainAthleteRig(asset: scene.athleteAsset, style: style, label: ghost.label) else { continue }
                 scene.root.addChild(made.root)
                 ghostRigs[ghost.id] = made
+                ghostRigLabels[ghost.id] = ghost.label
                 rig = made
             }
             rig.apply(ghost.kinematics, origin: frame.renderOrigin)
+            rig.showTag(opacity: Self.tagOpacity(lead: ghost.lead))
             rig.root.isEnabled = true
         }
+    }
+
+    /// A name is for the climbers around you. The stairs climb toward the camera, so the further
+    /// ahead a ghost is the higher it stands in the frame, until its tag sits among the step count
+    /// at the top; tags fade out from `tagFullLead` steps ahead and are gone by `tagHiddenLead`.
+    static let tagFullLead = 5.0
+    static let tagHiddenLead = 10.0
+
+    static func tagOpacity(lead: Double) -> Float {
+        Float(min(max((tagHiddenLead - lead) / (tagHiddenLead - tagFullLead), 0), 1))
     }
 
     /// Bakes the mountainside for the piece a slot has just been handed. A slot is handed a piece
@@ -319,7 +335,7 @@ final class MountainSceneController {
             virtualAltitudeMetres: frame.progress.virtualAltitude,
             renderOriginDistanceMetres: Double(simd_length(frame.athleteRenderHipCentre)),
             biome: region.map { "\($0.id) (decor \(Int(lastDecorBuildMilliseconds.rounded())) ms)" } ?? "-",
-            ghostCount: 0,
+            ghostCount: frame.ghosts.count,
             residentMemoryMegabytes: MountainDebugState.residentMemoryMegabytes()
         )
     }

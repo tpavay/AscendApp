@@ -40,7 +40,7 @@ struct AscendMountainSandboxView: View {
                 seed: MountainCourse.ascendMountainSeed,
                 stepSource: { simulator.steps },
                 debugState: debugState,
-                ghosts: Self.demoGhosts
+                ghostSource: { Self.demoGhosts }
             )
             .ignoresSafeArea()
 
