@@ -116,9 +116,7 @@ struct OwnProfileView: View {
     private func overviewContent(_ snapshot: ProfileSnapshot) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                if JustClimbExperience.isChoiceAvailable {
-                    AthleteProfileCard()
-                }
+                AthleteProfileCard()
 
                 ProfileLifetimeStatsRow(
                     climbs: workouts.count,

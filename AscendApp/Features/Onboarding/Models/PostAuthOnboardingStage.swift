@@ -31,14 +31,8 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     static let segmentID = "post_auth_onboarding"
     static let plannedStepCount = allCases.count
 
+    /// The flow in order. The athlete step sits right after the gender answer that picks its body.
     static var allCases: [PostAuthOnboardingStage] {
-        stages(includingAthlete: JustClimbExperience.isChoiceAvailable)
-    }
-
-    /// The flow in order. The athlete step sits right after the gender answer that picks its body
-    /// (captain, round 8), and only in a build that offers Ascend Mountain: a climber who cannot
-    /// climb it is never asked how they look on it.
-    static func stages(includingAthlete: Bool) -> [PostAuthOnboardingStage] {
         [
             .stairStepperBaseline,
             .exerciseLevel,
@@ -46,17 +40,15 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             .motivation,
             .plan,
             .features,
-            .gender
+            .gender,
+            .athlete,
+            .age,
+            .weight,
+            .location,
+            .notifications,
+            .planLoading,
+            .firstClimb
         ]
-            + (includingAthlete ? [.athlete] : [])
-            + [
-                .age,
-                .weight,
-                .location,
-                .notifications,
-                .planLoading,
-                .firstClimb
-            ]
     }
 
     var id: String { rawValue }

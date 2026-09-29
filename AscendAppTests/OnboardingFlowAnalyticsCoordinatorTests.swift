@@ -25,7 +25,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         #expect(completed.count == 1)
         #expect(completed.first?.parameters["completion_reason"] == .string("purchase"))
         #expect(completed.first?.parameters["step_id"] == .string("paywall"))
-        #expect(completed.first?.parameters["step_index"] == .int(19))
+        #expect(completed.first?.parameters["step_index"] == .int(20))
     }
 
     @Test

@@ -3,38 +3,29 @@ import Foundation
 struct OnboardingAnalyticsContext: Sendable, Hashable {
     static let flowID = "onboarding"
     static let currentFlowVersion = "v1"
-    static let orderedStepIDs = orderedStepIDs(includingAthlete: JustClimbExperience.isChoiceAvailable)
-
-    /// Written out by hand rather than derived from `PostAuthOnboardingStage.allCases`: the flow
-    /// also holds pre-auth screens, the feature guide's pages and the paywall. The athlete step
-    /// is in it only where the stage is (`PostAuthOnboardingStage.stages(includingAthlete:)`).
-    static func orderedStepIDs(includingAthlete: Bool) -> [String] {
-        [
-            "welcome",
-            "watch_yourself_get_better",
-            "reason_to_come_back",
-            "auth",
-            "stair_stepper_baseline",
-            "exercise_level",
-            "goal",
-            "motivation",
-            "plan",
-            "summit_landmarks",
-            "real_time",
-            "daily_climbs",
-            "gender"
-        ]
-            + (includingAthlete ? ["athlete"] : [])
-            + [
-                "age",
-                "weight",
-                "location",
-                "notifications",
-                "loading",
-                "first_climb",
-                "paywall"
-            ]
-    }
+    static let orderedStepIDs = [
+        "welcome",
+        "watch_yourself_get_better",
+        "reason_to_come_back",
+        "auth",
+        "stair_stepper_baseline",
+        "exercise_level",
+        "goal",
+        "motivation",
+        "plan",
+        "summit_landmarks",
+        "real_time",
+        "daily_climbs",
+        "gender",
+        "athlete",
+        "age",
+        "weight",
+        "location",
+        "notifications",
+        "loading",
+        "first_climb",
+        "paywall"
+    ]
 
     /// The index reported for a step that is not part of the canonical flow. Contexts are built
     /// from content arrays, so an added carousel page or guide screen can drift out of the ordered

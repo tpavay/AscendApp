@@ -28,8 +28,7 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
   `ascend-profile` owns the full demographics contract - the stored birthday, the derived age and its bounds, and the gender raw values.
 
 ## Your athlete
-- In a build that offers Ascend Mountain (`JustClimbExperience.isChoiceAvailable`, Dev only today), the `athlete` stage follows `gender`: "This is you on the Mountain", the athlete the gender answer starts the climber with (`AthleteLook.starting(for:)`), MAKE IT MINE into the editor or LOOKS GOOD. Both save the look, so other climbers see this athlete rather than a stand-in; a save that fails never holds onboarding up.
-- The stage and its funnel step exist only where the Mountain does - `PostAuthOnboardingStage.stages(includingAthlete:)` and `OnboardingAnalyticsContext.orderedStepIDs(includingAthlete:)` - because a climber who cannot climb the Mountain is never asked how they look on it. Lifting the gate adds the step to every build at once.
+- The `athlete` stage follows `gender`: "This is you on the Mountain", the athlete the gender answer starts the climber with (`AthleteLook.starting(for:)`), MAKE IT MINE into the editor or LOOKS GOOD. Both save the look, so other climbers see this athlete rather than a stand-in; a save that fails never holds onboarding up.
 - It sits ahead of the paywall, so `users/{uid}/athlete_look/current` is owner-written without a grant, like public identity (`docs/revenuecat-server-entitlement-enforcement.md`).
 
 ## Routing & resolver

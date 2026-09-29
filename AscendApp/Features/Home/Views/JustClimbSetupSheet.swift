@@ -1,10 +1,8 @@
 import SwiftUI
 
 struct JustClimbSetupSheet: View {
-    /// The sheet's resting height: taller only where the experience picker is offered.
-    static var preferredHeight: CGFloat {
-        JustClimbExperience.isChoiceAvailable ? 432 : 360
-    }
+    /// The sheet's resting height, with room for the experience picker above the goal.
+    static let preferredHeight: CGFloat = 432
 
     @Environment(\.dismiss) private var dismiss
 
@@ -13,7 +11,7 @@ struct JustClimbSetupSheet: View {
     @State private var selectedKind: JustClimbGoalKind
     @State private var durationMinutes: Int
     @State private var stepCount: Int
-    /// Remembered between climbs so a Dev build tuning Ascend Mountain opens straight on it.
+    /// Remembered between climbs, so a climber who chose one way to climb opens straight on it.
     @AppStorage("justClimb.lastExperience") private var selectedExperience: JustClimbExperience = .classic
     @State private var isEditingAthlete = false
 
@@ -33,9 +31,7 @@ struct JustClimbSetupSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             header
-            if JustClimbExperience.isChoiceAvailable {
-                experiencePicker
-            }
+            experiencePicker
             goalPicker
             goalControls
 
@@ -48,7 +44,7 @@ struct JustClimbSetupSheet: View {
                         durationMinutes: durationMinutes,
                         stepCount: stepCount
                     ),
-                    JustClimbExperience.isChoiceAvailable ? selectedExperience : .classic
+                    selectedExperience
                 )
                 dismiss()
             } label: {
@@ -87,7 +83,7 @@ struct JustClimbSetupSheet: View {
 
             Spacer(minLength: 0)
 
-            if JustClimbExperience.isChoiceAvailable && selectedExperience == .mountain {
+            if selectedExperience == .mountain {
                 athleteButton
             }
         }

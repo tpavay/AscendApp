@@ -61,30 +61,25 @@ struct AthleteLookTests {
         #expect(FirestoreAthleteLookRepository.look(from: payload) == nil)
     }
 
-    /// The Mountain asks nothing in a build that cannot climb it; where it can, the athlete step
-    /// follows the gender answer that picks its body, and the funnel counts it in the same place.
+    /// The athlete step follows the gender answer that picks its body, and the funnel counts it in
+    /// the same place.
     @Test
-    func theAthleteStepFollowsGenderOnlyWhereTheMountainIsOffered() {
-        let with = PostAuthOnboardingStage.stages(includingAthlete: true)
-        let without = PostAuthOnboardingStage.stages(includingAthlete: false)
+    func theAthleteStepFollowsGender() {
+        let stages = PostAuthOnboardingStage.allCases
+        #expect(stages.firstIndex(of: .athlete) == stages.firstIndex(of: .gender).map { $0 + 1 })
 
-        #expect(with.firstIndex(of: .athlete) == with.firstIndex(of: .gender).map { $0 + 1 })
-        #expect(!without.contains(.athlete))
-        #expect(with.filter { $0 != .athlete } == without)
-
-        let ids = OnboardingAnalyticsContext.orderedStepIDs(includingAthlete: true)
+        let ids = OnboardingAnalyticsContext.orderedStepIDs
         #expect(ids.firstIndex(of: "athlete") == ids.firstIndex(of: "gender").map { $0 + 1 })
-        #expect(OnboardingAnalyticsContext.orderedStepIDs(includingAthlete: false) == ids.filter { $0 != "athlete" })
         #expect(PostAuthOnboardingStage.athlete.analyticsInputType == "button")
     }
 
-    /// Finished climbers' snapshots name every stage that existed when they finished; one written
-    /// with the athlete step decodes in a build without it, so nobody is sent back to onboarding.
+    /// Finished climbers' snapshots name every stage that existed when they finished, so a
+    /// snapshot naming the athlete step decodes whole and nobody is sent back to onboarding.
     @Test
     func aSnapshotNamingTheAthleteStepDecodesEverywhere() throws {
         let snapshot = PostAuthOnboardingSnapshot(
             currentStage: .athlete,
-            completedStages: Set(PostAuthOnboardingStage.stages(includingAthlete: true)),
+            completedStages: Set(PostAuthOnboardingStage.allCases),
             isComplete: true
         )
         let decoded = try JSONDecoder().decode(PostAuthOnboardingSnapshot.self, from: JSONEncoder().encode(snapshot))

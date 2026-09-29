@@ -158,18 +158,18 @@ Enforced by `AscendAppTests/AppInstallationTelemetryReporterTests.swift` and `As
 
 ## Onboarding funnel contract
 
-Onboarding is the one funnel measured screen-by-screen, so it has a fixed contract: **20 visible screens, each emitting exactly one `onboarding_screen_viewed`**, plus a decision event on every interactive screen.
+Onboarding is the one funnel measured screen-by-screen, so it has a fixed contract: **21 visible screens, each emitting exactly one `onboarding_screen_viewed`**, plus a decision event on every interactive screen.
 Read this before adding, removing, reordering, or renaming an onboarding screen - changing the flow means changing this table and the tests that enforce it.
 
 Enforcement lives in `AscendAppTests/OnboardingAnalyticsEventTests.swift` (ordered screen coverage, dedupe, per-screen properties), `AscendAppTests/OnboardingAnalyticsFunnelTranscriptTests.swift` (renders the whole funnel as a transcript from real emissions, and asserts the clean-pass event counts plus the resumed and back-navigation paths), and `AscendAppTests/OnboardingFlowAnalyticsCoordinatorTests.swift` (the one lifecycle pair: pass persistence, account ownership, and completion attribution).
 Those tests are the executable source of truth; this table is the readable one.
 
-### The 20 screens, in order
+### The 21 screens, in order
 
 `screen_id` equals `step_id` on every event.
-Every event also carries `flow_id=onboarding`, `flow_version=v1`, `segment_id`, `step_index`, `step_count=20`, and the four `TelemetryEnvelope` fields every event carries.
+Every event also carries `flow_id=onboarding`, `flow_version=v1`, `segment_id`, `step_index`, `step_count=21`, and the four `TelemetryEnvelope` fields every event carries.
 The segment labels identify nested implementation sections and never replace the user-level flow ID.
-`step_index` is zero-based against that ordered list, so the paywall reports `step_index` 19 with `step_count` 20.
+`step_index` is zero-based against that ordered list, so the paywall reports `step_index` 20 with `step_count` 21.
 `onboarding_flow_started` carries `resume`, and `onboarding_flow_completed` carries `completion_reason`.
 `onboarding_flow_resumed` is emitted once per launch that picks up a pass already under way, carrying that step's context - it exists because a step now reports its view only once per pass, so an interrupted climber's return is no longer visible as a re-emitted view.
 
@@ -188,18 +188,18 @@ The segment labels identify nested implementation sections and never replace the
 | 11 | `real_time` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
 | 12 | `daily_climbs` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
 | 13 | `gender` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_gender` (`ProfileGender` raw value) |
-| 13a | `athlete` | `post_auth_onboarding` | `onboarding_screen_completed` | `action_id` (`looks_good` / `make_it_mine`), `input_type=button` - only in a build that offers Ascend Mountain, see below |
-| 14 | `age` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_age_group` (bucket, never the birth date) |
-| 15 | `weight` | `post_auth_onboarding` | `onboarding_screen_completed` | `measurement_system`, `profile_height_group`, `profile_weight_group` (buckets) |
-| 16 | `location` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_country`, `selection_method` (`current_location` / `search` / `unknown`) |
-| 17 | `notifications` | `post_auth_onboarding` | `onboarding_question_answered`, `onboarding_screen_completed` | `question_id=notifications`, `status`/`answer_id` (`allow` / `decline` / `skip`) |
-| 18 | `loading` | `post_auth_onboarding` | `onboarding_screen_completed` | none - the only non-interactive screen |
-| 19 | `first_climb` | `post_auth_onboarding` | `onboarding_question_answered` (`question_id=first_climb`), `onboarding_screen_completed` | `climb_id`, `climb_name` |
-| 20 | `paywall` | `post_auth_onboarding` | `onboarding_paywall_reached`, `onboarding_back_tapped` (`from_step=paywall`, `input_type=button`), `revenuecat_purchase_started`, one of `revenuecat_purchase_completed` / `_cancelled` / `_pending` / `_failed`, `revenuecat_restore_started`, one of `revenuecat_restore_completed` / `_not_found` / `_failed` | `placement`, `presentation_id`, `source`, `product_id`, `outcome`, `entitlement_id`, `entitlement_active`, `error_type`, `from_step`, `input_type` |
+| 14 | `athlete` | `post_auth_onboarding` | `onboarding_screen_completed` | `action_id` (`looks_good` / `make_it_mine`), `input_type=button` |
+| 15 | `age` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_age_group` (bucket, never the birth date) |
+| 16 | `weight` | `post_auth_onboarding` | `onboarding_screen_completed` | `measurement_system`, `profile_height_group`, `profile_weight_group` (buckets) |
+| 17 | `location` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_country`, `selection_method` (`current_location` / `search` / `unknown`) |
+| 18 | `notifications` | `post_auth_onboarding` | `onboarding_question_answered`, `onboarding_screen_completed` | `question_id=notifications`, `status`/`answer_id` (`allow` / `decline` / `skip`) |
+| 19 | `loading` | `post_auth_onboarding` | `onboarding_screen_completed` | none - the only non-interactive screen |
+| 20 | `first_climb` | `post_auth_onboarding` | `onboarding_question_answered` (`question_id=first_climb`), `onboarding_screen_completed` | `climb_id`, `climb_name` |
+| 21 | `paywall` | `post_auth_onboarding` | `onboarding_paywall_reached`, `onboarding_back_tapped` (`from_step=paywall`, `input_type=button`), `revenuecat_purchase_started`, one of `revenuecat_purchase_completed` / `_cancelled` / `_pending` / `_failed`, `revenuecat_restore_started`, one of `revenuecat_restore_completed` / `_not_found` / `_failed` | `placement`, `presentation_id`, `source`, `product_id`, `outcome`, `entitlement_id`, `entitlement_active`, `error_type`, `from_step`, `input_type` |
 
 ### Invariants that are easy to break
 
-- **The `athlete` step exists only where Ascend Mountain does.** A build that offers the Mountain (`JustClimbExperience.isChoiceAvailable`, Dev only today) shows it right after `gender`, so its funnel has 21 screens: `step_count` 21 and every later `step_index` one higher. Every other build keeps the 20 above. Both the stage list and `orderedStepIDs` take the same `includingAthlete` switch, so the two can never disagree; lifting the gate for release changes `step_count` in production on that release, which dashboards keyed on `screen_id` survive and ones keyed on `step_index` do not.
+- **The `athlete` step moved every later `step_index` by one.** It arrived with Ascend Mountain, right after `gender`, so from that release `step_count` is 21 instead of 20 and every step after `gender` reports a `step_index` one higher than the builds before it. Dashboards keyed on `screen_id` read straight across the change; a funnel keyed on `step_index` compares different screens on either side of it.
 
 - **The `weight` screen keeps its historical screen ID.** It captures both height and weight; renaming it breaks funnel continuity in Mixpanel, so it stays as-is.
 - **There is no name screen, and `display_name_provided` is retired.** The `displayName` step and its camelCase step ID were removed on 2026-08-20 after App Review rejected 1.0 under Guideline 4 for asking a Sign in with Apple climber to type a name the framework already supplies. The name is resolved without asking now, so no event reports it. `orderedStepIDs` is the one list not derived from `PostAuthOnboardingStage.allCases`, so it was edited by hand to drop the step - leaving it in would have opened a permanent gap in `step_index` and kept `step_count` counting a screen nobody sees.

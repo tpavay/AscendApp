@@ -7,8 +7,7 @@ import UIKit
 @testable import AscendApp
 
 /// Evidence that Ascend Mountain presents the real Just Climb session - the shipping
-/// `LiveClimbSessionView` mid-recording with its own view model - and that a build without the
-/// Mountain choice cannot reach it.
+/// `LiveClimbSessionView` mid-recording with its own view model - and that every build offers it.
 ///
 /// Photographed when `ASCEND_EVIDENCE_DIR` is set, and not drawn otherwise.
 @MainActor
@@ -122,21 +121,16 @@ struct AscendMountainSessionEvidenceTests {
         }
     }
 
-#if !DEBUG
-    @Test("A Staging or Release setup sheet offers no Mountain choice and always starts Classic")
-    func setupSheetOffersNoChoiceOutsideDev() async throws {
-        #expect(JustClimbExperience.isChoiceAvailable == false)
-        #expect(JustClimbSetupSheet.preferredHeight == 360)
-
+    @Test("Every build's setup sheet offers the Mountain beside Classic")
+    func setupSheetOffersTheMountainInEveryBuild() async throws {
         try await RenderedScreen.host(JustClimbSetupSheet { _, _ in }) { screen in
             let text = try await screen.copy()
 
             #expect(text.contains("just climb"))
-            #expect(!text.contains("mountain"), "\(text)")
-            #expect(!text.contains("classic"), "\(text)")
+            #expect(text.contains("mountain"), "\(text)")
+            #expect(text.contains("classic"), "\(text)")
         }
     }
-#endif
 
     private static func recordingSession(
         goal: JustClimbGoal,

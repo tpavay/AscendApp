@@ -20,14 +20,4 @@ enum JustClimbExperience: String, CaseIterable, Identifiable, Sendable {
             return "Mountain"
         }
     }
-
-    /// Ascend Mountain is a device-feel prototype, so only a Dev build offers the choice; Staging
-    /// and Release always run Classic and never show the picker.
-    static var isChoiceAvailable: Bool {
-#if DEBUG
-        true
-#else
-        false
-#endif
-    }
 }
