@@ -121,14 +121,16 @@ struct AscendMountainPackTests {
     }
 
     /// Anyone standing between the camera and the climber, or right beside them, thins out, so the
-    /// climber's own athlete always reads.
+    /// climber's own athlete always reads; anyone closing on the camera fades away before a body
+    /// can fill the lens.
     @Test
-    func climbersOverYouThinOutAndEveryoneElseIsSolid() {
+    func climbersOverYouThinOutAndNobodyFillsTheLens() {
         #expect(MountainPack.clearance(lead: 6) == 1)
-        #expect(MountainPack.clearance(lead: -8) == 1)
+        #expect(MountainPack.clearance(lead: -8) == 1, "the chasers just behind you are solid")
         #expect(MountainPack.clearance(lead: -2) < 0.4)
         #expect(MountainPack.clearance(lead: 0) < 0.4)
-        let ramp = stride(from: -6.5, through: 1.8, by: 0.1).map { MountainPack.clearance(lead: $0) }
+        #expect(MountainPack.clearance(lead: -13) == 0)
+        let ramp = stride(from: -14, through: 1.8, by: 0.1).map { MountainPack.clearance(lead: $0) }
         #expect(zip(ramp, ramp.dropFirst()).allSatisfy { abs($0 - $1) < 0.1 }, "no step anywhere")
     }
 

@@ -122,14 +122,17 @@ struct MountainPack: Sendable {
 
     /// How much of a climber shows where they would stand over you: just behind you they are
     /// between you and the camera, and right beside you they cover you, so they thin out there
-    /// and you always read clearly.
+    /// and you always read clearly. Further back they are closing on the camera itself, where a
+    /// body would fill the lens, so they fade away before they reach it.
     static func clearance(lead: Double) -> Double {
         // Level with you a climber has stepped to the side, so they only need to thin enough that
         // yours is the athlete that reads; just behind you they stand between you and the camera.
         let thinnest = 0.35
-        if lead >= 1.8 || lead <= -6.5 { return 1 }
+        if lead >= 1.8 { return 1 }
         if lead >= 0.8 { return thinnest + (1 - thinnest) * (lead - 0.8) / 1.0 }
         if lead >= -4 { return thinnest }
-        return thinnest + (1 - thinnest) * (-4 - lead) / 2.5
+        if lead >= -6.5 { return thinnest + (1 - thinnest) * (-4 - lead) / 2.5 }
+        if lead >= -9 { return 1 }
+        return max(1 - (-9 - lead) / 4, 0)
     }
 }
