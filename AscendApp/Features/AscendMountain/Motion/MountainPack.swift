@@ -8,7 +8,9 @@ import Foundation
 /// fresh every frame from where each of them is right now, plus your best and a pacer. As your
 /// place changes the pack changes with it - speeding up reads as a stream of people you
 /// overtake, slowing down as people passing you - and a climber already drawn keeps their place
-/// against a newcomer who is only barely closer, so nobody flickers at the edge.
+/// against a newcomer who is only barely closer, so nobody flickers at the edge. Where the field
+/// is dense, dozens of climbers share each stair; the pack is spaced out along them, so it reads
+/// as people strung up the stairs ahead of you rather than a clump standing on your own step.
 struct MountainPack: Sendable {
     struct Limits: Equatable, Sendable {
         /// Climbers drawn ahead of you, nearest first - with `behind`, the size of the pack and
@@ -25,6 +27,10 @@ struct MountainPack: Sendable {
         /// crowd of hundreds the nearest few change every moment, and a pack that turned over
         /// that fast would read as flicker.
         var minimumDwellSeconds = 1.5
+        /// Steps kept between two drawn climbers who would stand in the same place across the
+        /// stair. Side by side they both fit; one behind the other they climb a little over a
+        /// stair apart, the way people do, rather than nose to tail.
+        var spacingSteps = 1.4
     }
 
     struct Candidate: Equatable, Sendable {
@@ -32,7 +38,12 @@ struct MountainPack: Sendable {
         let kind: MountainGhost.Kind
         /// Steps ahead of the climber; negative behind.
         let lead: Double
+        /// Metres from the middle of the stair where the climber stands.
+        var lane = 0.0
     }
+
+    /// Metres across the stair two climbers need to stand side by side.
+    static let shoulderWidth = 0.45
 
     /// Seconds a climber takes to fade fully in or out.
     static let fadeSeconds = 0.35
@@ -76,8 +87,8 @@ struct MountainPack: Sendable {
     /// the pack leans ahead the way the limits do, but everyone is ranked on one scale: at the
     /// start, where the whole field stands on the same stair and drifts across your own step,
     /// crossing from just ahead to just behind never costs a climber their place. A drawn
-    /// climber is favoured over a newcomer, and a `locked` one - who joined too recently to
-    /// leave - keeps their place.
+    /// climber is favoured over a newcomer, a `locked` one - who joined too recently to leave -
+    /// keeps their place, and nobody is drawn where another drawn climber already stands.
     static func choose(
         _ candidates: [Candidate],
         limits: Limits,
@@ -93,7 +104,17 @@ struct MountainPack: Sendable {
         }
         let staying = rivals.filter { locked.contains($0.id) }
         let open = max(limits.ahead + limits.behind - staying.count, 0)
-        let nearest = rivals.filter { !locked.contains($0.id) }.sorted { score($0) < score($1) }.prefix(open)
+        var standing = staying
+        var nearest: [Candidate] = []
+        for candidate in rivals.filter({ !locked.contains($0.id) }).sorted(by: { score($0) < score($1) }) {
+            guard nearest.count < open else { break }
+            let clear = standing.allSatisfy {
+                abs($0.lead - candidate.lead) >= limits.spacingSteps || abs($0.lane - candidate.lane) >= shoulderWidth
+            }
+            guard clear else { continue }
+            nearest.append(candidate)
+            standing.append(candidate)
+        }
         chosen.formUnion(staying.map(\.id))
         chosen.formUnion(nearest.map(\.id))
         return chosen

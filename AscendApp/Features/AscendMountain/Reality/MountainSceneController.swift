@@ -287,7 +287,8 @@ final class MountainSceneController {
         for ghost in ghosts {
             let lead = ghost.steps(elapsed) - climber
             guard MountainSceneDirector.ghostDrawRange.contains(lead) else { continue }
-            candidates.append(MountainPack.Candidate(id: ghost.id, kind: ghost.kind, lead: lead))
+            let lane = MountainSceneDirector.passingLane(MountainSceneDirector.lane(for: ghost.id), lead: lead)
+            candidates.append(MountainPack.Candidate(id: ghost.id, kind: ghost.kind, lead: lead, lane: lane))
             drawable[ghost.id] = ghost
         }
         pack.update(candidates, deltaTime: deltaTime)

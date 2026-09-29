@@ -11,8 +11,8 @@ struct AscendMountainPackTests {
 
     @Test
     func thePackIsTheNearestFewAheadAndBehindPlusYourBestAndThePacer() {
-        let candidates = (1...40).map { Self.rival("ahead-\($0)", Double($0)) }
-            + (1...40).map { Self.rival("behind-\($0)", -Double($0)) }
+        let candidates = (1...40).map { Self.rival("ahead-\($0)", Double($0) * 2) }
+            + (1...40).map { Self.rival("behind-\($0)", -Double($0) * 2) }
             + [MountainPack.Candidate(id: "your-best", kind: .personalBest, lead: 30),
                MountainPack.Candidate(id: "pacer", kind: .pacer, lead: -20)]
 
@@ -21,18 +21,60 @@ struct AscendMountainPackTests {
         #expect(chosen == Set((1...6).map { "ahead-\($0)" } + (1...4).map { "behind-\($0)" } + ["your-best", "pacer"]))
     }
 
-    /// The captain's worst case: every one of 896 climbers on the start line together.
-    @Test
-    func eightHundredAtTheStartLineStillDrawAPackOfTen() {
-        var pack = MountainPack()
-        let crowd = (0..<896).map { Self.rival("climber-\($0)", Double($0 % 7) * 0.1 - 0.3) }
+    /// `count` climbers spread evenly between two leads, each standing where the stairs put them.
+    private static func crowd(_ count: Int, from low: Double, to high: Double) -> [MountainPack.Candidate] {
+        (0..<count).map { index in
+            let id = "climber-\(index)"
+            let lead = low + (high - low) * Double(index) / Double(max(count - 1, 1))
+            let lane = MountainSceneDirector.passingLane(MountainSceneDirector.lane(for: id), lead: lead)
+            return MountainPack.Candidate(id: id, kind: .rival, lead: lead, lane: lane)
+        }
+    }
 
-        for _ in 0..<120 {
+    /// No two drawn climbers stand in the same place on the stairs.
+    private static func standApart(_ chosen: Set<String>, in candidates: [MountainPack.Candidate]) -> Bool {
+        let drawn = candidates.filter { chosen.contains($0.id) }
+        return drawn.indices.allSatisfy { first in
+            drawn.indices.allSatisfy { second in
+                first == second
+                    || abs(drawn[first].lead - drawn[second].lead) >= MountainPack.Limits().spacingSteps
+                    || abs(drawn[first].lane - drawn[second].lane) >= MountainPack.shoulderWidth
+            }
+        }
+    }
+
+    /// The captain's worst case: every one of 896 climbers on the start line together. Only as
+    /// many are drawn as can stand there - one at each shoulder - and the start line holds still.
+    @Test
+    func eightHundredAtTheStartLineDrawOnlyAsManyAsFitAndHoldStill() {
+        var pack = MountainPack()
+        let crowd = Self.crowd(896, from: -1.2, to: 1.3)
+
+        for _ in 0..<60 {
+            pack.update(crowd, deltaTime: 1.0 / 60)
+        }
+        let settled = pack.chosen
+        for _ in 0..<60 {
             pack.update(crowd, deltaTime: 1.0 / 60)
         }
 
-        #expect(pack.chosen.count == 10)
-        #expect(pack.presence.count == 10, "the start line holds still: nobody fading in or out")
+        #expect(pack.chosen.count >= 2, "someone at each shoulder")
+        #expect(Self.standApart(pack.chosen, in: crowd))
+        #expect(pack.chosen == settled && pack.presence.count == pack.chosen.count, "nobody fading in or out")
+    }
+
+    /// Mid-pack dozens of climbers share each stair. The pack is strung up the stairs ahead of
+    /// you in two files, not stacked on your own step.
+    @Test
+    func aDenseFieldIsDrawnStrungUpTheStairs() {
+        let crowd = Self.crowd(900, from: -15, to: 15)
+
+        let chosen = MountainPack.choose(crowd, limits: .init(), keeping: [])
+        let ahead = crowd.filter { chosen.contains($0.id) && $0.lead > 0 }.map(\.lead)
+
+        #expect(chosen.count == 10)
+        #expect(Self.standApart(chosen, in: crowd))
+        #expect((ahead.max() ?? 0) > 2.5, "the furthest drawn ahead is \(ahead.max() ?? 0) steps up")
     }
 
     @Test
