@@ -1662,5 +1662,26 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Strava (functions/src/strava). Tokens, pending authorizations, the
+    // upload queue and the access switch are all reachable only through the
+    // Admin SDK: a client that could read a connection would hold a live
+    // Strava token, and one that could write the access document could
+    // connect past the allowlist that keeps the Strava app under capacity.
+    match /_strava_access/{docId} {
+      allow read, write: if false;
+    }
+
+    match /_strava_connections/{userId} {
+      allow read, write: if false;
+    }
+
+    match /_strava_oauth_states/{stateId} {
+      allow read, write: if false;
+    }
+
+    match /_strava_upload_jobs/{jobId} {
+      allow read, write: if false;
+    }
+
   }
 }
