@@ -104,6 +104,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case deleteAccountConfirmation = "delete_account_confirmation"
     case appleHealthManage = "apple_health_manage"
     case heartRateMonitorManage = "heart_rate_monitor_manage"
+    case stravaManage = "strava_manage"
 
     // MARK: - Sharing
 
@@ -176,6 +177,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .deleteAccountConfirmation: "DeleteAccountConfirmationView"
         case .appleHealthManage: "AppleHealthManageSheet"
         case .heartRateMonitorManage: "HeartRateMonitorManageSheet"
+        case .stravaManage: "StravaManageSheet"
         case .shareComposer: "ShareComposerView"
         case .appUpdateNudge: "AppUpdateSheet"
         }

@@ -304,6 +304,12 @@ test("declares every server collection-group field index", () => {
       [],
       true,
     ],
+    [
+      "_strava_upload_jobs",
+      "retainUntil",
+      [],
+      true,
+    ],
   ]);
 });
 
