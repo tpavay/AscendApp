@@ -313,6 +313,42 @@ struct AscendMountainRacePillWordingTests {
     }
 }
 
+/// The counts beyond the pack are the pill's own climbers, less the ones on the stairs.
+struct AscendMountainCrowdCountsTests {
+    private static let racing = LiveReplayLiveStanding.racing(field: nil, ownClimbs: nil)
+
+    @Test
+    func theCountsAreEveryoneThePillCountsLessThePackOnTheStairs() throws {
+        let text = LiveClimbStandingText(rank: 200, rankTotal: 896, standing: Self.racing)
+        let counts = try #require(MountainCrowdCounts(standing: text, drawn: .init(ahead: 6, behind: 4)))
+
+        #expect(text.detailLabel == "#200 of 896 climbers")
+        #expect(counts == MountainCrowdCounts(standing: text, drawn: .init(ahead: 6, behind: 4)))
+        #expect((counts.ahead, counts.behind) == (193, 692))
+    }
+
+    @Test
+    func theLeaderHasNobodyAheadAndAPackCanNeverMakeACountNegative() throws {
+        let leading = LiveClimbStandingText(rank: 1, rankTotal: 896, standing: Self.racing)
+        let counts = try #require(MountainCrowdCounts(standing: leading, drawn: .init(ahead: 2, behind: 10)))
+
+        #expect((counts.ahead, counts.behind) == (0, 885))
+    }
+
+    @Test
+    func noPlaceInThePillMeansNoCounts() {
+        let unresolved = LiveClimbStandingText(rank: nil, rankTotal: 0, standing: Self.racing)
+        let alone = LiveClimbStandingText(
+            rank: 1,
+            rankTotal: 1,
+            standing: .alone(ownClimbs: LiveReplayPersonalPlacing(placing: 1, total: 2))
+        )
+
+        #expect(MountainCrowdCounts(standing: unresolved, drawn: .init()) == nil)
+        #expect(MountainCrowdCounts(standing: alone, drawn: .init()) == nil)
+    }
+}
+
 private func rival(
     _ name: String,
     steps: Int,

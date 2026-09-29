@@ -40,6 +40,9 @@ final class MountainSceneController {
     private let rigs: MountainRigFactory
     /// Which climbers are drawn this frame, and how present each is.
     private var pack: MountainPack
+    /// Told whenever the racers drawn around the climber change, for the counts beyond them.
+    private let packReport: (@MainActor (MountainPack.Drawn) -> Void)?
+    private var reportedDrawn: MountainPack.Drawn?
     /// Rigs built this frame at most: each is cheap once its parts are ready, but a refresh can
     /// bring thirty newcomers at once.
     static let rigBuildsPerFrame = 2
@@ -126,6 +129,7 @@ final class MountainSceneController {
         athleteLook: @escaping @MainActor () -> AthleteLook = { .starting(for: nil) },
         rigs: MountainRigFactory = .shared,
         packLimits: MountainPack.Limits = .init(),
+        packReport: (@MainActor (MountainPack.Drawn) -> Void)? = nil,
         journeySource: @escaping @MainActor () -> Int = { 0 },
         cameraTuning: MountainSceneDirector.CameraTuning = .standard
     ) {
@@ -138,6 +142,7 @@ final class MountainSceneController {
         self.athleteLook = athleteLook
         self.rigs = rigs
         self.pack = MountainPack(limits: packLimits)
+        self.packReport = packReport
         self.journeySource = journeySource
         self.stepSource = stepSource
         self.debugState = debugState
@@ -292,6 +297,10 @@ final class MountainSceneController {
             drawable[ghost.id] = ghost
         }
         pack.update(candidates, deltaTime: deltaTime)
+        if pack.drawn != reportedDrawn {
+            reportedDrawn = pack.drawn
+            packReport?(pack.drawn)
+        }
         let frame = director.advance(
             logicalSteps: logicalSteps,
             time: clock,

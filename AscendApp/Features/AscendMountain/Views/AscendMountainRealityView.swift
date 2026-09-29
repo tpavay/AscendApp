@@ -8,7 +8,8 @@ import SwiftUI
 /// and are the scene's only inputs, so the view can be dropped and recreated freely - it resumes on
 /// the stair the count says, never from zero, with whoever is racing at that moment. `journeySource`
 /// says where on the mountain the climb began; the scene follows it only while the climber is on the
-/// start line.
+/// start line. `packReport` hears how many racers are drawn either side of the climber whenever
+/// that changes.
 struct AscendMountainRealityView: View {
     @State private var controller: MountainSceneController
 
@@ -23,7 +24,8 @@ struct AscendMountainRealityView: View {
         athleteLook: @escaping @MainActor () -> AthleteLook = { .starting(for: nil) },
         journeySource: @escaping @MainActor () -> Int = { 0 },
         cameraTuning: MountainSceneDirector.CameraTuning = .standard,
-        packLimits: MountainPack.Limits = .init()
+        packLimits: MountainPack.Limits = .init(),
+        packReport: (@MainActor (MountainPack.Drawn) -> Void)? = nil
     ) {
         _controller = State(
             initialValue: MountainSceneController(
@@ -36,6 +38,7 @@ struct AscendMountainRealityView: View {
                 elapsedSource: elapsedSource,
                 athleteLook: athleteLook,
                 packLimits: packLimits,
+                packReport: packReport,
                 journeySource: journeySource,
                 cameraTuning: cameraTuning
             )

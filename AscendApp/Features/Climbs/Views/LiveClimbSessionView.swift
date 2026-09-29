@@ -432,7 +432,8 @@ struct LiveClimbSessionView: View {
             markerSource: { race.markers },
             elapsedSource: { viewModel.displayedDuration },
             athleteLook: { looks.current },
-            journeySource: { journey.startSteps }
+            journeySource: { journey.startSteps },
+            packReport: { race.drawnPack = $0 }
         )
         .overlay {
             // Legibility for the chrome above and the stat row and controls below.
@@ -644,7 +645,11 @@ struct LiveClimbSessionView: View {
         if viewModel.isRecording {
             VStack(spacing: 10) {
                 TabView(selection: $selectedTab) {
-                    AscendMountainSessionHUD(viewModel: viewModel, debugState: mountainDebugState)
+                    AscendMountainSessionHUD(
+                        viewModel: viewModel,
+                        debugState: mountainDebugState,
+                        crowd: MountainCrowdCounts(standing: viewModel.leaderboardStandingText, drawn: mountainRace.drawnPack)
+                    )
                         .tag(LiveClimbSessionTab.justMe)
 
                     leaderboardPanel

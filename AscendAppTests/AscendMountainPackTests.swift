@@ -77,6 +77,21 @@ struct AscendMountainPackTests {
         #expect((ahead.max() ?? 0) > 2.5, "the furthest drawn ahead is \(ahead.max() ?? 0) steps up")
     }
 
+    /// The counts beyond the pack subtract only racers: your best and a pacer are not climbers
+    /// in the race.
+    @Test
+    func thePackCountsTheRacersItDrawsEitherSideOfYou() {
+        var pack = MountainPack()
+        let candidates = (1...20).map { Self.rival("ahead-\($0)", Double($0) * 2) }
+            + (1...20).map { Self.rival("behind-\($0)", -Double($0) * 2) }
+            + [MountainPack.Candidate(id: "your-best", kind: .personalBest, lead: 3),
+               MountainPack.Candidate(id: "pacer", kind: .pacer, lead: -3)]
+
+        pack.update(candidates, deltaTime: 1.0 / 60)
+
+        #expect(pack.drawn == MountainPack.Drawn(ahead: 6, behind: 4))
+    }
+
     @Test
     func aDrawnClimberKeepsTheirPlaceAgainstSomeoneOnlyBarelyCloser() {
         let limits = MountainPack.Limits(ahead: 1, behind: 0, hysteresisSteps: 3, minimumDwellSeconds: 0)

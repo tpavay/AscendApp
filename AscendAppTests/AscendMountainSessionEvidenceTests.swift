@@ -121,6 +121,41 @@ struct AscendMountainSessionEvidenceTests {
         }
     }
 
+    @Test(
+        "The counts beyond the pack sit under the step count and above the stats, inside the screen",
+        arguments: LiveClimbJustMePhotoBackgroundWidthTests.phoneSizes
+    )
+    func countsBeyondThePackStayInsideTheScreen(size: CGSize) async throws {
+        let container = try Self.makeContainer()
+        let (viewModel, motionSession) = Self.recordingSession(goal: JustClimbGoal(kind: .open), container: container)
+        motionSession.stepCount = 1_842
+        motionSession.duration = 504
+        let standing = LiveClimbStandingText(rank: 200, rankTotal: 896, standing: .racing(field: nil, ownClimbs: nil))
+        let crowd = try #require(MountainCrowdCounts(standing: standing, drawn: .init(ahead: 6, behind: 4)))
+
+        try await RenderedScreen.host(
+            AscendMountainSessionHUD(viewModel: viewModel, debugState: nil, crowd: crowd)
+                .padding(.horizontal, 16)
+                .background(Color.black),
+            size: size
+        ) { screen in
+            let inside = screen.bounds.insetBy(dx: 8, dy: 0)
+            let steps = try #require(try await screen.frame(ofElementLabelled: "1,842", reading: 40))
+            let ahead = try #require(try await screen.frame(ofElementLabelled: "193 more climbers ahead", reading: 40))
+            let behind = try #require(try await screen.frame(ofElementLabelled: "692 more climbers behind", reading: 40))
+            let pace = try #require(try await screen.frame(ofElementLabelled: "SPM", reading: 40))
+
+            for frame in [ahead, behind] {
+                #expect(inside.contains(frame), "\(frame.integral) spills past \(inside.integral) at \(Int(size.width))pt")
+            }
+            #expect(ahead.minY > steps.maxY, "ahead sits under the step count")
+            #expect(behind.maxY < pace.minY, "behind sits above the stats")
+            #expect(abs(ahead.midX - screen.bounds.midX) < 2, "centred")
+
+            try screen.photograph(named: "ascend-mountain-crowd-counts-\(Int(size.width))")
+        }
+    }
+
     @Test("Every build's setup sheet offers the Mountain beside Classic")
     func setupSheetOffersTheMountainInEveryBuild() async throws {
         try await RenderedScreen.host(JustClimbSetupSheet { _, _ in }) { screen in

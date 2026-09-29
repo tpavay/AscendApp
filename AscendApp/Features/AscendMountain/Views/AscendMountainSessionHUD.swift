@@ -5,14 +5,21 @@ import SwiftUI
 ///
 /// Every number is the session's own - `LiveClimbSessionViewModel` stays the authority - so
 /// this screen can never disagree with Classic. Where the climber stands is not here: it is the
-/// race pill in the top chrome, which also opens who they race.
+/// race pill in the top chrome, which also opens who they race. `crowd` counts the climbers
+/// racing beyond the pack drawn on the stairs, ahead and behind.
 struct AscendMountainSessionHUD: View {
     let viewModel: LiveClimbSessionViewModel
     let debugState: MountainDebugState?
+    let crowd: MountainCrowdCounts?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             stepsHero
+
+            if let crowd, crowd.ahead > 0 {
+                AscendMountainCrowdChip(count: crowd.ahead, side: .ahead)
+                    .frame(maxWidth: .infinity)
+            }
 
 #if DEBUG
             if let debugState {
@@ -21,6 +28,11 @@ struct AscendMountainSessionHUD: View {
 #endif
 
             Spacer(minLength: 0)
+
+            if let crowd, crowd.behind > 0 {
+                AscendMountainCrowdChip(count: crowd.behind, side: .behind)
+                    .frame(maxWidth: .infinity)
+            }
 
             statRow
         }

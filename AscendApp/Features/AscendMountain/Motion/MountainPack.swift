@@ -45,6 +45,13 @@ struct MountainPack: Sendable {
     /// Metres across the stair two climbers need to stand side by side.
     static let shoulderWidth = 0.45
 
+    /// How many of the climbers racing are drawn on the stairs ahead of you and behind you;
+    /// your best and a pacer are not climbers in the race, so they never count.
+    struct Drawn: Equatable, Sendable {
+        var ahead = 0
+        var behind = 0
+    }
+
     /// Seconds a climber takes to fade fully in or out.
     static let fadeSeconds = 0.35
 
@@ -53,6 +60,8 @@ struct MountainPack: Sendable {
     private(set) var presence: [String: Double] = [:]
     /// The climbers chosen at the last update.
     private(set) var chosen: Set<String> = []
+    /// The racers among them, either side of you.
+    private(set) var drawn = Drawn()
     /// When each chosen climber joined the pack, on the pack's own clock.
     private var joinedAt: [String: Double] = [:]
     private var clock = 0.0
@@ -73,13 +82,19 @@ struct MountainPack: Sendable {
         }
         let step = deltaTime / Self.fadeSeconds
         var next: [String: Double] = [:]
+        var drawn = Drawn()
         for candidate in candidates {
-            let target = chosen.contains(candidate.id) ? 1.0 : 0.0
+            let isChosen = chosen.contains(candidate.id)
+            if isChosen && candidate.kind == .rival {
+                if candidate.lead > 0 { drawn.ahead += 1 } else { drawn.behind += 1 }
+            }
+            let target = isChosen ? 1.0 : 0.0
             let current = presence[candidate.id] ?? 0
             let moved = current < target ? min(current + step, target) : max(current - step, target)
             if moved > 0 { next[candidate.id] = moved }
         }
         presence = next
+        self.drawn = drawn
     }
 
     /// The pack for `candidates`: always your best and a pacer, then the nearest climbers, as

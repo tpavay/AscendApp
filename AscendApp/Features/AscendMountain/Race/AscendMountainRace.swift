@@ -16,6 +16,8 @@ final class AscendMountainRace {
     }
 
     private(set) var field = MountainRaceField()
+    /// The racers the stairs draw around the climber right now, as the scene last reported.
+    var drawnPack = MountainPack.Drawn()
     @ObservationIgnored private var labels: [String: String] = [:]
     @ObservationIgnored private(set) var ghosts: [MountainGhost] = []
     /// This climb's own marks on the stairs: the gold line where the climber's best ended.
