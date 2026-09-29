@@ -146,11 +146,45 @@ final class ProfileRepository: Sendable {
             !hasIdentityTimestamp
     }
 
-    func upsertStats(userId: String, stats: ProfileStatsSnapshot) async throws {
-        try await statsDocument(userId: userId).setData(Self.statsPayload(stats), merge: true)
+    /// Publishes the stats, honouring the climber's heart-rate visibility.
+    ///
+    /// The choice is read from the document inside the same transaction that writes it, so a
+    /// device that has not heard about a switch flipped on another device still publishes no
+    /// heart rate - and the rules reject the write outright if it tried. `heartRatePublic` is
+    /// only passed by the switch itself, which is the one place the choice changes.
+    func upsertStats(
+        userId: String,
+        stats: ProfileStatsSnapshot,
+        heartRatePublic: Bool? = nil
+    ) async throws {
+        let document = statsDocument(userId: userId)
+        _ = try await db.runTransaction { transaction, errorPointer -> Any? in
+            do {
+                let stored = try transaction.getDocument(document).data()?[Self.heartRatePublicField]
+                let isPublic = heartRatePublic ?? ProfileHeartRateVisibility.isPublic(stored: stored)
+                transaction.setData(
+                    Self.statsPayload(stats, isHeartRatePublic: isPublic),
+                    forDocument: document,
+                    merge: true
+                )
+                return nil
+            } catch let error as NSError {
+                errorPointer?.pointee = error
+                return nil
+            }
+        }
     }
 
-    static func statsPayload(_ stats: ProfileStatsSnapshot) -> [String: Any] {
+    /// Whether the climber shows their heart rate on their profile. A climber who never chose
+    /// shows it, which is the default the switch starts from.
+    func fetchHeartRatePublic(userId: String) async throws -> Bool {
+        let document = try await statsDocument(userId: userId).getDocument()
+        return ProfileHeartRateVisibility.isPublic(stored: document.data()?[Self.heartRatePublicField])
+    }
+
+    static let heartRatePublicField = "heart_rate_public"
+
+    static func statsPayload(_ stats: ProfileStatsSnapshot, isHeartRatePublic: Bool) -> [String: Any] {
         [
             "total_climbs_completed": stats.totalClimbsCompleted,
             "total_first_ascents": stats.totalFirstAscents,
@@ -178,10 +212,11 @@ final class ProfileRepository: Sendable {
             "top_10_weeks": FieldValue.delete(),
             "top_100_weeks": FieldValue.delete(),
             // Optional, and deleted rather than left behind when the climber no longer has any
-            // heart rate: the comparison hides a row off an absent field, and a stale number
-            // would otherwise outlive the climbs it came from.
-            "average_heart_rate_bpm": valueOrDelete(stats.heartRate?.averageBpm),
-            "max_heart_rate_bpm": valueOrDelete(stats.heartRate?.maxBpm)
+            // heart rate or has hidden it: the comparison hides a row off an absent field, and a
+            // stale number would otherwise outlive the climbs it came from.
+            heartRatePublicField: isHeartRatePublic,
+            "average_heart_rate_bpm": valueOrDelete(isHeartRatePublic ? stats.heartRate?.averageBpm : nil),
+            "max_heart_rate_bpm": valueOrDelete(isHeartRatePublic ? stats.heartRate?.maxBpm : nil)
         ]
     }
 
@@ -268,10 +303,14 @@ final class ProfileRepository: Sendable {
             lifetimeDurationSeconds: intValue(for: "lifetime_duration_seconds", in: data) ?? 0,
             totalClimbs: intValue(for: "total_climbs", in: data) ?? 0,
             averageStepsPerMinute: doubleValue(for: "average_steps_per_minute", in: data) ?? 0,
-            heartRate: ProfileHeartRateSummary(
-                averageBpm: intValue(for: "average_heart_rate_bpm", in: data),
-                maxBpm: intValue(for: "max_heart_rate_bpm", in: data)
-            )
+            // The rules already keep a hidden climber's heart rate off the document; reading
+            // through the switch too means no stale copy can ever render.
+            heartRate: ProfileHeartRateVisibility.isPublic(stored: data[Self.heartRatePublicField])
+                ? ProfileHeartRateSummary(
+                    averageBpm: intValue(for: "average_heart_rate_bpm", in: data),
+                    maxBpm: intValue(for: "max_heart_rate_bpm", in: data)
+                )
+                : nil
         )
     }
 

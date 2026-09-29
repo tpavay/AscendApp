@@ -57,20 +57,42 @@ struct ProfileHeartRateSummaryTests {
     @Test
     func thePublishedPayloadCarriesTheAggregatesAndNothingFiner() {
         let payload = ProfileRepository.statsPayload(
-            stats(heartRate: ProfileHeartRateSummary(averageBpm: 142, maxBpm: 178))
+            stats(heartRate: ProfileHeartRateSummary(averageBpm: 142, maxBpm: 178)),
+            isHeartRatePublic: true
         )
 
         #expect(payload["average_heart_rate_bpm"] as? Int == 142)
         #expect(payload["max_heart_rate_bpm"] as? Int == 178)
+        #expect(payload["heart_rate_public"] as? Bool == true)
         #expect(!payload.keys.contains { $0.localizedStandardContains("series") })
     }
 
     @Test
     func aClimberWithoutHeartRateClearsAnyPublishedAggregate() {
-        let payload = ProfileRepository.statsPayload(stats(heartRate: nil))
+        let payload = ProfileRepository.statsPayload(stats(heartRate: nil), isHeartRatePublic: true)
 
         #expect(payload["average_heart_rate_bpm"] is FieldValue)
         #expect(payload["max_heart_rate_bpm"] is FieldValue)
+    }
+
+    @Test
+    func aClimberWhoHidHeartRatePublishesNoneOfIt() {
+        let payload = ProfileRepository.statsPayload(
+            stats(heartRate: ProfileHeartRateSummary(averageBpm: 142, maxBpm: 178)),
+            isHeartRatePublic: false
+        )
+
+        #expect(payload["heart_rate_public"] as? Bool == false)
+        #expect(payload["average_heart_rate_bpm"] is FieldValue)
+        #expect(payload["max_heart_rate_bpm"] is FieldValue)
+    }
+
+    @Test
+    func heartRateIsShownUntilAClimberSwitchesItOff() {
+        #expect(ProfileHeartRateVisibility.isPublic(stored: nil))
+        #expect(ProfileHeartRateVisibility.isPublic(stored: true))
+        #expect(!ProfileHeartRateVisibility.isPublic(stored: false))
+        #expect(ProfileHeartRateVisibility.isPublic(stored: "false"))
     }
 
     @Test

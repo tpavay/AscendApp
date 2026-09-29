@@ -85,6 +85,7 @@ export const PROFILE_FIELD_SETS = {
     "pr_highest_spm",
     "average_heart_rate_bpm",
     "max_heart_rate_bpm",
+    "heart_rate_public",
     "lastUpdated",
   ]),
   profileWorkout: new Set([

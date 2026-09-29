@@ -465,6 +465,7 @@ service cloud.firestore {
           "pr_highest_spm",
           "average_heart_rate_bpm",
           "max_heart_rate_bpm",
+          "heart_rate_public",
           "lastUpdated"
         ]) &&
         request.resource.data.keys().hasAll([
@@ -521,7 +522,19 @@ service cloud.firestore {
         // to ProfileHeartRateSummary.plausibleBpm.
         isOptionalProfileHeartRate(request.resource.data, "average_heart_rate_bpm") &&
         isOptionalProfileHeartRate(request.resource.data, "max_heart_rate_bpm") &&
+        isProfileHeartRateVisibilityHonoured(request.resource.data) &&
         request.resource.data.lastUpdated is timestamp;
+    }
+
+    // "Show my heart rate on my profile" is the climber's own choice, stored beside the numbers
+    // it governs (absent = shown). A document that says hidden and still carries either
+    // aggregate is refused whoever writes it, so switching it off cannot be undone by another
+    // device that has not heard yet.
+    function isProfileHeartRateVisibilityHonoured(data) {
+      return !data.keys().hasAny(["heart_rate_public"]) ||
+        (data.heart_rate_public is bool &&
+          (data.heart_rate_public ||
+            !data.keys().hasAny(["average_heart_rate_bpm", "max_heart_rate_bpm"])));
     }
 
     function isOptionalProfileHeartRate(data, key) {

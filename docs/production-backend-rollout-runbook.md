@@ -162,6 +162,7 @@ The same day staging (`ascend-staging-fa7d5`) planned no writes: its 78 long row
 ### Profile heart-rate aggregates
 
 The profile comparison's heart-rate rows read two optional `profile_stats` fields, `average_heart_rate_bpm` and `max_heart_rate_bpm`, which the app derives and publishes itself (`ProfileHeartRateSummary`) and which carry only those two aggregates - never a sample or a per-climb heart rate.
+A climber can hide them with "Show my heart rate on my profile" (Settings -> Privacy), stored as `heart_rate_public` on the same document; the rules refuse a hidden document that carries either aggregate, and the backfill never writes heart rate for a hidden climber.
 The change is additive: builds that predate the fields keep writing `profile_stats` without them and keep passing the rules.
 The ordering is still load-bearing, because a build that publishes the fields writes them into the same merge as every other stat, and `hasOnly` rejects the whole document on an environment whose rules do not list them yet - that climber's entire public profile would stop updating, and publication failures are only logged.
 So the rules deploy before the binary that writes the fields, on every environment:

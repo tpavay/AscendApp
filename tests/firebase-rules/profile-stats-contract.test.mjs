@@ -208,6 +208,70 @@ test('heart-rate aggregates outside a plausible human range are rejected', async
   }
 });
 
+test('a climber who hides heart rate publishes no heart-rate aggregate', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const statsRef = doc(context.firestore(), statsPath);
+
+  await assertSucceeds(setDoc(statsRef, makeProfileStatsDocument({ heart_rate_public: false })));
+  await assertSucceeds(setDoc(statsRef, makeProfileStatsDocument({
+    heart_rate_public: true,
+    average_heart_rate_bpm: 142,
+    max_heart_rate_bpm: 178,
+  })));
+  await assertFails(setDoc(statsRef, makeProfileStatsDocument({
+    heart_rate_public: false,
+    average_heart_rate_bpm: 142,
+  })));
+  await assertFails(setDoc(statsRef, makeProfileStatsDocument({
+    heart_rate_public: false,
+    max_heart_rate_bpm: 178,
+  })));
+  await assertFails(setDoc(statsRef, makeProfileStatsDocument({ heart_rate_public: 'no' })));
+});
+
+// Another device that has not heard about the switch merges its numbers onto a hidden
+// document; the merged result is what the rules judge, so that write is refused.
+test('a merge that would put heart rate back onto a hidden document is rejected', async () => {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(doc(adminContext.firestore(), statsPath), makeProfileStatsDocument({
+      heart_rate_public: false,
+    }));
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+  const statsRef = doc(context.firestore(), statsPath);
+
+  await assertFails(setDoc(statsRef, {
+    ...makeUpsertStatsPayload(),
+    average_heart_rate_bpm: 142,
+    max_heart_rate_bpm: 178,
+  }, { merge: true }));
+  // An earlier client, which never writes heart rate, keeps publishing unaffected.
+  await assertSucceeds(setDoc(statsRef, makeUpsertStatsPayload(), { merge: true }));
+});
+
+test('switching heart rate off clears the aggregates in the same write', async () => {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(doc(adminContext.firestore(), statsPath), makeProfileStatsDocument({
+      average_heart_rate_bpm: 142,
+      max_heart_rate_bpm: 178,
+    }));
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+
+  await assertSucceeds(setDoc(doc(context.firestore(), statsPath), {
+    ...makeUpsertStatsPayload(),
+    heart_rate_public: false,
+    average_heart_rate_bpm: deleteField(),
+    max_heart_rate_bpm: deleteField(),
+  }, { merge: true }));
+  const stored = await readProfileStatsDocument();
+  assert.equal(stored.heart_rate_public, false);
+  assert.ok(!('average_heart_rate_bpm' in stored));
+  assert.ok(!('max_heart_rate_bpm' in stored));
+});
+
 async function seedLegacyProfileStatsDocument() {
   await testEnv.withSecurityRulesDisabled(async (adminContext) => {
     await setDoc(doc(adminContext.firestore(), statsPath), makeLegacyProfileStatsDocument());

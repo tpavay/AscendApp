@@ -12,8 +12,9 @@
  * app's derivation by `SharedTestVectors/profile-heart-rate-summary-vector.json`.
  *
  * Only the two aggregates are written, and only onto a `profile_stats` document that already
- * exists: this never publishes a profile a climber has not published, and never copies a
- * sample or a per-climb heart rate anywhere cross-account.
+ * exists: this never publishes a profile a climber has not published, never copies a sample or
+ * a per-climb heart rate anywhere cross-account, and never publishes heart rate for a climber
+ * whose `heart_rate_public` is false.
  *
  * Run it only where `firestore.rules` already lists the two fields. `profile_stats` rules
  * validate the merged document with `hasOnly`, so a field written here onto an environment
@@ -56,7 +57,9 @@ import {
 } from "./lib/migration-discipline.mjs";
 import {
   PROFILE_HEART_RATE_FIELDS,
+  PROFILE_HEART_RATE_PUBLIC_FIELD,
   deriveProfileHeartRateFromWorkoutDocuments,
+  isProfileHeartRatePublic,
 } from "./lib/profile-heart-rate.mjs";
 
 const OPERATION_ID = "migration/profile-heart-rate-aggregates";
@@ -157,7 +160,11 @@ export function planProfileHeartRateBackfill(climbers) {
   const updates = [];
 
   for (const climber of climbers) {
-    const derived = deriveProfileHeartRateFromWorkoutDocuments(climber.workouts);
+    // A climber who switched "Show my heart rate on my profile" off publishes nothing, whatever
+    // their workouts hold - and anything left on the document is removed.
+    const derived = isProfileHeartRatePublic(climber.stats)
+      ? deriveProfileHeartRateFromWorkoutDocuments(climber.workouts)
+      : {averageBpm: null, maxBpm: null};
     const fields = {};
     for (const [key, field] of Object.entries(PROFILE_HEART_RATE_FIELDS)) {
       const published = climber.stats[field] ?? null;
@@ -182,12 +189,13 @@ export function planProfileHeartRateBackfill(climbers) {
 }
 
 /**
- * Whether a deployed `firestore.rules` source lets `profile_stats` carry both aggregates.
+ * Whether a deployed `firestore.rules` source lets `profile_stats` carry both aggregates and
+ * the visibility choice that governs them.
  * @param {string} rulesSource The deployed ruleset's source.
  * @return {boolean} True when both field names are listed.
  */
 export function deployedRulesAllowHeartRate(rulesSource) {
-  return Object.values(PROFILE_HEART_RATE_FIELDS)
+  return [...Object.values(PROFILE_HEART_RATE_FIELDS), PROFILE_HEART_RATE_PUBLIC_FIELD]
     .every((field) => rulesSource.includes(`"${field}"`));
 }
 

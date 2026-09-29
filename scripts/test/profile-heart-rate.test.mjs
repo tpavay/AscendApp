@@ -125,8 +125,29 @@ test("the apply refuses rules that do not yet list both fields", () => {
     "utf-8"
   );
   assert.equal(deployedRulesAllowHeartRate(current), true);
-  assert.equal(
-    deployedRulesAllowHeartRate(current.replaceAll('"max_heart_rate_bpm"', '"x"')),
-    false
-  );
+  for (const field of ["max_heart_rate_bpm", "heart_rate_public"]) {
+    assert.equal(
+      deployedRulesAllowHeartRate(current.replaceAll(`"${field}"`, '"x"')),
+      false,
+      field
+    );
+  }
+});
+
+test("a climber who hid heart rate is never given any, and loses any left behind", () => {
+  const plan = planProfileHeartRateBackfill([
+    {userId: "hidden-clean", stats: {heart_rate_public: false}, workouts: heartRateWorkouts},
+    {
+      userId: "hidden-stale",
+      stats: {heart_rate_public: false, max_heart_rate_bpm: 181},
+      workouts: heartRateWorkouts,
+    },
+  ]);
+
+  assert.equal(plan.current, 1);
+  assert.deepEqual(plan.updates, [{
+    userId: "hidden-stale",
+    kind: "clear",
+    fields: {max_heart_rate_bpm: DELETE_FIELD},
+  }]);
 });

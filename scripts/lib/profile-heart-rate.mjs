@@ -16,6 +16,16 @@ export const PROFILE_HEART_RATE_FIELDS = Object.freeze({
   maxBpm: "max_heart_rate_bpm",
 });
 
+/**
+ * The climber's "Show my heart rate on my profile" choice on the same document. Absent means
+ * shown; false means no aggregate may be published, which `firestore.rules` also enforces.
+ */
+export const PROFILE_HEART_RATE_PUBLIC_FIELD = "heart_rate_public";
+
+export function isProfileHeartRatePublic(stats) {
+  return stats?.[PROFILE_HEART_RATE_PUBLIC_FIELD] !== false;
+}
+
 /** Wider than any human heart, narrower than a sensor fault. `firestore.rules` agrees. */
 export const PLAUSIBLE_BPM = Object.freeze({min: 25, max: 250});
 
