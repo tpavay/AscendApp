@@ -221,6 +221,34 @@ final class MountainAthleteRig {
         return material
     }
 
+    /// Makes the whole athlete see-through, for a rival in a pack.
+    func fade(to opacity: Float) {
+        model.components.set(OpacityComponent(opacity: opacity))
+    }
+
+    /// A lime ring under the athlete's feet that marks them out in a pack.
+    func addGroundRing() {
+        var descriptor = MeshDescriptor(name: "athlete-ring")
+        let segments = 48, inner: Float = 0.34, outer: Float = 0.44
+        var positions: [SIMD3<Float>] = [], indices: [UInt32] = []
+        for i in 0..<segments {
+            let a = Float(i) / Float(segments) * 2 * .pi
+            positions.append(SIMD3(cos(a) * inner, 0, sin(a) * inner))
+            positions.append(SIMD3(cos(a) * outer, 0, sin(a) * outer))
+            let j = UInt32(i * 2), k = UInt32(((i + 1) % segments) * 2)
+            indices.append(contentsOf: [j, k, j + 1, j + 1, k, k + 1])
+        }
+        descriptor.positions = MeshBuffers.Positions(positions)
+        descriptor.normals = MeshBuffers.Normals(Array(repeating: SIMD3<Float>(0, 1, 0), count: positions.count))
+        descriptor.primitives = .triangles(indices)
+        guard let mesh = try? MeshResource.generate(from: [descriptor]) else { return }
+        var material = UnlitMaterial(color: UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1))
+        material.blending = .transparent(opacity: .init(floatLiteral: 0.9))
+        let ring = ModelEntity(mesh: mesh, materials: [material])
+        ring.position = [0, 0.03, 0]
+        root.addChild(ring)
+    }
+
     /// Poses the athlete for this frame. `origin` is the course point at the render origin.
     func apply(_ kinematics: MountainAthleteKinematics, origin: SIMD3<Double>) {
         let body = kinematics.bodyPose

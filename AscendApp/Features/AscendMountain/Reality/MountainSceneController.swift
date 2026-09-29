@@ -32,6 +32,7 @@ final class MountainSceneController {
     private let seed: UInt64
     private let worldSource: @Sendable () throws -> MountainWorld
     private let ghosts: [MountainGhost]
+    private let emphasis: MountainClimberEmphasis
     private let elapsedSource: (@MainActor () -> TimeInterval)?
     private var ghostRigs: [String: MountainAthleteRig] = [:]
     private var director: MountainSceneDirector
@@ -66,11 +67,13 @@ final class MountainSceneController {
         debugState: MountainDebugState?,
         worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
         ghosts: [MountainGhost] = [],
+        emphasis: MountainClimberEmphasis = .none,
         elapsedSource: (@MainActor () -> TimeInterval)? = nil
     ) {
         self.seed = seed
         self.worldSource = worldSource
         self.ghosts = ghosts
+        self.emphasis = emphasis
         self.elapsedSource = elapsedSource
         self.stepSource = stepSource
         self.debugState = debugState
@@ -131,6 +134,9 @@ final class MountainSceneController {
             far = try MountainEnvironmentRig(resources: environment)
             asset = try await Task.detached(priority: .userInitiated) { try MountainAthleteAsset.bundled() }.value
             athlete = try MountainAthleteRig(asset: asset)
+            if emphasis == .ring {
+                athlete.addGroundRing()
+            }
         } catch {
             AppDiagnosticsRecorder.shared.record(
                 "ascend_mountain_scene_build_failed",
@@ -269,6 +275,9 @@ final class MountainSceneController {
                 case .rival: .athlete(.standIn(for: ghost.id))
                 }
                 guard let made = try? MountainAthleteRig(asset: scene.athleteAsset, style: style, label: ghost.label) else { continue }
+                if ghost.kind == .rival, emphasis == .fadedRivals {
+                    made.fade(to: 0.55)
+                }
                 scene.root.addChild(made.root)
                 ghostRigs[ghost.id] = made
                 rig = made

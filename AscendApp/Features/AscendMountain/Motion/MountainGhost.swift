@@ -62,3 +62,14 @@ struct MountainGhostSample: Equatable, Sendable {
         self.stepsPerMinute = stepsPerMinute
     }
 }
+
+/// How the climber stands out when a pack of others shares the stairs. Under design review
+/// (board round 10); the choice not taken is deleted once the captain picks.
+enum MountainClimberEmphasis: Equatable, Sendable {
+    /// Nothing: the camera follows the climber and others pass through.
+    case none
+    /// Everyone else is slightly see-through.
+    case fadedRivals
+    /// A lime ring on the stairs under the climber.
+    case ring
+}
