@@ -10,9 +10,13 @@ struct ActiveRoutineView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @Environment(ModerationStore.self) private var moderationStore
     @State private var viewModel: ActiveRoutineViewModel
     @State private var stepSyncValue = ""
+    @State private var motionAccessGate = HeadphoneMotionAccessGate()
+    @State private var showingMotionAccessRequirement = false
+    @State private var sessionStartRunID = 0
 
     private let leaderboardTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -37,6 +41,8 @@ struct ActiveRoutineView: View {
 
                 if let savedWorkout = viewModel.savedWorkout {
                     routineCompletionSummary(workout: savedWorkout)
+                } else if showingMotionAccessRequirement {
+                    motionAccessBlockedView
                 } else {
                     switch viewModel.phase {
                     case .countdown:
@@ -54,12 +60,13 @@ struct ActiveRoutineView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
-        .onAppear {
-            viewModel.startSession(modelContext: modelContext)
+        .task(id: sessionStartRunID) {
+            await startSessionAfterMotionAccess()
         }
         .keepsScreenAwake(shouldKeepScreenAwake, reason: "Routine session")
         .onDisappear {
             viewModel.stopTimer()
+            viewModel.cancelPreparedBackgroundSession()
         }
         .onChange(of: viewModel.showCompletionSheet) { _, isShowing in
             if isShowing {
@@ -98,6 +105,10 @@ struct ActiveRoutineView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            motionAccessGate.isAppActive = phase == .active
+            if phase == .active {
+                retryAfterMotionAccessChangeIfNeeded()
+            }
             guard phase == .inactive || phase == .background else { return }
             viewModel.checkpointForLifecycleChange()
         }
@@ -203,6 +214,16 @@ struct ActiveRoutineView: View {
                 message: "Synced with machine. Continuing from \(confirmation.correctedSteps.formatted()) steps.",
                 tint: Color.ascendAccent
             )
+        } else if viewModel.shouldShowMotionAccessStatus {
+            Button(action: openAppSettings) {
+                trackingBanner(
+                    iconName: "figure.stair.stepper",
+                    message: "Motion & Fitness is off. Turn it on in Settings to keep counting steps.",
+                    tint: Color.ascendAccent
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens Settings")
         } else if viewModel.shouldShowTrackingRecoveryStatus {
             trackingBanner(
                 iconName: "airpodspro",
@@ -365,6 +386,84 @@ struct ActiveRoutineView: View {
                 dismiss()
             }
         )
+    }
+
+    /// Motion & Fitness is settled before the countdown, so its alert meets a climber who is still
+    /// looking at the screen instead of one who has already started climbing.
+    private func startSessionAfterMotionAccess() async {
+        motionAccessGate.isAppActive = scenePhase == .active
+        let motionAccess = await motionAccessGate.resolve()
+        guard !Task.isCancelled else { return }
+
+        switch HeadphoneSessionStartRequirement(motionAccess: motionAccess, headphones: nil) {
+        case .motionAccessBlocked:
+            showingMotionAccessRequirement = true
+        case .headphonesRequired, .ready:
+            showingMotionAccessRequirement = false
+            viewModel.startSession(modelContext: modelContext)
+        }
+    }
+
+    /// Picks the session back up when the climber returns from Settings with access turned on.
+    private func retryAfterMotionAccessChangeIfNeeded() {
+        guard showingMotionAccessRequirement,
+              !HeadphoneMotionAuthorizationState.current().blocksStepCounting else { return }
+        sessionStartRunID += 1
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        openURL(url)
+    }
+
+    private var motionAccessBlockedView: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "figure.stair.stepper")
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(Color.ascendAccent)
+
+            VStack(spacing: 8) {
+                Text("Motion & Fitness is off")
+                    .font(.montserratBold(size: 26))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text("Ascend counts your steps from your headphones' motion sensors. Turn on Motion & Fitness for Ascend in Settings to start this routine.")
+                    .font(.montserratMedium(size: 15))
+                    .foregroundStyle(.white.opacity(0.68))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(spacing: 10) {
+                Button(action: openAppSettings) {
+                    Text("Open Settings")
+                        .font(.montserratBold(size: 15))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.ascendAccent)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Close")
+                        .font(.montserratBold(size: 15))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(.white.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: 420)
     }
 
     private func failedView(message: String) -> some View {

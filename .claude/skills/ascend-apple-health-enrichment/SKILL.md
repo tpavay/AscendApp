@@ -23,6 +23,7 @@ Do not reintroduce either behind a flag, a debug toggle, or a "just in case" pat
   Never branch on device, and never name a wearable in copy: naming one tells the other three they are not supported.
 - Ascend requests `toShare: []` and never saves an `HKWorkout`.
   `LiveClimbBackgroundSessionService` opens an `HKWorkoutSession` purely to stay alive in the background and calls `discardWorkout()`.
+  It opens when the countdown starts, not at GO, so Apple's one-time "Health and Fitness Data" notice for a first workout session lands while the climber is still watching the screen.
 - External health data is read-only. Never write back to the source platform.
 
 ## The requested read set
