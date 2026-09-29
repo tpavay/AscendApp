@@ -139,8 +139,8 @@ struct PeriodRecapCatchUp: Equatable, Sendable {
         let yours: PeriodRecap.Active?
     }
 
-    /// Whole weeks since the climber's last climb, as the server measured it - never the
-    /// number of lines, which is capped.
+    /// Whole weeks since the climber's last climb, as the server measured it. Without that
+    /// measurement (someone who has never climbed), the unseen weeks the page shows.
     let weeksAway: Int
     let lastClimbAt: Date?
     let lines: [Line]

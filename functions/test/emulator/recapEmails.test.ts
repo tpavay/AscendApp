@@ -971,6 +971,38 @@ test(
 );
 
 test(
+  "a first climb in the week that synced after compose replaces the first-climb invitation",
+  async () => {
+    await seedUser("first-late", "firstlate@example.com");
+    await seedEntitlement("first-late", addDays(now, 30));
+
+    await runRecapCompose("weekly", composeNow);
+    assert.equal((await readRecap("first-late")).variant, "never_climbed");
+    const seenAt = admin.firestore.Timestamp.fromDate(addDays(now, -0.25));
+    await recapRef("first-late").update({seenAt});
+
+    await seedCompletedLandmarkWorkout(
+      "first-late",
+      "short-climb",
+      new Date(closedWeek.endAt.getTime() - 60 * 60 * 1000)
+    );
+    await seedWeeklyStats("first-late", closedWeek, {
+      totalFloors: 10,
+      totalSteps: 500,
+      totalWorkouts: 1,
+    });
+
+    const send = await runRecapSend("weekly", now);
+
+    const recap = await readRecap("first-late");
+    assert.equal(recap.variant, "active");
+    assert.ok(recap.active);
+    assert.ok(seenAt.isEqual(recap.seenAt as admin.firestore.Timestamp));
+    assert.equal(send.queued, 1);
+  }
+);
+
+test(
   "an older climb that synced late corrects the stored gap before the email",
   async () => {
     await seedUser("old-sync", "oldsync@example.com");

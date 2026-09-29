@@ -211,7 +211,7 @@ enum PeriodRecapStoryBuilder {
         return PeriodRecapStory(
             id: recapIDs.joined(separator: "+"),
             pages: [.catchUp(PeriodRecapCatchUp(
-                weeksAway: latestAway?.gapCount ?? 1,
+                weeksAway: latestAway?.gapCount ?? weeks.count,
                 lastClimbAt: latestAway?.lastClimbAt,
                 lines: lines
             ))],

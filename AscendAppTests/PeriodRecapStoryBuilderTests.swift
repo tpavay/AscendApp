@@ -248,6 +248,27 @@ struct PeriodRecapStoryBuilderTests {
     }
 
     @Test
+    func aNeverClimbedCatchUpCountsTheWeeksItShows() throws {
+        var period = fixtures.periods().week
+        var recaps: [PeriodRecap] = []
+        var results: [String: PeriodRecapResultBundle] = [:]
+        for _ in 0..<3 {
+            let recap = fixtures.recap(period: period, variant: .neverClimbed)
+            recaps.append(recap)
+            results[recap.resultID] = fixtures.weekBundle(period: period, viewerPlaces: false, viewerWins: false)
+            period = period.previous!
+        }
+
+        let story = try #require(PeriodRecapStoryBuilder.build(recaps: recaps, results: results, viewerId: "me", now: Self.now))
+        guard case .catchUp(let catchUp) = story.pages.first else {
+            Issue.record("no catch-up page")
+            return
+        }
+        #expect(catchUp.weeksAway == 3)
+        #expect(story.isFirstClimbInvitation)
+    }
+
+    @Test
     func onlyThePeriodsTheStoryShowsAreRead() {
         let (week, month) = fixtures.periods()
         let recaps = [

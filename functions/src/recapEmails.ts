@@ -1803,14 +1803,16 @@ async function composeInactiveRecap(
  * overwritten and its `seenAt` never reset. `claimReceipt` is the same
  * bounded create-once primitive the climb-drop sweep claims its devices with.
  *
- * The one exception: a stored inactive recap for a climber who now stands in
- * the period's active cohort - a climb inside the period that synced after
- * compose ran - is recomposed as active, updating only the payload so
- * `seenAt` is kept. Nobody is told they were missed for a week they climbed.
+ * The one exception: a stored inactive or never_climbed recap for a climber
+ * who now stands in the period's active cohort - a climb inside the period
+ * that synced after compose ran - is recomposed as active, updating only the
+ * payload so `seenAt` is kept. Nobody is told they were missed, or invited to
+ * a first climb, for a week they climbed.
  * @param {admin.firestore.DocumentReference} reference - The recap document
  * @param {object} identity - The document's cadence, period, and variant
  * @param {Function} composeMaps - Reads and builds the variant's maps
- * @return {Promise<"composed" | "already_composed">} What happened
+ * @return {Promise<"composed" | "already_composed" | "recomposed">} What
+ *   happened
  */
 async function writeRecapOnce(
   reference: admin.firestore.DocumentReference,
@@ -1826,7 +1828,7 @@ async function writeRecapOnce(
 ): Promise<"composed" | "already_composed" | "recomposed"> {
   const existing = await reference.get();
   if (existing.exists) {
-    if (identity.variant !== "active" || existing.get("variant") !== "inactive") {
+    if (identity.variant !== "active" || existing.get("variant") === "active") {
       return "already_composed";
     }
     const {active, inactive} = await composeMaps();

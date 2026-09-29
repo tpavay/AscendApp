@@ -321,7 +321,7 @@ test("the paged period read agrees with one unbounded page", async () => {
   assert.equal((await readAwardStandings(db, WEEK)).length, 249);
 });
 
-test("a standings scan that fails still awards, and writes no result",
+test("a standings scan too large for its bound still awards, and writes no result",
   async () => {
     await seedRows(standardBoard());
 
@@ -344,6 +344,29 @@ test("a standings scan that fails still awards, and writes no result",
       0,
       "never a partial result"
     );
+  });
+
+test("a transient standings failure writes nothing, so the next run retries",
+  async () => {
+    await seedRows(standardBoard());
+
+    await assert.rejects(
+      finalizeMostRecentClosedPeriod("weekly", NOW, {
+        readPage: async () => {
+          throw new Error("4 DEADLINE_EXCEEDED");
+        },
+      }),
+      /DEADLINE_EXCEEDED/
+    );
+
+    const award = await db
+      .doc(`users/u000/achievements/global_steps_weekly_${WEEK.key}`)
+      .get();
+    assert.equal(award.exists, false, "no award without its result");
+    const periodDocument = (await db
+      .doc(`leaderboard_periods/weekly_${WEEK.key}`).get()).data();
+    assert.notEqual(periodDocument?.status, "finalized");
+    assert.equal((await db.doc(WEEK_RESULT).get()).exists, false);
   });
 
 test("every page of the period read goes through the caller's page reader",
