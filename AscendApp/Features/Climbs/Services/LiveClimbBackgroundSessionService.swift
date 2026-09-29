@@ -1,8 +1,23 @@
 import Foundation
 @preconcurrency import HealthKit
 
+/// The workout session that keeps a headphone session running while the phone is locked or
+/// another app is in front.
 @MainActor
-final class LiveClimbBackgroundSessionService: NSObject {
+protocol LiveClimbBackgroundSessionControlling: AnyObject {
+    var isRunning: Bool { get }
+    func start(at startedAt: Date)
+    func stop(at endedAt: Date)
+}
+
+extension LiveClimbBackgroundSessionControlling {
+    func stop() {
+        stop(at: Date())
+    }
+}
+
+@MainActor
+final class LiveClimbBackgroundSessionService: NSObject, LiveClimbBackgroundSessionControlling {
     static let shared = LiveClimbBackgroundSessionService()
 
     private let healthStore: HKHealthStore
@@ -12,12 +27,16 @@ final class LiveClimbBackgroundSessionService: NSObject {
 
     private(set) var lastFailureMessage: String?
 
+    var isRunning: Bool {
+        workoutSession != nil
+    }
+
     init(healthStore: HKHealthStore = HKHealthStore()) {
         self.healthStore = healthStore
         super.init()
     }
 
-    func start(at startedAt: Date = Date()) {
+    func start(at startedAt: Date) {
         AppDiagnosticsRecorder.shared.record(
             "headphone_background_session_start_requested",
             details: ["started_at_unix": String(Int(startedAt.timeIntervalSince1970))]
@@ -25,7 +44,7 @@ final class LiveClimbBackgroundSessionService: NSObject {
         startWorkoutSessionIfAvailable(at: startedAt)
     }
 
-    func stop(at endedAt: Date = Date()) {
+    func stop(at endedAt: Date) {
         AppDiagnosticsRecorder.shared.record(
             "headphone_background_session_stop_requested",
             details: ["ended_at_unix": String(Int(endedAt.timeIntervalSince1970))]

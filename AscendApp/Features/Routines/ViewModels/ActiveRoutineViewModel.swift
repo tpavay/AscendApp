@@ -13,7 +13,9 @@ final class ActiveRoutineViewModel {
     private let replayContext: LiveReplayLeaderboardContext
     private let leaderboardService: LiveReplayLeaderboardServicing
     private let motionSession: HeadphoneMotionSessionService
-    private let backgroundSessionService: LiveClimbBackgroundSessionService
+    private let backgroundSessionService: any LiveClimbBackgroundSessionControlling
+    /// Whether the countdown started the workout session, so an abandoned countdown stops it.
+    private var didPrepareBackgroundSession = false
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let heartRateRecorder: LiveHeartRateRecorder
     /// Read once per session. `leaderboardRows` is rebuilt on every step and
@@ -67,7 +69,7 @@ final class ActiveRoutineViewModel {
         routine: Routine,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
         motionSession: HeadphoneMotionSessionService = HeadphoneMotionSessionService(),
-        backgroundSessionService: LiveClimbBackgroundSessionService = .shared,
+        backgroundSessionService: any LiveClimbBackgroundSessionControlling = LiveClimbBackgroundSessionService.shared,
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
@@ -139,6 +141,11 @@ final class ActiveRoutineViewModel {
 
     var shouldShowTrackingRecoveryStatus: Bool {
         phase == .active && motionSession.trackingIntegrity.shouldShowRecoveryStatus
+    }
+
+    /// Steps stopped because Motion & Fitness is off, not because the headphones dropped out.
+    var shouldShowMotionAccessStatus: Bool {
+        phase == .active && motionSession.isMotionAccessDenied
     }
 
     var leaderboardRows: [LiveReplayLeaderboardRow] {
@@ -315,8 +322,25 @@ final class ActiveRoutineViewModel {
         hasRecordedCompletion = false
         hasTrackedSessionStart = false
         hasTrackedSessionCompletion = false
+        prepareBackgroundSessionForCountdown()
         startTimer()
         HapticsManager.shared.trigger(.mediumImpact)
+    }
+
+    /// Starts the workout session with the countdown rather than at GO, so Apple's one-time
+    /// "Health and Fitness Data" notice lands while the climber is still watching the screen, and a
+    /// phone locked during the countdown still starts recording on time.
+    private func prepareBackgroundSessionForCountdown() {
+        guard phase == .countdown, !backgroundSessionService.isRunning else { return }
+        backgroundSessionService.start(at: Date())
+        didPrepareBackgroundSession = true
+    }
+
+    /// Stops a workout session the countdown started when the countdown never reaches GO.
+    func cancelPreparedBackgroundSession() {
+        guard phase == .countdown, didPrepareBackgroundSession else { return }
+        didPrepareBackgroundSession = false
+        backgroundSessionService.stop()
     }
 
     func stopTimer() {
@@ -635,6 +659,7 @@ final class ActiveRoutineViewModel {
             do {
                 try beginHeadphoneRecordingIfNeeded(startedAt: now)
             } catch {
+                cancelPreparedBackgroundSession()
                 phase = .failed(error.localizedDescription)
                 errorMessage = error.localizedDescription
                 stopTimer()
@@ -727,7 +752,10 @@ final class ActiveRoutineViewModel {
         do {
             let draft = try prepareDraftIfNeeded(startedAt: startedAt, modelContext: modelContext)
             try motionSession.startRecording(resumeState: draft?.resumeState)
-            backgroundSessionService.start(at: draft?.startedAt ?? startedAt)
+            if !backgroundSessionService.isRunning {
+                backgroundSessionService.start(at: draft?.startedAt ?? startedAt)
+            }
+            didPrepareBackgroundSession = false
             recordLiveSplitSample()
             checkpointDraft(force: true)
             AppDiagnosticsRecorder.shared.record(

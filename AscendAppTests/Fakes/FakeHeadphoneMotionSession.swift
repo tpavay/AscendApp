@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class FakeHeadphoneMotionSession: HeadphoneMotionSessionServicing {
     var duration: TimeInterval = 0
+    var isMotionAccessDenied = false
     var lastResolvedTrackingGap: HeadphoneMotionResolvedTrackingGap?
     var sampleCount = 0
     var status: HeadphoneMotionSessionStatus = .idle
