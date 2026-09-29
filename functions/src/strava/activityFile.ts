@@ -130,12 +130,22 @@ export function buildTcx(
   lapSummary.push("<Intensity>Active</Intensity>");
   lapSummary.push("<TriggerMethod>Manual</TriggerMethod>");
 
-  const trackpoints = samples.length > 0 ?
-    samples.map((sample) => trackpoint(sample.timestampMillis, sample.bpm)) :
-    [
-      trackpoint(workout.startedAtMillis, workout.avgHeartRateBpm),
-      trackpoint(endMillis, workout.avgHeartRateBpm),
-    ];
+  // Strava takes elapsed time from the first and last trackpoints, so the
+  // track always opens and closes on the climb's own instants, whatever
+  // stretch of it the heart-rate strap happened to cover.
+  const startSecond = wholeSecond(workout.startedAtMillis);
+  const endSecond = wholeSecond(endMillis);
+  const inside = samples.filter((sample) => {
+    const second = wholeSecond(sample.timestampMillis);
+    return second > startSecond && second < endSecond;
+  });
+  const trackpoints = [
+    trackpoint(workout.startedAtMillis,
+      nearestBpm(samples, workout.startedAtMillis, workout.avgHeartRateBpm)),
+    ...inside.map((sample) => trackpoint(sample.timestampMillis, sample.bpm)),
+    trackpoint(endMillis,
+      nearestBpm(samples, endMillis, workout.avgHeartRateBpm)),
+  ];
 
   return [
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
@@ -221,12 +231,43 @@ function trackpoint(millis: number, bpm: number | null): string {
 }
 
 /**
+ * The heart rate of the sample closest to an instant.
+ * @param {Array<HeartRateSample>} samples Heart-rate series.
+ * @param {number} millis Epoch millis.
+ * @param {number | null} fallback Used when there are no samples.
+ * @return {number | null} Heart rate.
+ */
+function nearestBpm(
+  samples: HeartRateSample[],
+  millis: number,
+  fallback: number | null
+): number | null {
+  let nearest: HeartRateSample | null = null;
+  for (const sample of samples) {
+    if (nearest === null || Math.abs(sample.timestampMillis - millis) <
+      Math.abs(nearest.timestampMillis - millis)) {
+      nearest = sample;
+    }
+  }
+  return nearest?.bpm ?? fallback;
+}
+
+/**
+ * Epoch millis rounded to the whole second a trackpoint is written at.
+ * @param {number} millis Epoch millis.
+ * @return {number} Epoch seconds.
+ */
+function wholeSecond(millis: number): number {
+  return Math.round(millis / 1000);
+}
+
+/**
  * ISO-8601 UTC with whole seconds.
  * @param {number} millis Epoch millis.
  * @return {string} Timestamp.
  */
 function isoTime(millis: number): string {
-  return new Date(Math.round(millis / 1000) * 1000)
+  return new Date(wholeSecond(millis) * 1000)
     .toISOString()
     .replace(".000Z", "Z");
 }

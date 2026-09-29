@@ -52,6 +52,38 @@ test("removing a climber keeps their existing connection and says so", () => {
   assert.equal(planStravaAccessChange(removed.next, {command: "remove", userId: "climber-1"}).changed, false);
 });
 
+test("a removed climber who is still connected keeps holding a seat", () => {
+  let settings = EMPTY;
+  for (let seat = 0; seat < DEFAULT_STRAVA_CAPACITY; seat += 1) {
+    settings = planStravaAccessChange(settings, {command: "allow", userId: `climber-${seat}`}).next;
+  }
+  settings = planStravaAccessChange(settings, {command: "remove", userId: "climber-0"}).next;
+  assert.equal(settings.allowedUserIds.length, DEFAULT_STRAVA_CAPACITY - 1);
+
+  assert.throws(
+    () => planStravaAccessChange(settings, {
+      command: "allow",
+      userId: "climber-extra",
+      connectedUserIds: ["climber-0"],
+    }),
+    /10 of 10 seats/
+  );
+  const readmitted = planStravaAccessChange(settings, {
+    command: "allow",
+    userId: "climber-0",
+    connectedUserIds: ["climber-0"],
+  });
+  assert.equal(readmitted.next.allowedUserIds.length, DEFAULT_STRAVA_CAPACITY);
+  assert.match(readmitted.summary, /10 of 10 seats/);
+
+  const disconnected = planStravaAccessChange(settings, {
+    command: "allow",
+    userId: "climber-extra",
+    connectedUserIds: [],
+  });
+  assert.equal(disconnected.next.allowedUserIds.length, DEFAULT_STRAVA_CAPACITY);
+});
+
 test("a climber must be named by a plausible uid", () => {
   assert.throws(() => planStravaAccessChange(EMPTY, {command: "allow"}), /Firebase uid/);
   assert.throws(() => planStravaAccessChange(EMPTY, {command: "allow", userId: "a/b"}), /Firebase uid/);

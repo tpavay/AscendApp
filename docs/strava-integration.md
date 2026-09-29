@@ -59,7 +59,8 @@ It lives in Firestore rather than Remote Config because every Strava decision is
 `allowedUserIds` is who may start a connection.
 Removing somebody stops them starting a new one; a connection they already made stays until they disconnect.
 
-Manage both with the script, which dry-runs unless given `--apply` and refuses to allowlist more climbers than the capacity Strava has granted (10 unless `--capacity` says otherwise):
+Manage both with the script, which dry-runs unless given `--apply` and refuses an `allow` that would put more climbers than the capacity Strava has granted (10 unless `--capacity` says otherwise) across the allowlist and the current connections together.
+A removed climber who is still connected keeps holding a seat, so their seat frees only once they disconnect.
 
 ```bash
 cd scripts && npm install
@@ -70,6 +71,9 @@ node strava-access.mjs disable --env prod --confirm-production --apply
 ```
 
 `show` also lists who is connected, which is what Strava counts against the capacity.
+
+The script counts one project at a time, but one Strava app serves dev, staging and production and their capacity is shared.
+The combined allowlists and connections of all three projects must stay within it, and that budget is managed by hand: run `show` against every environment before allowing anybody.
 
 ## Configuration
 

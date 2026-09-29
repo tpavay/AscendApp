@@ -10,10 +10,11 @@ import SwiftUI
 struct IntegrationsView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var themeManager = ThemeManager.shared
-    @State private var strava: StravaIntegrationViewModel
+    @State private var strava: StravaIntegrationViewModel?
+    private let injectedStrava: StravaIntegrationViewModel?
 
-    init(strava: StravaIntegrationViewModel = StravaIntegrationViewModel()) {
-        _strava = State(initialValue: strava)
+    init(strava: StravaIntegrationViewModel? = nil) {
+        injectedStrava = strava
     }
 
     var effectiveColorScheme: ColorScheme {
@@ -30,7 +31,7 @@ struct IntegrationsView: View {
 
                 HeartRateMonitorIntegrationCard()
 
-                if strava.status.isVisible {
+                if let strava, strava.status.isVisible {
                     StravaIntegrationCard(viewModel: strava)
                         .transition(.opacity)
                 }
@@ -38,7 +39,7 @@ struct IntegrationsView: View {
                 Spacer()
             }
             .padding(.horizontal, 20)
-            .animation(.easeInOut(duration: 0.2), value: strava.status.isVisible)
+            .animation(.easeInOut(duration: 0.2), value: strava?.status.isVisible == true)
         }
         .themedBackground()
         .preferredColorScheme(effectiveColorScheme)
@@ -48,6 +49,8 @@ struct IntegrationsView: View {
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .trackOnce(screen: .integrations)
         .task {
+            let strava = strava ?? injectedStrava ?? StravaIntegrationViewModel()
+            self.strava = strava
             await strava.refresh()
         }
     }

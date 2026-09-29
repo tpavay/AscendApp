@@ -4,8 +4,10 @@
  * `_strava_access/settings` is read by Cloud Functions on every Strava call:
  * `enabled` is the kill switch and `allowedUserIds` is who may start a
  * connection. The allowlist is also the capacity lever - Strava refuses to
- * authorize an athlete past the app's approved athlete capacity, so the list
- * must never promise more seats than Strava has granted.
+ * authorize an athlete past the app's approved athlete capacity, and a
+ * climber removed from the list keeps holding a seat until their connection
+ * ends, so allowed and connected climbers together must never exceed the
+ * seats Strava has granted.
  */
 
 export const STRAVA_ACCESS_PATH = Object.freeze({
@@ -40,7 +42,7 @@ export function normalizeStravaAccess(data) {
 /**
  * Plans one change to the settings.
  * @param {{enabled: boolean, allowedUserIds: string[]}} current Settings now.
- * @param {{command: string, userId?: string, capacity?: number}} request What to do.
+ * @param {{command: string, userId?: string, capacity?: number, connectedUserIds?: string[]}} request What to do.
  * @return {{next: {enabled: boolean, allowedUserIds: string[]}, changed: boolean, summary: string}} Plan.
  */
 export function planStravaAccessChange(current, request) {
@@ -49,6 +51,7 @@ export function planStravaAccessChange(current, request) {
     throw new Error(`--capacity must be a positive integer, got ${request.capacity}.`);
   }
   const allowed = new Set(current.allowedUserIds);
+  const seats = new Set([...allowed, ...(request.connectedUserIds ?? [])]);
 
   switch (request.command) {
   case "enable":
@@ -65,18 +68,19 @@ export function planStravaAccessChange(current, request) {
     if (allowed.has(userId)) {
       return {next: current, changed: false, summary: `${userId} is already allowed.`};
     }
-    if (allowed.size >= capacity) {
+    if (!seats.has(userId) && seats.size >= capacity) {
       throw new Error(
-        `The allowlist already holds ${allowed.size} of ${capacity} seats. ` +
-          "Strava refuses athletes past the app's approved capacity, so remove someone first, " +
+        `Allowed and connected climbers already hold ${seats.size} of ${capacity} seats. ` +
+          "Strava refuses athletes past the app's approved capacity, so remove someone and have them disconnect first, " +
           "or pass --capacity with the number Strava has approved."
       );
     }
     allowed.add(userId);
+    seats.add(userId);
     return {
       next: {...current, allowedUserIds: [...allowed].sort()},
       changed: true,
-      summary: `${userId} may now connect Strava (${allowed.size} of ${capacity} seats).`,
+      summary: `${userId} may now connect Strava (${seats.size} of ${capacity} seats).`,
     };
   }
   case "remove": {

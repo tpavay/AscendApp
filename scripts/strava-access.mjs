@@ -11,8 +11,9 @@
  *   node scripts/strava-access.mjs disable --env prod --confirm-production --apply
  *
  * Without --apply every change is a dry run that prints the plan. `show` also
- * lists who is connected right now, which is what Strava counts against the
- * app's athlete capacity.
+ * lists who is connected right now. Strava counts every connection against
+ * the app's athlete capacity, so `allow` counts allowed and connected climbers
+ * together.
  *
  * Prerequisites: cd scripts && npm install; gcloud auth application-default login
  */
@@ -60,12 +61,14 @@ async function main(args) {
     .doc(STRAVA_ACCESS_PATH.document);
   const current = normalizeStravaAccess((await reference.get()).data());
 
+  const connectedUserIds = (await firestore.collection("_strava_connections").get())
+    .docs.map((document) => document.id);
+
   console.log(`project: ${projectId} (${options.env})`);
   if (options.command === "show") {
-    const connections = await firestore.collection("_strava_connections").get();
     console.log(`enabled: ${current.enabled}`);
     console.log(`allowed (${current.allowedUserIds.length}): ${current.allowedUserIds.join(", ") || "none"}`);
-    console.log(`connected (${connections.size}): ${connections.docs.map((document) => document.id).join(", ") || "none"}`);
+    console.log(`connected (${connectedUserIds.length}): ${connectedUserIds.join(", ") || "none"}`);
     return;
   }
 
@@ -76,6 +79,7 @@ async function main(args) {
     command: options.command,
     userId,
     capacity: options.capacity,
+    connectedUserIds,
   });
   console.log(plan.summary);
   if (!plan.changed) {

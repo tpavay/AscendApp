@@ -312,6 +312,45 @@ test("the TCX carries heart rate and zero distance", () => {
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
 });
 
+test("a strap that connects late and drops early still spans the climb",
+  () => {
+    const start = WORKOUT.startedAtMillis;
+    const tcx = buildTcx(WORKOUT, [
+      {timestampMillis: start - 30_000, bpm: 95},
+      {timestampMillis: start + 180_000, bpm: 130},
+      {timestampMillis: start + 300_000, bpm: 150},
+      {timestampMillis: start + 480_000, bpm: 160},
+      {timestampMillis: start + 600_000 + 45_000, bpm: 110},
+    ]);
+    const points = [...tcx.matchAll(
+      /<Trackpoint><Time>([^<]+)<\/Time>(?:<HeartRateBpm><Value>(\d+))?/g
+    )].map((match) => [match[1], match[2]]);
+    assert.deepEqual(points, [
+      ["2026-09-29T12:00:00Z", "95"],
+      ["2026-09-29T12:03:00Z", "130"],
+      ["2026-09-29T12:05:00Z", "150"],
+      ["2026-09-29T12:08:00Z", "160"],
+      ["2026-09-29T12:10:00Z", "110"],
+    ]);
+  });
+
+test("the track anchors carry the heart rate nearest each end", () => {
+  const start = WORKOUT.startedAtMillis;
+  const tcx = buildTcx(WORKOUT, [
+    {timestampMillis: start + 180_000, bpm: 130},
+    {timestampMillis: start + 480_000, bpm: 160},
+  ]);
+  const points = [...tcx.matchAll(
+    /<Trackpoint><Time>([^<]+)<\/Time><HeartRateBpm><Value>(\d+)/g
+  )].map((match) => [match[1], match[2]]);
+  assert.deepEqual(points, [
+    ["2026-09-29T12:00:00Z", "130"],
+    ["2026-09-29T12:03:00Z", "130"],
+    ["2026-09-29T12:08:00Z", "160"],
+    ["2026-09-29T12:10:00Z", "160"],
+  ]);
+});
+
 test("a climb with no heart rate still has a start and an end", () => {
   const tcx = buildTcx({...WORKOUT, avgHeartRateBpm: null,
     maxHeartRateBpm: null, caloriesBurned: null}, []);
