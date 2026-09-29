@@ -161,6 +161,17 @@ struct AscendMountainSceneDirectorTests {
         #expect(abs(ghost.lead - 20) < 1e-9)
         #expect(simd_distance(ghost.kinematics.bodyPose.position, course.progress(atSteps: 30).pose.position) < 1)
     }
+
+    /// A start line full of climbers spreads across the stairs: each keeps its own lane, on the
+    /// stairs, the same every time.
+    @Test
+    func ghostsKeepTheirOwnLaneOnTheStairs() {
+        let lanes = (1...30).map { MountainSceneDirector.lane(for: "climber\($0)") }
+
+        #expect(lanes.allSatisfy { abs($0) <= 0.5 }, "inside the kerbs of a 1.6 m stair")
+        #expect(Set(lanes.map { ($0 * 100).rounded() }).count > 20, "spread, not queued")
+        #expect(MountainSceneDirector.lane(for: "climber7") == lanes[6], "fixed by id")
+    }
 }
 
 struct AscendMountainChunkPoolTests {

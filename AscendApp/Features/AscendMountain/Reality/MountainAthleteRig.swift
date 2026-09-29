@@ -16,6 +16,20 @@ struct MountainAthleteLook: Equatable, Sendable {
 
     static let ascendKit = MountainAthleteLook()
 
+    /// A stand-in look for another climber until their saved athlete is available: the kit in
+    /// one of a few colours, chosen by their id so the same climber always wears the same.
+    static func standIn(for id: String) -> MountainAthleteLook {
+        let tops = [(0.53, 0.83, 0.04), (0.12, 0.44, 0.85), (0.88, 0.27, 0.48), (0.95, 0.54, 0.11), (0.95, 0.95, 0.95), (0.11, 0.12, 0.14), (0.55, 0.36, 0.85)]
+        let hairs = [(0.08, 0.06, 0.05), (0.29, 0.17, 0.09), (0.54, 0.35, 0.17), (0.85, 0.69, 0.39)]
+        let hash = id.unicodeScalars.reduce(UInt32(2_166_136_261)) { ($0 ^ $1.value) &* 16_777_619 }
+        var look = MountainAthleteLook()
+        let top = tops[Int(hash % UInt32(tops.count))], hair = hairs[Int((hash / 7) % UInt32(hairs.count))]
+        look.top = MountainColor(red: top.0, green: top.1, blue: top.2)
+        look.hair = MountainColor(red: hair.0, green: hair.1, blue: hair.2)
+        look.bottom = (hash / 29) % 2 == 0 ? MountainColor(red: 0.1, green: 0.11, blue: 0.13) : MountainColor(red: 0.2, green: 0.22, blue: 0.26)
+        return look
+    }
+
     func color(forSlot slot: String) -> MountainColor {
         switch slot {
         case "skin": return skin
@@ -114,7 +128,7 @@ final class MountainAthleteRig {
         if case .ghost = style {
             model.components.set(OpacityComponent(opacity: 0.5))
         }
-        if let label, let tag = Self.tag(label, style: style) {
+        if let label, !label.isEmpty, let tag = Self.tag(label, style: style) {
             tag.position = [0, Float(asset.height) + 0.32, 0]
             root.addChild(tag)
         }
@@ -163,13 +177,21 @@ final class MountainAthleteRig {
         return tag
     }
 
+    /// Every athlete on the stairs shares one copy of each texture, so a start line full of
+    /// climbers costs no more texture memory than one.
+    private static var textureCache: [String: TextureResource] = [:]
+
     /// A slot drawn from its textures (skin, eyes, hair) or as a flat colour (the kit). Textured
     /// slots are still multiplied by the look's colour, so the grey hair texture takes the
     /// climber's hair colour; skin and eyes carry their colour in the texture itself.
     private static func material(for slot: String, textures: MountainAthleteAsset.Textures?, look: MountainAthleteLook, bundle: Bundle) -> PhysicallyBasedMaterial {
         func texture(_ name: String?, _ semantic: TextureResource.Semantic) -> TextureResource? {
-            guard let name, let url = bundle.url(forResource: name, withExtension: nil) else { return nil }
-            return try? TextureResource.load(contentsOf: url, options: .init(semantic: semantic))
+            guard let name else { return nil }
+            if let cached = textureCache[name] { return cached }
+            guard let url = bundle.url(forResource: name, withExtension: nil),
+                  let loaded = try? TextureResource.load(contentsOf: url, options: .init(semantic: semantic)) else { return nil }
+            textureCache[name] = loaded
+            return loaded
         }
         var material = PhysicallyBasedMaterial()
         material.metallic = .init(floatLiteral: 0)

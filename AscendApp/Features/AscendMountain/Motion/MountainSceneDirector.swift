@@ -116,6 +116,15 @@ struct MountainSceneDirector: Sendable {
     /// HUD, which also keeps the course from regenerating far-off pieces every frame.
     static let ghostDrawRange: ClosedRange<Double> = -60...200
 
+    /// Where across the stairs a ghost climbs, metres right of centre: fixed by its id, so a
+    /// start line full of climbers spreads into a pack instead of queuing in single file. The
+    /// climber themselves keeps the middle.
+    static func lane(for id: String) -> Double {
+        let hash = id.unicodeScalars.reduce(UInt64(14_695_981_039_346_656_037)) { ($0 ^ UInt64($1.value)) &* 1_099_511_628_211 }
+        let unit = Double(hash % 10_000) / 9_999
+        return (unit * 2 - 1) * 0.5
+    }
+
     mutating func advance(logicalSteps: Int, time: Double, deltaTime: Double, ghosts: [MountainGhostSample] = []) -> MountainSceneFrame {
         let steps = max(logicalSteps, 0)
         let dt = deltaTime.isFinite ? min(max(deltaTime, 0), 0.25) : 0
@@ -180,13 +189,17 @@ struct MountainSceneDirector: Sendable {
             let lead = ghost.steps - visualSteps
             guard Self.ghostDrawRange.contains(lead) else { return nil }
             let pacing = MountainAnimationPacing(stepsPerMinute: ghost.stepsPerMinute)
+            let lane = Self.lane(for: ghost.id)
             var course = self.course
             let kinematics = MountainAthleteKinematics(
                 visualSteps: max(ghost.steps, 0),
                 intensity: pacing.intensity,
                 movement: ghost.stepsPerMinute > 1 ? 1 : 0,
                 time: time,
-                pose: { course.progress(atSteps: $0).pose }
+                pose: { steps in
+                    let pose = course.progress(atSteps: steps).pose
+                    return MountainPose(position: pose.position + pose.right * lane, heading: pose.heading)
+                }
             )
             self.course = course
             return MountainGhostFrame(id: ghost.id, kind: ghost.kind, label: ghost.label, kinematics: kinematics, lead: lead)

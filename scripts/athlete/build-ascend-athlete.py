@@ -21,6 +21,7 @@ import json
 import math
 import os
 import struct
+import subprocess
 import sys
 
 import bmesh
@@ -35,6 +36,8 @@ parser.add_argument("--pack", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--body", default="male", choices=["male", "female"])
 parser.add_argument("--hair", default=None)
+parser.add_argument("--size", default="regular", choices=["slim", "regular", "solid", "big"])
+parser.add_argument("--definition", default="defined", choices=["smooth", "some", "defined"])
 args = parser.parse_args(argv)
 
 BODY = {
@@ -82,6 +85,78 @@ def dominant_bones(obj):
 
 
 # ---------- the kit, modelled from the body's surface ----------
+
+# ---------- body size ----------
+
+# Metres each part of the body swells per step of size, by bone; hands, feet and head stay put.
+CARRY = {
+    "pelvis": 0.022, "spine_01": 0.026, "spine_02": 0.018, "spine_03": 0.012, "neck_01": 0.007,
+    "clavicle_l": 0.008, "clavicle_r": 0.008, "upperarm_l": 0.011, "upperarm_r": 0.011,
+    "lowerarm_l": 0.006, "lowerarm_r": 0.006, "thigh_l": 0.02, "thigh_r": 0.02, "calf_l": 0.009, "calf_r": 0.009,
+}
+SIZE_STEPS = {"slim": -0.9, "regular": 0.0, "solid": 1.0, "big": 2.2}
+
+
+def shape_body(steps):
+    """Slims or fills out the body along its surface, carried by each point's bone weights so
+    no seam opens where one limb hands over to the next; the front of the belly fills most."""
+    if steps == 0:
+        return
+    mesh = body.data
+    scale = max(v.co.z for v in mesh.vertices) / 1.81
+    names = {g.index: g.name for g in body.vertex_groups}
+    # The body is split along its texture seams; points that share a place share a normal.
+    shared = {}
+    for v in mesh.vertices:
+        key = (round(v.co.x, 5), round(v.co.y, 5), round(v.co.z, 5))
+        shared[key] = shared.get(key, mathutils.Vector()) + v.normal
+    moves = []
+    for v in mesh.vertices:
+        carry = sum(g.weight * CARRY.get(names.get(g.group), 0.0) for g in v.groups)
+        if carry == 0:
+            continue
+        normal = shared[(round(v.co.x, 5), round(v.co.y, 5), round(v.co.z, 5))].normalized()
+        push = carry * steps
+        if steps > 0 and normal.y < -0.25 and 0.9 * scale < v.co.z < 1.3 * scale:
+            push *= 1 + 1.4 * (-normal.y)
+        moves.append((v, normal * push))
+    for v, move in moves:
+        v.co += move
+    if steps > 0:
+        smooth_contours(mesh, names, iterations=int(round(4 * steps)))
+
+
+def smooth_contours(mesh, names, iterations):
+    """A fuller body hides the base body's sculpted muscle: relax the carrying parts toward
+    their neighbours, on points shared across texture seams so nothing cracks open."""
+    def key(v):
+        return (round(v.co.x, 5), round(v.co.y, 5), round(v.co.z, 5))
+    keys = [key(v) for v in mesh.vertices]
+    points = {k: mesh.vertices[i].co.copy() for i, k in enumerate(keys)}
+    weight = {}
+    for i, v in enumerate(mesh.vertices):
+        carry = sum(g.weight * CARRY.get(names.get(g.group), 0.0) for g in v.groups)
+        weight[keys[i]] = max(weight.get(keys[i], 0.0), min(carry / 0.026, 1.0))
+    neighbours = {k: set() for k in points}
+    for e in mesh.edges:
+        a, b = keys[e.vertices[0]], keys[e.vertices[1]]
+        if a != b:
+            neighbours[a].add(b)
+            neighbours[b].add(a)
+    for _ in range(iterations):
+        moved = {}
+        for k, p in points.items():
+            w = weight.get(k, 0.0)
+            if w == 0 or not neighbours[k]:
+                continue
+            average = sum((points[n] for n in neighbours[k]), mathutils.Vector()) / len(neighbours[k])
+            moved[k] = p + (average - p) * 0.45 * w
+        points.update(moved)
+    for i, v in enumerate(mesh.vertices):
+        v.co = points[keys[i]]
+
+
+shape_body(SIZE_STEPS[args.size])
 
 _skin = bmesh.new()
 _skin.from_mesh(body.data)
@@ -368,10 +443,34 @@ def save_texture(source, name, size, fmt):
 
 
 prefix = "ascend-athlete"
+
+
+def defined_skin(source, name, size, fmt):
+    """The skin textures carry the base body's baked muscle detail; a softer definition blurs
+    that detail back toward flat before saving."""
+    if args.definition == "defined":
+        return save_texture(source, name, size, fmt)
+    blur, keep = {"some": (4, 0.6), "smooth": (11, 0.3)}[args.definition]
+    staged = os.path.join(args.out, f".{name}.staged.png")
+    if "normal" in name:
+        # Toward a flat normal map: less relief for the light to catch.
+        subprocess.run(["magick", source, "-resize", f"{size}x{size}", "-blur", f"0x{blur}",
+                        "(", "+clone", "-fill", "rgb(128,128,255)", "-colorize", "100", ")",
+                        "-compose", "blend", "-define", f"compose:args={int(keep * 100)}", "-composite", staged], check=True)
+    else:
+        # Toward a blurred copy: the skin tone stays, the shading in the creases softens.
+        subprocess.run(["magick", source, "-resize", f"{size}x{size}",
+                        "(", "+clone", "-blur", f"0x{blur * 2}", ")",
+                        "-compose", "blend", "-define", f"compose:args={int((1 - keep) * 100)}", "-composite", staged], check=True)
+    result = save_texture(staged, name, size, fmt)
+    os.remove(staged)
+    return result
+
+
 textures = {
     "skin": {
-        "baseColor": save_texture(os.path.join(BASE_DIR, BODY["skin"]), f"{prefix}-skin.jpg", 1024, "JPEG"),
-        "normal": save_texture(os.path.join(OPENGL_NORMALS, BODY["normal"]) if os.path.exists(os.path.join(OPENGL_NORMALS, BODY["normal"])) else os.path.join(BASE_DIR, BODY["normal"]), f"{prefix}-skin-normal.png", 1024, "PNG"),
+        "baseColor": defined_skin(os.path.join(BASE_DIR, BODY["skin"]), f"{prefix}-skin.jpg", 1024, "JPEG"),
+        "normal": defined_skin(os.path.join(OPENGL_NORMALS, BODY["normal"]) if os.path.exists(os.path.join(OPENGL_NORMALS, BODY["normal"])) else os.path.join(BASE_DIR, BODY["normal"]), f"{prefix}-skin-normal.png", 1024, "PNG"),
         "roughness": save_texture(os.path.join(BASE_DIR, BODY["roughness"]), f"{prefix}-skin-roughness.jpg", 512, "JPEG"),
     },
     "hair": {"baseColor": save_texture(os.path.join(BASE_DIR, "T_Hair_1_BaseColor.png"), f"{prefix}-hair.png", 512, "PNG")},

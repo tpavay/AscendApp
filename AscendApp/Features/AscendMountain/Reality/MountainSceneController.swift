@@ -266,7 +266,7 @@ final class MountainSceneController {
                 let style: MountainAthleteRig.Style = switch ghost.kind {
                 case .personalBest: .ghost(MountainColor(red: 0.83, green: 0.69, blue: 0.22))
                 case .pacer: .ghost(MountainColor(red: 0.75, green: 0.9, blue: 1))
-                case .rival: .athlete(.ascendKit)
+                case .rival: .athlete(.standIn(for: ghost.id))
                 }
                 guard let made = try? MountainAthleteRig(asset: scene.athleteAsset, style: style, label: ghost.label) else { continue }
                 scene.root.addChild(made.root)
