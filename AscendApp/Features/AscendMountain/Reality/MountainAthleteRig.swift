@@ -10,7 +10,7 @@ import simd
 final class MountainAthleteRig {
     /// How an athlete is drawn: as themselves, or as a ghost - one glowing colour, see-through,
     /// so it never reads as a real climber on the stairs.
-    enum Style: Equatable {
+    enum Style: Hashable {
         case athlete(AthleteLook)
         case ghost(MountainColor)
     }
@@ -26,40 +26,75 @@ final class MountainAthleteRig {
     /// the tread.
     private static let footSetback = 0.05
 
-    init(figure: MountainAthleteFigure, style: Style, label: String? = nil, bundle: Bundle = .main) throws {
-        guard let poser = MountainAthletePoser(asset: figure.body) else {
+    /// A rig from parts `MountainRigFactory` has already prepared, so building one costs a frame
+    /// almost nothing: the mesh is shared by every climber of that figure, and every material and
+    /// tag is already made.
+    init(parts: MountainRigFactory.Parts) throws {
+        guard let poser = MountainAthletePoser(asset: parts.figure.body) else {
             throw MountainAthleteAsset.LoadError.unsupportedFormat("rig is missing a joint the poser needs")
         }
         self.poser = poser
-        figureKey = figure.key
-
-        let slots = figure.slots
-        let materials: [any RealityKit.Material] = slots.map { slot in
-            switch style {
-            case .athlete(let look):
-                Self.material(for: slot, look: look, figure: figure, bundle: bundle)
-            case .ghost(let color):
-                Self.ghostMaterial(color)
-            }
-        }
-        model = ModelEntity(mesh: try Self.mesh(for: figure), materials: materials)
+        figureKey = parts.figure.key
+        height = Float(parts.figure.body.height)
+        model = ModelEntity(mesh: parts.mesh, materials: parts.materials)
         root.addChild(model)
-        if case .ghost = style {
-            model.components.set(OpacityComponent(opacity: 0.5))
-        }
-        if let label, !label.isEmpty, let tag = Self.tag(label, style: style) {
-            tag.position = [0, Float(figure.body.height) + 0.2, 0]
+        dress(parts)
+    }
+
+    /// Dresses a rig of the same figure as another climber: their materials, their see-through or
+    /// not, their name. Reusing a rig spares the renderer a new skinned model.
+    func redress(_ parts: MountainRigFactory.Parts) {
+        guard parts.figure.key == figureKey else { return }
+        model.model?.materials = parts.materials
+        dress(parts)
+    }
+
+    private func dress(_ parts: MountainRigFactory.Parts) {
+        baseOpacity = parts.ghostly ? Self.ghostOpacity : 1
+        visibility = 1
+        applyOpacity()
+        tag?.removeFromParent()
+        tag = nil
+        if let parts = parts.tag {
+            let plane = ModelEntity(mesh: parts.mesh, materials: [parts.material])
+            let tag = Entity()
+            tag.addChild(plane)
+            tag.components.set(BillboardComponent())
+            tag.position = [0, height + 0.2, 0]
             root.addChild(tag)
             self.tag = tag
         }
     }
 
-    /// Every climber who shares a body, size and hairstyle draws the same mesh; only their
-    /// materials and their pose are their own.
-    private static var meshCache: [MountainAthleteFigure.Key: MeshResource] = [:]
+    private let height: Float
 
-    private static func mesh(for figure: MountainAthleteFigure) throws -> MeshResource {
-        if let cached = meshCache[figure.key] { return cached }
+    /// How see-through a ghost is: never mistaken for a real climber on the stairs.
+    static let ghostOpacity: Float = 0.5
+    private var baseOpacity: Float = 1
+    private var visibility: Float = 1
+
+    /// How much of the athlete shows, from none to all: a climber fading in as they join the
+    /// stairs, fading out as they leave, or thinned where they would stand in front of you.
+    func show(visibility amount: Float) {
+        let clamped = min(max(amount, 0), 1)
+        guard clamped != visibility else { return }
+        visibility = clamped
+        applyOpacity()
+    }
+
+    private func applyOpacity() {
+        let opacity = baseOpacity * visibility
+        if opacity >= 0.999 {
+            // Opaque drawing is cheaper than blending, and sorts correctly.
+            model.components.remove(OpacityComponent.self)
+        } else {
+            model.components.set(OpacityComponent(opacity: opacity))
+        }
+    }
+
+    /// The skinned mesh for `figure`, built off the main actor: generating a mesh of twelve
+    /// thousand skinned vertices is tens of milliseconds, more than a frame.
+    nonisolated static func makeMesh(for figure: MountainAthleteFigure) async throws -> MeshResource {
         let body = figure.body
         var contents = MeshResource.Contents()
         guard let skeleton = MeshResource.Skeleton(
@@ -105,12 +140,10 @@ final class MountainAthleteRig {
         }
         contents.models = MeshModelCollection([MeshResource.Model(id: "athlete", parts: parts)])
         contents.instances = MeshInstanceCollection([MeshResource.Instance(id: "athlete-0", model: "athlete")])
-        let mesh = try MeshResource.generate(from: contents)
-        meshCache[figure.key] = mesh
-        return mesh
+        return try await MeshResource(from: contents)
     }
 
-    private static func ghostMaterial(_ color: MountainColor) -> PhysicallyBasedMaterial {
+    static func ghostMaterial(_ color: MountainColor) -> PhysicallyBasedMaterial {
         var material = PhysicallyBasedMaterial()
         material.baseColor = .init(tint: color.uiColor)
         material.emissiveColor = .init(color: color.uiColor)
@@ -120,42 +153,43 @@ final class MountainAthleteRig {
         return material
     }
 
-    /// The words over an athlete's head, drawn once into a texture and turned to face the
-    /// camera wherever the stairs bend.
-    private static func tag(_ text: String, style: Style) -> Entity? {
-        let accent: UIColor = switch style {
-        case .ghost(let color): color.uiColor
-        case .athlete: UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1)
+    /// The accent a style's tag carries: the ghost's own colour, or the climber's lime.
+    static func tagAccent(for style: Style) -> MountainColor {
+        switch style {
+        case .ghost(let color): color
+        case .athlete: MountainColor(red: 0.53, green: 0.83, blue: 0.04)
         }
-        let font = UIFont(name: "Montserrat-Bold", size: 64) ?? .systemFont(ofSize: 64, weight: .heavy)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.white, .kern: 3]
-        let textSize = (text as NSString).size(withAttributes: attributes)
-        let size = CGSize(width: ceil(textSize.width) + 88, height: 112)
-        let image = UIGraphicsImageRenderer(size: size).image { _ in
-            UIColor(red: 0.03, green: 0.04, blue: 0.05, alpha: 0.82).setFill()
-            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 56).fill()
-            accent.setFill()
-            UIBezierPath(ovalIn: CGRect(x: 30, y: 44, width: 24, height: 24)).fill()
-            (text as NSString).draw(at: CGPoint(x: 66, y: (size.height - textSize.height) / 2), withAttributes: attributes)
-        }
-        guard let cgImage = image.cgImage,
-              let texture = try? TextureResource(image: cgImage, withName: nil, options: .init(semantic: .color)) else {
-            return nil
-        }
-        var material = UnlitMaterial(applyPostProcessToneMap: false)
-        material.color = .init(tint: .white, texture: .init(texture))
-        material.blending = .transparent(opacity: .init(floatLiteral: 1))
-        let height: Float = 0.2
-        let plane = ModelEntity(mesh: .generatePlane(width: height * Float(size.width / size.height), height: height), materials: [material])
-        let tag = Entity()
-        tag.addChild(plane)
-        tag.components.set(BillboardComponent())
-        return tag
     }
 
-    /// Every athlete on the stairs shares one copy of each texture, so a start line full of
-    /// climbers costs no more texture memory than the looks they wear.
-    private static var textureCache: [String: TextureResource] = [:]
+    /// The words over an athlete's head, drawn once into an image. Pure Core Graphics and Core
+    /// Text, so it can be drawn off the main actor: a name is drawn the first time its climber
+    /// joins the pack, and hundreds of names pass through a crowded climb.
+    nonisolated static func tagImage(_ text: String, accent: MountainColor, scale: CGFloat = 2) -> CGImage? {
+        let font = CTFontCreateWithName("Montserrat-Bold" as CFString, 64 * scale, nil)
+        let attributes: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+            NSAttributedString.Key(kCTKernAttributeName as String): 3 * scale
+        ]
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+        let textWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        let width = Int(ceil(textWidth + 88 * scale)), height = Int(112 * scale)
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        context.addPath(CGPath(roundedRect: bounds, cornerWidth: 56 * scale, cornerHeight: 56 * scale, transform: nil))
+        context.setFillColor(CGColor(red: 0.03, green: 0.04, blue: 0.05, alpha: 0.82))
+        context.fillPath()
+        context.setFillColor(CGColor(red: accent.red, green: accent.green, blue: accent.blue, alpha: 1))
+        context.fillEllipse(in: CGRect(x: 30 * scale, y: 44 * scale, width: 24 * scale, height: 24 * scale))
+        context.textPosition = CGPoint(x: 66 * scale, y: (CGFloat(height) - (ascent + descent)) / 2 + descent)
+        CTLineDraw(line, context)
+        return context.makeImage()
+    }
 
     /// The pack's key for the textures a slot is drawn with under `look`: the skin is baked once
     /// per tone and muscle level.
@@ -180,41 +214,6 @@ final class MountainAthleteRig {
         case "shoeAccent": return MountainColor(red: 0.13, green: 0.14, blue: 0.16)
         default: return MountainColor(red: 0.5, green: 0.5, blue: 0.5)
         }
-    }
-
-    private static func material(for slot: String, look: AthleteLook, figure: MountainAthleteFigure, bundle: Bundle) -> PhysicallyBasedMaterial {
-        func texture(_ name: String?, _ semantic: TextureResource.Semantic) -> TextureResource? {
-            guard let name else { return nil }
-            if let cached = textureCache[name] { return cached }
-            guard let url = bundle.url(forResource: name, withExtension: nil),
-                  let loaded = try? TextureResource.load(contentsOf: url, options: .init(semantic: semantic)) else { return nil }
-            textureCache[name] = loaded
-            return loaded
-        }
-        let textures = figure.textures(forSlot: texturesKey(forSlot: slot, look: look))
-        var material = PhysicallyBasedMaterial()
-        material.metallic = .init(floatLiteral: 0)
-        let tint = tint(forSlot: slot, look: look, textures: textures).uiColor
-        if let base = texture(textures?.baseColor, .color) {
-            material.baseColor = .init(tint: tint, texture: .init(base))
-        } else {
-            material.baseColor = .init(tint: tint)
-        }
-        if let normal = texture(textures?.normal, .normal) {
-            material.normal = .init(texture: .init(normal))
-        }
-        if let roughness = texture(textures?.roughness, .raw) {
-            material.roughness = .init(texture: .init(roughness))
-        } else {
-            let roughness: Float = switch slot {
-            case "hair", "hair2": 0.6
-            case "eyes": 0.2
-            case "shoeAccent": 0.9
-            default: 0.78
-            }
-            material.roughness = .init(floatLiteral: roughness)
-        }
-        return material
     }
 
     /// How much of the tag shows, from none to all.

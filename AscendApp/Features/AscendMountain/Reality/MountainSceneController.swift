@@ -37,10 +37,21 @@ final class MountainSceneController {
     private let markerSource: @MainActor () -> [MountainMarker]
     private let elapsedSource: (@MainActor () -> TimeInterval)?
     private let athleteLook: @MainActor () -> AthleteLook
-    private let athletes: MountainAthleteLibrary
+    private let rigs: MountainRigFactory
+    /// Which climbers are drawn this frame, and how present each is.
+    private var pack: MountainPack
+    /// Rigs built this frame at most: each is cheap once its parts are ready, but a refresh can
+    /// bring thirty newcomers at once.
+    static let rigBuildsPerFrame = 2
+    /// How far each drawn rival's rig has faded in since it was built.
+    private var rigFadeIn: [String: Double] = [:]
+    /// Rigs no climber is using, by figure, kept for the next newcomer who shares it.
+    private var idleRigs: [MountainAthleteFigure.Key: [MountainAthleteRig]] = [:]
     private let journeySource: @MainActor () -> Int
     private let cameraTuning: MountainSceneDirector.CameraTuning
     private var ghostRigs: [String: MountainAthleteRig] = [:]
+    /// Rigs built during the current frame, for the frame log.
+    private var rigsBuiltThisFrame = 0
     /// What each ghost's rig was built as. Its tag, look and body are baked into it, so a change
     /// to any of them - a rival's own look arriving after their stand-in - means a new rig.
     private var ghostRigBuilds: [String: GhostRigBuild] = [:]
@@ -56,6 +67,12 @@ final class MountainSceneController {
     /// Which placement each slot's mountainside was baked for, so a slot is rebuilt only when
     /// it is handed a new piece.
     private var decorBuiltFor: [Int: Int] = [:]
+    /// Mountainsides being built in the background, by slot, and for which piece.
+    private var decorPending: [Int: Int] = [:]
+    /// The piece each slot holds this frame.
+    private var slotChunks: [Int: Int] = [:]
+    /// Mountainsides built in the background at once.
+    static let decorBuildsInFlight = 2
     /// The same course the director climbs, for the pieces either side of one being given its
     /// mountainside: a tree may stand beside a neighbouring flight the camera follows.
     private var decorCourse: MountainCourse
@@ -80,9 +97,6 @@ final class MountainSceneController {
     /// A gap this long between rendered frames means rendering was paused - the app went to the
     /// background, the phone locked - and the scene resynchronizes to the workout on return.
     static let resynchronizeAfterSeconds = 0.75
-    /// Surround meshes built per frame at most, nearest pieces first, so a big jump in the count
-    /// (a return from the background) never builds a whole window in one frame.
-    static let decorBuildsPerFrame = 2
 
     private var clock: Double = 0
     private var lastFrameAt: TimeInterval?
@@ -110,7 +124,8 @@ final class MountainSceneController {
         markerSource: @escaping @MainActor () -> [MountainMarker] = { [] },
         elapsedSource: (@MainActor () -> TimeInterval)? = nil,
         athleteLook: @escaping @MainActor () -> AthleteLook = { .starting(for: nil) },
-        athletes: MountainAthleteLibrary = .shared,
+        rigs: MountainRigFactory = .shared,
+        packLimits: MountainPack.Limits = .init(),
         journeySource: @escaping @MainActor () -> Int = { 0 },
         cameraTuning: MountainSceneDirector.CameraTuning = .standard
     ) {
@@ -121,7 +136,8 @@ final class MountainSceneController {
         self.markerSource = markerSource
         self.elapsedSource = elapsedSource
         self.athleteLook = athleteLook
-        self.athletes = athletes
+        self.rigs = rigs
+        self.pack = MountainPack(limits: packLimits)
         self.journeySource = journeySource
         self.stepSource = stepSource
         self.debugState = debugState
@@ -181,7 +197,7 @@ final class MountainSceneController {
             )
             resources = try MountainSceneResources.make()
             far = try MountainEnvironmentRig(resources: environment)
-            athlete = try MountainAthleteRig(figure: try await athletes.figure(for: look), style: .athlete(look))
+            athlete = try await rigs.rig(.init(look: look, style: .athlete(look), label: ""))
         } catch {
             AppDiagnosticsRecorder.shared.record(
                 "ascend_mountain_scene_build_failed",
@@ -238,6 +254,8 @@ final class MountainSceneController {
 
     private func step(deltaTime: TimeInterval) {
         guard scene != nil else { return }
+        let workStarted = CFAbsoluteTimeGetCurrent()
+        rigsBuiltThisFrame = 0
         rebuildAthleteIfLookChanged()
         guard let scene else { return }
 
@@ -262,11 +280,22 @@ final class MountainSceneController {
         let elapsed = elapsedSource?() ?? clock
         let ghosts = ghostSource()
         director.liftsAtGates = !UIAccessibility.isReduceMotionEnabled
+        // Where every racer is now, once each; only the pack drawn this frame is posed.
+        let climber = Double(logicalSteps)
+        var candidates: [MountainPack.Candidate] = []
+        var drawable: [String: MountainGhost] = [:]
+        for ghost in ghosts {
+            let lead = ghost.steps(elapsed) - climber
+            guard MountainSceneDirector.ghostDrawRange.contains(lead) else { continue }
+            candidates.append(MountainPack.Candidate(id: ghost.id, kind: ghost.kind, lead: lead))
+            drawable[ghost.id] = ghost
+        }
+        pack.update(candidates, deltaTime: deltaTime)
         let frame = director.advance(
             logicalSteps: logicalSteps,
             time: clock,
             deltaTime: deltaTime,
-            ghosts: ghosts.map { MountainGhostSample(ghost: $0, elapsed: elapsed) },
+            ghosts: pack.presence.keys.compactMap { drawable[$0] }.map { MountainGhostSample(ghost: $0, elapsed: elapsed) },
             extraMarkers: markerSource()
         )
 
@@ -281,23 +310,23 @@ final class MountainSceneController {
             entity.isEnabled = true
         }
 
-        // Surrounds for newly assigned pieces, nearest first; a piece whose surround is still
-        // waiting shows no stale ground from the piece it replaced.
+        // Surrounds for newly assigned pieces, built in the background, nearest first; a piece
+        // whose surround is still coming shows no stale ground from the piece it replaced.
         var builds = 0
+        for slotFrame in frame.slots {
+            slotChunks[slotFrame.slot] = slotFrame.chunkIndex
+        }
         for slotFrame in frame.slots.sorted(by: { abs($0.chunkIndex - frame.progress.chunkIndex) < abs($1.chunkIndex - frame.progress.chunkIndex) })
             where decorBuiltFor[slotFrame.slot] != slotFrame.chunkIndex {
-            let decor = scene.decorSlots[slotFrame.slot]
-            guard builds < Self.decorBuildsPerFrame else {
-                decor.isEnabled = false
-                continue
-            }
-            buildDecor(for: slotFrame, into: decor, environment: scene.environment)
-            decor.isEnabled = true
+            scene.decorSlots[slotFrame.slot].isEnabled = false
+            guard decorPending[slotFrame.slot] != slotFrame.chunkIndex,
+                  decorPending.count < Self.decorBuildsInFlight else { continue }
+            startDecor(for: slotFrame, environment: scene.environment)
             builds += 1
         }
 
         scene.athlete.apply(frame.athlete, origin: frame.renderOrigin)
-        placeGhosts(frame, looks: Dictionary(ghosts.map { ($0.id, $0.look) }, uniquingKeysWith: { first, _ in first }), in: scene)
+        placeGhosts(frame, looks: drawable.mapValues(\.look), deltaTime: deltaTime, in: scene)
         scene.athlete.showGroundRing(!frame.ghosts.isEmpty)
         scene.camera.look(at: frame.cameraTarget, from: frame.cameraPosition, relativeTo: nil)
 
@@ -314,6 +343,16 @@ final class MountainSceneController {
         scene.far.thinPassedGates(frame.markers, climberSteps: frame.courseSteps, lift: frame.cameraLift)
 
         publishDebugMetricsIfDue(frame)
+        if let debugState, debugState.recordsFrames {
+            debugState.frames.append(MountainDebugState.FrameSample(
+                at: clock,
+                intervalMilliseconds: deltaTime * 1_000,
+                workMilliseconds: (CFAbsoluteTimeGetCurrent() - workStarted) * 1_000,
+                rigsBuilt: rigsBuiltThisFrame,
+                surroundsBuilt: builds,
+                ghostCount: frame.ghosts.count
+            ))
+        }
     }
 
     /// The climber's own look can arrive or change mid-climb (read from their account after the
@@ -323,8 +362,7 @@ final class MountainSceneController {
         guard var scene else { return }
         let look = athleteLook()
         guard look != scene.athleteLook,
-              let figure = athletes.readyFigure(for: look),
-              let rebuilt = try? MountainAthleteRig(figure: figure, style: .athlete(look)) else { return }
+              let rebuilt = rigs.readyRig(.init(look: look, style: .athlete(look), label: "")) else { return }
         scene.athlete.root.removeFromParent()
         scene.root.addChild(rebuilt.root)
         scene.athlete = rebuilt
@@ -332,15 +370,24 @@ final class MountainSceneController {
         self.scene = scene
     }
 
-    /// Stands each ghost in view on its stair, building its rig the first time it comes near and
-    /// once its body has loaded. A rival wears their own look, or a stand-in until it is read;
-    /// the climber's best is their own figure in gold; a pacer is the starting athlete in blue.
-    private func placeGhosts(_ frame: MountainSceneFrame, looks: [String: AthleteLook?], in scene: Scene) {
+    /// Stands each climber in the pack on their stair. A newcomer's rig is built once its parts
+    /// are ready - never more than a couple a frame - and fades in; a climber leaving the pack
+    /// fades out and their rig is let go. A rival wears their own look, or a stand-in until it is
+    /// read; the climber's best is their own figure in gold; a pacer is the starting athlete in
+    /// blue. Anyone standing over the climber thins out so the climber always reads clearly.
+    private func placeGhosts(_ frame: MountainSceneFrame, looks: [String: AthleteLook?], deltaTime: Double, in scene: Scene) {
         let visible = Set(frame.ghosts.map(\.id))
         for (id, rig) in ghostRigs where !visible.contains(id) {
-            rig.root.isEnabled = false
+            retire(rig)
+            ghostRigs[id] = nil
+            ghostRigBuilds[id] = nil
+            rigFadeIn[id] = nil
         }
-        for ghost in frame.ghosts {
+        var built = 0
+        // Nearest first, so the climbers beside you are the first to appear and the first named.
+        let nearest = frame.ghosts.sorted(by: { abs($0.lead) < abs($1.lead) })
+        let named = Self.named(nearest.filter { $0.kind == .rival }.map { ($0.id, $0.lead) }, limit: pack.limits.names)
+        for ghost in nearest {
             let look: AthleteLook
             let style: MountainAthleteRig.Style
             switch ghost.kind {
@@ -359,23 +406,78 @@ final class MountainSceneController {
             let rig: MountainAthleteRig
             if let existing = ghostRigs[ghost.id], ghostRigBuilds[ghost.id] == build {
                 rig = existing
-            } else if let figure = athletes.readyFigure(for: look),
-                      let made = try? MountainAthleteRig(figure: figure, style: style, label: ghost.label) {
-                ghostRigs[ghost.id]?.root.removeFromParent()
-                scene.root.addChild(made.root)
+            } else if built < Self.rigBuildsPerFrame,
+                      let parts = rigs.readyParts(.init(look: look, style: style, label: ghost.label)),
+                      let made = dressedRig(parts, replacing: ghostRigs[ghost.id], in: scene) {
+                let replacing = ghostRigs[ghost.id] != nil
                 ghostRigs[ghost.id] = made
                 ghostRigBuilds[ghost.id] = build
+                // A climber whose look arrived swaps in place; a newcomer fades in.
+                rigFadeIn[ghost.id] = replacing ? 1 : 0
+                built += 1
+                rigsBuiltThisFrame += 1
                 rig = made
             } else if let existing = ghostRigs[ghost.id] {
-                // The new body is still loading; keep drawing the old one meanwhile.
+                // Their new look is still being prepared; keep drawing the old one meanwhile.
                 rig = existing
             } else {
                 continue
             }
+            let fadeIn = min((rigFadeIn[ghost.id] ?? 1) + deltaTime / MountainPack.fadeSeconds, 1)
+            rigFadeIn[ghost.id] = fadeIn
+            let presence = (pack.presence[ghost.id] ?? 0) * fadeIn
             rig.apply(ghost.kinematics, origin: frame.renderOrigin)
-            rig.showTag(opacity: Self.tagOpacity(lead: ghost.lead))
-            rig.root.isEnabled = true
+            rig.show(visibility: Float(presence * MountainPack.clearance(lead: ghost.lead)))
+            let carriesName = ghost.kind != .rival || named.contains(ghost.id)
+            rig.showTag(opacity: carriesName ? Self.tagOpacity(lead: ghost.lead) * Float(presence) : 0)
+            rig.root.isEnabled = presence > 0.01
         }
+    }
+
+    /// A rig dressed in `parts`: the climber's own rig re-dressed when it is the same figure, else
+    /// an idle one of that figure, else a new one. Reusing rigs spares the renderer setting up a
+    /// new skinned model every time the pack changes.
+    private func dressedRig(_ parts: MountainRigFactory.Parts, replacing current: MountainAthleteRig?, in scene: Scene) -> MountainAthleteRig? {
+        if let current, current.figureKey == parts.figure.key {
+            current.redress(parts)
+            return current
+        }
+        if let current { retire(current) }
+        if var idle = idleRigs[parts.figure.key], let reused = idle.popLast() {
+            idleRigs[parts.figure.key] = idle
+            reused.redress(parts)
+            reused.root.isEnabled = true
+            return reused
+        }
+        guard let made = try? MountainAthleteRig(parts: parts) else { return nil }
+        scene.root.addChild(made.root)
+        return made
+    }
+
+    /// Puts a rig no climber is using aside for the next newcomer of its figure.
+    private func retire(_ rig: MountainAthleteRig) {
+        rig.root.isEnabled = false
+        let idleCount = idleRigs.values.reduce(0) { $0 + $1.count }
+        guard idleCount < Self.idleRigLimit else {
+            rig.root.removeFromParent()
+            return
+        }
+        idleRigs[rig.figureKey, default: []].append(rig)
+    }
+
+    /// Rigs kept aside for reuse at most.
+    static let idleRigLimit = 24
+
+    /// Which climbers carry a name: only climbers ahead - a name behind you sits over your own
+    /// athlete - nearest first, never two within a step of each other, where their names would
+    /// land on top of one another.
+    nonisolated static func named(_ climbers: [(id: String, lead: Double)], limit: Int) -> Set<String> {
+        var named: [(id: String, lead: Double)] = []
+        for climber in climbers.filter({ $0.lead >= 0.5 }).sorted(by: { $0.lead < $1.lead }) where named.count < limit {
+            guard named.allSatisfy({ abs($0.lead - climber.lead) >= 1.2 }) else { continue }
+            named.append(climber)
+        }
+        return Set(named.map(\.id))
     }
 
     /// A name is for the climbers around you. The stairs climb toward the camera, so the further
@@ -385,26 +487,50 @@ final class MountainSceneController {
     static let tagHiddenLead = 10.0
 
     static func tagOpacity(lead: Double) -> Float {
-        Float(min(max((tagHiddenLead - lead) / (tagHiddenLead - tagFullLead), 0), 1))
+        // Behind you a tag would sit over your own athlete, so names start just behind you.
+        let behind = min(max((lead + 3) / 1.5, 0), 1)
+        let ahead = min(max((tagHiddenLead - lead) / (tagHiddenLead - tagFullLead), 0), 1)
+        return Float(min(behind, ahead))
     }
 
-    /// Bakes the mountainside for the piece a slot has just been handed. A slot is handed a piece
-    /// six pieces ahead of the climber, long before it can be seen.
-    private func buildDecor(for slot: MountainChunkSlotFrame, into entity: ModelEntity, environment: MountainEnvironmentResources) {
-        let started = Date()
+    /// Bakes the mountainside for the piece a slot has just been handed, off the main actor: a
+    /// piece's ground and trees are tens of milliseconds to shape and mesh, more than a frame. A
+    /// slot is handed a piece six pieces ahead of the climber, long before it can be seen.
+    private func startDecor(for slot: MountainChunkSlotFrame, environment: MountainEnvironmentResources) {
+        decorPending[slot.slot] = slot.chunkIndex
         let nearby = Self.decorNeighbours(of: slot.placement, on: &decorCourse)
-        let patch = MountainTerrainPatch(placement: slot.placement, regions: environment.world.regions, nearby: nearby)
-        let data = MountainDecorMeshData(patch: patch, layout: environment.layout)
+        let placement = slot.placement, regions = environment.world.regions, layout = environment.layout
+        let started = Date()
+        Task { [weak self] in
+            let mesh = try? await Task.detached(priority: .userInitiated) {
+                let patch = MountainTerrainPatch(placement: placement, regions: regions, nearby: nearby)
+                return try await Self.decorMesh(MountainDecorMeshData(patch: patch, layout: layout))
+            }.value
+            self?.finishDecor(slot: slot.slot, chunkIndex: slot.chunkIndex, mesh: mesh, started: started)
+        }
+    }
+
+    private nonisolated static func decorMesh(_ data: MountainDecorMeshData) async throws -> MeshResource {
         var descriptor = MeshDescriptor(name: "mountain-decor")
         descriptor.positions = MeshBuffers.Positions(data.positions)
         descriptor.normals = MeshBuffers.Normals(data.normals)
         descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(data.uvs)
         descriptor.primitives = .triangles(data.indices)
         descriptor.materials = .perFace(data.faceMaterials)
-        if let mesh = try? MeshResource.generate(from: [descriptor]) {
-            entity.model = ModelComponent(mesh: mesh, materials: environment.decorMaterials)
+        return try await MeshResource(from: [descriptor])
+    }
+
+    /// Puts a finished mountainside in place, if its slot still holds the piece it was built for.
+    private func finishDecor(slot: Int, chunkIndex: Int, mesh: MeshResource?, started: Date) {
+        guard decorPending[slot] == chunkIndex else { return }
+        decorPending[slot] = nil
+        guard let scene, slotChunks[slot] == chunkIndex else { return }
+        let entity = scene.decorSlots[slot]
+        if let mesh {
+            entity.model = ModelComponent(mesh: mesh, materials: scene.environment.decorMaterials)
         }
-        decorBuiltFor[slot.slot] = slot.chunkIndex
+        entity.isEnabled = true
+        decorBuiltFor[slot] = chunkIndex
         lastDecorBuildMilliseconds = Date().timeIntervalSince(started) * 1_000
     }
 

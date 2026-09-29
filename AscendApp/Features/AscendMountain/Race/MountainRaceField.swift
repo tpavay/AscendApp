@@ -24,7 +24,10 @@ struct MountainRaceField: Equatable, Sendable {
 
     /// Folds one fetched window in. A row still climbing at the window's bucket gives a
     /// checkpoint at that bucket's end; a row already home adds nothing its finish did not say.
-    mutating func ingest(_ window: LiveReplayLeaderboardWindow) {
+    /// - Parameter now: the climb's elapsed seconds as the window lands. Everyone already on the
+    ///   stairs is pinned where they stand at that moment before the new point is learned, so a
+    ///   correction from the board bends their path ahead of them rather than making them jump.
+    mutating func ingest(_ window: LiveReplayLeaderboardWindow, now: Double? = nil) {
         let checkpointSeconds = Double((window.bucketIndex + 1) * window.context.bucketIntervalSeconds)
 
         for row in window.rows where !row.isLiveAttempt && !row.isCurrentUser {
@@ -33,6 +36,9 @@ struct MountainRaceField: Equatable, Sendable {
                 userId: row.userId,
                 curve: MountainRivalCurve(finalSteps: Double(row.finalSteps), finishSeconds: row.completionDurationSeconds)
             )
+            if let now, climbers[row.id] != nil {
+                climber.curve.pin(atSeconds: now)
+            }
             Self.record(row, at: checkpointSeconds, into: &climber.curve)
             climbers[row.id] = climber
         }
@@ -42,6 +48,9 @@ struct MountainRaceField: Equatable, Sendable {
                 finalSteps: Double(best.finalSteps),
                 finishSeconds: best.completionDurationSeconds
             )
+            if let now, yourBest != nil {
+                curve.pin(atSeconds: now)
+            }
             Self.record(best, at: checkpointSeconds, into: &curve)
             yourBest = curve
         }
@@ -55,8 +64,9 @@ struct MountainRaceField: Equatable, Sendable {
     }
 
     /// Adds where a chosen climber's best stood at the end of `bucketIndex`.
-    mutating func recordChosen(userId: String, steps: Int, bucketIndex: Int, bucketIntervalSeconds: Int) {
+    mutating func recordChosen(userId: String, steps: Int, bucketIndex: Int, bucketIntervalSeconds: Int, now: Double? = nil) {
         guard var climber = chosen[userId] else { return }
+        if let now { climber.curve.pin(atSeconds: now) }
         let seconds = Double((bucketIndex + 1) * bucketIntervalSeconds)
         if let finish = climber.curve.finishSeconds, finish <= seconds { return }
         climber.curve.record(steps: Double(steps), atSeconds: seconds)

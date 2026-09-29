@@ -277,12 +277,10 @@ final class MountainEnvironmentRig {
             }
         }
 
-        if let plaque = Self.plaqueMaterial(title: marker.title, subtitle: marker.subtitle) {
-            let width = proportions.plaqueWidth
-            let face = ModelEntity(mesh: .generatePlane(width: width, height: width / 2, cornerRadius: 0.06), materials: [plaque])
-            face.position = [0, lintelY, lintelDepth / 2 + 0.01]
-            gate.addChild(face)
-        }
+        let width = proportions.plaqueWidth
+        let face = Self.plaqueFace(width: width, height: width / 2, cornerRadius: 0.06, title: marker.title, subtitle: marker.subtitle)
+        face.position = [0, lintelY, lintelDepth / 2 + 0.01]
+        gate.addChild(face)
         return gate
     }
 
@@ -371,11 +369,9 @@ final class MountainEnvironmentRig {
         sign.orientation = simd_quatf(angle: -0.35, axis: [0, 1, 0])
         let board = ModelEntity(mesh: .generateBox(size: [0.86, 0.46, 0.07], cornerRadius: 0.03), materials: [stone])
         sign.addChild(board)
-        if let plaque = Self.plaqueMaterial(title: marker.title, subtitle: marker.subtitle) {
-            let face = ModelEntity(mesh: .generatePlane(width: 0.8, height: 0.4, cornerRadius: 0.04), materials: [plaque])
-            face.position = [0, 0, 0.04]
-            sign.addChild(face)
-        }
+        let face = Self.plaqueFace(width: 0.8, height: 0.4, cornerRadius: 0.04, title: marker.title, subtitle: marker.subtitle)
+        face.position = [0, 0, 0.04]
+        sign.addChild(face)
         post.addChild(sign)
         return post
     }
@@ -398,23 +394,49 @@ final class MountainEnvironmentRig {
         let sign = Entity()
         sign.position = [side - 0.06, 1.05, 0]
         sign.orientation = simd_quatf(angle: -0.35, axis: [0, 1, 0])
-        if let plaque = Self.plaqueMaterial(title: marker.title, subtitle: marker.subtitle, accent: Self.bestGold, titleSize: 170) {
-            sign.addChild(ModelEntity(mesh: .generatePlane(width: 0.9, height: 0.45, cornerRadius: 0.05), materials: [plaque]))
-        }
+        sign.addChild(Self.plaqueFace(
+            width: 0.9, height: 0.45, cornerRadius: 0.05,
+            title: marker.title, subtitle: marker.subtitle, accent: MountainColor(red: 0.83, green: 0.69, blue: 0.22), titleSize: 170
+        ))
         mark.addChild(sign)
         return mark
     }
 
-    /// The marker's words on dark stone: the number large, the unit in the accent, drawn once
-    /// into a texture and shown unlit so it reads in any light from the stair-stepper console.
-    private static func plaqueMaterial(
+    /// A plaque carrying the marker's words. The words are drawn off the main actor - a plaque
+    /// image is tens of milliseconds, more than a frame - and a marker appears far up the stairs,
+    /// so its face shows plain stone for the moment until they arrive.
+    private static func plaqueFace(
+        width: Float,
+        height: Float,
+        cornerRadius: Float,
         title: String,
         subtitle: String?,
-        accent: UIColor = UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1),
+        accent: MountainColor = MountainColor(red: 0.53, green: 0.83, blue: 0.04),
         titleSize: CGFloat = 250
-    ) -> UnlitMaterial? {
+    ) -> ModelEntity {
+        let face = ModelEntity(
+            mesh: .generatePlane(width: width, height: height, cornerRadius: cornerRadius),
+            materials: [UnlitMaterial(color: UIColor(red: 0.12, green: 0.13, blue: 0.14, alpha: 1))]
+        )
+        Task { [weak face] in
+            let image = await Task.detached(priority: .utility) {
+                plaqueImage(title: title, subtitle: subtitle, accent: accent, titleSize: titleSize)
+            }.value
+            guard let image, let face,
+                  let texture = try? await TextureResource(image: image, withName: nil, options: .init(semantic: .color)) else { return }
+            var material = UnlitMaterial(applyPostProcessToneMap: false)
+            material.color = .init(tint: .white, texture: .init(texture))
+            face.model?.materials = [material]
+        }
+        return face
+    }
+
+    /// The marker's words on dark stone: the number large, the unit in the accent.
+    private nonisolated static func plaqueImage(title: String, subtitle: String?, accent: MountainColor, titleSize: CGFloat) -> CGImage? {
         let size = CGSize(width: 1_024, height: 512)
-        let image = UIGraphicsImageRenderer(size: size).image { context in
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
             UIColor(red: 0.12, green: 0.13, blue: 0.14, alpha: 1).setFill()
             UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 36).fill()
             UIColor(white: 1, alpha: 0.14).setStroke()
@@ -435,17 +457,11 @@ final class MountainEnvironmentRig {
             if let subtitle {
                 (subtitle as NSString).draw(
                     in: CGRect(x: 0, y: 330, width: size.width, height: 130),
-                    withAttributes: [.font: subtitleFont, .foregroundColor: accent, .kern: 14, .paragraphStyle: style]
+                    withAttributes: [.font: subtitleFont, .foregroundColor: UIColor(red: accent.red, green: accent.green, blue: accent.blue, alpha: 1), .kern: 14, .paragraphStyle: style]
                 )
             }
         }
-        guard let cgImage = image.cgImage,
-              let texture = try? TextureResource(image: cgImage, withName: nil, options: .init(semantic: .color)) else {
-            return nil
-        }
-        var material = UnlitMaterial(applyPostProcessToneMap: false)
-        material.color = .init(tint: .white, texture: .init(texture))
-        return material
+        return image.cgImage
     }
 
     /// A colour rounded coarsely enough that the sky is rebuilt only for a visible change.

@@ -96,8 +96,8 @@ final class AscendMountainRace {
 
     /// Folds in a window the session fetched. `identities` are the same rows through the shared
     /// moderation resolver, the only place a tag's name may come from.
-    func ingest(_ window: LiveReplayLeaderboardWindow, identities: [ModeratedReplayLeaderboardRow]) {
-        field.ingest(window)
+    func ingest(_ window: LiveReplayLeaderboardWindow, identities: [ModeratedReplayLeaderboardRow], now: TimeInterval? = nil) {
+        field.ingest(window, now: now)
         for row in identities {
             note(row, as: row.userId ?? row.id)
         }
@@ -151,6 +151,7 @@ final class AscendMountainRace {
     func refreshChosen(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
+        now: TimeInterval? = nil,
         moderate: ([LiveReplayLeaderboardRow]) -> [ModeratedReplayLeaderboardRow]
     ) async {
         guard let board, selection.isFiltered, !isRefreshingChosen else { return }
@@ -173,7 +174,7 @@ final class AscendMountainRace {
                   let steps = try? await board.stepsAtBucket(context: context, entryId: best.row.id, bucketIndex: bucketIndex) else {
                 continue
             }
-            field.recordChosen(userId: userId, steps: steps, bucketIndex: bucketIndex, bucketIntervalSeconds: interval)
+            field.recordChosen(userId: userId, steps: steps, bucketIndex: bucketIndex, bucketIntervalSeconds: interval, now: now)
         }
         rebuildGhosts()
     }

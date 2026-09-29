@@ -181,7 +181,7 @@ struct LiveClimbSessionView: View {
         }
         .onChange(of: viewModel.leaderboardWindow) { _, window in
             guard experience == .mountain, let window else { return }
-            mountainRace.ingest(window, identities: moderationStore.moderate(window.rows))
+            mountainRace.ingest(window, identities: moderationStore.moderate(window.rows), now: viewModel.displayedDuration)
             Task { await mountainRace.refreshLooks() }
         }
         .sheet(
@@ -289,6 +289,7 @@ struct LiveClimbSessionView: View {
                     await mountainRace.refreshChosen(
                         context: context,
                         bucketIndex: Int(viewModel.displayedDuration) / context.bucketIntervalSeconds,
+                        now: viewModel.displayedDuration,
                         moderate: { moderationStore.moderate($0) }
                     )
                     await mountainRace.refreshLooks()

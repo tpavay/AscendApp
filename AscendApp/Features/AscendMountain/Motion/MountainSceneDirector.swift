@@ -173,6 +173,22 @@ struct MountainSceneDirector: Sendable {
         return (unit * 2 - 1) * 0.5
     }
 
+    /// Where across the stairs a climber stands as they come level with the climber: they drift
+    /// to their side of the middle, the way people pass on stairs, so someone level with you
+    /// climbs beside you rather than through you. Further up or down they keep their own lane.
+    static func passingLane(_ lane: Double, lead: Double) -> Double {
+        let side = lane >= 0 ? 1.0 : -1.0
+        let t = min(max((abs(lead) - passingNear) / (passingFar - passingNear), 0), 1)
+        let closeness = 1 - t * t * (3 - 2 * t)
+        return lane + (side * passingLaneOffset - lane) * closeness
+    }
+
+    /// How far from the middle a climber passes you: clear of your shoulders, inside the kerbs.
+    static let passingLaneOffset = 0.5
+    /// Steps within which a climber is fully to your side, and beyond which they keep their lane.
+    static let passingNear = 1.5
+    static let passingFar = 4.0
+
     /// - Parameter extraMarkers: marks of this climb's own beside the world's, such as the line
     ///   where the climber's best ended.
     mutating func advance(
@@ -263,7 +279,7 @@ struct MountainSceneDirector: Sendable {
             let lead = ghost.steps - visualSteps
             guard Self.ghostDrawRange.contains(lead) else { return nil }
             let pacing = MountainAnimationPacing(stepsPerMinute: ghost.stepsPerMinute)
-            let lane = Self.lane(for: ghost.id)
+            let lane = Self.passingLane(Self.lane(for: ghost.id), lead: lead)
             var course = self.course
             let kinematics = MountainAthleteKinematics(
                 visualSteps: start + max(ghost.steps, 0),

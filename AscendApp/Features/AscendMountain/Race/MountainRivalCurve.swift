@@ -43,14 +43,23 @@ struct MountainRivalCurve: Equatable, Sendable {
         }
     }
 
+    /// Keeps the path exactly where it is drawn at `seconds`, whatever is learned after: a point
+    /// learned later then bends the path from here instead of moving where it stands now.
+    mutating func pin(atSeconds seconds: Double) {
+        guard seconds > 0 else { return }
+        record(steps: steps(at: seconds), atSeconds: seconds)
+    }
+
     /// Steps taken `seconds` into the climb.
     func steps(at seconds: Double) -> Double {
         guard seconds > 0 else { return 0 }
         if let finishSeconds, seconds >= finishSeconds { return finalSteps }
 
-        let before = checkpoints.last { $0.seconds <= seconds } ?? Checkpoint(seconds: 0, steps: 0)
-        if let after = checkpoints.first(where: { $0.seconds > seconds }) {
-            return Self.interpolate(before, after, at: seconds)
+        // Read every frame for every racer on the board, so found by halving, not by scanning.
+        let next = firstCheckpoint(after: seconds)
+        let before = next > 0 ? checkpoints[next - 1] : Checkpoint(seconds: 0, steps: 0)
+        if next < checkpoints.count {
+            return Self.interpolate(before, checkpoints[next], at: seconds)
         }
         if let finishSeconds {
             return Self.interpolate(before, Checkpoint(seconds: finishSeconds, steps: finalSteps), at: seconds)
@@ -58,6 +67,16 @@ struct MountainRivalCurve: Equatable, Sendable {
         // No finish time: carry on at the pace the climb has shown so far.
         guard before.seconds > 0 else { return 0 }
         return min(before.steps + before.steps / before.seconds * (seconds - before.seconds), finalSteps)
+    }
+
+    /// The index of the first checkpoint later than `seconds`, or the count when none is.
+    private func firstCheckpoint(after seconds: Double) -> Int {
+        var low = 0, high = checkpoints.count
+        while low < high {
+            let middle = (low + high) / 2
+            if checkpoints[middle].seconds > seconds { high = middle } else { low = middle + 1 }
+        }
+        return low
     }
 
     private static func interpolate(_ from: Checkpoint, _ to: Checkpoint, at seconds: Double) -> Double {

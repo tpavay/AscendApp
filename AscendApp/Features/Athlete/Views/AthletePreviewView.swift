@@ -71,15 +71,15 @@ final class AthletePreviewStage {
     private var rig: MountainAthleteRig?
     private var shown: AthleteLook?
     private var updates: EventSubscription?
-    private let library: MountainAthleteLibrary
+    private let rigs: MountainRigFactory
 
     /// Three-quarters on, the way the athlete stands when it does not turn.
     static let restingAngle: Float = -0.45
     /// One turn every fourteen seconds.
     static let turnRadiansPerSecond: Float = 2 * .pi / 14
 
-    init(library: MountainAthleteLibrary = .shared) {
-        self.library = library
+    init(rigs: MountainRigFactory = .shared) {
+        self.rigs = rigs
         turntable.orientation = simd_quatf(angle: Self.restingAngle, axis: [0, 1, 0])
         root.addChild(turntable)
 
@@ -117,8 +117,8 @@ final class AthletePreviewStage {
     }
 
     func show(_ look: AthleteLook) async {
-        guard look != shown, let figure = try? await library.figure(for: look),
-              let made = try? MountainAthleteRig(figure: figure, style: .athlete(look)) else { return }
+        guard look != shown,
+              let made = try? await rigs.rig(.init(look: look, style: .athlete(look), label: "")) else { return }
         made.stand()
         rig?.root.removeFromParent()
         turntable.addChild(made.root)

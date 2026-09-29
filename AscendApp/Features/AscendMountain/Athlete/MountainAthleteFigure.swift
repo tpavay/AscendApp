@@ -71,6 +71,8 @@ final class MountainAthleteLibrary {
     private var assets: [String: MountainAthleteAsset] = [:]
     private var loads: [String: Task<MountainAthleteAsset, any Error>] = [:]
     private var failed: Set<String> = []
+    /// Figures already put together, asked for every frame by every climber waiting to be drawn.
+    private var figures: [MountainAthleteFigure.Key: MountainAthleteFigure] = [:]
 
     init(bundle: Bundle = .main) {
         self.bundle = bundle
@@ -88,6 +90,7 @@ final class MountainAthleteLibrary {
     /// loading so a later frame finds them.
     func readyFigure(for look: AthleteLook) -> MountainAthleteFigure? {
         let key = MountainAthleteFigure.Key(look)
+        if let figure = figures[key] { return figure }
         let bodyName = MountainAthleteAsset.figureResource(body: key.body, size: key.size)
         let hairName = MountainAthleteAsset.hairResource(body: key.body)
         guard let body = assets[bodyName], let hair = assets[hairName] else {
@@ -96,7 +99,9 @@ final class MountainAthleteLibrary {
             }
             return nil
         }
-        return try? MountainAthleteFigure(key: key, body: body, hair: hair)
+        let figure = try? MountainAthleteFigure(key: key, body: body, hair: hair)
+        figures[key] = figure
+        return figure
     }
 
     private func asset(_ name: String) async throws -> MountainAthleteAsset {

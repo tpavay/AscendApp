@@ -63,7 +63,7 @@ struct MountainEnvironmentProfile: Decodable, Equatable, Sendable {
 
 /// An sRGB colour stored as `#RRGGBB` in region data, kept free of UIKit so region logic stays
 /// testable.
-struct MountainColor: Decodable, Equatable, Sendable {
+struct MountainColor: Decodable, Hashable, Sendable {
     let red: Double
     let green: Double
     let blue: Double

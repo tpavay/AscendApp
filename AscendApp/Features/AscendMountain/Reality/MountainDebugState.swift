@@ -32,6 +32,22 @@ final class MountainDebugState {
     }
 
     var metrics = Metrics()
+
+    /// One rendered frame, for finding what stalls the scene: how long since the last frame, how
+    /// long the scene's own work took, and what it built.
+    struct FrameSample: Equatable, Sendable {
+        let at: TimeInterval
+        let intervalMilliseconds: Double
+        let workMilliseconds: Double
+        let rigsBuilt: Int
+        let surroundsBuilt: Int
+        let ghostCount: Int
+    }
+
+    /// When set, every frame is appended to `frames`: a measurement harness turns it on, the
+    /// overlay never does.
+    @ObservationIgnored var recordsFrames = false
+    @ObservationIgnored var frames: [FrameSample] = []
     /// Added to the workout's step count before the scene sees it, so very large climbs can be
     /// exercised on a device. It moves the picture only: the workout's own count is untouched.
     var visualStepOffset = 0

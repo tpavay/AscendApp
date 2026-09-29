@@ -215,9 +215,13 @@ struct AscendMountainRaceGhostTests {
         #expect(AscendMountainRace.tagLabel(for: identity) == "BARTHOLOMEW…")
     }
 
+    /// A name is for the climbers just ahead: behind you it would sit over your own athlete, and far
+    /// ahead it would crowd the step count.
     @Test
-    func namesAreForTheClimbersAroundYouAndFadeFarAhead() {
-        #expect(MountainSceneController.tagOpacity(lead: -40) == 1)
+    func namesAreForTheClimbersJustAheadAndFadeFarAhead() {
+        #expect(MountainSceneController.tagOpacity(lead: -40) == 0)
+        #expect(MountainSceneController.tagOpacity(lead: -3) == 0)
+        #expect(MountainSceneController.tagOpacity(lead: -1.5) == 1)
         #expect(MountainSceneController.tagOpacity(lead: MountainSceneController.tagFullLead) == 1)
         #expect(MountainSceneController.tagOpacity(lead: 7.5) == 0.5)
         #expect(MountainSceneController.tagOpacity(lead: MountainSceneController.tagHiddenLead) == 0)

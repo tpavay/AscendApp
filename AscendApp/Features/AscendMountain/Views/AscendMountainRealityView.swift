@@ -22,7 +22,8 @@ struct AscendMountainRealityView: View {
         elapsedSource: (@MainActor () -> TimeInterval)? = nil,
         athleteLook: @escaping @MainActor () -> AthleteLook = { .starting(for: nil) },
         journeySource: @escaping @MainActor () -> Int = { 0 },
-        cameraTuning: MountainSceneDirector.CameraTuning = .standard
+        cameraTuning: MountainSceneDirector.CameraTuning = .standard,
+        packLimits: MountainPack.Limits = .init()
     ) {
         _controller = State(
             initialValue: MountainSceneController(
@@ -34,6 +35,7 @@ struct AscendMountainRealityView: View {
                 markerSource: markerSource,
                 elapsedSource: elapsedSource,
                 athleteLook: athleteLook,
+                packLimits: packLimits,
                 journeySource: journeySource,
                 cameraTuning: cameraTuning
             )
