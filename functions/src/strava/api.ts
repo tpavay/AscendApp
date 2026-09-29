@@ -1,3 +1,4 @@
+import * as logger from "firebase-functions/logger";
 import type {StravaServerConfig} from "./config";
 
 /**
@@ -23,9 +24,12 @@ const REQUEST_TIMEOUT_MS = 15 * 1000;
  * - `transient`: network, timeout, or 5xx. Retry with backoff.
  * - `rejected`: Strava refused the request itself (a 4xx other than the
  *   above). Retrying the same request cannot help.
+ * - `misconfigured`: Strava refused Ascend's own app credentials, or refused
+ *   a token request without blaming the athlete's grant. It is an operator
+ *   problem in STRAVA_SERVER_CONFIG, so no connection may be dropped for it.
  */
 export type StravaFailureKind =
-  "unauthorized" | "rate_limited" | "transient" | "rejected";
+  "unauthorized" | "rate_limited" | "transient" | "rejected" | "misconfigured";
 
 export class StravaApiError extends Error {
   constructor(
@@ -184,13 +188,16 @@ export class HttpStravaClient implements StravaClient {
       }).toString(),
     });
     // A dead refresh token or a spent authorization code answers 400 with an
-    // "invalid" error rather than 401. Either way the grant is gone.
-    if (response.status === 400) {
-      throw new StravaApiError(
-        "unauthorized",
-        400,
-        `Strava token request refused: ${await safeText(response)}`
-      );
+    // error naming that grant. A wrong client id or secret answers the same
+    // status naming the Application, and must never read as a revoke.
+    if (response.status === 400 || response.status === 401 ||
+      response.status === 403) {
+      const text = await safeText(response);
+      if (blamesGrant(text)) {
+        throw new StravaApiError("unauthorized", response.status,
+          `Strava token request refused: ${text}`);
+      }
+      throw misconfigured(response.status, "token request", text);
     }
     const record = asRecord(JSON.parse(await readJsonText(response, "token")));
     if (!record) {
@@ -313,12 +320,68 @@ async function ensureOk(response: Response, label: string): Promise<void> {
   if (response.ok) {
     return;
   }
+  const text = await safeText(response);
+  const kind = failureKindForStatus(response.status);
+  if (kind === "unauthorized" && blamesApplication(text)) {
+    throw misconfigured(response.status, label, text);
+  }
   throw new StravaApiError(
-    failureKindForStatus(response.status),
+    kind,
     response.status,
-    `Strava ${label} failed with ${response.status}: ` +
-      await safeText(response)
+    `Strava ${label} failed with ${response.status}: ${text}`
   );
+}
+
+/**
+ * Builds, and logs as an operator error, a refusal of Ascend's own
+ * credentials.
+ * @param {number} status HTTP status.
+ * @param {string} label What was being requested, for the message.
+ * @param {string} text Response body.
+ * @return {StravaApiError} The error to throw.
+ */
+function misconfigured(
+  status: number,
+  label: string,
+  text: string
+): StravaApiError {
+  const message = `Strava ${label} refused Ascend's app credentials ` +
+    `with ${status}: ${text}`;
+  logger.error("Strava refused Ascend's app credentials; " +
+    "check STRAVA_SERVER_CONFIG", {status, label, body: text});
+  return new StravaApiError("misconfigured", status, message);
+}
+
+/**
+ * Whether a token endpoint error names the athlete's grant rather than the
+ * app, which is Strava's answer for a revoked, expired or spent grant.
+ * @param {string} text Response body.
+ * @return {boolean} True when the grant itself was refused.
+ */
+function blamesGrant(text: string): boolean {
+  return errorResources(text).some((resource) =>
+    resource === "RefreshToken" || resource === "AuthorizationCode");
+}
+
+/**
+ * Whether an error body blames Ascend's app credentials.
+ * @param {string} text Response body.
+ * @return {boolean} True for an Application error.
+ */
+function blamesApplication(text: string): boolean {
+  return errorResources(text).includes("Application");
+}
+
+/**
+ * Reads the resource each entry of Strava's `errors` array blames.
+ * @param {string} text Response body.
+ * @return {Array<unknown>} The blamed resources.
+ */
+function errorResources(text: string): unknown[] {
+  const errors = asRecord(safeJsonParse(text))?.errors;
+  return Array.isArray(errors) ?
+    errors.map((error) => asRecord(error)?.resource) :
+    [];
 }
 
 /**

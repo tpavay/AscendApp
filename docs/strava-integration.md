@@ -33,11 +33,13 @@ The app only starts and ends a connection.
    The worker builds a TCX file on the server from the canonical workout document and its heart-rate sidecar, never from anything the app sends, and posts it to `POST /uploads` as `sport_type=StairStepper`, `trainer=1`, with `external_id=ascend-<workoutId>`.
    Distance is zero on purpose: a stair stepper covers no ground.
    The worker polls the upload briefly, rechecks later if Strava is still processing, treats a duplicate as success, backs off on network and 5xx failures for up to eight attempts, refunds the attempt and waits for the next quarter hour on a 429, and disconnects the climber on a 401.
+   A refusal that blames Ascend's own app credentials (Strava's `"resource":"Application"` error, or any token-endpoint refusal that does not name the climber's `RefreshToken` or `AuthorizationCode`) is an operator error in `STRAVA_SERVER_CONFIG`: it is logged at error level, the climb backs off and retries, and no connection is ever deleted for it.
 5. **Disconnect.** `stravaDisconnect` revokes Ascend at Strava through `POST /oauth/revoke`, then deletes the token, pending states and every queue row for that climber.
    A Strava outage never blocks it.
 6. **Revoked on Strava.** `stravaWebhook` receives Strava's athlete deauthorization event.
    Strava does not sign webhook events, so the handler proves the revoke by refreshing the stored token: a live grant answers and the event is ignored, a revoked one is refused and the connection is deleted.
    A 401 during an upload deletes the connection too, which covers any environment the webhook does not point at.
+   Only a refusal that names the climber's grant counts as proof; a refusal of Ascend's own credentials leaves the connection in place and fails the event so Strava delivers it again.
 7. **Account deletion.** `cleanupDeletedUserData` revokes and deletes the Strava connection along with everything else.
 
 Completed queue rows hold a Strava activity id, which Strava's API Policy lets Ascend keep for at most seven days.

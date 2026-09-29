@@ -344,6 +344,22 @@ test("a deauthorization is honoured only once Strava confirms it",
     assert.equal(await store.read(uid), null);
   });
 
+test("a deauthorization Strava cannot confirm keeps the connection",
+  async () => {
+    const store = new StravaConnectionStore(db);
+    await store.save(connection(NOW.getTime() + 6 * 60 * 60 * 1000));
+    const misconfigured = client(async () => {
+      throw new StravaApiError("misconfigured", 400, "bad client secret");
+    });
+
+    await assert.rejects(
+      handleStravaDeauthorization("987", store, misconfigured),
+      (error: unknown) =>
+        error instanceof StravaApiError && error.kind === "misconfigured"
+    );
+    assert.notEqual(await store.read(uid), null);
+  });
+
 test("the uploaded climb is read from the canonical workout", async () => {
   await db.doc(`users/${uid}/workouts/w1`).set({
     name: "Burj Khalifa",

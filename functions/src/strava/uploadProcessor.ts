@@ -345,7 +345,8 @@ async function handleFailure(
     }, now);
     return {counter: "requeued", rateLimited: true};
   case "transient":
-    return retryOrFail(claim, dependencies, "transient", uploadId,
+  case "misconfigured":
+    return retryOrFail(claim, dependencies, error.kind, uploadId,
       new Date(now.getTime() + retryDelayMs(claim.attemptCount)));
   case "rejected":
     logger.error("Strava rejected a climb upload request", {

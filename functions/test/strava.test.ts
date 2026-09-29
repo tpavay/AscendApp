@@ -226,15 +226,60 @@ test("the code exchange sends the secret and reads the athlete", async () => {
   });
 });
 
+/**
+ * A Strava fault body blaming one resource.
+ * @param {string} resource The blamed resource.
+ * @param {string} field The blamed field.
+ * @param {number} status HTTP status.
+ * @return {Response} The response.
+ */
+function fault(resource: string, field: string, status = 400): Response {
+  return new Response(JSON.stringify({
+    message: "Bad Request",
+    errors: [{resource, field, code: "invalid"}],
+  }), {status});
+}
+
 test("a refused refresh token reads as a revoked grant", async () => {
-  const {fetch} = fakeFetch([new Response("{\"message\":\"Bad Request\"}", {
-    status: 400,
-  })]);
+  const {fetch} = fakeFetch([
+    fault("RefreshToken", "refresh_token"),
+    fault("AuthorizationCode", "code"),
+  ]);
   const client = new HttpStravaClient(CONFIG, fetch);
 
   await assert.rejects(client.refresh("dead"), (error: unknown) =>
     error instanceof StravaApiError && error.kind === "unauthorized");
+  await assert.rejects(client.exchangeCode("spent"), (error: unknown) =>
+    error instanceof StravaApiError && error.kind === "unauthorized");
 });
+
+test("a refused client secret never reads as a revoked grant", async () => {
+  const {fetch} = fakeFetch([
+    fault("Application", "client_secret"),
+    fault("Application", "client_id", 401),
+    new Response("{\"message\":\"Bad Request\"}", {status: 400}),
+  ]);
+  const client = new HttpStravaClient(CONFIG, fetch);
+
+  for (let call = 0; call < 3; call += 1) {
+    await assert.rejects(client.refresh("live"), (error: unknown) =>
+      error instanceof StravaApiError && error.kind === "misconfigured");
+  }
+});
+
+test("an upload refused for the app's credentials is not a revoke",
+  async () => {
+    const {fetch} = fakeFetch([
+      fault("Application", "client_id", 401),
+      fault("Athlete", "access_token", 401),
+    ]);
+    const client = new HttpStravaClient(CONFIG, fetch);
+
+    await assert.rejects(client.getUpload("t", "1"), (error: unknown) =>
+      error instanceof StravaApiError && error.kind === "misconfigured");
+    await assert.rejects(client.getUpload("t", "1"), (error: unknown) =>
+      error instanceof StravaApiError && error.kind === "unauthorized");
+  });
 
 test("revoke uses the new endpoint with Basic client credentials", async () => {
   const {fetch, requests} = fakeFetch([new Response("", {status: 200})]);
@@ -722,6 +767,19 @@ test("a revoked grant disconnects the climber and stops the climb",
     });
     assert.deepEqual(disconnected, ["user-a"]);
     assert.equal(jobs.get("user-a__w1")?.errorCode, "not_authorized");
+  });
+
+test("a refusal of the app's credentials retries and keeps the connection",
+  async () => {
+    const {jobs, disconnected} = await runQueue({
+      claims: [claim("w1")],
+      token: new StravaApiError("misconfigured", 400, "bad client secret"),
+    });
+    assert.deepEqual(disconnected, []);
+    const job = jobs.get("user-a__w1");
+    assert.equal(job?.state, "queued");
+    assert.equal(job?.retry?.errorCode, "misconfigured");
+    assert.equal(job?.retry?.readyAt.getTime(), NOW + retryDelayMs(1));
   });
 
 test("a 429 refunds the attempt and holds the rest of the batch",
