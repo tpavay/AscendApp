@@ -160,10 +160,36 @@ shape_body(SIZE_STEPS[args.size])
 
 _skin = bmesh.new()
 _skin.from_mesh(body.data)
+_skin.normal_update()
 SKIN = BVHTree.FromBMesh(_skin)
 
 
-def garment(name, keep_face, offset, cuts=(), shape=None, over=None):
+def keep_beneath(bm, points, clearance, rounds=4):
+    """Lifts the garment in `bm` until every (point, normal) under it sits at least `clearance`
+    beneath the fabric that faces the same way. Points by an opening are left alone."""
+    for _ in range(rounds):
+        bm.normal_update()
+        bm.faces.ensure_lookup_table()
+        tree = BVHTree.FromBMesh(bm)
+        lift = {}
+        for point, point_normal in points:
+            hit, normal, index, _ = tree.find_nearest(point, 0.03)
+            if hit is None:
+                continue
+            face = bm.faces[index]
+            if any(e.is_boundary for e in face.edges) or face.normal.dot(point_normal) < 0.5:
+                continue
+            through = (point - hit).dot(normal) + clearance
+            if through > 0:
+                for v in face.verts:
+                    lift[v] = max(lift.get(v, 0.0), through)
+        if not lift:
+            return
+        for v, amount in lift.items():
+            v.co += v.normal * amount
+
+
+def garment(name, keep_face, offset, cuts=(), shape=None, over=None, relax=0):
     """Copies the body faces `keep_face` accepts into a new skinned mesh, trims it with straight
     `cuts` (point, normal: everything on the normal's side goes), smooths its edges, and pushes
     it out along the surface by `offset` metres so it sits on the skin without touching it."""
@@ -176,15 +202,19 @@ def garment(name, keep_face, offset, cuts=(), shape=None, over=None):
     bm = bmesh.new()
     bm.from_mesh(mesh)
     bm.verts.ensure_lookup_table()
+    # The skin this garment is cut from, by index into the body - the copy shares its numbering.
+    source = sorted({v.index for f in bm.faces if keep_face(f, dominant) for v in f.verts})
     bmesh.ops.delete(bm, geom=[f for f in bm.faces if not keep_face(f, dominant)], context="FACES")
-    # The body is split along its texture seams; a garment has no texture, so weld it whole.
-    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5)
+    # The body is split along its texture seams; a garment has no texture, so weld it whole. The
+    # seams do not quite meet everywhere - the female chest is off by up to half a millimetre - and
+    # an unwelded seam cracks open when the garment is pushed out along its normals.
+    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=5e-4)
     for point, normal in cuts:
         geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
         bmesh.ops.bisect_plane(bm, geom=geom, plane_co=point, plane_no=normal, clear_outer=True)
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
     # Sawtooth left by whole-triangle selection becomes a clean seam.
-    for _ in range(12):
+    for _ in range(20):
         moves = {}
         for v in bm.verts:
             if not v.is_boundary:
@@ -195,8 +225,20 @@ def garment(name, keep_face, offset, cuts=(), shape=None, over=None):
         for v, co in moves.items():
             v.co = co
     bm.normal_update()
+    # Skin that follows the arm moves under the garment when the arm swings, so the garment sits
+    # further off it there - up to three times as far where the arm carries the skin fully.
+    deform = bm.verts.layers.deform.active
+    arm_groups = {g.index for g in obj.vertex_groups if g.name in ARM_BONES}
     for v in bm.verts:
-        v.co += v.normal * offset
+        arm = sum(w for gi, w in v[deform].items() if gi in arm_groups) if deform else 0.0
+        v.co += v.normal * offset * (1 + 2 * min(arm, 1.0))
+    # Pushed out along its normals, the surface folds over itself wherever the skin curves in -
+    # between the breasts, under the arm. Fabric bridges those hollows instead; relaxing it does
+    # the same, and the push-out below keeps it clear of the skin. Shorts stay unrelaxed, which
+    # would pull them off the inner thigh.
+    inside = [v for v in bm.verts if not v.is_boundary]
+    for _ in range(relax):
+        bmesh.ops.smooth_vert(bm, verts=inside, factor=0.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
     if shape:
         shape(bm)
     # Nothing may sink back under the skin: push every point out to at least most of the offset.
@@ -206,10 +248,18 @@ def garment(name, keep_face, offset, cuts=(), shape=None, over=None):
             gap = (v.co - hit).dot(normal)
             if gap < offset * 0.8:
                 v.co += normal * (offset * 0.8 - gap)
+    # And the other way round: fabric spans a small bump - a nipple - with a flat triangle, so the
+    # bump's tip can come through between the garment's own points. Every point of the skin the
+    # garment was cut from must stay half the offset beneath the fabric that faces the same way;
+    # other skin - the neck, an arm, the opposite thigh - is not under it.
+    _skin.verts.ensure_lookup_table()
+    keep_beneath(bm, [(_skin.verts[i].co.copy(), _skin.verts[i].normal.copy()) for i in source], offset * 0.5)
     if over is not None:
-        # A layer worn over another garment clears it, not just the skin.
+        # A layer worn over another garment clears it the same two ways: its own points, then the
+        # points of the layer beneath - a waistband would otherwise show through the hem.
         under = bmesh.new()
         under.from_mesh(over.data)
+        under.normal_update()
         tree = BVHTree.FromBMesh(under)
         for v in bm.verts:
             hit, normal, _, _ = tree.find_nearest(v.co, 0.03)
@@ -217,9 +267,17 @@ def garment(name, keep_face, offset, cuts=(), shape=None, over=None):
                 gap = (v.co - hit).dot(normal)
                 if gap < 0.004:
                     v.co += normal * (0.004 - gap)
+        keep_beneath(bm, [(v.co.copy(), v.normal.copy()) for v in under.verts], 0.004)
         under.free()
     bm.to_mesh(mesh)
     bm.free()
+    # The copy carries the body's imported custom normals, which no longer match the moved
+    # surface - at the chest and the armpit they face away and shade as dark specks. A garment
+    # shades from its own shape.
+    if "custom_normal" in mesh.attributes:
+        mesh.attributes.remove(mesh.attributes["custom_normal"])
+    for poly in mesh.polygons:
+        poly.use_smooth = True
     mesh.materials.clear()
     return obj
 
@@ -238,19 +296,40 @@ height = max(v.co.z for v in body.data.vertices)
 k = height / 1.81
 V = mathutils.Vector
 
+# Where this body's arms and neck begin, measured at this size: the tank's armholes and neckline
+# are cut to its own shoulders, so a narrower or fuller body gets a tank that fits it.
+_dominant = dominant_bones(body)
+ARM_START = min(abs(v.co.x) for v in body.data.vertices
+                if _dominant[v.index] in ("upperarm_l", "upperarm_r") and 1.30 * k < v.co.z < 1.50 * k)
+NECK_HALF_WIDTH = max(abs(v.co.x) for v in body.data.vertices
+                      if _dominant[v.index] == "neck_01" and 1.50 * k < v.co.z < 1.60 * k)
+# Heights (on the 1.81 m scale) where the neckline, front and back, and the armholes begin. The
+# female base texture paints a sports bra, so her tank is cut higher to cover it.
+TANK_CUT = {"male": {"front": 1.37, "back": 1.47, "armhole": 1.29},
+            "female": {"front": 1.41, "back": 1.48, "armhole": 1.39}}[args.body]
+
 
 def tank(face, dominant):
     c = centre(face)
-    names = {dominant[v.index] for v in face.verts}
-    if names & ARM_BONES or not names <= (TORSO_BONES | LEG_BONES | {"root"}):
-        return False
-    if c.z < 0.90 * k or c.z > 1.50 * k:
-        return False
     ax = abs(c.x)
-    # A scooped neckline front and back, straps over the shoulders, deep armholes.
-    if c.z > 1.37 * k and ax < 0.072:
+    names = {dominant[v.index] for v in face.verts}
+    if not names <= (TORSO_BONES | LEG_BONES | ARM_BONES | {"root"}):
         return False
-    if c.z > 1.29 * k and ax > 0.150:
+    # The side of the chest can be weighted to the upper arm; dropping it would leave holes. A face
+    # out past where the arm begins is the arm itself, unless it faces outward, as the side of the
+    # torso under the armpit does, and has not yet reached the arm.
+    if names & ARM_BONES and ax > 0.89 * ARM_START:
+        facing_out = face.normal.x * (1 if c.x > 0 else -1)
+        if facing_out < 0.5 or ax > ARM_START + 0.02:
+            return False
+    if c.z < 0.90 * k or "neck_01" in names:
+        return False
+    # A scooped neckline, lower in front than behind; deep armholes; and between them a strap
+    # that runs up and over the top of each shoulder, where the body sits at about 1.52-1.56 m.
+    back = c.y > 0
+    if c.z > (TANK_CUT["back"] if back else TANK_CUT["front"]) * k and ax < 0.78 * NECK_HALF_WIDTH:
+        return False
+    if c.z > TANK_CUT["armhole"] * k and ax > 0.89 * ARM_START:
         return False
     return True
 
@@ -333,8 +412,9 @@ def trainers():
 
 bottom = garment("Shorts", shorts, 0.0075,
                  cuts=[(V((0, 0, 1.025 * k)), V((0, 0, 1))), (V((0, 0, 0.72 * k)), V((0, 0, -1)))], shape=flare)
-top = garment("Top", tank, 0.011, cuts=[(V((0, 0, 0.985 * k)), V((0, 0, -1)))], over=bottom)
+top = garment("Top", tank, 0.011, cuts=[(V((0, 0, 0.985 * k)), V((0, 0, -1)))], over=bottom, relax=3)
 shoe = trainers()
+
 
 # ---------- export ----------
 
