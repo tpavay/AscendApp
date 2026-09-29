@@ -321,6 +321,7 @@ struct AscendMountainPropTests {
         #expect(Set(pine.triangles.map(\.part)) == [0, 1], "foliage and trunk")
         let heights = pine.triangles.flatMap { [$0.corners.0.y, $0.corners.1.y, $0.corners.2.y] }
         #expect((3...4.5).contains(heights.max() ?? 0), "a pine about 3.6 m tall")
+        #expect(abs(Double(heights.max() ?? 0) - MountainTerrainPatch.pineHeight) < 0.1, "the height the canopy ceiling is kept with")
         let widths = boulder.triangles.flatMap { triangle in
             [triangle.corners.0, triangle.corners.1, triangle.corners.2].map { max(abs($0.x), abs($0.z)) }
         }
@@ -547,6 +548,56 @@ struct AscendMountainMarkerFrameTests {
             #expect(course.markerStep(for: step) == turn.endStep)
         }
         #expect(course.markerStep(for: flight.firstStep + 2) == flight.firstStep + 2)
+    }
+}
+
+struct AscendMountainCameraClearanceTests {
+    /// The camera rides behind and above the climber, and at every turn its heading lags the
+    /// stairs, so it swings out over the mountainside. No tree may stand where it passes: flying
+    /// through a pine's crown fills the screen with needles (seen at step 240).
+    @Test
+    func theCameraNeverFliesThroughATree() throws {
+        let world = try MountainWorld.bundled()
+        var director = MountainSceneDirector(seed: MountainCourse.ascendMountainSeed, world: world)
+        let pine = try #require(MountainPropTemplate.load(from: .main)["pine"])
+        let corners = pine.triangles.flatMap { [$0.corners.0, $0.corners.1, $0.corners.2] }
+        let pineHeight = Double(corners.map(\.y).max() ?? 0)
+        let crownRadius = Double(corners.map { simd_length(SIMD2($0.x, $0.z)) }.max() ?? 0)
+
+        var course = MountainCourse(seed: MountainCourse.ascendMountainSeed)
+        var trees: [Int: [MountainDecorInstance]] = [:]
+        var violations: [String] = []
+        // A hard climber, whose camera lags the turns furthest.
+        let stepsPerSecond = 3.4, frameSeconds = 1.0 / 30
+        var time = 0.0, steps = 0.0
+        _ = director.advance(logicalSteps: 0, time: 0, deltaTime: 0)
+        while steps < 5_000 {
+            steps += stepsPerSecond * frameSeconds
+            time += frameSeconds
+            let frame = director.advance(logicalSteps: Int(steps), time: time, deltaTime: frameSeconds)
+            let camera = SIMD3<Double>(frame.cameraPosition)
+            for slot in frame.slots where simd_distance(SIMD3<Double>(slot.renderPosition), camera) < 40 {
+                let placed: [MountainDecorInstance]
+                if let known = trees[slot.chunkIndex] {
+                    placed = known
+                } else {
+                    let nearby = MountainSceneController.decorNeighbours(of: slot.placement, on: &course)
+                    placed = MountainTerrainPatch(placement: slot.placement, regions: world.regions, nearby: nearby).trees
+                    trees[slot.chunkIndex] = placed
+                }
+                let turn = simd_quatf(angle: slot.heading, axis: [0, 1, 0])
+                for tree in placed {
+                    let base = SIMD3<Double>(slot.renderPosition + turn.act(tree.position))
+                    let top = base.y + Double(tree.scale) * pineHeight
+                    let across = simd_distance(SIMD2(camera.x, camera.z), SIMD2(base.x, base.z))
+                    if across < Double(tree.scale) * crownRadius + 0.3, camera.y > base.y, camera.y < top + 0.3 {
+                        violations.append("step \(Int(steps)): piece \(slot.chunkIndex), tree \(String(format: "%.1f", Double(tree.scale) * pineHeight)) m tall, base y \(String(format: "%.2f", base.y)) camera y \(String(format: "%.2f", camera.y)) at \(String(format: "%.1f", across)) m, local \(tree.position)")
+                    }
+                }
+            }
+        }
+
+        #expect(violations.isEmpty, "the camera passed through \(violations.count) trees, first at \(violations.first ?? "-")")
     }
 }
 

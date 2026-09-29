@@ -64,8 +64,11 @@ struct MountainTerrainPatch: Sendable {
         return -0.58 - steepness * 1.05 * pow(d - 1, 1.12)
     }
 
-    init(placement: MountainChunkPlacement, regions: MountainRegionMap) {
-        let context = Context(placement: placement, regions: regions)
+    /// - Parameter nearby: the pieces either side of this one on the course. The camera follows
+    ///   the climber up those flights too, and a tree growing on this piece's mountainside can
+    ///   stand right beside one of them.
+    init(placement: MountainChunkPlacement, regions: MountainRegionMap, nearby: [MountainChunkPlacement] = []) {
+        let context = Context(placement: placement, regions: regions, stairs: Self.stairPath(of: [placement] + nearby))
         for strip in Self.strips(for: placement.kind, firstStep: placement.firstStep) {
             addStrip(strip, context: context)
         }
@@ -163,9 +166,35 @@ struct MountainTerrainPatch: Sendable {
 
     // MARK: - Heights
 
+    /// Where the climber stands at every step of `pieces`, in course space: the line the camera
+    /// follows.
+    static func stairPath(of pieces: [MountainChunkPlacement]) -> [SIMD3<Double>] {
+        pieces.flatMap { piece in
+            (0...piece.stepCount).map { step in
+                piece.entry.composed(with: piece.kind.localPose(atProgress: Double(step))).position
+            }
+        }
+    }
+
     private struct Context {
         let placement: MountainChunkPlacement
         let regions: MountainRegionMap
+        let stairs: [SIMD3<Double>]
+
+        func course(_ local: SIMD3<Double>) -> SIMD3<Double> {
+            placement.entry.position + placement.entry.rotate(local)
+        }
+
+        /// The height no crown may reach at `local`: the canopy ceiling over the lowest stair the
+        /// camera can pass within reach of it, or nil where no stair is near.
+        func canopyLimit(atLocal local: SIMD3<Double>) -> Double? {
+            let point = course(local)
+            let limit = stairs
+                .filter { simd_distance(SIMD2($0.x, $0.z), SIMD2(point.x, point.z)) < MountainTerrainPatch.cameraReach }
+                .map(\.y)
+                .min()
+            return limit.map { $0 + MountainTerrainPatch.canopyCeiling - placement.entry.position.y }
+        }
 
         func world(_ local: SIMD2<Double>) -> SIMD2<Double> {
             let rotated = placement.entry.rotate(SIMD3(local.x, 0, local.y))
@@ -317,6 +346,16 @@ struct MountainTerrainPatch: Sendable {
 
     /// Trees and boulders on the strip's cells, decided by noise over course space so the same
     /// spot always grows the same thing.
+    /// How tall the bundled pine stands at scale 1 (`MountainPropTemplate.pine`).
+    static let pineHeight = 4.11
+    /// Near the stairs no crown may rise more than this above the treads. The camera rides three
+    /// metres above the climber and, at every turn, swings out over the mountainside before its
+    /// heading catches up; a pine that reached it would fill the screen with needles.
+    static let canopyCeiling = 2.0
+    /// How far from a stair a tree must stand to grow freely: the camera trails 5.6 m behind the
+    /// climber, plus the widest crown and a margin.
+    static let cameraReach = 8.0
+
     private mutating func scatter(along grid: [[SIMD3<Double>]], steps: [Double], context: Context) {
         for row in 0..<(grid.count - 1) {
             let rowSteps = steps[row]
@@ -338,15 +377,23 @@ struct MountainTerrainPatch: Sendable {
                 let size = MountainNoise.hash(cellX, cellZ, seed: 9)
 
                 // Full-size trees keep clear of the stairs, where they would stand taller than the
-                // camera and hide the climb; close in, the same pine grows as a shrub.
+                // camera and hide the climb; close in, the same pine grows as a shrub. Within the
+                // camera's reach a tree is also held below the canopy ceiling, and one that cannot
+                // grow even as a shrub there is left out.
                 let shrub = distance < 6
+                let wanted = shrub ? 0.28 + size * 0.22 : 0.6 + size * 0.55
+                let ground = y - 0.2
                 if distance >= 1.6, distance <= 22, slope < 1.4, roll < treeDensity * (shrub ? 0.55 : 1) {
-                    trees.append(MountainDecorInstance(
-                        position: SIMD3<Float>(Float(point.x), Float(y - 0.2), Float(point.z)),
-                        yaw: yaw,
-                        scale: Float(shrub ? 0.28 + size * 0.22 : 0.6 + size * 0.55),
-                        regionIndex: regionIndex
-                    ))
+                    let fits = context.canopyLimit(atLocal: SIMD3(point.x, ground, point.z))
+                        .map { min(wanted, ($0 - ground) / Self.pineHeight) } ?? wanted
+                    if fits >= 0.28 {
+                        trees.append(MountainDecorInstance(
+                            position: SIMD3<Float>(Float(point.x), Float(ground), Float(point.z)),
+                            yaw: yaw,
+                            scale: Float(fits),
+                            regionIndex: regionIndex
+                        ))
+                    }
                 } else if roll > 1 - rockDensity {
                     let near = distance < 2
                     rocks.append(MountainDecorInstance(

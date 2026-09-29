@@ -53,6 +53,26 @@ final class MountainSceneController {
     /// Which placement each slot's mountainside was baked for, so a slot is rebuilt only when
     /// it is handed a new piece.
     private var decorBuiltFor: [Int: Int] = [:]
+    /// The same course the director climbs, for the pieces either side of one being given its
+    /// mountainside: a tree may stand beside a neighbouring flight the camera follows.
+    private var decorCourse: MountainCourse
+    /// The pieces whose stairs a piece's trees keep clear of: any within this many either side
+    /// whose entry is near, because the course switches back and a mountainside can fall onto a
+    /// flight several pieces below it.
+    nonisolated static let decorNeighbours = 16
+    nonisolated static let decorNeighbourMetres = 45.0
+
+    /// The pieces near `piece` on `course`, for `MountainTerrainPatch`'s `nearby`.
+    nonisolated static func decorNeighbours(of piece: MountainChunkPlacement, on course: inout MountainCourse) -> [MountainChunkPlacement] {
+        (piece.index - decorNeighbours...piece.index + decorNeighbours)
+            .filter { $0 != piece.index }
+            .map { course.placement(at: $0) }
+            .filter {
+                simd_distance(SIMD2($0.entry.position.x, $0.entry.position.z), SIMD2(piece.entry.position.x, piece.entry.position.z))
+                    < decorNeighbourMetres
+            }
+    }
+
     /// A gap this long between rendered frames means rendering was paused - the app went to the
     /// background, the phone locked - and the scene resynchronizes to the workout on return.
     static let resynchronizeAfterSeconds = 0.75
@@ -96,6 +116,7 @@ final class MountainSceneController {
         self.stepSource = stepSource
         self.debugState = debugState
         self.director = MountainSceneDirector(seed: seed)
+        self.decorCourse = MountainCourse(seed: seed)
     }
 
     /// Called from `RealityView`'s make closure. Safe to call again with fresh content when
@@ -353,7 +374,8 @@ final class MountainSceneController {
     /// six pieces ahead of the climber, long before it can be seen.
     private func buildDecor(for slot: MountainChunkSlotFrame, into entity: ModelEntity, environment: MountainEnvironmentResources) {
         let started = Date()
-        let patch = MountainTerrainPatch(placement: slot.placement, regions: environment.world.regions)
+        let nearby = Self.decorNeighbours(of: slot.placement, on: &decorCourse)
+        let patch = MountainTerrainPatch(placement: slot.placement, regions: environment.world.regions, nearby: nearby)
         let data = MountainDecorMeshData(patch: patch, layout: environment.layout)
         var descriptor = MeshDescriptor(name: "mountain-decor")
         descriptor.positions = MeshBuffers.Positions(data.positions)
