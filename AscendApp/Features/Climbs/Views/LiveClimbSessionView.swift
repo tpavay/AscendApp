@@ -6,6 +6,7 @@ struct LiveClimbSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @Environment(ModerationStore.self) private var moderationStore
 
     @State private var viewModel: LiveClimbSessionViewModel
@@ -15,6 +16,9 @@ struct LiveClimbSessionView: View {
     @State private var hasStartedRecording = false
     @State private var countdownRunID = 0
     @State private var showingHeadphoneRequirement = false
+    @State private var showingMotionAccessRequirement = false
+    @State private var didTrackMotionAccessRequirement = false
+    @State private var motionAccessGate = HeadphoneMotionAccessGate()
     @State private var showingCompatibleHeadphones = false
     @State private var headphoneMotionService = HeadphoneMotionReadinessService.shared
     @State private var didTrackHeadphoneRequirement = false
@@ -138,6 +142,10 @@ struct LiveClimbSessionView: View {
                     headphoneRequiredOverlay
                 }
 
+                if showingMotionAccessRequirement {
+                    motionAccessRequiredOverlay
+                }
+
                 if let stepSyncPrompt = viewModel.stepSyncPrompt {
                     stepSyncOverlay(prompt: stepSyncPrompt)
                 }
@@ -222,6 +230,7 @@ struct LiveClimbSessionView: View {
             dismiss()
         }
         .onAppear {
+            motionAccessGate.isAppActive = scenePhase == .active
             if viewModel.phase != .idle {
                 hasStartedRecording = true
             }
@@ -232,6 +241,7 @@ struct LiveClimbSessionView: View {
                 sessionID: viewModel.liveActivitySessionID,
                 registrationID: liveActivityControlRegistrationID
             )
+            viewModel.cancelPreparedBackgroundSession()
         }
         .task(id: countdownRunID) {
             await runCountdownThenStart()
@@ -268,6 +278,10 @@ struct LiveClimbSessionView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            motionAccessGate.isAppActive = phase == .active
+            if phase == .active {
+                retryAfterMotionAccessChangeIfNeeded()
+            }
             guard phase == .inactive || phase == .background else { return }
             viewModel.checkpointForLifecycleChange(modelContext: modelContext)
         }
@@ -704,6 +718,16 @@ struct LiveClimbSessionView: View {
                 message: "Synced with machine. Continuing from \(confirmation.correctedSteps.formatted()) steps.",
                 tint: .accent
             )
+        } else if viewModel.shouldShowMotionAccessStatus {
+            Button(action: openAppSettings) {
+                trackingBanner(
+                    iconName: "figure.stair.stepper",
+                    message: "Motion & Fitness is off. Turn it on in Settings to keep counting steps.",
+                    tint: .accent
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens Settings")
         } else if viewModel.shouldShowTrackingRecoveryStatus {
             trackingBanner(
                 iconName: "airpodspro",
@@ -905,13 +929,29 @@ struct LiveClimbSessionView: View {
               viewModel.phase == .idle else { return }
 
         countdownValue = 3
+        // Motion & Fitness is settled before the countdown, so its alert meets a climber who is
+        // still looking at the screen instead of one who has already started climbing.
+        let motionAccess = await motionAccessGate.resolve()
+        guard !Task.isCancelled else { return }
+
         headphoneMotionService.refresh()
-        guard headphoneMotionService.readiness.canStartLiveClimb else {
+        switch HeadphoneSessionStartRequirement(
+            motionAccess: motionAccess,
+            headphones: headphoneMotionService.readiness
+        ) {
+        case .motionAccessBlocked:
+            showMotionAccessRequirement()
+            return
+        case .headphonesRequired:
             showHeadphoneRequirement()
             return
+        case .ready:
+            break
         }
 
         showingHeadphoneRequirement = false
+        showingMotionAccessRequirement = false
+        viewModel.prepareBackgroundSessionForCountdown()
 
         for value in stride(from: 3, through: 1, by: -1) {
             headphoneMotionService.refresh()
@@ -950,6 +990,7 @@ struct LiveClimbSessionView: View {
     private func showHeadphoneRequirement() {
         countdownValue = 3
         showingHeadphoneRequirement = true
+        viewModel.cancelPreparedBackgroundSession()
 
         guard !didTrackHeadphoneRequirement,
               let climb = viewModel.mode.climb else { return }
@@ -961,6 +1002,37 @@ struct LiveClimbSessionView: View {
                 reason: .headphonesUnavailable
             )
         )
+    }
+
+    private func showMotionAccessRequirement() {
+        countdownValue = 3
+        showingMotionAccessRequirement = true
+
+        guard !didTrackMotionAccessRequirement,
+              let climb = viewModel.mode.climb else { return }
+        didTrackMotionAccessRequirement = true
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.detailStartBlocked(
+                climb: climb,
+                entryPoint: viewModel.analyticsEntryPoint,
+                reason: .motionAccessDenied
+            )
+        )
+    }
+
+    /// Picks the countdown back up when the climber returns from Settings with access turned on.
+    private func retryAfterMotionAccessChangeIfNeeded() {
+        guard showingMotionAccessRequirement,
+              !HeadphoneMotionAuthorizationState.current().blocksStepCounting else { return }
+
+        showingMotionAccessRequirement = false
+        countdownValue = 3
+        countdownRunID += 1
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        openURL(url)
     }
 
     private func retryHeadphoneCountdown() {
@@ -1070,6 +1142,20 @@ struct LiveClimbSessionView: View {
             secondaryAction: { dismiss() },
             tertiaryTitle: "See compatible headphones",
             tertiaryAction: presentCompatibleHeadphones
+        )
+    }
+
+    private var motionAccessRequiredOverlay: some View {
+        liveClimbFullScreenOverlay(
+            iconName: "figure.stair.stepper",
+            title: "Motion & Fitness is off",
+            message: viewModel.mode.isLandmarkClimb
+                ? "Ascend counts your steps from your headphones' motion sensors. Turn on Motion & Fitness for Ascend in Settings to start this live climb."
+                : "Ascend counts your steps from your headphones' motion sensors. Turn on Motion & Fitness for Ascend in Settings to start climbing.",
+            primaryTitle: "Open Settings",
+            primaryAction: openAppSettings,
+            secondaryTitle: "Close",
+            secondaryAction: { dismiss() }
         )
     }
 
@@ -1186,8 +1272,9 @@ struct LiveClimbSessionView: View {
         tertiaryAction: (() -> Void)? = nil
     ) -> some View {
         ZStack {
+            // Opaque: the countdown it stands in front of would otherwise show its numeral
+            // through the scrim, right behind this overlay's copy.
             Color.black
-                .opacity(0.96)
                 .ignoresSafeArea()
 
             VStack(spacing: 22) {

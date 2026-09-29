@@ -11,6 +11,9 @@ import {PUBLIC_IDENTITY_STATE_DELETED} from "./publicIdentity";
 import {
   ANALYTICS_OUTBOX_COLLECTION,
 } from "./revenueCat/analyticsFirestoreOutbox";
+import {HttpStravaClient} from "./strava/api";
+import {getStravaServerConfig, stravaServerConfig} from "./strava/config";
+import {StravaConnectionStore} from "./strava/connections";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 
@@ -43,6 +46,7 @@ export interface DeletedUserCleanupPort {
   deleteRevenueCatAnalyticsOutbox(userId: string): Promise<number>;
   removeHomeTodayActivityRows(userId: string): Promise<number>;
   deleteRateLimitDocument(userId: string): Promise<void>;
+  disconnectStrava(userId: string): Promise<number>;
 }
 
 export interface CleanupSummary {
@@ -60,6 +64,7 @@ export interface CleanupSummary {
   deletedLifecycleEmailJobs: number;
   deletedRevenueCatAnalyticsOutbox: number;
   removedHomeTodayActivityRows: number;
+  deletedStravaRecords: number;
   failures: string[];
 }
 
@@ -82,8 +87,10 @@ export interface CleanupSummary {
  * userRateLimits, the replay finisher statuses, feedback, moderation_reports,
  * incoming block documents, the other climbers' Ascend Mountain race filters
  * that name the deleted climber, the uid-keyed email_jobs, the RevenueCat
- * analytics outbox rows that carry the uid as Mixpanel distinct_id, and the
- * rows the deleted climber holds in Home's `home_today_activity` feed.
+ * analytics outbox rows that carry the uid as Mixpanel distinct_id, the
+ * rows the deleted climber holds in Home's `home_today_activity` feed, and
+ * their Strava connection - which is also revoked at Strava, so a deleted
+ * account stops counting against the Strava app's athlete capacity.
  * Feedback and moderation reports are
  * hard-deleted rather than anonymized because their free-text or safety context
  * can identify the user after their account is gone.
@@ -227,6 +234,13 @@ export async function cleanupDeletedUser(
     failures.push(`userRateLimits: ${errorMessage(error)}`);
   }
 
+  let deletedStravaRecords = 0;
+  try {
+    deletedStravaRecords = await port.disconnectStrava(userId);
+  } catch (error) {
+    failures.push(`strava: ${errorMessage(error)}`);
+  }
+
   return {
     anonymizedFirstAscents,
     anonymizedReplayEntries,
@@ -240,6 +254,7 @@ export async function cleanupDeletedUser(
     deletedNotificationDevices,
     deletedReplayFinisherStatuses,
     deletedRevenueCatAnalyticsOutbox,
+    deletedStravaRecords,
     deletedSubcollections,
     failures,
     removedHomeTodayActivityRows,
@@ -530,6 +545,15 @@ export function makeAdminPort(
     async deleteRateLimitDocument(userId) {
       await firestore.collection("userRateLimits").doc(userId).delete();
     },
+
+    async disconnectStrava(userId) {
+      const config = getStravaServerConfig();
+      const {deleted} = await new StravaConnectionStore(firestore).disconnect(
+        userId,
+        config ? new HttpStravaClient(config) : null
+      );
+      return deleted;
+    },
   };
 }
 
@@ -550,7 +574,12 @@ function errorMessage(error: unknown): string {
  * collections that are already empty, so re-running only deletes what remains.
  */
 export const cleanupDeletedUserData = onDocumentDeleted(
-  {document: "users/{userId}", retry: true, timeoutSeconds: 540},
+  {
+    document: "users/{userId}",
+    retry: true,
+    secrets: [stravaServerConfig],
+    timeoutSeconds: 540,
+  },
   async (event) => {
     const userId = event.params.userId;
     const summary = await cleanupDeletedUser(userId, makeAdminPort());
@@ -572,6 +601,7 @@ export const cleanupDeletedUserData = onDocumentDeleted(
       deletedReplayFinisherStatuses: summary.deletedReplayFinisherStatuses,
       deletedRevenueCatAnalyticsOutbox:
         summary.deletedRevenueCatAnalyticsOutbox,
+      deletedStravaRecords: summary.deletedStravaRecords,
       deletedSubcollections: summary.deletedSubcollections,
       removedHomeTodayActivityRows: summary.removedHomeTodayActivityRows,
       userId,

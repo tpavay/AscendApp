@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 protocol HeadphoneMotionSessionServicing: AnyObject {
     var duration: TimeInterval { get }
+    var isMotionAccessDenied: Bool { get }
     var lastResolvedTrackingGap: HeadphoneMotionResolvedTrackingGap? { get }
     var sampleCount: Int { get }
     var status: HeadphoneMotionSessionStatus { get }

@@ -11,6 +11,7 @@ import {
   mergeHomeTodayActivityRows,
   parseHomeTodayActivityCandidate,
   projectionFromData,
+  projectionToData,
   reconcileHomeTodayActivity,
   refreshHomeTodayActivityIdentity,
   removeHomeTodayActivityRows,
@@ -39,22 +40,122 @@ test("a completed Live Climb is a live_climb row on its landmark", () => {
   assert.equal(candidate?.justClimbGoalKind, null);
 });
 
-test("an unfinished Live Climb attempt is not on the feed", () => {
+test("a completed Live Climb is not partial and names no attempt", () => {
+  const candidate = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w1",
+    makeWorkoutDocument()
+  );
+  assert.equal(candidate?.isPartial, false);
+  assert.equal(candidate?.attemptClimbId, null);
+  assert.equal(candidate?.targetSteps, null);
+});
+
+test("a Live Climb stopped before the top is a partial row on its landmark", () => {
+  // The production workout that reported this: Shanghai Tower, stopped and
+  // saved at 2,342 of 3,398 steps on 2026-09-27.
   const candidate = parseHomeTodayActivityCandidate(
     "user-a",
     "w1",
     makeWorkoutDocument({
-      steps: 900,
+      steps: 2342,
+      durationSeconds: 1580.1052119731903,
+      metadata: {
+        climbId: "shanghai-tower",
+        trackingMode: "live_climb",
+        stopReason: "user_stopped",
+        targetStepCount: 3398,
+        climbTargetStepCount: 3398,
+      },
+    })
+  );
+  assert.equal(candidate?.kind, "live_climb");
+  assert.equal(candidate?.isPartial, true);
+  assert.equal(
+    candidate?.climbId,
+    null,
+    "a 1.1 client titles and opens climbId as a finish"
+  );
+  assert.equal(candidate?.attemptClimbId, "shanghai-tower");
+  assert.equal(candidate?.targetSteps, 3398);
+  assert.equal(candidate?.steps, 2342);
+  assert.equal(candidate?.durationSeconds, 1580);
+});
+
+test("a recovered Live Climb draft short of the top is partial too", () => {
+  const candidate = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w1",
+    makeWorkoutDocument({
+      steps: 400,
       metadata: {
         climbId: ESB,
         trackingMode: "live_climb",
-        stopReason: "user_stopped",
-        targetStepCount: 2096,
+        stopReason: "interrupted",
         climbTargetStepCount: 2096,
       },
     })
   );
-  assert.equal(candidate, null);
+  assert.equal(candidate?.isPartial, true);
+  assert.equal(candidate?.attemptClimbId, ESB);
+});
+
+test("a recovered Live Climb draft that reached the top is a finish", () => {
+  const candidate = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w1",
+    makeWorkoutDocument({
+      steps: 2096,
+      metadata: {
+        climbId: ESB,
+        trackingMode: "live_climb",
+        stopReason: "interrupted",
+        climbTargetStepCount: 2096,
+      },
+    })
+  );
+  assert.equal(candidate?.isPartial, false);
+  assert.equal(candidate?.climbId, ESB);
+});
+
+test("a Live Climb with no progress, or discarded, is not on the feed", () => {
+  const shortMetadata = {
+    climbId: ESB,
+    trackingMode: "live_climb",
+    stopReason: "user_stopped",
+    climbTargetStepCount: 2096,
+  };
+  assert.equal(
+    parseHomeTodayActivityCandidate(
+      "user-a",
+      "w1",
+      makeWorkoutDocument({steps: 0, metadata: shortMetadata})
+    ),
+    null
+  );
+  assert.equal(
+    parseHomeTodayActivityCandidate(
+      "user-a",
+      "w1",
+      makeWorkoutDocument({
+        steps: 300,
+        durationSeconds: 0,
+        metadata: shortMetadata,
+      })
+    ),
+    null
+  );
+  assert.equal(
+    parseHomeTodayActivityCandidate(
+      "user-a",
+      "w1",
+      makeWorkoutDocument({
+        steps: 300,
+        metadata: {...shortMetadata, stopReason: "discarded"},
+      })
+    ),
+    null
+  );
 });
 
 test("a legacy completion with no recorded target still counts", () => {
@@ -115,6 +216,70 @@ test("a Just Climb keeps the goal it was set to", () => {
   assert.equal(open?.justClimbGoalValue, null);
 });
 
+test("a Just Climb stopped before its goal is partial, an open one never is", () => {
+  const shortOfSteps = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w1",
+    makeWorkoutDocument({
+      steps: 900,
+      metadata: {
+        trackingMode: "just_climb",
+        stopReason: "user_stopped",
+        targetStepCount: 1500,
+      },
+    })
+  );
+  assert.equal(shortOfSteps?.kind, "just_climb");
+  assert.equal(shortOfSteps?.isPartial, true);
+
+  const shortOfTime = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w2",
+    makeWorkoutDocument({
+      metadata: {
+        trackingMode: "just_climb",
+        stopReason: "user_stopped",
+        targetDurationSeconds: 1800,
+      },
+    })
+  );
+  assert.equal(shortOfTime?.isPartial, true);
+
+  const reached = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w3",
+    makeWorkoutDocument({
+      metadata: {
+        trackingMode: "just_climb",
+        stopReason: "target_reached",
+        targetDurationSeconds: 1800,
+      },
+    })
+  );
+  assert.equal(reached?.isPartial, false);
+
+  const open = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w4",
+    makeWorkoutDocument({
+      metadata: {trackingMode: "just_climb", stopReason: "user_stopped"},
+    })
+  );
+  assert.equal(open?.isPartial, false);
+});
+
+test("a recovered Just Climb draft is on the feed", () => {
+  const candidate = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w1",
+    makeWorkoutDocument({
+      metadata: {trackingMode: "just_climb", stopReason: "interrupted"},
+    })
+  );
+  assert.equal(candidate?.kind, "just_climb");
+  assert.equal(candidate?.justClimbGoalKind, "open");
+});
+
 test("a discarded or empty Just Climb is not on the feed", () => {
   assert.equal(
     parseHomeTodayActivityCandidate(
@@ -171,15 +336,67 @@ test("a personal routine is a routine row that names no template", () => {
   assert.equal(candidate?.routineTemplateId, null);
 });
 
-test("a skipped routine and a non-sensor workout are not on the feed", () => {
+test("a finished routine is not partial", () => {
+  const candidate = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w1",
+    makeWorkoutDocument({
+      metadata: {
+        trackingMode: "routine",
+        stopReason: "target_reached",
+        routineTemplateId: "pyramid_climb",
+        targetDurationSeconds: 1200,
+      },
+    })
+  );
+  assert.equal(candidate?.isPartial, false);
+  assert.equal(candidate?.targetDurationSeconds, null);
+});
+
+test("a routine stopped early is a partial row carrying its plan length", () => {
+  for (const stopReason of ["user_stopped", "interrupted", "skipped"]) {
+    const template = parseHomeTodayActivityCandidate(
+      "user-a",
+      "w1",
+      makeWorkoutDocument({
+        durationSeconds: 420.4,
+        metadata: {
+          trackingMode: "routine",
+          stopReason,
+          routineTemplateId: "pyramid_climb",
+          targetDurationSeconds: 1200,
+        },
+      })
+    );
+    assert.equal(template?.kind, "routine_template", stopReason);
+    assert.equal(template?.routineTemplateId, "pyramid_climb", stopReason);
+    assert.equal(template?.isPartial, true, stopReason);
+    assert.equal(template?.targetDurationSeconds, 1200, stopReason);
+    assert.equal(template?.durationSeconds, 420, stopReason);
+  }
+
+  const personal = parseHomeTodayActivityCandidate(
+    "user-a",
+    "w2",
+    makeWorkoutDocument({
+      metadata: {trackingMode: "routine", stopReason: "user_stopped"},
+    })
+  );
+  assert.equal(personal?.kind, "routine");
+  assert.equal(personal?.isPartial, true);
+  assert.equal(personal?.targetDurationSeconds, null);
+});
+
+test("an empty or discarded routine and a non-sensor workout are not on the feed", () => {
   assert.equal(
     parseHomeTodayActivityCandidate(
       "user-a",
       "w1",
       makeWorkoutDocument({
+        steps: 0,
         metadata: {
           trackingMode: "routine",
-          stopReason: "skipped",
+          stopReason: "user_stopped",
           routineTemplateId: "pyramid_climb",
         },
       })
@@ -190,10 +407,27 @@ test("a skipped routine and a non-sensor workout are not on the feed", () => {
     parseHomeTodayActivityCandidate(
       "user-a",
       "w1",
-      makeWorkoutDocument({source: "manual"})
+      makeWorkoutDocument({
+        metadata: {
+          trackingMode: "routine",
+          stopReason: "discarded",
+          routineTemplateId: "pyramid_climb",
+        },
+      })
     ),
     null
   );
+  for (const source of ["manual", "apple_health"]) {
+    assert.equal(
+      parseHomeTodayActivityCandidate(
+        "user-a",
+        "w1",
+        makeWorkoutDocument({source})
+      ),
+      null,
+      source
+    );
+  }
 });
 
 test("candidates compare on the facts the feed shows", () => {
@@ -211,6 +445,30 @@ test("candidates compare on the facts the feed shows", () => {
         makeWorkoutDocument({steps: 2200})
       )
     )
+  );
+  const stoppedShort = {
+    climbId: ESB,
+    trackingMode: "live_climb",
+    stopReason: "user_stopped",
+    climbTargetStepCount: 2096,
+  };
+  assert.ok(
+    !candidatesEqual(
+      parseHomeTodayActivityCandidate(
+        "u",
+        "w",
+        makeWorkoutDocument({steps: 1000, metadata: stoppedShort})
+      ),
+      parseHomeTodayActivityCandidate(
+        "u",
+        "w",
+        makeWorkoutDocument({
+          steps: 1000,
+          metadata: {...stoppedShort, climbTargetStepCount: 2000},
+        })
+      )
+    ),
+    "a changed target changes the row"
   );
 });
 
@@ -298,6 +556,38 @@ test("a new completion is written with the climber's public identity", async () 
   assert.equal(row?.identityState, "published");
   assert.equal(row?.isSynthetic, false);
   assert.equal(row?.publishedAtMillis, 5_000);
+});
+
+test("a saved Live Climb that stopped short is written to the feed", async () => {
+  const store = makeFakeStore();
+  store.publicUsers.set("user-a", makePublicUser({displayName: "Tyler"}));
+
+  const outcome = await reconcileHomeTodayActivity(store, {
+    workoutId: "w1",
+    candidate: parseHomeTodayActivityCandidate(
+      "user-a",
+      "w1",
+      makeWorkoutDocument({
+        steps: 900,
+        metadata: {
+          climbId: ESB,
+          trackingMode: "live_climb",
+          stopReason: "user_stopped",
+          climbTargetStepCount: 2096,
+        },
+      })
+    ),
+    nowMillis: NOW_MILLIS,
+  });
+
+  assert.equal(outcome, "written");
+  const row = store.projection?.rows[0];
+  assert.equal(row?.displayName, "Tyler");
+  assert.equal(row?.isPartial, true);
+  assert.equal(row?.attemptClimbId, ESB);
+  assert.equal(row?.climbId, null);
+  assert.equal(row?.steps, 900);
+  assert.equal(row?.targetSteps, 2096);
 });
 
 test("re-deriving a workout the feed knows keeps its publish time", async () => {
@@ -642,6 +932,79 @@ test("a stored document round-trips and a malformed row is dropped", () => {
   assert.equal(row.photoURL, null, "an empty photo URL reads as none");
 });
 
+test("a partial row stores its progress and no finished landmark", () => {
+  const data = projectionToData({
+    schemaVersion: 1,
+    rows: [
+      makeRow({
+        workoutId: "partial",
+        climbId: null,
+        attemptClimbId: "shanghai-tower",
+        steps: 2342,
+        isPartial: true,
+        targetSteps: 3398,
+      }),
+      makeRow({workoutId: "finish"}),
+    ],
+  });
+  const [partial, finish] = data.rows as Record<string, unknown>[];
+  assert.equal(partial.kind, "live_climb");
+  assert.equal("climbId" in partial, false);
+  assert.equal(partial.attemptClimbId, "shanghai-tower");
+  assert.equal(partial.isPartial, true);
+  assert.equal(partial.targetSteps, 3398);
+  assert.equal("targetDurationSeconds" in partial, false);
+  for (const key of [
+    "isPartial",
+    "attemptClimbId",
+    "targetSteps",
+    "targetDurationSeconds",
+  ]) {
+    assert.equal(key in finish, false, `a finish stores no ${key}`);
+  }
+
+  const reread = projectionFromData({
+    schemaVersion: 1,
+    rows: (data.rows as Record<string, unknown>[]).map((row) => ({
+      ...row,
+      completedAt: {toMillis: () => STARTED_AT_MILLIS},
+      publishedAt: {toMillis: () => 1},
+    })),
+  });
+  assert.equal(reread.rows[0].isPartial, true);
+  assert.equal(reread.rows[0].attemptClimbId, "shanghai-tower");
+  assert.equal(reread.rows[0].climbId, null);
+  assert.equal(reread.rows[0].targetSteps, 3398);
+  assert.equal(reread.rows[1].isPartial, false);
+  assert.equal(reread.rows[1].targetSteps, null);
+});
+
+test("a routine row stored before partial sessions reads as a finish", () => {
+  const stored = projectionFromData({
+    schemaVersion: 1,
+    rows: [
+      {
+        workoutId: "w1",
+        userId: "user-a",
+        kind: "routine_template",
+        routineTemplateId: "pyramid_climb",
+        steps: 1200,
+        durationSeconds: 600,
+        completedAt: {toMillis: () => 2_000},
+        publishedAt: {toMillis: () => 3_000},
+        displayName: "Ada",
+        avatarToken: "AE7",
+        photoURL: "",
+        identityState: "published",
+        isSynthetic: false,
+      },
+    ],
+  });
+  assert.equal(stored.rows[0].isPartial, false);
+  assert.equal(stored.rows[0].attemptClimbId, null);
+  assert.equal(stored.rows[0].targetDurationSeconds, null);
+});
+
 // MARK: fixtures
 
 interface WorkoutOverrides {
@@ -690,12 +1053,16 @@ function makeRow(
     userId: "user-a",
     kind: "live_climb",
     climbId: ESB,
+    attemptClimbId: null,
     routineTemplateId: null,
     steps: 2096,
     durationSeconds: 900,
     completedAtMillis: STARTED_AT_MILLIS + 900_000,
     justClimbGoalKind: null,
     justClimbGoalValue: null,
+    isPartial: false,
+    targetSteps: null,
+    targetDurationSeconds: null,
     publishedAtMillis: 1,
     displayName: "Ada",
     avatarToken: "AE7",

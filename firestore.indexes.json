@@ -453,6 +453,34 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "_strava_upload_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "readyAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "_strava_upload_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "processingStartedAt",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -522,6 +550,12 @@
     },
     {
       "collectionGroup": "_revenuecat_analytics_outbox",
+      "fieldPath": "retainUntil",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "_strava_upload_jobs",
       "fieldPath": "retainUntil",
       "ttl": true,
       "indexes": []

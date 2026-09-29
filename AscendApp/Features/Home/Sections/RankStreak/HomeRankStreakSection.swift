@@ -6,7 +6,7 @@ import SwiftUI
 struct HomeRankStreakSection: View {
     let weeklyRankSummary: HomeWeeklyRankSummary?
     let isRankLoading: Bool
-    let currentStreakWeeks: Int
+    let streak: WeeklyStreak
     let onRankTapped: () -> Void
     let onStreakTapped: () -> Void
 
@@ -19,7 +19,7 @@ struct HomeRankStreakSection: View {
             )
 
             HomeStreakCard(
-                weeks: currentStreakWeeks,
+                streak: streak,
                 action: onStreakTapped
             )
         }
@@ -36,6 +36,49 @@ private struct CardDisclosureChevron: View {
     }
 }
 
+/// A tile's accent title and disclosure chevron. The row keeps one height however far the
+/// title shrinks to fit, so the two tiles' lines below it stay level.
+private struct HomeTileHeader: View {
+    let title: String
+
+    var body: some View {
+        HomeTileLine(font: .montserratSemiBold(size: 10)) {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.montserratSemiBold(size: 10))
+                    .tracking(1.2)
+                    .foregroundStyle(Color.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+
+                Spacer(minLength: 4)
+
+                CardDisclosureChevron()
+            }
+        }
+    }
+}
+
+/// One line of a tile, as tall as a line of `font` with `content` on its baseline, whatever
+/// `content` is: a line that shrinks to fit, or reads differently from state to state, never
+/// moves the lines beneath it out of step with the neighbouring tile.
+private struct HomeTileLine<Content: View>: View {
+    let font: Font
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        Text(verbatim: "0")
+            .font(font)
+            .lineLimit(1)
+            .hidden()
+            .accessibilityHidden(true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .leadingFirstTextBaseline) {
+                content
+            }
+    }
+}
+
 private struct HomeRankCard: View {
     let summary: HomeWeeklyRankSummary?
     let isLoading: Bool
@@ -44,24 +87,9 @@ private struct HomeRankCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 4) {
-                    Text("WEEKLY RANK · STEPS")
-                        .font(.montserratSemiBold(size: 10))
-                        .tracking(1.2)
-                        .foregroundStyle(Color.accent)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
+                HomeTileHeader(title: "WEEKLY RANK · STEPS")
 
-                    Spacer(minLength: 4)
-
-                    CardDisclosureChevron()
-                }
-
-                Text(summary.map { "#\($0.rank)" } ?? "-")
-                    .font(.montserratBold(size: 34))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                rankValue
 
                 Text(statusText)
                     .font(.montserratMedium(size: 10))
@@ -72,12 +100,36 @@ private struct HomeRankCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
-            .frame(minHeight: 116)
+            .frame(minHeight: 116, alignment: .top)
             .background(HomeTileBackground())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// Never a bare "-": level with the streak tile's number, a lone dash read as a minus
+    /// sign on the streak ("-2 wks").
+    private var rankValue: some View {
+        HomeTileLine(font: .montserratBold(size: 34)) {
+            if let summary {
+                Text("#\(summary.rank)")
+                    .font(.montserratBold(size: 34))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            } else if isLoading {
+                Text(verbatim: "#00")
+                    .font(.montserratBold(size: 34))
+                    .redacted(reason: .placeholder)
+            } else {
+                Text("Unranked")
+                    .font(.montserratBold(size: 24))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
     }
 
     private var statusText: String {
@@ -97,36 +149,31 @@ private struct HomeRankCard: View {
 }
 
 private struct HomeStreakCard: View {
-    let weeks: Int
+    let streak: WeeklyStreak
     let action: () -> Void
 
     var body: some View {
+        let copy = HomeStreakCopy(streak: streak)
+
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 4) {
-                    Text("STREAK")
-                        .font(.montserratSemiBold(size: 10))
-                        .tracking(1.2)
-                        .foregroundStyle(Color.accent)
+                HomeTileHeader(title: "STREAK")
 
-                    Spacer(minLength: 4)
+                HomeTileLine(font: .montserratBold(size: 34)) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(streak.weeks.formatted())
+                            .font(.montserratBold(size: 34))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
 
-                    CardDisclosureChevron()
+                        Text(copy.unit)
+                            .font(.montserratBold(size: 13))
+                            .foregroundStyle(.white.opacity(0.72))
+                    }
                 }
 
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(weeks.formatted())
-                        .font(.montserratBold(size: 34))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-
-                    Text(weeks == 1 ? "wk" : "wks")
-                        .font(.montserratBold(size: 13))
-                        .foregroundStyle(.white.opacity(0.72))
-                }
-
-                Text(subtitle)
+                Text(copy.subtitle)
                     .font(.montserratMedium(size: 10))
                     .foregroundStyle(.white.opacity(0.55))
                     .lineLimit(2)
@@ -135,24 +182,12 @@ private struct HomeStreakCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
-            .frame(minHeight: 116)
+            .frame(minHeight: 116, alignment: .top)
             .background(HomeTileBackground())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    /// The week ends Sunday app-wide (Monday start), so the deadline is always the
-    /// same day; what changes is whether this week already counts.
-    private var subtitle: String {
-        weeks > 0 ? "in a row · ends Sunday" : "Climb this week to start one"
-    }
-
-    private var accessibilityLabel: String {
-        weeks > 0
-            ? "Streak: \(weeks) \(weeks == 1 ? "week" : "weeks") in a row. Ends Sunday."
-            : "No streak yet. Climb this week to start one."
+        .accessibilityLabel(copy.accessibilityLabel)
     }
 }
 

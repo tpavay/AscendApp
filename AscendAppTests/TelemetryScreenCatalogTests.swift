@@ -71,6 +71,7 @@ struct TelemetryScreenCatalogTests {
         "delete_account_confirmation": "DeleteAccountConfirmationView",
         "apple_health_manage": "AppleHealthManageSheet",
         "heart_rate_monitor_manage": "HeartRateMonitorManageSheet",
+        "strava_manage": "StravaManageSheet",
         "share_composer": "ShareComposerView",
         "app_update_nudge": "AppUpdateSheet"
     ]

@@ -23,6 +23,7 @@ interface FakePortOptions {
   lifecycleEmailJobs?: number;
   revenueCatAnalyticsOutbox?: number;
   homeTodayActivityRows?: number;
+  stravaRecords?: number;
   failOn?: string[];
   failListing?: boolean;
 }
@@ -163,6 +164,14 @@ function makeFakePort(options: FakePortOptions = {}): {
         throw new Error("cannot delete userRateLimits");
       }
       deleted.push("userRateLimits");
+    },
+
+    async disconnectStrava() {
+      if (failOn.has("strava")) {
+        throw new Error("cannot disconnect strava");
+      }
+      deleted.push("strava");
+      return options.stravaRecords ?? 0;
     },
   };
 
@@ -922,6 +931,25 @@ test("a failed today-feed rewrite is reported and does not stop the sweep", asyn
 
   assert.equal(summary.removedHomeTodayActivityRows, 0);
   assert.ok(summary.failures.some((failure) => failure.startsWith("home_today_activity:")));
+  assert.ok(deleted.includes("userRateLimits"));
+});
+
+test("disconnects the deleted climber's Strava", async () => {
+  const {deleted, port} = makeFakePort({stravaRecords: 3});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedStravaRecords, 3);
+  assert.ok(deleted.includes("strava"));
+});
+
+test("a failed Strava disconnect is reported so the sweep retries", async () => {
+  const {deleted, port} = makeFakePort({failOn: ["strava"]});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedStravaRecords, 0);
+  assert.ok(summary.failures.some((failure) => failure.startsWith("strava:")));
   assert.ok(deleted.includes("userRateLimits"));
 });
 
