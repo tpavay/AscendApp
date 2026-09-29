@@ -29,6 +29,12 @@ struct PostAuthOnboardingFlowView: View {
                     onBack: handleLeadingControl,
                     onContinue: onContinue
                 )
+            case .athlete:
+                PostAuthAthleteScreen(
+                    stage: stage,
+                    onBack: handleLeadingControl,
+                    onContinue: onContinue
+                )
             case .age:
                 PostAuthBirthdayScreen(
                     stage: stage,
@@ -269,6 +275,8 @@ private struct PostAuthGenderScreen: View {
             isSaving = false
 
             if didSave {
+                // The athlete step that follows starts from this answer.
+                AthleteLookStore.shared.start(with: selectedGender)
                 TelemetryManager.shared.setUserProperty("division_inputted", value: "true")
                 OnboardingAnalyticsUserProperties.setGender(selectedGender)
                 trackPostAuthInput(
@@ -278,6 +286,82 @@ private struct PostAuthGenderScreen: View {
                 onContinue()
             }
         }
+    }
+}
+
+/// "This is you on the Mountain": the athlete the gender answer starts the climber with, turning
+/// on its stage, with the editor one tap away (captain, round 8). Either way the look is saved,
+/// so other climbers see this athlete rather than a stand-in.
+private struct PostAuthAthleteScreen: View {
+    @Environment(AuthenticationViewModel.self) private var authVM
+
+    let stage: PostAuthOnboardingStage
+    let onBack: () -> Void
+    let onContinue: () -> Void
+
+    @State private var store = AthleteLookStore.shared
+    @State private var isEditing = false
+    @State private var isSaving = false
+
+    var body: some View {
+        PostAuthProfileQuestionShell(
+            stage: stage,
+            eyebrow: "YOUR ATHLETE",
+            headline: "This is you on the Mountain.",
+            subtitle: "We started from your answers. Make it yours or keep going.",
+            primaryTitle: isSaving ? "SAVING..." : "LOOKS GOOD",
+            isContinueEnabled: !isSaving,
+            secondaryTitle: "MAKE IT MINE",
+            onSecondary: { isEditing = true },
+            onBack: onBack,
+            onContinue: keepLook
+        ) { metrics in
+            AthletePreviewView(look: store.current)
+                .frame(width: metrics.width(390), height: metrics.height(390))
+                .background(
+                    RadialGradient(
+                        colors: [Color(red: 0.11, green: 0.14, blue: 0.07), .clear],
+                        center: UnitPoint(x: 0.5, y: 0.7),
+                        startRadius: 0,
+                        endRadius: metrics.width(190)
+                    )
+                )
+                .position(x: metrics.x(195), y: metrics.y(452))
+        }
+        .task {
+            guard let userId = authVM.user?.uid else { return }
+            await store.load(userId: userId)
+        }
+        .sheet(isPresented: $isEditing) {
+            AthleteEditorView(store: store) {
+                report(action: "make_it_mine")
+                onContinue()
+            }
+            .appSheetStyle(.large)
+        }
+    }
+
+    /// Keeps the athlete as it stands. A save that fails does not hold up onboarding: the climber
+    /// still climbs as this athlete, and can save it from Profile later.
+    private func keepLook() {
+        guard !isSaving else { return }
+        Task { @MainActor in
+            if let userId = authVM.user?.uid {
+                isSaving = true
+                do {
+                    try await store.save(store.current, userId: userId)
+                } catch {
+                    TelemetryManager.shared.recordError(error, context: .firestore, code: "athlete_look_save_failed")
+                }
+                isSaving = false
+            }
+            report(action: "looks_good")
+            onContinue()
+        }
+    }
+
+    private func report(action: String) {
+        trackPostAuthInput(stage: stage, properties: ["action_id": .string(action)])
     }
 }
 
@@ -1480,6 +1564,9 @@ private struct PostAuthProfileQuestionShell<Content: View>: View {
     var subtitle: String?
     let primaryTitle: String
     let isContinueEnabled: Bool
+    /// An outlined action above the primary one, for a screen that offers two ways on.
+    var secondaryTitle: String?
+    var onSecondary: () -> Void = {}
     let onBack: () -> Void
     let onContinue: () -> Void
     @ViewBuilder let content: (PostAuthProfileMetrics) -> Content
@@ -1533,6 +1620,23 @@ private struct PostAuthProfileQuestionShell<Content: View>: View {
                 .offset(x: metrics.x(28), y: metrics.y(154))
 
                 content(metrics)
+
+                if let secondaryTitle {
+                    Button(action: onSecondary) {
+                        Text(secondaryTitle)
+                            .font(.montserratBold(size: metrics.font(16)))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: metrics.radius(12), style: .continuous)
+                                    .stroke(.white.opacity(0.34), lineWidth: 1)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: metrics.radius(12), style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: metrics.width(334), height: metrics.height(56))
+                    .position(x: metrics.x(195), y: metrics.y(672))
+                }
 
                 Button(action: onContinue) {
                     Text(primaryTitle)

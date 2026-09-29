@@ -98,6 +98,17 @@ struct MountainColor: Decodable, Equatable, Sendable {
             blue: blue + (other.blue - blue) * t
         )
     }
+
+    /// The colour with every channel multiplied by `factor` in linear light - how a renderer
+    /// multiplies a tint into a texture - and held at white.
+    func linearScaled(by factor: Double) -> MountainColor {
+        func scaled(_ channel: Double) -> Double {
+            let linear = channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+            let result = min(max(linear * factor, 0), 1)
+            return result <= 0.0031308 ? result * 12.92 : 1.055 * pow(result, 1 / 2.4) - 0.055
+        }
+        return MountainColor(red: scaled(red), green: scaled(green), blue: scaled(blue))
+    }
 }
 
 /// The ordered regions of one mountain, and the only place a step count is turned into one.

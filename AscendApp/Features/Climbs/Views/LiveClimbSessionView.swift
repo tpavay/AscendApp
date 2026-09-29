@@ -37,6 +37,8 @@ struct LiveClimbSessionView: View {
     /// Who races on the Mountain, and the ghosts that puts on the stairs.
     @State private var mountainRace: AscendMountainRace
     @State private var showingMountainRaceSheet = false
+    /// The climber's own athlete on the Mountain.
+    private let athleteLookStore = AthleteLookStore.shared
 
     private let experience: JustClimbExperience
     /// Where Ascend Mountain reads the climbers someone can filter the race to.
@@ -75,7 +77,8 @@ struct LiveClimbSessionView: View {
         viewModel: LiveClimbSessionViewModel,
         experience: JustClimbExperience = .classic,
         mountainBoard: MountainRaceBoard = FirestoreLiveReplayLeaderboardRepository.shared,
-        mountainFilterStore: MountainRaceFilterRepository = FirestoreMountainRaceFilterRepository.shared
+        mountainFilterStore: MountainRaceFilterRepository = FirestoreMountainRaceFilterRepository.shared,
+        athleteLooks: AthleteLookRepository = FirestoreAthleteLookRepository.shared
     ) {
         _viewModel = State(initialValue: viewModel)
         self.mountainBoard = mountainBoard
@@ -85,6 +88,7 @@ struct LiveClimbSessionView: View {
                 goal: viewModel.mode.justClimbGoal,
                 board: mountainBoard,
                 filterStore: mountainFilterStore,
+                looks: athleteLooks,
                 userId: Auth.auth().currentUser?.uid
             )
             : AscendMountainRace())
@@ -163,11 +167,16 @@ struct LiveClimbSessionView: View {
         }
         .task {
             guard experience == .mountain else { return }
-            await mountainRace.loadChosen()
+            async let chosen: Void = mountainRace.loadChosen()
+            if let userId = Auth.auth().currentUser?.uid {
+                await athleteLookStore.load(userId: userId)
+            }
+            await chosen
         }
         .onChange(of: viewModel.leaderboardWindow) { _, window in
             guard experience == .mountain, let window else { return }
             mountainRace.ingest(window, identities: moderationStore.moderate(window.rows))
+            Task { await mountainRace.refreshLooks() }
         }
         .sheet(
             isPresented: $showingStepAccuracyCalibration,
@@ -276,6 +285,7 @@ struct LiveClimbSessionView: View {
                         bucketIndex: Int(viewModel.displayedDuration) / context.bucketIntervalSeconds,
                         moderate: { moderationStore.moderate($0) }
                     )
+                    await mountainRace.refreshLooks()
                 }
             }
         }
@@ -391,13 +401,15 @@ struct LiveClimbSessionView: View {
     private var mountainBackdrop: some View {
         let viewModel = viewModel
         let race = mountainRace
+        let looks = athleteLookStore
         return AscendMountainRealityView(
             seed: MountainCourse.ascendMountainSeed,
             stepSource: { viewModel.totalRecordedSteps },
             debugState: mountainDebugState,
             ghostSource: { race.ghosts },
             markerSource: { race.markers },
-            elapsedSource: { viewModel.displayedDuration }
+            elapsedSource: { viewModel.displayedDuration },
+            athleteLook: { looks.current }
         )
         .overlay {
             // Legibility for the chrome above and the stat row and controls below.

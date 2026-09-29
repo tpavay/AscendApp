@@ -50,6 +50,7 @@ struct TelemetryScreenCatalogTests {
         "routine_editor": "RoutineEditorView",
         "active_routine": "ActiveRoutineView",
         "other_user_profile": "OtherUserProfileView",
+        "athlete_editor": "AthleteEditorView",
         "achievement_history": "AchievementHistorySheet",
         "report_profile": "ReportProfileSheet",
         "post_block_report": "PostBlockReportSheet",

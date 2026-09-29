@@ -356,6 +356,8 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
             ]
         case .gender:
             return [completed(["profile_gender": .string("woman")])]
+        case .athlete:
+            return [completed(["action_id": .string("looks_good")])]
         case .age:
             return [
                 completed([

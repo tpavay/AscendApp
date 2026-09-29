@@ -31,20 +31,34 @@ final class AscendMountainRace {
     /// The last bucket each chosen climber was asked about, so a read happens once a bucket.
     @ObservationIgnored private var chosenReadBucket: [String: Int] = [:]
     @ObservationIgnored private var isRefreshingChosen = false
+    @ObservationIgnored private let looks: AthleteLookRepository?
+    /// Each rival's own look, once read; a rival without one wears a stand-in.
+    @ObservationIgnored private var rivalLooks: [String: AthleteLook] = [:]
+    /// Climbers whose look was asked for, read or not, so each is asked once a climb.
+    @ObservationIgnored private var looksAsked: Set<String> = []
+    /// Climbers the moderation resolver hides: they wear a stand-in and are never looked up.
+    @ObservationIgnored private var hiddenClimbers: Set<String> = []
+    @ObservationIgnored private var isRefreshingLooks = false
+
+    /// Looks read at once, so a start line of fifty climbers arrives in a few round trips.
+    static let lookReadsInFlight = 8
 
     /// - Parameters:
     ///   - goal: the session's goal, which decides where the best's line stands.
     ///   - board: where a chosen climber's best is read; nil races only the windows.
     ///   - filterStore: where the climber's chosen climbers are kept, for `userId`.
+    ///   - looks: where each rival's athlete look is read; nil dresses every rival as a stand-in.
     init(
         goal: JustClimbGoal? = nil,
         board: MountainRaceBoard? = nil,
         filterStore: MountainRaceFilterRepository? = nil,
+        looks: AthleteLookRepository? = nil,
         userId: String? = nil
     ) {
         self.goal = goal
         self.board = board
         self.filterStore = filterStore
+        self.looks = looks
         self.userId = userId
     }
 
@@ -85,8 +99,49 @@ final class AscendMountainRace {
     func ingest(_ window: LiveReplayLeaderboardWindow, identities: [ModeratedReplayLeaderboardRow]) {
         field.ingest(window)
         for row in identities {
-            labels[row.userId ?? row.id] = Self.tagLabel(for: row.identity)
+            note(row, as: row.userId ?? row.id)
         }
+        rebuildGhosts()
+    }
+
+    private func note(_ row: ModeratedReplayLeaderboardRow, as id: String) {
+        labels[id] = Self.tagLabel(for: row.identity)
+        if row.identity.isHidden {
+            hiddenClimbers.insert(id)
+        } else {
+            hiddenClimbers.remove(id)
+        }
+    }
+
+    /// Reads the look of every climber on the stairs not yet asked about, a few at a time, and
+    /// dresses them in it. A look that cannot be read leaves the stand-in, and is not asked again
+    /// this climb; a hidden climber is never asked.
+    func refreshLooks() async {
+        guard let looks, !isRefreshingLooks else { return }
+        isRefreshingLooks = true
+        defer { isRefreshingLooks = false }
+
+        let wanted = ghosts.lazy
+            .filter { $0.kind == .rival }
+            .map(\.id)
+            .filter { !self.looksAsked.contains($0) && !self.hiddenClimbers.contains($0) && $0 != self.userId }
+        let asking = Array(wanted)
+        guard !asking.isEmpty else { return }
+        looksAsked.formUnion(asking)
+
+        var found: [String: AthleteLook] = [:]
+        for batch in stride(from: 0, to: asking.count, by: Self.lookReadsInFlight).map({ Array(asking[$0..<min($0 + Self.lookReadsInFlight, asking.count)]) }) {
+            await withTaskGroup(of: (String, AthleteLook?).self) { group in
+                for id in batch {
+                    group.addTask { (id, try? await looks.fetchLook(userId: id)) }
+                }
+                for await (id, look) in group {
+                    if let look { found[id] = look }
+                }
+            }
+        }
+        guard !found.isEmpty else { return }
+        rivalLooks.merge(found) { _, new in new }
         rebuildGhosts()
     }
 
@@ -110,7 +165,7 @@ final class AscendMountainRace {
                 chosenBests[userId] = best
                 field.learnChosen(userId: userId, best: best.row, bucketIntervalSeconds: interval)
                 for row in moderate([best.row]) {
-                    labels[userId] = Self.tagLabel(for: row.identity)
+                    note(row, as: userId)
                 }
             }
             guard let best = chosenBests[userId], bucketIndex > 0,
@@ -124,7 +179,12 @@ final class AscendMountainRace {
     }
 
     private func rebuildGhosts() {
-        ghosts = Self.ghosts(field: field, labels: labels, selection: selection)
+        ghosts = Self.ghosts(
+            field: field,
+            labels: labels,
+            looks: rivalLooks.filter { !hiddenClimbers.contains($0.key) },
+            selection: selection
+        )
         markers = selection.showsYourBest
             ? field.yourBest.flatMap { Self.bestLine(for: $0, goal: goal) }.map { [$0] } ?? []
             : []
@@ -159,6 +219,7 @@ final class AscendMountainRace {
     nonisolated static func ghosts(
         field: MountainRaceField,
         labels: [String: String],
+        looks: [String: AthleteLook] = [:],
         selection: MountainRaceSelection
     ) -> [MountainGhost] {
         var ghosts: [MountainGhost] = []
@@ -169,7 +230,7 @@ final class AscendMountainRace {
             for climber in racing {
                 let id = ghostID(for: climber)
                 let curve = climber.curve
-                ghosts.append(MountainGhost(id: id, kind: .rival, label: labels[id] ?? "") { curve.steps(at: $0) })
+                ghosts.append(MountainGhost(id: id, kind: .rival, label: labels[id] ?? "", look: looks[id]) { curve.steps(at: $0) })
             }
         }
         if selection.showsYourBest, let curve = field.yourBest {

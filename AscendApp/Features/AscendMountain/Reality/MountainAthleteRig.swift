@@ -3,49 +3,6 @@ import RealityKit
 import UIKit
 import simd
 
-/// The colours the athlete is tinted with, one per material slot the asset names. The avatar
-/// system will fill this from the climber's saved look; until then every climber wears the
-/// Ascend kit.
-struct MountainAthleteLook: Equatable, Sendable {
-    var skin = MountainColor(red: 0.78, green: 0.58, blue: 0.43)
-    var hair = MountainColor(red: 0.42, green: 0.27, blue: 0.16)
-    var top = MountainColor(red: 0.53, green: 0.83, blue: 0.04)
-    var bottom = MountainColor(red: 0.1, green: 0.11, blue: 0.13)
-    var shoe = MountainColor(red: 0.95, green: 0.95, blue: 0.95)
-    var shoeAccent = MountainColor(red: 0.13, green: 0.14, blue: 0.16)
-
-    static let ascendKit = MountainAthleteLook()
-
-    /// A stand-in look for another climber until their saved athlete is available: the kit in
-    /// one of a few colours, chosen by their id so the same climber always wears the same.
-    static func standIn(for id: String) -> MountainAthleteLook {
-        // Lime is the climber's own kit, so no stand-in wears it.
-        let tops = [(0.12, 0.44, 0.85), (0.88, 0.27, 0.48), (0.95, 0.54, 0.11), (0.95, 0.95, 0.95), (0.11, 0.12, 0.14), (0.55, 0.36, 0.85)]
-        let hairs = [(0.08, 0.06, 0.05), (0.29, 0.17, 0.09), (0.54, 0.35, 0.17), (0.85, 0.69, 0.39)]
-        let hash = id.unicodeScalars.reduce(UInt32(2_166_136_261)) { ($0 ^ $1.value) &* 16_777_619 }
-        var look = MountainAthleteLook()
-        let top = tops[Int(hash % UInt32(tops.count))], hair = hairs[Int((hash / 7) % UInt32(hairs.count))]
-        look.top = MountainColor(red: top.0, green: top.1, blue: top.2)
-        look.hair = MountainColor(red: hair.0, green: hair.1, blue: hair.2)
-        look.bottom = (hash / 29) % 2 == 0 ? MountainColor(red: 0.1, green: 0.11, blue: 0.13) : MountainColor(red: 0.2, green: 0.22, blue: 0.26)
-        return look
-    }
-
-    func color(forSlot slot: String) -> MountainColor {
-        switch slot {
-        case "skin": return skin
-        case "skinShade": return skin.mixed(with: MountainColor(red: 0, green: 0, blue: 0), amount: 0.12)
-        case "hair": return hair
-        case "eyes": return MountainColor(red: 0.05, green: 0.04, blue: 0.04)
-        case "top": return top
-        case "bottom": return bottom
-        case "shoe": return shoe
-        case "shoeAccent": return shoeAccent
-        default: return MountainColor(red: 0.5, green: 0.5, blue: 0.5)
-        }
-    }
-}
-
 /// The athlete: the CC0 skinned character, posed every frame by `MountainAthletePoser` from
 /// `MountainAthleteKinematics`. Feet are planted by IK on the treads the course says, so the
 /// climb animation is the steps themselves rather than a clip played over them.
@@ -54,11 +11,12 @@ final class MountainAthleteRig {
     /// How an athlete is drawn: as themselves, or as a ghost - one glowing colour, see-through,
     /// so it never reads as a real climber on the stairs.
     enum Style: Equatable {
-        case athlete(MountainAthleteLook)
+        case athlete(AthleteLook)
         case ghost(MountainColor)
     }
 
     let root = Entity()
+    let figureKey: MountainAthleteFigure.Key
     private let model: ModelEntity
     private let poser: MountainAthletePoser
     private var groundRing: ModelEntity?
@@ -68,33 +26,63 @@ final class MountainAthleteRig {
     /// the tread.
     private static let footSetback = 0.05
 
-    init(asset: MountainAthleteAsset, style: Style = .athlete(.ascendKit), label: String? = nil, bundle: Bundle = .main) throws {
-        guard let poser = MountainAthletePoser(asset: asset) else {
+    init(figure: MountainAthleteFigure, style: Style, label: String? = nil, bundle: Bundle = .main) throws {
+        guard let poser = MountainAthletePoser(asset: figure.body) else {
             throw MountainAthleteAsset.LoadError.unsupportedFormat("rig is missing a joint the poser needs")
         }
         self.poser = poser
+        figureKey = figure.key
 
-        let slots = Array(Set(asset.parts.map(\.slot))).sorted()
+        let slots = figure.slots
+        let materials: [any RealityKit.Material] = slots.map { slot in
+            switch style {
+            case .athlete(let look):
+                Self.material(for: slot, look: look, figure: figure, bundle: bundle)
+            case .ghost(let color):
+                Self.ghostMaterial(color)
+            }
+        }
+        model = ModelEntity(mesh: try Self.mesh(for: figure), materials: materials)
+        root.addChild(model)
+        if case .ghost = style {
+            model.components.set(OpacityComponent(opacity: 0.5))
+        }
+        if let label, !label.isEmpty, let tag = Self.tag(label, style: style) {
+            tag.position = [0, Float(figure.body.height) + 0.2, 0]
+            root.addChild(tag)
+            self.tag = tag
+        }
+    }
+
+    /// Every climber who shares a body, size and hairstyle draws the same mesh; only their
+    /// materials and their pose are their own.
+    private static var meshCache: [MountainAthleteFigure.Key: MeshResource] = [:]
+
+    private static func mesh(for figure: MountainAthleteFigure) throws -> MeshResource {
+        if let cached = meshCache[figure.key] { return cached }
+        let body = figure.body
         var contents = MeshResource.Contents()
         guard let skeleton = MeshResource.Skeleton(
             id: "athlete",
-            jointNames: asset.joints.map(\.name),
-            inverseBindPoseMatrices: asset.joints.map(\.inverseBindMatrix),
-            restPoseTransforms: asset.joints.map { joint in
+            jointNames: body.joints.map(\.name),
+            inverseBindPoseMatrices: body.joints.map(\.inverseBindMatrix),
+            restPoseTransforms: body.joints.map { joint in
                 Transform(
                     scale: .one,
                     rotation: joint.restRotation.float,
                     translation: SIMD3<Float>(joint.restTranslation)
                 )
             },
-            parentIndices: asset.joints.map(\.parentIndex)
+            parentIndices: body.joints.map(\.parentIndex)
         ) else {
             throw MountainAthleteAsset.LoadError.unsupportedFormat("skeleton rejected")
         }
         contents.skeletons = MeshSkeletonCollection([skeleton])
 
+        let slots = figure.slots
         var parts: [MeshResource.Part] = []
-        for (index, part) in asset.parts.enumerated() {
+        for (index, piece) in figure.pieces.enumerated() {
+            let asset = piece.asset, part = piece.part
             let vertices = part.vertexStart..<(part.vertexStart + part.vertexCount)
             var meshPart = MeshResource.Part(id: "part-\(index)", materialIndex: slots.firstIndex(of: part.slot) ?? 0)
             meshPart.positions = MeshBuffers.Positions(Array(asset.positions[vertices]))
@@ -117,25 +105,9 @@ final class MountainAthleteRig {
         }
         contents.models = MeshModelCollection([MeshResource.Model(id: "athlete", parts: parts)])
         contents.instances = MeshInstanceCollection([MeshResource.Instance(id: "athlete-0", model: "athlete")])
-
-        let materials: [any RealityKit.Material] = slots.map { slot in
-            switch style {
-            case .athlete(let look):
-                Self.material(for: slot, textures: asset.textures[slot], look: look, bundle: bundle)
-            case .ghost(let color):
-                Self.ghostMaterial(color)
-            }
-        }
-        model = ModelEntity(mesh: try MeshResource.generate(from: contents), materials: materials)
-        root.addChild(model)
-        if case .ghost = style {
-            model.components.set(OpacityComponent(opacity: 0.5))
-        }
-        if let label, !label.isEmpty, let tag = Self.tag(label, style: style) {
-            tag.position = [0, Float(asset.height) + 0.2, 0]
-            root.addChild(tag)
-            self.tag = tag
-        }
+        let mesh = try MeshResource.generate(from: contents)
+        meshCache[figure.key] = mesh
+        return mesh
     }
 
     private static func ghostMaterial(_ color: MountainColor) -> PhysicallyBasedMaterial {
@@ -182,13 +154,35 @@ final class MountainAthleteRig {
     }
 
     /// Every athlete on the stairs shares one copy of each texture, so a start line full of
-    /// climbers costs no more texture memory than one.
+    /// climbers costs no more texture memory than the looks they wear.
     private static var textureCache: [String: TextureResource] = [:]
 
-    /// A slot drawn from its textures (skin, eyes, hair) or as a flat colour (the kit). Textured
-    /// slots are still multiplied by the look's colour, so the grey hair texture takes the
-    /// climber's hair colour; skin and eyes carry their colour in the texture itself.
-    private static func material(for slot: String, textures: MountainAthleteAsset.Textures?, look: MountainAthleteLook, bundle: Bundle) -> PhysicallyBasedMaterial {
+    /// The pack's key for the textures a slot is drawn with under `look`: the skin is baked once
+    /// per tone and muscle level.
+    nonisolated static func texturesKey(forSlot slot: String, look: AthleteLook) -> String {
+        slot == "skin" ? "skin.\(look.skinTone.rawValue).\(look.muscle.rawValue)" : slot
+    }
+
+    /// The colour a slot is tinted with. Skin and eyes carry their colour in the texture; hair is
+    /// painted grey, and the tint that lands the hair colour exactly is that colour over the
+    /// paint's average, in linear light; the kit is flat colour.
+    nonisolated static func tint(forSlot slot: String, look: AthleteLook, textures: MountainAthleteAsset.Textures?) -> MountainColor {
+        switch slot {
+        case "skin", "eyes":
+            return MountainColor(red: 1, green: 1, blue: 1)
+        case "hair", "hair2":
+            let color = look.hairColor.color
+            guard let shade = textures?.shade, shade > 0 else { return color }
+            return color.linearScaled(by: 1 / shade)
+        case "top": return look.top.color
+        case "bottom": return look.bottom.color
+        case "shoe": return look.shoes.color
+        case "shoeAccent": return MountainColor(red: 0.13, green: 0.14, blue: 0.16)
+        default: return MountainColor(red: 0.5, green: 0.5, blue: 0.5)
+        }
+    }
+
+    private static func material(for slot: String, look: AthleteLook, figure: MountainAthleteFigure, bundle: Bundle) -> PhysicallyBasedMaterial {
         func texture(_ name: String?, _ semantic: TextureResource.Semantic) -> TextureResource? {
             guard let name else { return nil }
             if let cached = textureCache[name] { return cached }
@@ -197,12 +191,10 @@ final class MountainAthleteRig {
             textureCache[name] = loaded
             return loaded
         }
+        let textures = figure.textures(forSlot: texturesKey(forSlot: slot, look: look))
         var material = PhysicallyBasedMaterial()
         material.metallic = .init(floatLiteral: 0)
-        let tint: UIColor = switch slot {
-        case "skin", "eyes": .white
-        default: look.color(forSlot: slot).uiColor
-        }
+        let tint = tint(forSlot: slot, look: look, textures: textures).uiColor
         if let base = texture(textures?.baseColor, .color) {
             material.baseColor = .init(tint: tint, texture: .init(base))
         } else {
@@ -215,7 +207,7 @@ final class MountainAthleteRig {
             material.roughness = .init(texture: .init(roughness))
         } else {
             let roughness: Float = switch slot {
-            case "hair": 0.6
+            case "hair", "hair2": 0.6
             case "eyes": 0.2
             case "shoeAccent": 0.9
             default: 0.78
@@ -262,6 +254,24 @@ final class MountainAthleteRig {
         let ring = ModelEntity(mesh: mesh, materials: [material])
         ring.position = [0, 0.03, 0]
         return ring
+    }
+
+    /// Stands the athlete at ease on flat ground at the origin, facing +Z: how the editor and
+    /// onboarding show them.
+    func stand() {
+        let footHeight = poser.restFootHeight
+        let targets = MountainAthletePoseTargets(
+            pelvis: SIMD3(0, footHeight + poser.restPelvisHeight - 0.015, 0),
+            leftFoot: SIMD3(0.1, footHeight, -Self.footSetback),
+            rightFoot: SIMD3(-0.1, footHeight, -Self.footSetback),
+            torsoLean: 0.03,
+            leftArmSwing: 0,
+            elbowBend: 0.22,
+            twist: 0
+        )
+        model.jointTransforms = poser.pose(targets).map { local in
+            Transform(scale: .one, rotation: local.rotation, translation: local.translation)
+        }
     }
 
     /// Poses the athlete for this frame. `origin` is the course point at the render origin.

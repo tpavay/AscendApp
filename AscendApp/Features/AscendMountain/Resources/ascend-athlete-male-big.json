@@ -1,13 +1,21 @@
 {
- "format": "ascend-athlete-v2",
+ "format": "ascend-athlete-v3",
  "license": "CC0 1.0 - Quaternius, Universal Base Characters (Standard); kit modelled by scripts/athlete/build-ascend-athlete.py",
  "source": "https://quaternius.itch.io/universal-base-characters",
  "body": "male",
- "hairStyle": "Hair_SimpleParted",
- "height": 1.839722,
+ "hairStyle": null,
+ "skinTones": {
+  "tone1": "#F3D2B8",
+  "tone2": "#E2B08C",
+  "tone3": "#C68C62",
+  "tone4": "#9B6640",
+  "tone5": "#6E4428",
+  "tone6": "#452818"
+ },
+ "height": 1.810077,
  "vertexLayout": "positions f32x3, normals f32x3, uv f32x2, joints f32x4, weights f32x4 (interleaved, 16 floats); indices u32 absolute",
- "vertexCount": 12511,
- "indexCount": 62601,
+ "vertexCount": 11631,
+ "indexCount": 57984,
  "roles": {
   "body": "pelvis",
   "spine": [
@@ -43,16 +51,106 @@
   ]
  },
  "textures": {
-  "skin": {
-   "baseColor": "ascend-athlete-skin.jpg",
-   "normal": "ascend-athlete-skin-normal.png",
-   "roughness": "ascend-athlete-skin-roughness.jpg"
+  "skin.tone1.smooth": {
+   "baseColor": "ascend-athlete-male-skin-tone1-smooth.jpg",
+   "normal": "ascend-athlete-male-skin-normal-smooth.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
   },
-  "hair": {
-   "baseColor": "ascend-athlete-hair.png"
+  "skin.tone2.smooth": {
+   "baseColor": "ascend-athlete-male-skin-tone2-smooth.jpg",
+   "normal": "ascend-athlete-male-skin-normal-smooth.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone3.smooth": {
+   "baseColor": "ascend-athlete-male-skin-tone3-smooth.jpg",
+   "normal": "ascend-athlete-male-skin-normal-smooth.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone4.smooth": {
+   "baseColor": "ascend-athlete-male-skin-tone4-smooth.jpg",
+   "normal": "ascend-athlete-male-skin-normal-smooth.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone5.smooth": {
+   "baseColor": "ascend-athlete-male-skin-tone5-smooth.jpg",
+   "normal": "ascend-athlete-male-skin-normal-smooth.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone6.smooth": {
+   "baseColor": "ascend-athlete-male-skin-tone6-smooth.jpg",
+   "normal": "ascend-athlete-male-skin-normal-smooth.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone1.some": {
+   "baseColor": "ascend-athlete-male-skin-tone1-some.jpg",
+   "normal": "ascend-athlete-male-skin-normal-some.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone2.some": {
+   "baseColor": "ascend-athlete-male-skin-tone2-some.jpg",
+   "normal": "ascend-athlete-male-skin-normal-some.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone3.some": {
+   "baseColor": "ascend-athlete-male-skin-tone3-some.jpg",
+   "normal": "ascend-athlete-male-skin-normal-some.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone4.some": {
+   "baseColor": "ascend-athlete-male-skin-tone4-some.jpg",
+   "normal": "ascend-athlete-male-skin-normal-some.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone5.some": {
+   "baseColor": "ascend-athlete-male-skin-tone5-some.jpg",
+   "normal": "ascend-athlete-male-skin-normal-some.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone6.some": {
+   "baseColor": "ascend-athlete-male-skin-tone6-some.jpg",
+   "normal": "ascend-athlete-male-skin-normal-some.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone1.defined": {
+   "baseColor": "ascend-athlete-male-skin-tone1-defined.jpg",
+   "normal": "ascend-athlete-male-skin-normal-defined.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone2.defined": {
+   "baseColor": "ascend-athlete-male-skin-tone2-defined.jpg",
+   "normal": "ascend-athlete-male-skin-normal-defined.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone3.defined": {
+   "baseColor": "ascend-athlete-male-skin-tone3-defined.jpg",
+   "normal": "ascend-athlete-male-skin-normal-defined.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone4.defined": {
+   "baseColor": "ascend-athlete-male-skin-tone4-defined.jpg",
+   "normal": "ascend-athlete-male-skin-normal-defined.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone5.defined": {
+   "baseColor": "ascend-athlete-male-skin-tone5-defined.jpg",
+   "normal": "ascend-athlete-male-skin-normal-defined.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
+  },
+  "skin.tone6.defined": {
+   "baseColor": "ascend-athlete-male-skin-tone6-defined.jpg",
+   "normal": "ascend-athlete-male-skin-normal-defined.png",
+   "roughness": "ascend-athlete-male-skin-roughness.jpg"
   },
   "eyes": {
-   "baseColor": "ascend-athlete-eyes.jpg"
+   "baseColor": "ascend-athlete-male-eyes.jpg"
+  },
+  "hair": {
+   "baseColor": "ascend-athlete-male-hair.png",
+   "shade": 0.641
+  },
+  "hair2": {
+   "baseColor": "ascend-athlete-male-hair-2.png",
+   "shade": 0.6129
   }
  },
  "joints": [
@@ -2553,44 +2651,36 @@
    "indexCount": 2952
   },
   {
-   "name": "hair",
-   "slot": "hair",
-   "vertexStart": 8483,
-   "vertexCount": 757,
-   "indexStart": 42954,
-   "indexCount": 3903
-  },
-  {
    "name": "top",
    "slot": "top",
-   "vertexStart": 9240,
-   "vertexCount": 828,
-   "indexStart": 46857,
-   "indexCount": 3954
+   "vertexStart": 8483,
+   "vertexCount": 827,
+   "indexStart": 42954,
+   "indexCount": 3906
   },
   {
    "name": "shorts",
    "slot": "bottom",
-   "vertexStart": 10068,
-   "vertexCount": 564,
-   "indexStart": 50811,
-   "indexCount": 2718
+   "vertexStart": 9310,
+   "vertexCount": 566,
+   "indexStart": 46860,
+   "indexCount": 2700
   },
   {
    "name": "shoe-upper",
    "slot": "shoe",
-   "vertexStart": 10632,
-   "vertexCount": 1035,
-   "indexStart": 53529,
-   "indexCount": 4956
+   "vertexStart": 9876,
+   "vertexCount": 980,
+   "indexStart": 49560,
+   "indexCount": 4662
   },
   {
    "name": "shoe-sole",
    "slot": "shoeAccent",
-   "vertexStart": 11667,
-   "vertexCount": 844,
-   "indexStart": 58485,
-   "indexCount": 4116
+   "vertexStart": 10856,
+   "vertexCount": 775,
+   "indexStart": 54222,
+   "indexCount": 3762
   }
  ]
 }

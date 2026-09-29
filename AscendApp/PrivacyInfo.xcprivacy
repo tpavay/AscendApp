@@ -267,7 +267,7 @@
             </array>
         </dict>
 
-        <!-- Other User Content - workout notes, feedback submissions, and profile moderation report reasons -->
+        <!-- Other User Content - workout notes, feedback submissions, profile moderation report reasons, and the preset look chosen for the climber's Ascend Mountain athlete -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherUserContent</string>

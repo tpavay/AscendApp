@@ -15,6 +15,7 @@ struct JustClimbSetupSheet: View {
     @State private var stepCount: Int
     /// Remembered between climbs so a Dev build tuning Ascend Mountain opens straight on it.
     @AppStorage("justClimb.lastExperience") private var selectedExperience: JustClimbExperience = .classic
+    @State private var isEditingAthlete = false
 
     /// `initialGoal` pre-fills the sheet, which is how a today row re-opens the same
     /// Just Climb another climber ran; without one the sheet opens on its defaults.
@@ -73,15 +74,52 @@ struct JustClimbSetupSheet: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("JUST CLIMB")
-                .font(.montserratBold(size: 24))
-                .foregroundStyle(.white)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("JUST CLIMB")
+                    .font(.montserratBold(size: 24))
+                    .foregroundStyle(.white)
 
-            Text("Set a goal or climb open.")
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(.white.opacity(0.58))
+                Text("Set a goal or climb open.")
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+
+            Spacer(minLength: 0)
+
+            if JustClimbExperience.isChoiceAvailable && selectedExperience == .mountain {
+                athleteButton
+            }
         }
+        .sheet(isPresented: $isEditingAthlete) {
+            AthleteEditorView()
+                .appSheetStyle(.large)
+        }
+    }
+
+    /// The Mountain races the climber's athlete, so its setup is one tap from changing how they
+    /// look.
+    private var athleteButton: some View {
+        Button {
+            isEditingAthlete = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "figure.stairs")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.accent)
+                Text("YOUR ATHLETE")
+                    .font(.montserratBold(size: 11))
+                    .tracking(0.8)
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(.white.opacity(0.08), in: Capsule(style: .continuous))
+            .overlay(Capsule(style: .continuous).stroke(.white.opacity(0.14), lineWidth: 1))
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the athlete editor.")
     }
 
     private var experiencePicker: some View {

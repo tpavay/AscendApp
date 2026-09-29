@@ -20,8 +20,9 @@ final class MountainSceneController {
         let root: Entity
         let chunkSlots: [ModelEntity]
         let decorSlots: [ModelEntity]
-        let athlete: MountainAthleteRig
-        let athleteAsset: MountainAthleteAsset
+        var athlete: MountainAthleteRig
+        /// The look the climber's own rig was built with.
+        var athleteLook: AthleteLook
         let camera: PerspectiveCamera
         let sun: DirectionalLight
         let far: MountainEnvironmentRig
@@ -34,17 +35,24 @@ final class MountainSceneController {
     private let ghostSource: @MainActor () -> [MountainGhost]
     private let markerSource: @MainActor () -> [MountainMarker]
     private let elapsedSource: (@MainActor () -> TimeInterval)?
+    private let athleteLook: @MainActor () -> AthleteLook
+    private let athletes: MountainAthleteLibrary
     private var ghostRigs: [String: MountainAthleteRig] = [:]
-    /// The tag each ghost's rig was built with; a tag is baked into its rig, so a new one means
-    /// a new rig.
-    private var ghostRigLabels: [String: String] = [:]
+    /// What each ghost's rig was built as. Its tag, look and body are baked into it, so a change
+    /// to any of them - a rival's own look arriving after their stand-in - means a new rig.
+    private var ghostRigBuilds: [String: GhostRigBuild] = [:]
+
+    private struct GhostRigBuild: Equatable {
+        let label: String
+        let style: MountainAthleteRig.Style
+        let figure: MountainAthleteFigure.Key
+    }
     private var director: MountainSceneDirector
     private var scene: Scene?
     private var updateSubscription: EventSubscription?
     /// Which placement each slot's mountainside was baked for, so a slot is rebuilt only when
     /// it is handed a new piece.
     private var decorBuiltFor: [Int: Int] = [:]
-
     /// A gap this long between rendered frames means rendering was paused - the app went to the
     /// background, the phone locked - and the scene resynchronizes to the workout on return.
     static let resynchronizeAfterSeconds = 0.75
@@ -65,6 +73,8 @@ final class MountainSceneController {
     ///   - markerSource: this climb's own marks on the stairs, such as the line of the best.
     ///   - elapsedSource: the climb's own elapsed time, which places every ghost; the scene's
     ///     clock when a caller has no workout.
+    ///   - athleteLook: how the climber's own athlete looks, read every frame so a look that
+    ///     arrives or changes during the climb is worn at once.
     init(
         seed: UInt64,
         stepSource: @escaping @MainActor () -> Int,
@@ -72,13 +82,17 @@ final class MountainSceneController {
         worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
         ghostSource: @escaping @MainActor () -> [MountainGhost] = { [] },
         markerSource: @escaping @MainActor () -> [MountainMarker] = { [] },
-        elapsedSource: (@MainActor () -> TimeInterval)? = nil
+        elapsedSource: (@MainActor () -> TimeInterval)? = nil,
+        athleteLook: @escaping @MainActor () -> AthleteLook = { .starting(for: nil) },
+        athletes: MountainAthleteLibrary = .shared
     ) {
         self.seed = seed
         self.worldSource = worldSource
         self.ghostSource = ghostSource
         self.markerSource = markerSource
         self.elapsedSource = elapsedSource
+        self.athleteLook = athleteLook
+        self.athletes = athletes
         self.stepSource = stepSource
         self.debugState = debugState
         self.director = MountainSceneDirector(seed: seed)
@@ -121,7 +135,7 @@ final class MountainSceneController {
         let far: MountainEnvironmentRig
         let environment: MountainEnvironmentResources
         let athlete: MountainAthleteRig
-        let asset: MountainAthleteAsset
+        let look = athleteLook()
         do {
             world = try worldSource()
             var ground: [MountainTerrainBucket.Surface: MountainScannedMaterial] = [:]
@@ -136,8 +150,7 @@ final class MountainSceneController {
             )
             resources = try MountainSceneResources.make()
             far = try MountainEnvironmentRig(resources: environment)
-            asset = try await Task.detached(priority: .userInitiated) { try MountainAthleteAsset.bundled() }.value
-            athlete = try MountainAthleteRig(asset: asset)
+            athlete = try MountainAthleteRig(figure: try await athletes.figure(for: look), style: .athlete(look))
         } catch {
             AppDiagnosticsRecorder.shared.record(
                 "ascend_mountain_scene_build_failed",
@@ -185,7 +198,7 @@ final class MountainSceneController {
             chunkSlots: chunkSlots,
             decorSlots: decorSlots,
             athlete: athlete,
-            athleteAsset: asset,
+            athleteLook: look,
             camera: camera,
             sun: sun,
             far: far
@@ -193,6 +206,8 @@ final class MountainSceneController {
     }
 
     private func step(deltaTime: TimeInterval) {
+        guard scene != nil else { return }
+        rebuildAthleteIfLookChanged()
         guard let scene else { return }
 
         let now = Date.timeIntervalSinceReferenceDate
@@ -208,11 +223,12 @@ final class MountainSceneController {
 
         let logicalSteps = stepSource() + (debugState?.visualStepOffset ?? 0)
         let elapsed = elapsedSource?() ?? clock
+        let ghosts = ghostSource()
         let frame = director.advance(
             logicalSteps: logicalSteps,
             time: clock,
             deltaTime: deltaTime,
-            ghosts: ghostSource().map { MountainGhostSample(ghost: $0, elapsed: elapsed) },
+            ghosts: ghosts.map { MountainGhostSample(ghost: $0, elapsed: elapsed) },
             extraMarkers: markerSource()
         )
 
@@ -243,7 +259,7 @@ final class MountainSceneController {
         }
 
         scene.athlete.apply(frame.athlete, origin: frame.renderOrigin)
-        placeGhosts(frame, in: scene)
+        placeGhosts(frame, looks: Dictionary(ghosts.map { ($0.id, $0.look) }, uniquingKeysWith: { first, _ in first }), in: scene)
         scene.athlete.showGroundRing(!frame.ghosts.isEmpty)
         scene.camera.look(at: frame.cameraTarget, from: frame.cameraPosition, relativeTo: nil)
 
@@ -261,28 +277,61 @@ final class MountainSceneController {
         publishDebugMetricsIfDue(frame)
     }
 
-    /// Stands each ghost in view on its stair, building its rig the first time it comes near.
-    private func placeGhosts(_ frame: MountainSceneFrame, in scene: Scene) {
+    /// The climber's own look can arrive or change mid-climb (read from their account after the
+    /// scene was built, or saved on another phone); their rig is rebuilt as soon as the new
+    /// figure is loaded, and until then they keep the look they have.
+    private func rebuildAthleteIfLookChanged() {
+        guard var scene else { return }
+        let look = athleteLook()
+        guard look != scene.athleteLook,
+              let figure = athletes.readyFigure(for: look),
+              let rebuilt = try? MountainAthleteRig(figure: figure, style: .athlete(look)) else { return }
+        scene.athlete.root.removeFromParent()
+        scene.root.addChild(rebuilt.root)
+        scene.athlete = rebuilt
+        scene.athleteLook = look
+        self.scene = scene
+    }
+
+    /// Stands each ghost in view on its stair, building its rig the first time it comes near and
+    /// once its body has loaded. A rival wears their own look, or a stand-in until it is read;
+    /// the climber's best is their own figure in gold; a pacer is the starting athlete in blue.
+    private func placeGhosts(_ frame: MountainSceneFrame, looks: [String: AthleteLook?], in scene: Scene) {
         let visible = Set(frame.ghosts.map(\.id))
         for (id, rig) in ghostRigs where !visible.contains(id) {
             rig.root.isEnabled = false
         }
         for ghost in frame.ghosts {
+            let look: AthleteLook
+            let style: MountainAthleteRig.Style
+            switch ghost.kind {
+            case .personalBest:
+                look = scene.athleteLook
+                style = .ghost(MountainColor(red: 0.83, green: 0.69, blue: 0.22))
+            case .pacer:
+                look = .starting(for: nil)
+                style = .ghost(MountainColor(red: 0.75, green: 0.9, blue: 1))
+            case .rival:
+                look = (looks[ghost.id] ?? nil) ?? .standIn(for: ghost.id)
+                style = .athlete(look)
+            }
+            let build = GhostRigBuild(label: ghost.label, style: style, figure: MountainAthleteFigure.Key(look))
+
             let rig: MountainAthleteRig
-            if let existing = ghostRigs[ghost.id], ghostRigLabels[ghost.id] == ghost.label {
+            if let existing = ghostRigs[ghost.id], ghostRigBuilds[ghost.id] == build {
                 rig = existing
-            } else {
+            } else if let figure = athletes.readyFigure(for: look),
+                      let made = try? MountainAthleteRig(figure: figure, style: style, label: ghost.label) {
                 ghostRigs[ghost.id]?.root.removeFromParent()
-                let style: MountainAthleteRig.Style = switch ghost.kind {
-                case .personalBest: .ghost(MountainColor(red: 0.83, green: 0.69, blue: 0.22))
-                case .pacer: .ghost(MountainColor(red: 0.75, green: 0.9, blue: 1))
-                case .rival: .athlete(.standIn(for: ghost.id))
-                }
-                guard let made = try? MountainAthleteRig(asset: scene.athleteAsset, style: style, label: ghost.label) else { continue }
                 scene.root.addChild(made.root)
                 ghostRigs[ghost.id] = made
-                ghostRigLabels[ghost.id] = ghost.label
+                ghostRigBuilds[ghost.id] = build
                 rig = made
+            } else if let existing = ghostRigs[ghost.id] {
+                // The new body is still loading; keep drawing the old one meanwhile.
+                rig = existing
+            } else {
+                continue
             }
             rig.apply(ghost.kinematics, origin: frame.renderOrigin)
             rig.showTag(opacity: Self.tagOpacity(lead: ghost.lead))

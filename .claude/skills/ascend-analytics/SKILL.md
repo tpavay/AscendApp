@@ -188,6 +188,7 @@ The segment labels identify nested implementation sections and never replace the
 | 11 | `real_time` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
 | 12 | `daily_climbs` | `post_auth_features` | `onboarding_screen_completed` | `action_id=continue` |
 | 13 | `gender` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_gender` (`ProfileGender` raw value) |
+| 13a | `athlete` | `post_auth_onboarding` | `onboarding_screen_completed` | `action_id` (`looks_good` / `make_it_mine`), `input_type=button` - only in a build that offers Ascend Mountain, see below |
 | 14 | `age` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_age_group` (bucket, never the birth date) |
 | 15 | `weight` | `post_auth_onboarding` | `onboarding_screen_completed` | `measurement_system`, `profile_height_group`, `profile_weight_group` (buckets) |
 | 16 | `location` | `post_auth_onboarding` | `onboarding_screen_completed` | `profile_country`, `selection_method` (`current_location` / `search` / `unknown`) |
@@ -197,6 +198,8 @@ The segment labels identify nested implementation sections and never replace the
 | 20 | `paywall` | `post_auth_onboarding` | `onboarding_paywall_reached`, `onboarding_back_tapped` (`from_step=paywall`, `input_type=button`), `revenuecat_purchase_started`, one of `revenuecat_purchase_completed` / `_cancelled` / `_pending` / `_failed`, `revenuecat_restore_started`, one of `revenuecat_restore_completed` / `_not_found` / `_failed` | `placement`, `presentation_id`, `source`, `product_id`, `outcome`, `entitlement_id`, `entitlement_active`, `error_type`, `from_step`, `input_type` |
 
 ### Invariants that are easy to break
+
+- **The `athlete` step exists only where Ascend Mountain does.** A build that offers the Mountain (`JustClimbExperience.isChoiceAvailable`, Dev only today) shows it right after `gender`, so its funnel has 21 screens: `step_count` 21 and every later `step_index` one higher. Every other build keeps the 20 above. Both the stage list and `orderedStepIDs` take the same `includingAthlete` switch, so the two can never disagree; lifting the gate for release changes `step_count` in production on that release, which dashboards keyed on `screen_id` survive and ones keyed on `step_index` do not.
 
 - **The `weight` screen keeps its historical screen ID.** It captures both height and weight; renaming it breaks funnel continuity in Mixpanel, so it stays as-is.
 - **There is no name screen, and `display_name_provided` is retired.** The `displayName` step and its camelCase step ID were removed on 2026-08-20 after App Review rejected 1.0 under Guideline 4 for asking a Sign in with Apple climber to type a name the framework already supplies. The name is resolved without asking now, so no event reports it. `orderedStepIDs` is the one list not derived from `PostAuthOnboardingStage.allCases`, so it was edited by hand to drop the step - leaving it in would have opened a permanent gap in `step_index` and kept `step_count` counting a screen nobody sees.

@@ -16,8 +16,24 @@ struct MountainGhost: Sendable {
     let kind: Kind
     /// Short words shown over the ghost's head.
     let label: String
+    /// How a rival's athlete looks, once read from their account; nil draws a stand-in.
+    var look: AthleteLook?
     /// Where the ghost is on the course, in steps, at `elapsed` seconds into the climb.
     let steps: @Sendable (_ elapsed: TimeInterval) -> Double
+
+    init(
+        id: String,
+        kind: Kind,
+        label: String,
+        look: AthleteLook? = nil,
+        steps: @escaping @Sendable (_ elapsed: TimeInterval) -> Double
+    ) {
+        self.id = id
+        self.kind = kind
+        self.label = label
+        self.look = look
+        self.steps = steps
+    }
 
     /// A pacer holding one cadence from the first second.
     static func pacer(stepsPerMinute: Double, id: String = "pacer") -> MountainGhost {

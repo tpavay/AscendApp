@@ -81,6 +81,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     // MARK: - Profile and moderation
 
     case otherUserProfile = "other_user_profile"
+    case athleteEditor = "athlete_editor"
     case achievementHistory = "achievement_history"
     case reportProfile = "report_profile"
     case postBlockReport = "post_block_report"
@@ -156,6 +157,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .routineEditor: "RoutineEditorView"
         case .activeRoutine: "ActiveRoutineView"
         case .otherUserProfile: "OtherUserProfileView"
+        case .athleteEditor: "AthleteEditorView"
         case .achievementHistory: "AchievementHistorySheet"
         case .reportProfile: "ReportProfileSheet"
         case .postBlockReport: "PostBlockReportSheet"

@@ -20,6 +20,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     case plan
     case features
     case gender
+    case athlete
     case age
     case weight
     case location
@@ -31,6 +32,13 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     static let plannedStepCount = allCases.count
 
     static var allCases: [PostAuthOnboardingStage] {
+        stages(includingAthlete: JustClimbExperience.isChoiceAvailable)
+    }
+
+    /// The flow in order. The athlete step sits right after the gender answer that picks its body
+    /// (captain, round 8), and only in a build that offers Ascend Mountain: a climber who cannot
+    /// climb it is never asked how they look on it.
+    static func stages(includingAthlete: Bool) -> [PostAuthOnboardingStage] {
         [
             .stairStepperBaseline,
             .exerciseLevel,
@@ -38,14 +46,17 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             .motivation,
             .plan,
             .features,
-            .gender,
-            .age,
-            .weight,
-            .location,
-            .notifications,
-            .planLoading,
-            .firstClimb
+            .gender
         ]
+            + (includingAthlete ? [.athlete] : [])
+            + [
+                .age,
+                .weight,
+                .location,
+                .notifications,
+                .planLoading,
+                .firstClimb
+            ]
     }
 
     var id: String { rawValue }
@@ -98,6 +109,8 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             return "multi_select"
         case .gender:
             return "single_select"
+        case .athlete:
+            return "button"
         case .age:
             return "date"
         case .weight:
@@ -121,7 +134,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             return "multi_select"
         case .gender, .notifications, .firstClimb:
             return "single_select"
-        case .features, .age, .weight, .location, .planLoading:
+        case .features, .athlete, .age, .weight, .location, .planLoading:
             return nil
         }
     }

@@ -37,22 +37,22 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--body", default="male", choices=["male", "female"])
 parser.add_argument("--hair", default=None)
 parser.add_argument("--size", default="regular", choices=["slim", "regular", "solid", "big"])
-parser.add_argument("--definition", default="defined", choices=["smooth", "some", "defined"])
 # The app's runtime pack: one mesh per body and size with no hair, plus one hair pack per body
 # (scripts/athlete/build-ascend-athlete-pack.sh). The default writes one complete athlete.
 parser.add_argument("--name", default="ascend-athlete", help="prefix of the .json and .bin written")
 parser.add_argument("--texture-prefix", default=None, help="prefix of the textures written; the name by default")
 parser.add_argument("--no-hair", action="store_true", help="leave the hair out; the app adds it from the hair pack")
 parser.add_argument("--hair-pack", action="store_true", help="write every hairstyle as its own part, and nothing else")
+parser.add_argument("--no-textures", action="store_true",
+                    help="name the body's textures without writing them; another build of the same body writes them")
+parser.add_argument("--write-textures", dest="no_textures", action="store_false", help="write the body's textures (the default)")
 args = parser.parse_args(argv)
 
 BODY = {
     "male": {"file": "Superhero_Male_FullBody.gltf", "skin": "T_Superhero_Male_Dark.png", "normal": "T_Superhero_Male_Normal.png",
-             "roughness": "T_Superhero_Male_Roughness.png", "hair": "Hair_SimpleParted",
-             "skinLight": "T_Superhero_Male_Ligh.png", "browsSlot": "hair"},
+             "roughness": "T_Superhero_Male_Roughness.png", "hair": "Hair_SimpleParted", "browsSlot": "hair"},
     "female": {"file": "Superhero_Female_FullBody.gltf", "skin": "T_Superhero_Female_Dark_BaseColor.png", "normal": "T_Superhero_Female_Normal.png",
-               "roughness": "T_Superhero_Female_Roughness.png", "hair": "Hair_Long",
-               "skinLight": "T_Superhero_Female_Light_BaseColor.png", "browsSlot": "hair2"},
+               "roughness": "T_Superhero_Female_Roughness.png", "hair": "Hair_Long", "browsSlot": "hair2"},
 }[args.body]
 HAIR = args.hair or BODY["hair"]
 # The styles the editor offers, by the name the app stores, and the texture each is drawn from:
@@ -271,9 +271,10 @@ _skin.normal_update()
 SKIN = BVHTree.FromBMesh(_skin)
 
 
-def keep_beneath(bm, points, clearance, rounds=4):
+def keep_beneath(bm, points, clearance, rounds=4, openings=False):
     """Lifts the garment in `bm` until every (point, normal) under it sits at least `clearance`
-    beneath the fabric that faces the same way. Points by an opening are left alone."""
+    beneath the fabric that faces the same way. Points by an opening are left alone unless
+    `openings` says the fabric there covers them too."""
     for _ in range(rounds):
         bm.normal_update()
         bm.faces.ensure_lookup_table()
@@ -284,7 +285,7 @@ def keep_beneath(bm, points, clearance, rounds=4):
             if hit is None:
                 continue
             face = bm.faces[index]
-            if any(e.is_boundary for e in face.edges) or face.normal.dot(point_normal) < 0.5:
+            if (not openings and any(e.is_boundary for e in face.edges)) or face.normal.dot(point_normal) < 0.5:
                 continue
             through = (point - hit).dot(normal) + clearance
             if through > 0:
@@ -320,11 +321,21 @@ def garment(name, keep_face, offset, cuts=(), shape=None, over=None, relax=0):
         geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
         bmesh.ops.bisect_plane(bm, geom=geom, plane_co=point, plane_no=normal, clear_outer=True)
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
-    # Sawtooth left by whole-triangle selection becomes a clean seam.
+
+    def cut_plane(v):
+        """The straight cut an edge point lies on, if it lies on one."""
+        return next(((p, n) for p, n in cuts if abs((v.co - p).dot(n)) < 1e-5), None) if v.is_boundary else None
+
+    # A cut lands wherever the plane crosses the skin's triangles, which leaves slivers where it
+    # passes close to a point; merged, the hem is an even row of points along one straight line.
+    bmesh.ops.remove_doubles(bm, verts=[v for v in bm.verts if cut_plane(v)], dist=0.004)
+    hem = {v for v in bm.verts if cut_plane(v)}
+    # Sawtooth left by whole-triangle selection becomes a clean seam. A cut is already straight,
+    # and smoothing it would only draw it in under the fabric beside it.
     for _ in range(20):
         moves = {}
         for v in bm.verts:
-            if not v.is_boundary:
+            if not v.is_boundary or v in hem:
                 continue
             ring = [e.other_vert(v) for e in v.link_edges if e.is_boundary]
             if len(ring) == 2:
@@ -376,6 +387,7 @@ def garment(name, keep_face, offset, cuts=(), shape=None, over=None, relax=0):
                     v.co += normal * (0.004 - gap)
         keep_beneath(bm, [(v.co.copy(), v.normal.copy()) for v in under.verts], 0.004)
         under.free()
+    level_hems(bm, hem, cuts, offset, over)
     bm.to_mesh(mesh)
     bm.free()
     # The copy carries the body's imported custom normals, which no longer match the moved
@@ -387,6 +399,57 @@ def garment(name, keep_face, offset, cuts=(), shape=None, over=None, relax=0):
         poly.use_smooth = True
     mesh.materials.clear()
     return obj
+
+
+def level_hems(bm, hem, cuts, offset, over):
+    """The push-outs move each point of a cut by its own amount, which turns a straight hem into
+    a ragged one. Each hem is put back on one plane parallel to its cut, where the fabric beside
+    it now sits on average, evened out along its length, and cleared of the skin - and of the
+    layer beneath, which would otherwise show through between its points - once more."""
+    under = None
+    levels = []
+    if over is not None:
+        under_bm = bmesh.new()
+        under_bm.from_mesh(over.data)
+        under_bm.normal_update()
+        under = BVHTree.FromBMesh(under_bm)
+    for point, normal in cuts:
+        edge = [v for v in hem if v.is_valid and abs((v.co - point).dot(normal)) < 0.03]
+        if not edge:
+            continue
+        level = sum((v.co - point).dot(normal) for v in edge) / len(edge)
+        levels.append((edge, point, normal, level))
+        for v in edge:
+            v.co -= normal * ((v.co - point).dot(normal) - level)
+        members = set(edge)
+        for _ in range(3):
+            moves = {}
+            for v in edge:
+                ring = [e.other_vert(v) for e in v.link_edges if e.is_boundary and e.other_vert(v) in members]
+                if len(ring) == 2:
+                    moves[v] = v.co * 0.5 + (ring[0].co + ring[1].co) * 0.25
+            for v, co in moves.items():
+                v.co = co
+        for v in edge:
+            for tree, clearance in ((SKIN, offset * 0.8), (under, 0.004)):
+                if tree is None:
+                    continue
+                hit, n, _, _ = tree.find_nearest(v.co, 0.03)
+                if hit is not None:
+                    gap = (v.co - hit).dot(n)
+                    if gap < clearance:
+                        # Outward only, across the cut, so the hem stays on its plane.
+                        push = n - normal * n.dot(normal)
+                        if push.length > 1e-6:
+                            v.co += push.normalized() * (clearance - gap)
+    if under is not None:
+        # The faces along a hem worn over another layer cover it as much as any other fabric: a
+        # waistband must not show through between the hem and the row of points above it.
+        keep_beneath(bm, [(v.co.copy(), v.normal.copy()) for v in under_bm.verts], 0.004, openings=True)
+        for edge, point, normal, level in levels:
+            for v in edge:
+                v.co -= normal * ((v.co - point).dot(normal) - level)
+        under_bm.free()
 
 
 def centre(face):
@@ -624,6 +687,8 @@ os.makedirs(args.out, exist_ok=True)
 
 
 def save_texture(source, name, size, fmt):
+    if args.no_textures:
+        return name
     image = bpy.data.images.load(source)
     if image.size[0] > size:
         image.scale(size, size)
@@ -637,60 +702,142 @@ def save_texture(source, name, size, fmt):
 
 prefix = TEXTURE_PREFIX
 
+# How softly each muscle level draws the base body's baked detail: the blur applied, and how much
+# of the sharp original is kept over it. "defined" is the pack's own painting.
+MUSCLE = {"smooth": (11, 0.3), "some": (4, 0.6), "defined": (0, 1.0)}
+# The skin tones the app offers, light to dark, sRGB (`MountainSkinTone` in the app holds the same
+# list, and a test holds the two together through the header). The pack paints one mid-brown skin;
+# each tone is that painting brought to the tone's average colour, one texture per tone and level.
+SKIN_TONES = {"tone1": "#F3D2B8", "tone2": "#E2B08C", "tone3": "#C68C62",
+              "tone4": "#9B6640", "tone5": "#6E4428", "tone6": "#452818"}
+# Where brightening starts to roll off instead of clipping: a light tone scales the paint's
+# brighter half past white, so it is compressed smoothly into the last fifth of the range.
+KNEE = 0.8
 
-def defined_skin(source, name, size, fmt):
-    """The skin textures carry the base body's baked muscle detail; a softer definition blurs
-    that detail back toward flat before saving."""
-    if args.definition == "defined":
-        return save_texture(source, name, size, fmt)
-    blur, keep = {"some": (4, 0.6), "smooth": (11, 0.3)}[args.definition]
-    staged = os.path.join(args.out, f".{name}.staged.png")
-    if "normal" in name:
+
+def softened(source, name, size, level, normal):
+    """The skin textures carry the base body's baked muscle detail; a softer level blurs that
+    detail back toward flat. Returns the path of the staged image."""
+    blur, keep = MUSCLE[level]
+    out = os.path.join(args.out, f".{name}.staged.png")
+    if keep >= 1:
+        subprocess.run(["magick", source, "-resize", f"{size}x{size}", out], check=True)
+    elif normal:
         # Toward a flat normal map: less relief for the light to catch.
         subprocess.run(["magick", source, "-resize", f"{size}x{size}", "-blur", f"0x{blur}",
                         "(", "+clone", "-fill", "rgb(128,128,255)", "-colorize", "100", ")",
-                        "-compose", "blend", "-define", f"compose:args={int(keep * 100)}", "-composite", staged], check=True)
+                        "-compose", "blend", "-define", f"compose:args={int(keep * 100)}", "-composite", out], check=True)
     else:
         # Toward a blurred copy: the skin tone stays, the shading in the creases softens.
         subprocess.run(["magick", source, "-resize", f"{size}x{size}",
                         "(", "+clone", "-blur", f"0x{blur * 2}", ")",
-                        "-compose", "blend", "-define", f"compose:args={int((1 - keep) * 100)}", "-composite", staged], check=True)
-    result = save_texture(staged, name, size, fmt)
+                        "-compose", "blend", "-define", f"compose:args={int((1 - keep) * 100)}", "-composite", out], check=True)
+    return out
+
+
+def read_rgb(path):
+    """An image as linear RGB floats, through a binary PPM so no colour management intervenes."""
+    import numpy
+    raw = subprocess.run(["magick", path, "-depth", "8", "ppm:-"], check=True, capture_output=True).stdout
+    fields, offset = [], 0
+    while len(fields) < 4:
+        while raw[offset:offset + 1].isspace():
+            offset += 1
+        end = offset
+        while not raw[end:end + 1].isspace():
+            end += 1
+        fields.append(raw[offset:end])
+        offset = end
+    width, height = int(fields[1]), int(fields[2])
+    encoded = numpy.frombuffer(raw[offset + 1:], dtype=numpy.uint8, count=width * height * 3)
+    encoded = encoded.reshape(height, width, 3).astype(numpy.float32) / 255
+    return numpy.where(encoded <= 0.04045, encoded / 12.92, ((encoded + 0.055) / 1.055) ** 2.4)
+
+
+def write_rgb(pixels, path):
+    import numpy
+    encoded = numpy.where(pixels <= 0.0031308, pixels * 12.92, 1.055 * numpy.power(numpy.clip(pixels, 0, 1), 1 / 2.4) - 0.055)
+    data = (numpy.clip(encoded, 0, 1) * 255 + 0.5).astype(numpy.uint8)
+    header = f"P6 {data.shape[1]} {data.shape[0]} 255\n".encode()
+    subprocess.run(["magick", "ppm:-", "-quality", "88", path], input=header + data.tobytes(), check=True)
+
+
+def tone_linear(hex_colour):
+    encoded = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    return [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in encoded]
+
+
+def toned(painted, target):
+    """The painted skin scaled so its average matches `target`, rolling highlights off below
+    white rather than clipping them. The gain is re-solved after the roll-off so the average
+    still lands on the tone."""
+    import numpy
+    # Skin texels only: the unused atlas is black and the painted underwear, hidden by the kit, is
+    # blue-grey, so neither may pull the average away from the tone.
+    mask = (painted.max(axis=2) > 0.01) & (painted[..., 0] > painted[..., 2] * 1.3)
+    knee = lambda v: numpy.where(v <= KNEE, v, KNEE + (1 - KNEE) * numpy.tanh((v - KNEE) / (1 - KNEE)))
+    gains = numpy.array(target) / painted[mask].mean(axis=0)
+    for _ in range(4):
+        gains *= numpy.array(target) / knee(painted[mask] * gains).mean(axis=0)
+    return knee(painted * gains)
+
+
+def write_skins(source, level):
+    """Every tone of the skin at one muscle level."""
+    staged = softened(source, f"{prefix}-skin-{level}", 1024, level, normal=False)
+    painted = read_rgb(staged)
     os.remove(staged)
-    return result
+    for tone, colour in SKIN_TONES.items():
+        write_rgb(toned(painted, tone_linear(colour)), os.path.join(args.out, f"{prefix}-skin-{tone}-{level}.jpg"))
+
+
+def skin_normal(source, name, size, level):
+    if args.no_textures:
+        return name
+    os.replace(softened(source, name, size, level, normal=True), os.path.join(args.out, name))
+    return name
 
 
 if args.hair_pack:
-    textures = {
-        "hair": {"baseColor": save_texture(os.path.join(BASE_DIR, "T_Hair_1_BaseColor.png"), f"{prefix}-hair.png", 512, "PNG")},
-        "hair2": {"baseColor": save_texture(os.path.join(BASE_DIR, "T_Hair_2_BaseColor.png"), f"{prefix}-hair-2.png", 512, "PNG")},
-    }
+    textures = {}
 else:
-    skin_normal = defined_skin(os.path.join(OPENGL_NORMALS, BODY["normal"]) if os.path.exists(os.path.join(OPENGL_NORMALS, BODY["normal"])) else os.path.join(BASE_DIR, BODY["normal"]), f"{prefix}-skin-normal.png", 1024, "PNG")
-    skin_roughness = save_texture(os.path.join(BASE_DIR, BODY["roughness"]), f"{prefix}-skin-roughness.jpg", 512, "JPEG")
-    textures = {
-        "skin": {
-            "baseColor": defined_skin(os.path.join(BASE_DIR, BODY["skin"]), f"{prefix}-skin.jpg", 1024, "JPEG"),
-            "normal": skin_normal,
-            "roughness": skin_roughness,
-        },
-        # The pack's lighter skin, on the same normal and roughness: the base for the lighter tones.
-        "skinLight": {
-            "baseColor": defined_skin(os.path.join(args.pack, "Base Characters", "Textures", BODY["skinLight"]), f"{prefix}-skin-light.jpg", 1024, "JPEG"),
-            "normal": skin_normal,
-            "roughness": skin_roughness,
-        },
-        "hair": {"baseColor": save_texture(os.path.join(BASE_DIR, "T_Hair_1_BaseColor.png"), f"{prefix}-hair.png", 512, "PNG")},
-        "hair2": {"baseColor": save_texture(os.path.join(BASE_DIR, "T_Hair_2_BaseColor.png"), f"{prefix}-hair-2.png", 512, "PNG")},
-        "eyes": {"baseColor": save_texture(os.path.join(BASE_DIR, "T_Eye_Brown.png"), f"{prefix}-eyes.jpg", 256, "JPEG")},
-    }
+    normal_source = os.path.join(OPENGL_NORMALS, BODY["normal"])
+    if not os.path.exists(normal_source):
+        normal_source = os.path.join(BASE_DIR, BODY["normal"])
+    roughness = save_texture(os.path.join(BASE_DIR, BODY["roughness"]), f"{prefix}-skin-roughness.jpg", 512, "JPEG")
+    textures = {}
+    for level in MUSCLE:
+        if not args.no_textures:
+            write_skins(os.path.join(BASE_DIR, BODY["skin"]), level)
+        # A softened normal map holds nothing a quarter of the texels cannot.
+        normal = skin_normal(normal_source, f"{prefix}-skin-normal-{level}.png", 1024 if level == "defined" else 512, level)
+        for tone in SKIN_TONES:
+            textures[f"skin.{tone}.{level}"] = {"baseColor": f"{prefix}-skin-{tone}-{level}.jpg", "normal": normal, "roughness": roughness}
+    textures["eyes"] = {"baseColor": save_texture(os.path.join(BASE_DIR, "T_Eye_Brown.png"), f"{prefix}-eyes.jpg", 256, "JPEG")}
+
+
+def hair_texture(source, name):
+    """The pack paints hair as grey strands around a mid grey, which a colour tint could only
+    darken. It is written brightened until its lightest strand is white, and the header keeps
+    its average (linear) so the app solves the tint that lands a hair colour exactly."""
+    pixels = read_rgb(source)  # opaque, every texel a strand
+    gain = 1 / float(pixels.max())
+    if not args.no_textures:
+        subprocess.run(["magick", source, "-resize", "512x512", "-colorspace", "RGB", "-evaluate", "multiply", str(gain),
+                        "-colorspace", "sRGB", os.path.join(args.out, name)], check=True)
+    return {"baseColor": name, "shade": round(float(pixels.mean()) * gain, 4)}
+
+
+textures["hair"] = hair_texture(os.path.join(BASE_DIR, "T_Hair_1_BaseColor.png"), f"{prefix}-hair.png")
+textures["hair2"] = hair_texture(os.path.join(BASE_DIR, "T_Hair_2_BaseColor.png"), f"{prefix}-hair-2.png")
 
 header = {
-    "format": "ascend-athlete-v2",
+    "format": "ascend-athlete-v3",
     "license": "CC0 1.0 - Quaternius, Universal Base Characters (Standard); kit modelled by scripts/athlete/build-ascend-athlete.py",
     "source": "https://quaternius.itch.io/universal-base-characters",
     "body": args.body,
     "hairStyle": "pack" if args.hair_pack else (None if args.no_hair else HAIR),
+    "skinTones": SKIN_TONES,
     "height": round(max(p for i, p in enumerate(floats) if i % 16 == 1), 6),
     "vertexLayout": "positions f32x3, normals f32x3, uv f32x2, joints f32x4, weights f32x4 (interleaved, 16 floats); indices u32 absolute",
     "vertexCount": len(floats) // 16,

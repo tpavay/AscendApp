@@ -33,7 +33,7 @@ protocol AccountDeletionGateway {
     /// Deletes the climbers the user filters Ascend Mountain's race down to.
     func deleteRaceFilter(userId: String) async throws
 
-    /// Deletes the publicly readable mirrors of the user's profile.
+    /// Deletes the publicly readable mirrors of the user's profile, their athlete's look included.
     func deletePublicProfileMirrors(userId: String) async throws
 
     /// Best-effort deactivation of the user's push delivery records.
@@ -215,6 +215,7 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
 
         try await userDocument.collection("public_profile").document("current").delete()
         try await userDocument.collection("profile_stats").document("current").delete()
+        try await userDocument.collection("athlete_look").document("current").delete()
         try await deleteAllDocuments(in: userDocument.collection("profile_workouts"))
     }
 

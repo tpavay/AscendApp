@@ -100,6 +100,7 @@ const sweptCollections = [
 const sweptDocuments = [
   { path: (ownerId) => `users/${ownerId}/public_profile/current`, makeDocument: makePublicProfileDocument },
   { path: (ownerId) => `users/${ownerId}/profile_stats/current`, makeDocument: makeProfileStatsDocument },
+  { path: (ownerId) => `users/${ownerId}/athlete_look/current`, makeDocument: makeAthleteLookDocument },
   { path: (ownerId) => `users/${ownerId}`, makeDocument: makeUserDocument },
 ];
 
@@ -340,6 +341,22 @@ function makeProfileWorkoutSummary() {
     steps: 1200,
     source: 'apple_health',
     lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
+  };
+}
+
+function makeAthleteLookDocument() {
+  return {
+    schemaVersion: 1,
+    body: 'a',
+    skinTone: 'tone3',
+    hairStyle: 'parted',
+    hairColor: 'dark_brown',
+    top: 'lime',
+    bottom: 'black',
+    shoes: 'white',
+    size: 'regular',
+    muscle: 'some',
+    updatedAt: new Date('2026-09-29T07:00:00.000Z'),
   };
 }
 

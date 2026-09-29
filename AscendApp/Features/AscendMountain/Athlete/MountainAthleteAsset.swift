@@ -1,9 +1,11 @@
 import Foundation
 import simd
 
-/// The athlete's skinned mesh, skeleton and textures, read from the bundled `ascend-athlete.json`,
-/// `.bin` and image files (built by `scripts/athlete/build-ascend-athlete.py` in Blender from
-/// Quaternius's CC0 Universal Base Characters, with the running kit modelled on the body).
+/// One file of the athlete pack: a skinned mesh, its skeleton and the textures it names, read from
+/// a bundled `.json` and `.bin` pair. The pack (`scripts/athlete/build-ascend-athlete-pack.sh`,
+/// Blender, from Quaternius's CC0 Universal Base Characters with the running kit modelled on the
+/// body) holds one mesh per body and size, without hair, and one hair pack per body holding every
+/// hairstyle as its own part; `MountainAthleteFigure` puts the two together for a look.
 ///
 /// Model space is metres, +Y up, the athlete standing on y = 0 and facing +Z. Vertices are baked
 /// in the rest pose, and every joint's inverse bind matrix is the inverse of its rest frame, so
@@ -48,6 +50,9 @@ struct MountainAthleteAsset: Sendable {
         let baseColor: String?
         let normal: String?
         let roughness: String?
+        /// The base colour's average, linear, for a texture drawn in a tint: hair is painted as
+        /// grey strands, and the tint that lands a hair colour exactly is the colour over this.
+        let shade: Double?
     }
 
     /// One primitive of the mesh and the colour slot it is tinted with.
@@ -67,6 +72,7 @@ struct MountainAthleteAsset: Sendable {
         let indexCount: Int
         let roles: Roles
         let textures: [String: Textures]
+        let skinTones: [String: String]
         let joints: [Joint]
         let parts: [Part]
     }
@@ -77,12 +83,14 @@ struct MountainAthleteAsset: Sendable {
         case truncatedBuffer
     }
 
-    static let resourceName = "ascend-athlete"
+    static let format = "ascend-athlete-v3"
     static let floatsPerVertex = 16
 
     let joints: [Joint]
     let roles: Roles
     let textures: [String: Textures]
+    /// The skin tones the pack baked a texture for, by the id the app stores, as `#RRGGBB`.
+    let skinTones: [String: String]
     let parts: [Part]
     let height: Double
     let positions: [SIMD3<Float>]
@@ -95,7 +103,7 @@ struct MountainAthleteAsset: Sendable {
 
     init(header data: Data, buffer: Data) throws {
         let header = try JSONDecoder().decode(Header.self, from: data)
-        guard header.format == "ascend-athlete-v2" else { throw LoadError.unsupportedFormat(header.format) }
+        guard header.format == Self.format else { throw LoadError.unsupportedFormat(header.format) }
         let floatCount = header.vertexCount * Self.floatsPerVertex
         guard buffer.count >= floatCount * 4 + header.indexCount * 4 else { throw LoadError.truncatedBuffer }
 
@@ -127,6 +135,7 @@ struct MountainAthleteAsset: Sendable {
         self.joints = header.joints
         self.roles = header.roles
         self.textures = header.textures
+        self.skinTones = header.skinTones
         self.parts = header.parts
         self.height = header.height
         self.positions = positions
@@ -137,11 +146,31 @@ struct MountainAthleteAsset: Sendable {
         self.indices = indices
     }
 
-    static func bundled(in bundle: Bundle = .main) throws -> MountainAthleteAsset {
-        guard let headerURL = bundle.url(forResource: resourceName, withExtension: "json"),
-              let bufferURL = bundle.url(forResource: resourceName, withExtension: "bin") else {
+    /// The pack file holding one body at one size, without hair.
+    static func figureResource(body: AthleteLook.Body, size: AthleteLook.Size) -> String {
+        "ascend-athlete-\(body.packName)-\(size.rawValue)"
+    }
+
+    /// The pack file holding every hairstyle, fitted to one body.
+    static func hairResource(body: AthleteLook.Body) -> String {
+        "ascend-athlete-\(body.packName)-hair"
+    }
+
+    static func bundled(_ resource: String, in bundle: Bundle = .main) throws -> MountainAthleteAsset {
+        guard let headerURL = bundle.url(forResource: resource, withExtension: "json"),
+              let bufferURL = bundle.url(forResource: resource, withExtension: "bin") else {
             throw LoadError.missingResource
         }
         return try MountainAthleteAsset(header: Data(contentsOf: headerURL), buffer: Data(contentsOf: bufferURL))
+    }
+}
+
+extension AthleteLook.Body {
+    /// The pack's name for the body: Universal Base Characters' male and female superhero bodies.
+    var packName: String {
+        switch self {
+        case .a: "male"
+        case .b: "female"
+        }
     }
 }

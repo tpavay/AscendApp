@@ -441,6 +441,117 @@ struct AscendMountainChosenClimbersTests {
     }
 }
 
+/// Rivals wear their own athlete on the stairs, read once a climb; a blocked climber, one who
+/// never saved a look, and one whose read fails all race as a stand-in.
+@MainActor
+struct AscendMountainRaceLookTests {
+    private let context = LiveReplayLeaderboardContext.justClimbGlobal()
+
+    @Test
+    func aRivalWearsTheirOwnLookOnceItIsRead() async {
+        var mayaLook = AthleteLook.starting(for: .woman)
+        mayaLook.top = .pink
+        let looks = FakeAthleteLookRepository(looks: ["climber-maya": mayaLook])
+        let race = AscendMountainRace(looks: looks, userId: "me")
+        race.ingest(window(rows: [rival("maya", steps: 45, final: 900, duration: 600), rival("sam", steps: 60, final: 700, duration: 500)]), identities: [])
+
+        #expect(race.ghosts.allSatisfy { $0.look == nil }, "a stand-in until the read lands")
+        await race.refreshLooks()
+
+        let worn = Dictionary(uniqueKeysWithValues: race.ghosts.map { ($0.id, $0.look) })
+        #expect(worn["climber-maya"] == mayaLook)
+        #expect(worn["climber-sam"] == .some(nil), "no saved look keeps the stand-in")
+        #expect(Set(looks.reads) == ["climber-maya", "climber-sam"])
+    }
+
+    @Test
+    func eachClimberIsAskedOnceAClimbHoweverOftenTheyReappear() async {
+        let looks = FakeAthleteLookRepository(looks: [:])
+        let race = AscendMountainRace(looks: looks, userId: "me")
+        let rows = [rival("maya", steps: 45, final: 900, duration: 600)]
+
+        race.ingest(window(rows: rows), identities: [])
+        await race.refreshLooks()
+        race.ingest(window(rows: rows), identities: [])
+        await race.refreshLooks()
+
+        #expect(looks.reads == ["climber-maya"])
+    }
+
+    @Test
+    func aBlockedClimberIsNeverLookedUpAndRacesAsAStandIn() async {
+        let looks = FakeAthleteLookRepository(looks: ["climber-sam": .starting(for: .man)])
+        let race = AscendMountainRace(looks: looks, userId: "me")
+        let rows = [rival("sam", steps: 60, final: 700, duration: 500)]
+
+        race.ingest(window(rows: rows), identities: rows.map {
+            CrossUserIdentityAdapter.replayRow($0, blockedUserIds: ["climber-sam"], isBlockListHydrated: true)
+        })
+        await race.refreshLooks()
+
+        #expect(looks.reads.isEmpty)
+        #expect(race.ghosts.first?.look == nil)
+    }
+
+    @Test
+    func aReadThatFailsLeavesTheStandIn() async {
+        let looks = FakeAthleteLookRepository(looks: [:], failing: ["climber-maya"])
+        let race = AscendMountainRace(looks: looks, userId: "me")
+        race.ingest(window(rows: [rival("maya", steps: 45, final: 900, duration: 600)]), identities: [])
+
+        await race.refreshLooks()
+
+        #expect(race.ghosts.first?.look == nil)
+    }
+
+    private func window(rows: [LiveReplayLeaderboardRow]) -> LiveReplayLeaderboardWindow {
+        LiveReplayLeaderboardWindow(
+            context: context,
+            bucketIndex: 2,
+            currentSteps: 40,
+            fetchedAt: Date(timeIntervalSince1970: 1_777_777_777),
+            rows: rows,
+            currentUserRank: 2,
+            totalClimbers: rows.count + 1
+        )
+    }
+}
+
+final class FakeAthleteLookRepository: AthleteLookRepository, @unchecked Sendable {
+    struct ReadFailed: Error {}
+
+    private let lock = NSLock()
+    private var stored: [String: AthleteLook]
+    private let failing: Set<String>
+    private var _reads: [String] = []
+    private var _saves: [AthleteLook] = []
+    var failsSaving = false
+
+    init(looks: [String: AthleteLook], failing: Set<String> = []) {
+        stored = looks
+        self.failing = failing
+    }
+
+    var reads: [String] { lock.withLock { _reads } }
+    var saves: [AthleteLook] { lock.withLock { _saves } }
+
+    func fetchLook(userId: String) async throws -> AthleteLook? {
+        try lock.withLock {
+            _reads.append(userId)
+            if failing.contains(userId) { throw ReadFailed() }
+            return stored[userId]
+        }
+    }
+
+    func saveLook(_ look: AthleteLook, userId: String) async throws {
+        try lock.withLock {
+            if failsSaving { throw ReadFailed() }
+            _saves.append(look)
+            stored[userId] = look
+        }
+    }
+}
+
 private final class FakeMountainRaceBoard: MountainRaceBoard, @unchecked Sendable {
     var bests: [String: MountainRaceBest] = [:]
     var stepsByBucket: [String: [Int: Int]] = [:]

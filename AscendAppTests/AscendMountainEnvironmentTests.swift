@@ -329,23 +329,29 @@ struct AscendMountainPropTests {
 }
 
 struct AscendMountainAthleteTests {
-    private static func poser() throws -> (MountainAthletePoser, MountainAthleteAsset) {
-        let asset = try MountainAthleteAsset.bundled()
+    private static func poser(body: AthleteLook.Body = .a) throws -> (MountainAthletePoser, MountainAthleteAsset) {
+        let asset = try MountainAthleteAsset.bundled(MountainAthleteAsset.figureResource(body: body, size: .regular))
         return (try #require(MountainAthletePoser(asset: asset)), asset)
     }
 
     @Test
     func noStandInWearsTheClimbersLime() {
-        let lime = MountainAthleteLook.ascendKit.top
-        let tops = (1...200).map { MountainAthleteLook.standIn(for: "climber\($0)").top }
+        let looks = (1...200).map { AthleteLook.standIn(for: "climber\($0)") }
 
-        #expect(!tops.contains(lime))
-        #expect(Set(tops.map { "\($0.red),\($0.green),\($0.blue)" }).count > 1)
+        #expect(!looks.contains { $0.top == .lime })
+        #expect(Set(looks.map(\.top)).count > 1)
+        #expect(Set(looks.map(\.body)) == Set(AthleteLook.Body.allCases), "stand-ins come in both bodies")
+        #expect(Set(looks.map(\.size)) == Set(AthleteLook.Size.allCases), "and every size")
+        #expect(AthleteLook.standIn(for: "climber7") == AthleteLook.standIn(for: "climber7"), "the same climber always looks the same")
     }
 
-    @Test
-    func theAthleteAssetIsOneCleanSkinnedHuman() throws {
-        let asset = try MountainAthleteAsset.bundled()
+    static let figures: [(AthleteLook.Body, AthleteLook.Size)] = AthleteLook.Body.allCases.flatMap { body in
+        AthleteLook.Size.allCases.map { (body, $0) }
+    }
+
+    @Test(arguments: figures)
+    func everyBodyAndSizeIsOneCleanSkinnedHuman(body: AthleteLook.Body, size: AthleteLook.Size) throws {
+        let asset = try MountainAthleteAsset.bundled(MountainAthleteAsset.figureResource(body: body, size: size))
 
         #expect(asset.joints.count == 65)
         #expect((1.6...2.0).contains(asset.height), "life size: \(asset.height) m")
@@ -354,14 +360,82 @@ struct AscendMountainAthleteTests {
         #expect(asset.indices.allSatisfy { Int($0) < asset.positions.count })
         #expect(asset.jointIndices.allSatisfy { indices in (0..<4).allSatisfy { indices[$0] >= 0 && Int(indices[$0]) < asset.joints.count } })
         #expect(asset.jointWeights.allSatisfy { abs(($0.x + $0.y + $0.z + $0.w) - 1) < 1e-3 })
-        let known: Set<String> = ["skin", "hair", "eyes", "top", "bottom", "shoe", "shoeAccent"]
-        #expect(Set(asset.parts.map(\.slot)) == known, "the whole kit is dressed")
+        let brows = body == .a ? "hair" : "hair2"
+        #expect(Set(asset.parts.map(\.slot)) == ["skin", brows, "eyes", "top", "bottom", "shoe", "shoeAccent"], "the whole kit is dressed, with no hair of its own")
+        #expect(asset.parts.reduce(0) { $0 + $1.indexCount } == asset.indices.count)
         for textures in asset.textures.values {
             for file in [textures.baseColor, textures.normal, textures.roughness].compactMap({ $0 }) {
                 #expect(Bundle.main.url(forResource: file, withExtension: nil) != nil, "\(file) ships with the app")
             }
         }
-        #expect(asset.parts.reduce(0) { $0 + $1.indexCount } == asset.indices.count)
+    }
+
+    /// Every tone the editor offers has a skin baked to exactly its swatch, at every muscle level.
+    @Test(arguments: AthleteLook.Body.allCases)
+    func theSkinIsBakedForEveryToneTheEditorOffersAtEveryMuscleLevel(body: AthleteLook.Body) throws {
+        let asset = try MountainAthleteAsset.bundled(MountainAthleteAsset.figureResource(body: body, size: .regular))
+
+        #expect(Set(asset.skinTones.keys) == Set(AthleteLook.SkinTone.allCases.map(\.rawValue)))
+        for tone in AthleteLook.SkinTone.allCases {
+            #expect(asset.skinTones[tone.rawValue].flatMap(MountainColor.init(hex:)) == tone.color, "\(tone) is the swatch the build baked")
+            for muscle in AthleteLook.Muscle.allCases {
+                var look = AthleteLook.starting(for: nil)
+                look.skinTone = tone
+                look.muscle = muscle
+                let textures = try #require(asset.textures[MountainAthleteRig.texturesKey(forSlot: "skin", look: look)])
+                #expect(textures.baseColor != nil && textures.normal != nil && textures.roughness != nil)
+            }
+        }
+    }
+
+    @Test(arguments: AthleteLook.Body.allCases)
+    func eachBodysHairPackHoldsEveryHairstyleOnThatBodysSkeleton(body: AthleteLook.Body) throws {
+        let hair = try MountainAthleteAsset.bundled(MountainAthleteAsset.hairResource(body: body))
+
+        #expect(Set(hair.parts.map(\.name)) == Set(AthleteLook.HairStyle.allCases.map { "hair.\($0.rawValue)" }))
+        #expect(Set(hair.parts.map(\.slot)).isSubset(of: ["hair", "hair2"]))
+        for size in AthleteLook.Size.allCases {
+            let figure = try MountainAthleteAsset.bundled(MountainAthleteAsset.figureResource(body: body, size: size))
+            #expect(hair.joints.map(\.name) == figure.joints.map(\.name))
+            #expect(hair.joints.map(\.inverseBind) == figure.joints.map(\.inverseBind), "sizes change the body, never its bones")
+        }
+        for slot in ["hair", "hair2"] {
+            let textures = try #require(hair.textures[slot])
+            #expect((0.3...1).contains(textures.shade ?? 0), "hair is painted light, so any colour can tint it")
+        }
+    }
+
+    /// The figure every look is drawn with: that body at that size, with that hairstyle.
+    @Test(arguments: AthleteLook.Body.allCases, AthleteLook.HairStyle.allCases)
+    func everyLookPutsTogetherIntoOneFigure(body: AthleteLook.Body, hairStyle: AthleteLook.HairStyle) async throws {
+        let library = await MountainAthleteLibrary()
+        var look = AthleteLook.starting(for: nil)
+        look.body = body
+        look.hairStyle = hairStyle
+        let figure = try await library.figure(for: look)
+
+        #expect(figure.pieces.filter { $0.part.name.hasPrefix("hair.") }.map(\.part.name) == ["hair.\(hairStyle.rawValue)"])
+        #expect(figure.slots.contains("skin") && figure.slots.contains("top"))
+        #expect(MountainAthletePoser(asset: figure.body) != nil)
+    }
+
+    /// Hair is painted grey and tinted: the tint is solved so the paint's average lands on the
+    /// swatch, in linear light, for every colour the editor offers.
+    @Test(arguments: AthleteLook.HairColor.allCases)
+    func aHairTintLandsTheHairColourOnItsSwatch(color: AthleteLook.HairColor) throws {
+        let hair = try MountainAthleteAsset.bundled(MountainAthleteAsset.hairResource(body: .a))
+        let textures = try #require(hair.textures["hair"])
+        let shade = try #require(textures.shade)
+        var look = AthleteLook.starting(for: nil)
+        look.hairColor = color
+
+        let tint = MountainAthleteRig.tint(forSlot: "hair", look: look, textures: textures)
+        let drawn = tint.linearScaled(by: shade)
+        let swatch = color.color
+        // A channel lighter than the paint can reach is held at white; the rest land exactly.
+        #expect(abs(drawn.red - swatch.red) < 0.03)
+        #expect(abs(drawn.green - swatch.green) < 0.01)
+        #expect(abs(drawn.blue - swatch.blue) < 0.01)
     }
 
     private static func targets(left: SIMD3<Double>, right: SIMD3<Double>, pelvisHeight: Double = 0.76) -> MountainAthletePoseTargets {
@@ -475,3 +549,4 @@ struct AscendMountainMarkerFrameTests {
         #expect(course.markerStep(for: flight.firstStep + 2) == flight.firstStep + 2)
     }
 }
+
