@@ -44,7 +44,7 @@ Full playbook: `ascend-brand-voice`. Design patterns: `product-design-playbook`.
 - **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting, Analytics, Crashlytics, Remote Config)
 - **Subscriptions / Paywall**: RevenueCat for subscription management and entitlements; SuperWall for paywall presentation and onboarding/conversion analytics
 - **Analytics / Diagnostics**: Firebase Analytics, Mixpanel, Sentry
-- **Integrations**: Apple HealthKit, Hevy
+- **Integrations**: Apple HealthKit, Hevy, Strava (upload-only, allowlisted server-side; `docs/strava-integration.md`)
 - **Cloud Functions** (TypeScript): transactional email for server-owned notifications, plus server-derived leaderboard, achievement, and identity projections
 - **Web**: Astro site in `web/`, built to `web/dist/`
 
