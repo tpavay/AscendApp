@@ -707,3 +707,34 @@ extension AscendMountainCameraClearanceTests {
         return simd_dot(edge2, q) * inverse
     }
 }
+
+extension AscendMountainCameraClearanceTests {
+    /// A phone held upright shows about fifteen degrees either side of the view's centre. Round a
+    /// turn the camera aims toward the stairs ahead, and it once put the climber 12.9 degrees off
+    /// centre, their shoulder past the screen's edge.
+    @Test
+    func theClimberStaysNearTheMiddleOfTheScreenRoundEveryTurn() {
+        var director = MountainSceneDirector(seed: MountainCourse.ascendMountainSeed)
+        director.liftsAtGates = false
+        var worst = (degrees: 0.0, steps: 0.0)
+        let stepsPerSecond = 3.4, frameSeconds = 1.0 / 30
+        var time = 0.0, steps = 0.0
+        _ = director.advance(logicalSteps: 0, time: 0, deltaTime: 0)
+        while steps < 5_000 {
+            steps += stepsPerSecond * frameSeconds
+            time += frameSeconds
+            let frame = director.advance(logicalSteps: Int(steps), time: time, deltaTime: frameSeconds)
+            let view = frame.cameraTarget - frame.cameraPosition
+            let climber = frame.athleteRenderHipCentre - frame.cameraPosition
+            let across = abs(Self.yaw(SIMD2(Double(view.x), Double(view.z)), SIMD2(Double(climber.x), Double(climber.z))))
+            if across > worst.degrees { worst = (across, steps) }
+        }
+
+        #expect(worst.degrees <= MountainSceneDirector.CameraTuning.standard.maximumClimberOffsetDegrees + 0.5,
+                "the climber was \(String(format: "%.1f", worst.degrees)) degrees off centre at step \(Int(worst.steps))")
+    }
+
+    private static func yaw(_ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double {
+        atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y) * 180 / .pi
+    }
+}

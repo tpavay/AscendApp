@@ -88,6 +88,10 @@ struct MountainSceneDirector: Sendable {
         var headingSmoothingSeconds = 0.55
         /// A camera further than this from where it should be has been through a jump; snap it.
         var snapDistance = 20.0
+        /// How far across the view the climber may sit from its centre. A phone held upright
+        /// shows about fifteen degrees either side, so this keeps their whole body on screen
+        /// while the camera looks round a turn toward the stairs ahead.
+        var maximumClimberOffsetDegrees = 7.0
         /// Where the camera rises to over a gate, in the athlete's frame: high and far enough
         /// behind to see the stairs run on up the ridge, with the climber small below.
         var liftOffset = SIMD3<Double>(0, 15, 26)
@@ -241,7 +245,7 @@ struct MountainSceneDirector: Sendable {
         }
 
         let lookAhead = self.course.progress(atSteps: courseSteps + cameraTuning.lookAheadSteps).pose.position
-        let follow = updateCamera(athletePose: progress.pose, lookAhead: lookAhead, deltaTime: dt)
+        let follow = updateCamera(athletePose: progress.pose, subject: athlete.hipCentre, lookAhead: lookAhead, deltaTime: dt)
         let camera = liftedCamera(follow, athletePose: progress.pose, time: time)
         let window = (visualSteps - MountainWorld.markersBehind)...(visualSteps + MountainWorld.markersAhead)
         // This climb's own marks count from its first step; the world's from the foot of the
@@ -312,8 +316,10 @@ struct MountainSceneDirector: Sendable {
         return origin
     }
 
+    /// - Parameter subject: the climber's hips, which the view keeps near its middle.
     private mutating func updateCamera(
         athletePose: MountainPose,
+        subject: SIMD3<Double>,
         lookAhead: SIMD3<Double>,
         deltaTime: Double
     ) -> (position: SIMD3<Double>, target: SIMD3<Double>) {
@@ -346,9 +352,34 @@ struct MountainSceneDirector: Sendable {
             target = desiredTarget
             cameraHeading = athletePose.heading
         }
+        // Looking round a turn toward the stairs ahead must never push the climber off screen.
+        let kept = Self.keeping(subject, inViewFrom: position, aimedAt: target, withinDegrees: cameraTuning.maximumClimberOffsetDegrees)
         cameraPosition = position
-        cameraTarget = target
-        return (position, target)
+        cameraTarget = kept
+        return (position, kept)
+    }
+
+    /// `target`, turned about the camera's vertical axis just far enough that `subject` sits no
+    /// more than `degrees` either side of the view's centre; only the sideways aim changes, so the
+    /// camera still looks as far up the stairs as it did.
+    static func keeping(
+        _ subject: SIMD3<Double>,
+        inViewFrom position: SIMD3<Double>,
+        aimedAt target: SIMD3<Double>,
+        withinDegrees degrees: Double
+    ) -> SIMD3<Double> {
+        let view = target - position
+        let across = SIMD2(view.x, view.z)
+        let toSubject = SIMD2(subject.x - position.x, subject.z - position.z)
+        guard simd_length(across) > 1e-6, simd_length(toSubject) > 1e-6 else { return target }
+        let viewAngle = atan2(across.y, across.x)
+        let subjectAngle = atan2(toSubject.y, toSubject.x)
+        let offset = remainder(viewAngle - subjectAngle, 2 * .pi)
+        let limit = degrees * .pi / 180
+        guard abs(offset) > limit else { return target }
+        let angle = subjectAngle + (offset > 0 ? limit : -limit)
+        let length = simd_length(across)
+        return position + SIMD3(cos(angle) * length, view.y, sin(angle) * length)
     }
 
     /// Starts a lift on the frame the climber walks through a gate, and lets one go once it has
