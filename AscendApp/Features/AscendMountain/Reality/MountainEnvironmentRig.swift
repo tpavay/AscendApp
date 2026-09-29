@@ -193,6 +193,8 @@ final class MountainEnvironmentRig {
             entity = makeGate(for: marker, proportions: marker.design == "gate_grand" ? .grand : .standard)
         case .post:
             entity = makePost(for: marker)
+        case .line:
+            entity = makeLine(for: marker)
         }
         markerEntities[marker.id] = entity
         root.addChild(entity)
@@ -274,9 +276,39 @@ final class MountainEnvironmentRig {
         return post
     }
 
-    /// The marker's words on dark stone: the number large, the unit in the lime accent, drawn once
+    /// Gold, the colour of the climber's best everywhere it appears.
+    private static let bestGold = UIColor(red: 0.83, green: 0.69, blue: 0.22, alpha: 1)
+
+    /// A glowing gold line across one stair - where the climber's best ended - with its sign at
+    /// the right kerb, turned in toward them like a trail post's.
+    private func makeLine(for marker: MountainMarker) -> Entity {
+        let mark = Entity()
+        let span = Float(MountainStairGeometry.width + MountainChunkGeometry.kerbWidth * 2)
+        var gold = UnlitMaterial(applyPostProcessToneMap: false)
+        gold.color = .init(tint: Self.bestGold)
+        let line = ModelEntity(mesh: .generateBox(size: [span, 0.018, 0.07], cornerRadius: 0.006), materials: [gold])
+        line.position = [0, 0.012, 0]
+        mark.addChild(line)
+
+        let side = Float(MountainStairGeometry.width / 2 + MountainChunkGeometry.kerbWidth) + 0.3
+        let sign = Entity()
+        sign.position = [side - 0.06, 1.05, 0]
+        sign.orientation = simd_quatf(angle: -0.35, axis: [0, 1, 0])
+        if let plaque = Self.plaqueMaterial(title: marker.title, subtitle: marker.subtitle, accent: Self.bestGold, titleSize: 170) {
+            sign.addChild(ModelEntity(mesh: .generatePlane(width: 0.9, height: 0.45, cornerRadius: 0.05), materials: [plaque]))
+        }
+        mark.addChild(sign)
+        return mark
+    }
+
+    /// The marker's words on dark stone: the number large, the unit in the accent, drawn once
     /// into a texture and shown unlit so it reads in any light from the stair-stepper console.
-    private static func plaqueMaterial(title: String, subtitle: String?) -> UnlitMaterial? {
+    private static func plaqueMaterial(
+        title: String,
+        subtitle: String?,
+        accent: UIColor = UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1),
+        titleSize: CGFloat = 250
+    ) -> UnlitMaterial? {
         let size = CGSize(width: 1_024, height: 512)
         let image = UIGraphicsImageRenderer(size: size).image { context in
             UIColor(red: 0.12, green: 0.13, blue: 0.14, alpha: 1).setFill()
@@ -288,17 +320,18 @@ final class MountainEnvironmentRig {
 
             let style = NSMutableParagraphStyle()
             style.alignment = .center
-            let titleFont = UIFont(name: "Montserrat-Bold", size: 250) ?? .systemFont(ofSize: 250, weight: .heavy)
+            let titleFont = UIFont(name: "Montserrat-Bold", size: titleSize) ?? .systemFont(ofSize: titleSize, weight: .heavy)
             let subtitleFont = UIFont(name: "Montserrat-Bold", size: 92) ?? .systemFont(ofSize: 92, weight: .bold)
             let titleHeight: CGFloat = subtitle == nil ? 330 : 290
             (title as NSString).draw(
-                in: CGRect(x: 0, y: subtitle == nil ? 80 : 30, width: size.width, height: titleHeight),
+                // A smaller title sits lower in the same band, so it stays centred over the unit.
+                in: CGRect(x: 0, y: (subtitle == nil ? 80 : 30) + (250 - titleSize) * 0.6, width: size.width, height: titleHeight),
                 withAttributes: [.font: titleFont, .foregroundColor: UIColor.white, .paragraphStyle: style]
             )
             if let subtitle {
                 (subtitle as NSString).draw(
                     in: CGRect(x: 0, y: 330, width: size.width, height: 130),
-                    withAttributes: [.font: subtitleFont, .foregroundColor: UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1), .kern: 14, .paragraphStyle: style]
+                    withAttributes: [.font: subtitleFont, .foregroundColor: accent, .kern: 14, .paragraphStyle: style]
                 )
             }
         }

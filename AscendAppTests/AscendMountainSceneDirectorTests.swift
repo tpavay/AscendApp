@@ -162,6 +162,23 @@ struct AscendMountainSceneDirectorTests {
         #expect(simd_distance(ghost.kinematics.bodyPose.position, course.progress(atSteps: 30).pose.position) < 1)
     }
 
+    /// A climb's own mark - the line of the climber's best - stands on its exact stair when it is
+    /// near, beside the world's markers, and is let go when it is not.
+    @Test
+    func aClimbsOwnLineStandsOnItsExactStairWhenNear() throws {
+        var director = MountainSceneDirector(seed: MountainCourse.ascendMountainSeed)
+        let line = MountainMarker(id: "your-best-line-120", step: 120, kind: .line, title: "YOUR BEST", subtitle: "120 STEPS")
+        let far = MountainMarker(id: "your-best-line-900", step: 900, kind: .line, title: "YOUR BEST", subtitle: "900 STEPS")
+
+        let frame = director.advance(logicalSteps: 40, time: 0, deltaTime: 0, extraMarkers: [line, far])
+
+        let placed = try #require(frame.markers.first { $0.marker.id == line.id })
+        #expect(!frame.markers.contains { $0.marker.id == far.id })
+        var course = MountainCourse(seed: MountainCourse.ascendMountainSeed)
+        let expected = course.progress(atSteps: 120).pose.position - frame.renderOrigin
+        #expect(simd_distance(SIMD3<Double>(placed.renderPosition), expected) < 1e-3)
+    }
+
     /// A start line full of climbers spreads across the stairs: each keeps its own lane, on the
     /// stairs, the same every time.
     @Test

@@ -7,6 +7,9 @@ struct MountainMarker: Decodable, Equatable, Sendable {
     enum Kind: String, Sendable {
         case gate
         case post
+        /// A line painted across one stair - a mark of the climber's own, like the step count of
+        /// their best, rather than a milestone of the mountain.
+        case line
     }
 
     let id: String
@@ -123,7 +126,11 @@ struct MountainWorld: Sendable {
     /// Markers close enough to the climber to stand in the world now, ordered by step: a little way
     /// behind, so a marker just passed does not vanish from under the camera, and far enough ahead
     /// to be seen coming.
-    func markers(near steps: Double, behind: Double = 12, ahead: Double = 160) -> [MountainMarker] {
+    /// How far behind and ahead of the climber a marker is stood up.
+    static let markersBehind = 12.0
+    static let markersAhead = 160.0
+
+    func markers(near steps: Double, behind: Double = markersBehind, ahead: Double = markersAhead) -> [MountainMarker] {
         let low = steps - behind
         let high = steps + ahead
         let own = markers.filter { Double($0.step) >= low && Double($0.step) <= high }

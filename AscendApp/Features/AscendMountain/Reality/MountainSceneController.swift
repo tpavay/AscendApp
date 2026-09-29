@@ -32,6 +32,7 @@ final class MountainSceneController {
     private let seed: UInt64
     private let worldSource: @Sendable () throws -> MountainWorld
     private let ghostSource: @MainActor () -> [MountainGhost]
+    private let markerSource: @MainActor () -> [MountainMarker]
     private let elapsedSource: (@MainActor () -> TimeInterval)?
     private var ghostRigs: [String: MountainAthleteRig] = [:]
     /// The tag each ghost's rig was built with; a tag is baked into its rig, so a new one means
@@ -61,6 +62,7 @@ final class MountainSceneController {
     ///   - worldSource: where the regions and markers come from; the bundled world file unless a
     ///     caller is previewing another.
     ///   - ghostSource: the other athletes on the stairs this frame - a best, a pacer, rivals.
+    ///   - markerSource: this climb's own marks on the stairs, such as the line of the best.
     ///   - elapsedSource: the climb's own elapsed time, which places every ghost; the scene's
     ///     clock when a caller has no workout.
     init(
@@ -69,11 +71,13 @@ final class MountainSceneController {
         debugState: MountainDebugState?,
         worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
         ghostSource: @escaping @MainActor () -> [MountainGhost] = { [] },
+        markerSource: @escaping @MainActor () -> [MountainMarker] = { [] },
         elapsedSource: (@MainActor () -> TimeInterval)? = nil
     ) {
         self.seed = seed
         self.worldSource = worldSource
         self.ghostSource = ghostSource
+        self.markerSource = markerSource
         self.elapsedSource = elapsedSource
         self.stepSource = stepSource
         self.debugState = debugState
@@ -208,7 +212,8 @@ final class MountainSceneController {
             logicalSteps: logicalSteps,
             time: clock,
             deltaTime: deltaTime,
-            ghosts: ghostSource().map { MountainGhostSample(ghost: $0, elapsed: elapsed) }
+            ghosts: ghostSource().map { MountainGhostSample(ghost: $0, elapsed: elapsed) },
+            extraMarkers: markerSource()
         )
 
         for slotFrame in frame.slots {

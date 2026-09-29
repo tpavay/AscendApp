@@ -17,6 +17,14 @@ final class AscendMountainRace {
     private(set) var field = MountainRaceField()
     @ObservationIgnored private var labels: [String: String] = [:]
     @ObservationIgnored private(set) var ghosts: [MountainGhost] = []
+    /// This climb's own marks on the stairs: the gold line where the climber's best ended.
+    @ObservationIgnored private(set) var markers: [MountainMarker] = []
+    @ObservationIgnored private let goal: JustClimbGoal?
+
+    /// - Parameter goal: the session's goal, which decides where the best's line stands.
+    init(goal: JustClimbGoal? = nil) {
+        self.goal = goal
+    }
 
     /// Whether the climber has a previous best on this board to race.
     var hasYourBest: Bool {
@@ -35,6 +43,33 @@ final class AscendMountainRace {
 
     private func rebuildGhosts() {
         ghosts = Self.ghosts(field: field, labels: labels, selection: selection)
+        markers = selection.showsYourBest
+            ? field.yourBest.flatMap { Self.bestLine(for: $0, goal: goal) }.map { [$0] } ?? []
+            : []
+    }
+
+    /// The line the climber's best leaves on the stairs, settled by the captain as "the gold line
+    /// plus your old self": on an open climb where it ended, on a timed one how far it had come by
+    /// the time, and none on a step goal, whose finish is already the goal itself.
+    nonisolated static func bestLine(for best: MountainRivalCurve, goal: JustClimbGoal?) -> MountainMarker? {
+        let steps: Double
+        switch goal?.kind ?? .open {
+        case .open:
+            steps = best.finalSteps
+        case .duration:
+            steps = best.steps(at: Double((goal?.durationMinutes ?? 0) * 60))
+        case .steps:
+            return nil
+        }
+        let count = Int(steps.rounded())
+        guard count > 0 else { return nil }
+        return MountainMarker(
+            id: "your-best-line-\(count)",
+            step: count,
+            kind: .line,
+            title: "YOUR BEST",
+            subtitle: "\(count.formatted()) STEPS"
+        )
     }
 
     /// The ghosts a selection puts on the stairs, keyed by climber so each keeps one kit and one

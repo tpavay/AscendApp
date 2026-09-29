@@ -224,6 +224,33 @@ struct AscendMountainRaceGhostTests {
         #expect(MountainSceneController.tagOpacity(lead: 90) == 0)
     }
 
+    @Test
+    func yourBestLeavesAGoldLineWhereItEndedWhenYouRaceIt() throws {
+        let race = raceWithField()
+        #expect(race.markers.isEmpty, "only while your best is racing")
+
+        race.selection.yourBest = true
+        let line = try #require(race.markers.first)
+        #expect(line.kind == .line)
+        #expect(line.step == 1_000)
+        #expect(line.subtitle == "\(1_000.formatted()) STEPS")
+
+        race.selection.justYou = true
+        #expect(race.markers.isEmpty)
+    }
+
+    @Test
+    func theLineFollowsTheGoalOfTheClimb() throws {
+        var best = MountainRivalCurve(finalSteps: 3_000, finishSeconds: 2_400)
+        best.record(steps: 1_500, atSeconds: 1_200)
+
+        let open = try #require(AscendMountainRace.bestLine(for: best, goal: JustClimbGoal(kind: .open)))
+        let timed = try #require(AscendMountainRace.bestLine(for: best, goal: JustClimbGoal(kind: .duration, durationMinutes: 20)))
+        #expect(open.step == 3_000)
+        #expect(timed.step == 1_500, "how far the best had come by twenty minutes")
+        #expect(AscendMountainRace.bestLine(for: best, goal: JustClimbGoal(kind: .steps, stepCount: 2_000)) == nil)
+    }
+
     private func raceWithField() -> AscendMountainRace {
         let race = AscendMountainRace()
         let rows = [

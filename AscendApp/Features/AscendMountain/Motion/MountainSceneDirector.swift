@@ -125,7 +125,15 @@ struct MountainSceneDirector: Sendable {
         return (unit * 2 - 1) * 0.5
     }
 
-    mutating func advance(logicalSteps: Int, time: Double, deltaTime: Double, ghosts: [MountainGhostSample] = []) -> MountainSceneFrame {
+    /// - Parameter extraMarkers: marks of this climb's own beside the world's, such as the line
+    ///   where the climber's best ended.
+    mutating func advance(
+        logicalSteps: Int,
+        time: Double,
+        deltaTime: Double,
+        ghosts: [MountainGhostSample] = [],
+        extraMarkers: [MountainMarker] = []
+    ) -> MountainSceneFrame {
         let steps = max(logicalSteps, 0)
         let dt = deltaTime.isFinite ? min(max(deltaTime, 0), 0.25) : 0
 
@@ -180,8 +188,12 @@ struct MountainSceneDirector: Sendable {
 
         let lookAhead = self.course.progress(atSteps: visualSteps + cameraTuning.lookAheadSteps).pose.position
         let camera = updateCamera(athletePose: progress.pose, lookAhead: lookAhead, deltaTime: dt)
-        let markers = (world?.markers(near: visualSteps) ?? []).map { marker -> MountainMarkerFrame in
-            let pose = self.course.progress(atSteps: Double(self.course.markerStep(for: marker.step))).pose
+        let window = (visualSteps - MountainWorld.markersBehind)...(visualSteps + MountainWorld.markersAhead)
+        let nearby = (world?.markers(near: visualSteps) ?? []) + extraMarkers.filter { window.contains(Double($0.step)) }
+        let markers = nearby.map { marker -> MountainMarkerFrame in
+            // A line marks one exact stair, so unlike a gate it is never moved off a turn.
+            let step = marker.kind == .line ? marker.step : self.course.markerStep(for: marker.step)
+            let pose = self.course.progress(atSteps: Double(step)).pose
             return MountainMarkerFrame(marker: marker, renderPosition: SIMD3<Float>(pose.position - origin), heading: Float(pose.heading))
         }
 

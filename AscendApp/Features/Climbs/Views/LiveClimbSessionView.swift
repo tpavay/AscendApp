@@ -35,7 +35,7 @@ struct LiveClimbSessionView: View {
     /// Ascend Mountain's developer read-out; only a Dev build running Mountain creates one.
     @State private var mountainDebugState: MountainDebugState?
     /// Who races on the Mountain, and the ghosts that puts on the stairs.
-    @State private var mountainRace = AscendMountainRace()
+    @State private var mountainRace: AscendMountainRace
     @State private var showingMountainRaceSheet = false
 
     private let experience: JustClimbExperience
@@ -49,6 +49,7 @@ struct LiveClimbSessionView: View {
             climb: climb,
             analyticsEntryPoint: analyticsEntryPoint
         ))
+        _mountainRace = State(initialValue: AscendMountainRace())
         experience = .classic
     }
 
@@ -69,6 +70,7 @@ struct LiveClimbSessionView: View {
     /// Ascend Mountain only ever presents a Just Climb; a landmark climb always runs Classic.
     init(viewModel: LiveClimbSessionViewModel, experience: JustClimbExperience = .classic) {
         _viewModel = State(initialValue: viewModel)
+        _mountainRace = State(initialValue: AscendMountainRace(goal: viewModel.mode.justClimbGoal))
         self.experience = viewModel.mode.isLandmarkClimb ? .classic : experience
 #if DEBUG
         if self.experience == .mountain {
@@ -356,6 +358,7 @@ struct LiveClimbSessionView: View {
             stepSource: { viewModel.totalRecordedSteps },
             debugState: mountainDebugState,
             ghostSource: { race.ghosts },
+            markerSource: { race.markers },
             elapsedSource: { viewModel.displayedDuration }
         )
         .overlay {
