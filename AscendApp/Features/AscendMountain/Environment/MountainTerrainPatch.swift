@@ -258,33 +258,29 @@ struct MountainTerrainPatch: Sendable {
         }
     }
 
+    /// A cell of ground takes one look for both of its triangles. The cells far down the slope
+    /// are long slivers, and judged triangle by triangle the two halves of one cell fell either
+    /// side of the rock line, so the edge of the snow ran in long teeth - plain to see from the
+    /// risen camera over a gate.
     private mutating func addQuad(
         _ a: SIMD3<Double>, _ b: SIMD3<Double>, _ c: SIMD3<Double>, _ d: SIMD3<Double>,
         flipped: Bool, steps: Double, baseHeight: Double, context: Context
     ) {
-        if flipped {
-            addTriangle(a, c, b, steps: steps, baseHeight: baseHeight, context: context)
-            addTriangle(a, d, c, steps: steps, baseHeight: baseHeight, context: context)
-        } else {
-            addTriangle(a, b, c, steps: steps, baseHeight: baseHeight, context: context)
-            addTriangle(a, c, d, steps: steps, baseHeight: baseHeight, context: context)
+        let halves = flipped ? [(a, c, b), (a, d, c)] : [(a, b, c), (a, c, d)]
+        let up = halves.reduce(SIMD3<Double>.zero) { sum, half in
+            let normal = simd_cross(half.1 - half.0, half.2 - half.0)
+            return sum + (normal.y < 0 ? -normal : normal)
+        }
+        guard simd_length(up) > 1e-9 else { return }
+        let bucket = Self.bucket(centre: (a + b + c + d) / 4, normal: simd_normalize(up), steps: steps, baseHeight: baseHeight, context: context)
+        for half in halves {
+            addTriangle(half.0, half.1, half.2, bucket: bucket, context: context)
         }
     }
 
-    private mutating func addTriangle(
-        _ a: SIMD3<Double>, _ b: SIMD3<Double>, _ c: SIMD3<Double>,
-        steps: Double, baseHeight: Double, context: Context
-    ) {
-        var normal = simd_cross(b - a, c - a)
-        let length = simd_length(normal)
-        guard length > 1e-9 else { return }
-        normal /= length
-        if normal.y < 0 {
-            // Never draw a face upside down, whatever the corner geometry did.
-            return addTriangle(a, c, b, steps: steps, baseHeight: baseHeight, context: context)
-        }
-
-        let centre = (a + b + c) / 3
+    private static func bucket(
+        centre: SIMD3<Double>, normal: SIMD3<Double>, steps: Double, baseHeight: Double, context: Context
+    ) -> MountainTerrainBucket {
         let depth = baseHeight - centre.y
         let haze = Self.hazeDepths.lastIndex { depth >= $0 }.map { $0 + 1 } ?? 0
         let world = context.world(SIMD2(centre.x, centre.z))
@@ -301,8 +297,22 @@ struct MountainTerrainPatch: Sendable {
         } else {
             surface = .grass
         }
+        return MountainTerrainBucket(regionIndex: regionIndex, surface: surface, haze: haze)
+    }
 
-        let bucket = MountainTerrainBucket(regionIndex: regionIndex, surface: surface, haze: haze)
+    private mutating func addTriangle(
+        _ a: SIMD3<Double>, _ b: SIMD3<Double>, _ c: SIMD3<Double>,
+        bucket: MountainTerrainBucket, context: Context
+    ) {
+        var normal = simd_cross(b - a, c - a)
+        let length = simd_length(normal)
+        guard length > 1e-9 else { return }
+        normal /= length
+        if normal.y < 0 {
+            // Never draw a face upside down, whatever the corner geometry did.
+            return addTriangle(a, c, b, bucket: bucket, context: context)
+        }
+
         let base = UInt32(positions.count)
         let n = SIMD3<Float>(normal)
         positions.append(contentsOf: [SIMD3<Float>(a), SIMD3<Float>(b), SIMD3<Float>(c)])

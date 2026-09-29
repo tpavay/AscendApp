@@ -308,6 +308,26 @@ struct AscendMountainTerrainTests {
             #expect(mesh.triangleCount >= patch.triangleCount)
         }
     }
+
+    /// Both triangles of a cell of ground take one look, so the snow line follows the cells rather
+    /// than running in long teeth down the slope, which the risen camera over a gate makes plain.
+    @Test
+    func eachCellOfGroundWearsOneLook() throws {
+        let regions = try MountainWorld.bundled().regions
+        var course = MountainCourse(seed: MountainCourse.ascendMountainSeed)
+
+        for index in [0, 40, 400, 1_200, 2_400] {
+            let patch = MountainTerrainPatch(placement: course.placement(at: index), regions: regions)
+            for indices in patch.triangles.values {
+                #expect(indices.count % 6 == 0, "piece \(index) has a cell split between looks")
+                for cell in stride(from: 0, to: indices.count - 5, by: 6) {
+                    let first = Set(indices[cell..<(cell + 3)].map { patch.positions[Int($0)] })
+                    let second = Set(indices[(cell + 3)..<(cell + 6)].map { patch.positions[Int($0)] })
+                    #expect(first.intersection(second).count == 2, "the two halves of one cell share its diagonal")
+                }
+            }
+        }
+    }
 }
 
 struct AscendMountainPropTests {
