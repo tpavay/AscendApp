@@ -14,6 +14,8 @@ final class MountainDebugState {
         var framesPerSecond = 0.0
         var logicalSteps = 0
         var visualSteps = 0.0
+        /// Where on the mountain the climber stands: their journey plus `visualSteps`.
+        var mountainSteps = 0.0
         var renderCadenceStepsPerMinute = 0.0
         var animationPlaybackRate = 0.0
         var animationIntensity = 0.0

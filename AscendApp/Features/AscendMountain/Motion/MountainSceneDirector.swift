@@ -26,8 +26,13 @@ struct MountainMarkerFrame: Equatable, Sendable {
 }
 
 struct MountainSceneFrame: Equatable, Sendable {
+    /// This climb's own count, as the workout records it.
     let logicalSteps: Int
+    /// This climb's count as the athlete is drawn, smoothed toward `logicalSteps`.
     let visualSteps: Double
+    /// Where on the mountain the athlete stands: the journey the climber brought to this climb
+    /// plus `visualSteps`. The scenery - areas, gates, posts, clouds - is read at this number.
+    let courseSteps: Double
     let followerVelocity: Double
     let progress: MountainCourseProgress
     let cadenceStepsPerMinute: Double
@@ -43,6 +48,9 @@ struct MountainSceneFrame: Equatable, Sendable {
     let athleteHeading: Float
     let cameraPosition: SIMD3<Float>
     let cameraTarget: SIMD3<Float>
+    /// How far the camera has risen over the gate just passed: 0 following the climber, 1 at
+    /// the top of the lift.
+    let cameraLift: Double
     let recycleCount: Int
     let idleSlotCount: Int
     let markers: [MountainMarkerFrame]
@@ -60,6 +68,12 @@ struct MountainSceneFrame: Equatable, Sendable {
 /// and each pooled chunk go. Everything is rebuilt from `(step count, seed)`: a scene that is
 /// torn down and recreated starts its follower at the live count, so the athlete reappears on
 /// the stair they are on instead of re-climbing from the bottom.
+///
+/// The climb begins at `journeyStart`, the steps the climber has climbed across every earlier
+/// climb, so the mountain carries on where they left it (captain, round 16: "the journey decides
+/// the scenery; racing always starts from your start line"). Only the world moves: the count,
+/// every ghost and every mark of this climb's own stay counted from this climb's first step, and
+/// the director places them `journeyStart` stairs up the one staircase everyone shares.
 struct MountainSceneDirector: Sendable {
     struct CameraTuning: Equatable, Sendable {
         /// Camera offset behind and above the athlete, in the athlete's frame.
@@ -74,16 +88,30 @@ struct MountainSceneDirector: Sendable {
         var headingSmoothingSeconds = 0.55
         /// A camera further than this from where it should be has been through a jump; snap it.
         var snapDistance = 20.0
+        /// Where the camera rises to over a gate, in the athlete's frame: high and far enough
+        /// behind to see the stairs run on up the ridge, with the climber small below.
+        var liftOffset = SIMD3<Double>(0, 15, 26)
+        /// How far below level the risen camera looks, along its own heading rather than at a
+        /// point on the course: a turn ahead can never swing the view off the climber.
+        var liftPitchDegrees = 16.0
 
         static let standard = CameraTuning()
     }
 
     /// The render origin is re-anchored once the athlete is this far from it.
     static let reanchorDistance = 48.0
+    /// A gate this close ahead has the stairs built out to the lift's reach, so they stand
+    /// finished before the camera rises to look along them.
+    static let liftPrepareSteps = 40.0
+    /// More steps than this between two frames is a jump - a return from the background, a
+    /// correction - not a climber walking through a gate, and lifts nothing.
+    static let liftTriggerMaxStride = 6.0
 
     private(set) var course: MountainCourse
     private(set) var pool: MountainChunkPool
     private let world: MountainWorld?
+    /// The stair this climb's first step stands on.
+    private(set) var journeyStart: Int
     private(set) var cadence = MountainCadenceEstimator()
     private(set) var follower: MountainStepFollower?
     private let cameraTuning: CameraTuning
@@ -97,12 +125,28 @@ struct MountainSceneDirector: Sendable {
     /// down); the next frame places everything from the authoritative count instead of climbing
     /// through the steps the climber took off screen.
     private var needsResynchronization = false
+    /// Whether passing a gate lifts the camera: off for a climber who has asked for reduced
+    /// motion, and a lift under way stops the moment it is turned off.
+    var liftsAtGates = true
+    private(set) var lift: MountainCameraLift?
+    private var lastCourseSteps: Double?
 
-    init(seed: UInt64, world: MountainWorld? = nil, cameraTuning: CameraTuning = .standard) {
+    init(seed: UInt64, world: MountainWorld? = nil, journeyStart: Int = 0, cameraTuning: CameraTuning = .standard) {
         self.course = MountainCourse(seed: seed)
-        self.pool = MountainChunkPool()
+        self.pool = MountainChunkPool(slotCount: MountainChunkPool.Reach.lift.size)
         self.world = world
+        self.journeyStart = max(journeyStart, 0)
         self.cameraTuning = cameraTuning
+    }
+
+    /// Moves this climb to start from another point of the journey, placing everything afresh
+    /// from there. Meant for the start line - a journey total that arrives before the first
+    /// step - never mid-climb, where the whole world would jump.
+    mutating func rebase(journeyStart: Int) {
+        let start = max(journeyStart, 0)
+        guard start != self.journeyStart else { return }
+        self.journeyStart = start
+        resynchronize()
     }
 
     /// The mountain is a renderer of the workout, never a record of it: after rendering pauses,
@@ -145,6 +189,8 @@ struct MountainSceneDirector: Sendable {
             cameraTarget = nil
             cameraHeading = nil
             smoothedMovement = 0
+            lift = nil
+            lastCourseSteps = nil
         }
 
         cadence.observe(stepCount: steps, at: time)
@@ -154,16 +200,18 @@ struct MountainSceneDirector: Sendable {
         follower.advance(toward: Double(steps), cadence: stepsPerSecond, deltaTime: dt)
         self.follower = follower
         let visualSteps = follower.visualSteps
+        let start = Double(journeyStart)
+        let courseSteps = start + visualSteps
 
         let movingTarget = follower.velocity > 0.05 ? 1.0 : 0.0
         smoothedMovement = Self.smooth(smoothedMovement, toward: movingTarget, seconds: 0.25, deltaTime: dt)
         let pacing = MountainAnimationPacing(stepsPerMinute: stepsPerSecond * 60)
         smoothedIntensity = Self.smooth(smoothedIntensity, toward: pacing.intensity, seconds: 0.4, deltaTime: dt)
 
-        let progress = course.progress(atSteps: visualSteps)
+        let progress = course.progress(atSteps: courseSteps)
         var course = self.course
         let athlete = MountainAthleteKinematics(
-            visualSteps: visualSteps,
+            visualSteps: courseSteps,
             intensity: smoothedIntensity,
             movement: smoothedMovement,
             time: time,
@@ -171,8 +219,14 @@ struct MountainSceneDirector: Sendable {
         )
         self.course = course
 
+        let worldMarkers = world?.markers(near: courseSteps) ?? []
+        let gates = worldMarkers.filter { $0.kind == .gate }.map { Double(self.course.markerStep(for: $0.step)) }
+        updateLift(courseSteps: courseSteps, gates: gates, time: time)
+        let gateNear = gates.contains { $0 > courseSteps && $0 - courseSteps <= Self.liftPrepareSteps }
+        let reach: MountainChunkPool.Reach = lift != nil || (liftsAtGates && gateNear) ? .lift : .standard
+
         let origin = resolveRenderOrigin(athletePosition: progress.pose.position, currentChunk: progress.chunkIndex)
-        let assignments = pool.update(currentChunk: progress.chunkIndex)
+        let assignments = pool.update(currentChunk: progress.chunkIndex, reach: reach)
         let slots = pool.slotChunkIndices.enumerated().compactMap { slot, chunkIndex -> MountainChunkSlotFrame? in
             guard let chunkIndex else { return nil }
             let placement = self.course.placement(at: chunkIndex)
@@ -186,10 +240,14 @@ struct MountainSceneDirector: Sendable {
             )
         }
 
-        let lookAhead = self.course.progress(atSteps: visualSteps + cameraTuning.lookAheadSteps).pose.position
-        let camera = updateCamera(athletePose: progress.pose, lookAhead: lookAhead, deltaTime: dt)
+        let lookAhead = self.course.progress(atSteps: courseSteps + cameraTuning.lookAheadSteps).pose.position
+        let follow = updateCamera(athletePose: progress.pose, lookAhead: lookAhead, deltaTime: dt)
+        let camera = liftedCamera(follow, athletePose: progress.pose, time: time)
         let window = (visualSteps - MountainWorld.markersBehind)...(visualSteps + MountainWorld.markersAhead)
-        let nearby = (world?.markers(near: visualSteps) ?? []) + extraMarkers.filter { window.contains(Double($0.step)) }
+        // This climb's own marks count from its first step; the world's from the foot of the
+        // mountain.
+        let own = extraMarkers.filter { window.contains(Double($0.step)) }.map { $0.moved(by: journeyStart) }
+        let nearby = worldMarkers + own
         let markers = nearby.map { marker -> MountainMarkerFrame in
             // A line marks one exact stair, so unlike a gate it is never moved off a turn.
             let step = marker.kind == .line ? marker.step : self.course.markerStep(for: marker.step)
@@ -204,7 +262,7 @@ struct MountainSceneDirector: Sendable {
             let lane = Self.lane(for: ghost.id)
             var course = self.course
             let kinematics = MountainAthleteKinematics(
-                visualSteps: max(ghost.steps, 0),
+                visualSteps: start + max(ghost.steps, 0),
                 intensity: pacing.intensity,
                 movement: ghost.stepsPerMinute > 1 ? 1 : 0,
                 time: time,
@@ -220,6 +278,7 @@ struct MountainSceneDirector: Sendable {
         return MountainSceneFrame(
             logicalSteps: steps,
             visualSteps: visualSteps,
+            courseSteps: courseSteps,
             followerVelocity: follower.velocity,
             progress: progress,
             cadenceStepsPerMinute: stepsPerSecond * 60,
@@ -234,6 +293,7 @@ struct MountainSceneDirector: Sendable {
             athleteHeading: Float(athlete.bodyPose.heading),
             cameraPosition: SIMD3<Float>(camera.position - origin),
             cameraTarget: SIMD3<Float>(camera.target - origin),
+            cameraLift: lift?.amount(at: time) ?? 0,
             recycleCount: pool.recycleCount,
             idleSlotCount: pool.idleSlotCount,
             markers: markers,
@@ -289,6 +349,44 @@ struct MountainSceneDirector: Sendable {
         cameraPosition = position
         cameraTarget = target
         return (position, target)
+    }
+
+    /// Starts a lift on the frame the climber walks through a gate, and lets one go once it has
+    /// settled. A lift is never started by a jump in the count, and never over another.
+    private mutating func updateLift(courseSteps: Double, gates: [Double], time: Double) {
+        defer { lastCourseSteps = courseSteps }
+        if let lift, !liftsAtGates || lift.isFinished(at: time) {
+            self.lift = nil
+        }
+        guard liftsAtGates, lift == nil, let previous = lastCourseSteps,
+              courseSteps > previous, courseSteps - previous <= Self.liftTriggerMaxStride,
+              gates.contains(where: { $0 > previous && $0 <= courseSteps }) else { return }
+        lift = MountainCameraLift(startedAt: time)
+    }
+
+    /// The follow camera, carried up to the lift's height as far as the lift has risen. The
+    /// follow camera keeps tracking underneath, so the settle lands exactly where it would be.
+    private func liftedCamera(
+        _ follow: (position: SIMD3<Double>, target: SIMD3<Double>),
+        athletePose: MountainPose,
+        time: Double
+    ) -> (position: SIMD3<Double>, target: SIMD3<Double>) {
+        guard let amount = lift?.amount(at: time), amount > 0 else { return follow }
+        let framing = MountainPose(position: athletePose.position, heading: cameraHeading ?? athletePose.heading)
+        let risen = framing.composed(with: MountainPose(position: cameraTuning.liftOffset, heading: 0)).position
+        let pitch = cameraTuning.liftPitchDegrees * .pi / 180
+        // Turned toward the climber rather than along the heading, which lags a turn, so the
+        // risen view keeps them in the middle of the frame.
+        var level = athletePose.position - risen
+        level.y = 0
+        let facing = simd_length(level) > 1e-6 ? simd_normalize(level) : framing.forward
+        // Aimed as far off as the follow camera's target sits, so the two blend evenly.
+        let reach = max(simd_length(follow.target - follow.position), 1)
+        let aim = risen + (facing * cos(pitch) + SIMD3(0, -sin(pitch), 0)) * reach
+        return (
+            follow.position + (risen - follow.position) * amount,
+            follow.target + (aim - follow.target) * amount
+        )
     }
 
     static func smooth(_ value: Double, toward target: Double, seconds: Double, deltaTime: Double) -> Double {

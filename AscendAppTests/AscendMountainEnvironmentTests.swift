@@ -169,6 +169,8 @@ struct AscendMountainRegionTests {
 
     /// A gate at 500 and then every thousand steps, a trail post every hundred, and the heavier
     /// gate at the numbers the captain approved (2026-09-28); a post never takes a gate's stair.
+    /// Where a heavier gate stands on a summit (round 16) it is the summit's gate - the same
+    /// grand gate with its flag - which `AscendMountainJourneyTests` holds.
     @Test
     func theBundledWorldStandsAGateEveryThousandStepsAndAPostEveryHundred() throws {
         let world = try MountainWorld.bundled()
@@ -180,7 +182,7 @@ struct AscendMountainRegionTests {
         #expect(world.markers(near: 490, behind: 0, ahead: 20).map(\.kind) == [.gate])
         for grand in [10_000, 20_000, 50_000, 100_000] {
             let gate = try #require(world.markers(near: Double(grand), behind: 0, ahead: 0).first)
-            #expect(gate.kind == .gate && gate.design == "gate_grand", "\(grand)")
+            #expect(gate.kind == .gate && [MountainMarker.summitDesign, "gate_grand"].contains(gate.design), "\(grand)")
         }
     }
 
@@ -304,6 +306,26 @@ struct AscendMountainTerrainTests {
             #expect(mesh.faceMaterials.count == mesh.indices.count / 3)
             #expect(mesh.faceMaterials.allSatisfy { Int($0) < layout.materialCount })
             #expect(mesh.triangleCount >= patch.triangleCount)
+        }
+    }
+
+    /// Both triangles of a cell of ground take one look, so the snow line follows the cells rather
+    /// than running in long teeth down the slope, which the risen camera over a gate makes plain.
+    @Test
+    func eachCellOfGroundWearsOneLook() throws {
+        let regions = try MountainWorld.bundled().regions
+        var course = MountainCourse(seed: MountainCourse.ascendMountainSeed)
+
+        for index in [0, 40, 400, 1_200, 2_400] {
+            let patch = MountainTerrainPatch(placement: course.placement(at: index), regions: regions)
+            for indices in patch.triangles.values {
+                #expect(indices.count % 6 == 0, "piece \(index) has a cell split between looks")
+                for cell in stride(from: 0, to: indices.count - 5, by: 6) {
+                    let first = Set(indices[cell..<(cell + 3)].map { patch.positions[Int($0)] })
+                    let second = Set(indices[(cell + 3)..<(cell + 6)].map { patch.positions[Int($0)] })
+                    #expect(first.intersection(second).count == 2, "the two halves of one cell share its diagonal")
+                }
+            }
         }
     }
 }

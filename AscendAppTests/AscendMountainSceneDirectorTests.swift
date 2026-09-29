@@ -87,8 +87,10 @@ struct AscendMountainSceneDirectorTests {
             #expect(Set(frame.slots.map(\.chunkIndex)) == Set(window))
         }
 
-        // Every piece that entered the window took over a slot; no slot was ever added.
-        #expect(director.pool.slotCount == MountainChunkPool.windowSize)
+        // Every piece that entered the window took over a slot; no slot was ever added, and with
+        // no gate to rise over, the slots kept for the camera lift's wider reach stood idle.
+        #expect(director.pool.slotCount == MountainChunkPool.Reach.lift.size)
+        #expect(director.pool.activeSlotCount == MountainChunkPool.windowSize)
         #expect(director.pool.recycleCount == reassignments - MountainChunkPool.windowSize)
         #expect(director.pool.recycleCount > 50)
     }
@@ -234,6 +236,24 @@ struct AscendMountainChunkPoolTests {
         #expect(assignments.count == MountainChunkPool.windowSize)
         #expect(pool.slotCount == MountainChunkPool.windowSize)
         #expect(Set(pool.slotChunkIndices.compactMap(\.self)) == Set(MountainChunkPool.window(around: 94_000)))
+    }
+
+    /// The camera lift's wider reach takes the spare slots; once it narrows again the pieces it
+    /// built stay standing, and a step on recycles the piece furthest behind, never a spare.
+    @Test
+    func aWiderReachTakesTheSpareSlotsAndLeavesItsPiecesStanding() {
+        var pool = MountainChunkPool(slotCount: MountainChunkPool.Reach.lift.size)
+        _ = pool.update(currentChunk: 0)
+        #expect(pool.activeSlotCount == MountainChunkPool.windowSize)
+
+        let widened = pool.update(currentChunk: 0, reach: .lift)
+        #expect(widened.map(\.chunkIndex).sorted() == [-5, -4, -3] + Array(7...18))
+        #expect(pool.idleSlotCount == 0)
+
+        #expect(pool.update(currentChunk: 1).isEmpty, "the next piece ahead was already built")
+        let stepped = pool.update(currentChunk: 18)
+        #expect(stepped.count == 6)
+        #expect(Set(pool.slotChunkIndices.compactMap(\.self)).isSuperset(of: Set(MountainChunkPool.window(around: 18))))
     }
 
     @Test

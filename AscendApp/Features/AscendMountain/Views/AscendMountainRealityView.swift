@@ -5,8 +5,10 @@ import SwiftUI
 /// climber reads sits in SwiftUI on top (spec 5).
 ///
 /// `stepSource`, `ghostSource`, `markerSource` and `athleteLook` are read once per rendered frame
-/// and are the scene's only inputs, so the view can be dropped and recreated freely - it resumes on the stair the count
-/// says, never from zero, with whoever is racing at that moment.
+/// and are the scene's only inputs, so the view can be dropped and recreated freely - it resumes on
+/// the stair the count says, never from zero, with whoever is racing at that moment. `journeySource`
+/// says where on the mountain the climb began; the scene follows it only while the climber is on the
+/// start line.
 struct AscendMountainRealityView: View {
     @State private var controller: MountainSceneController
 
@@ -18,7 +20,9 @@ struct AscendMountainRealityView: View {
         ghostSource: @escaping @MainActor () -> [MountainGhost] = { [] },
         markerSource: @escaping @MainActor () -> [MountainMarker] = { [] },
         elapsedSource: (@MainActor () -> TimeInterval)? = nil,
-        athleteLook: @escaping @MainActor () -> AthleteLook = { .starting(for: nil) }
+        athleteLook: @escaping @MainActor () -> AthleteLook = { .starting(for: nil) },
+        journeySource: @escaping @MainActor () -> Int = { 0 },
+        cameraTuning: MountainSceneDirector.CameraTuning = .standard
     ) {
         _controller = State(
             initialValue: MountainSceneController(
@@ -29,7 +33,9 @@ struct AscendMountainRealityView: View {
                 ghostSource: ghostSource,
                 markerSource: markerSource,
                 elapsedSource: elapsedSource,
-                athleteLook: athleteLook
+                athleteLook: athleteLook,
+                journeySource: journeySource,
+                cameraTuning: cameraTuning
             )
         )
     }

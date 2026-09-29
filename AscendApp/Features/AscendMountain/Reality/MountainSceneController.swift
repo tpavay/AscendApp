@@ -1,6 +1,7 @@
 import Foundation
 import RealityKit
 import SwiftUI
+import UIKit
 
 /// Applies `MountainSceneDirector`'s frames to RealityKit entities.
 ///
@@ -37,6 +38,8 @@ final class MountainSceneController {
     private let elapsedSource: (@MainActor () -> TimeInterval)?
     private let athleteLook: @MainActor () -> AthleteLook
     private let athletes: MountainAthleteLibrary
+    private let journeySource: @MainActor () -> Int
+    private let cameraTuning: MountainSceneDirector.CameraTuning
     private var ghostRigs: [String: MountainAthleteRig] = [:]
     /// What each ghost's rig was built as. Its tag, look and body are baked into it, so a change
     /// to any of them - a rival's own look arriving after their stand-in - means a new rig.
@@ -95,6 +98,8 @@ final class MountainSceneController {
     ///     clock when a caller has no workout.
     ///   - athleteLook: how the climber's own athlete looks, read every frame so a look that
     ///     arrives or changes during the climb is worn at once.
+    ///   - journeySource: the steps the climber brought to this climb, where on the mountain its
+    ///     first stair stands.
     init(
         seed: UInt64,
         stepSource: @escaping @MainActor () -> Int,
@@ -104,15 +109,19 @@ final class MountainSceneController {
         markerSource: @escaping @MainActor () -> [MountainMarker] = { [] },
         elapsedSource: (@MainActor () -> TimeInterval)? = nil,
         athleteLook: @escaping @MainActor () -> AthleteLook = { .starting(for: nil) },
-        athletes: MountainAthleteLibrary = .shared
+        athletes: MountainAthleteLibrary = .shared,
+        journeySource: @escaping @MainActor () -> Int = { 0 },
+        cameraTuning: MountainSceneDirector.CameraTuning = .standard
     ) {
         self.seed = seed
+        self.cameraTuning = cameraTuning
         self.worldSource = worldSource
         self.ghostSource = ghostSource
         self.markerSource = markerSource
         self.elapsedSource = elapsedSource
         self.athleteLook = athleteLook
         self.athletes = athletes
+        self.journeySource = journeySource
         self.stepSource = stepSource
         self.debugState = debugState
         self.director = MountainSceneDirector(seed: seed)
@@ -181,12 +190,12 @@ final class MountainSceneController {
             return
         }
         guard scene == nil else { return }
-        director = MountainSceneDirector(seed: seed, world: world)
+        director = MountainSceneDirector(seed: seed, world: world, journeyStart: journeySource(), cameraTuning: cameraTuning)
 
         let root = Entity()
         root.addChild(far.root)
         var decorSlots: [ModelEntity] = []
-        let chunkSlots = (0..<MountainChunkPool.windowSize).map { _ in
+        let chunkSlots = (0..<MountainChunkPool.Reach.lift.size).map { _ in
             let slot = ModelEntity()
             slot.isEnabled = false
             let decor = ModelEntity()
@@ -242,9 +251,16 @@ final class MountainSceneController {
             smoothedFrameSeconds += (deltaTime - smoothedFrameSeconds) * 0.1
         }
 
-        let logicalSteps = stepSource() + (debugState?.visualStepOffset ?? 0)
+        let climbed = stepSource()
+        // A journey total that lands while the climber is still on the start line moves the start
+        // line; once they have stepped, the mountain under them never jumps.
+        if climbed == 0 {
+            director.rebase(journeyStart: journeySource())
+        }
+        let logicalSteps = climbed + (debugState?.visualStepOffset ?? 0)
         let elapsed = elapsedSource?() ?? clock
         let ghosts = ghostSource()
+        director.liftsAtGates = !UIAccessibility.isReduceMotionEnabled
         let frame = director.advance(
             logicalSteps: logicalSteps,
             time: clock,
@@ -285,15 +301,16 @@ final class MountainSceneController {
         scene.camera.look(at: frame.cameraTarget, from: frame.cameraPosition, relativeTo: nil)
 
         let regions = scene.environment.world.regions
-        scene.sun.light.intensity = Float(regions.blended({ $0.sky.sunIntensity }, atSteps: frame.visualSteps) * 950)
+        scene.sun.light.intensity = Float(regions.blended({ $0.sky.sunIntensity }, atSteps: frame.courseSteps) * 950)
         scene.far.update(
             camera: frame.cameraPosition,
             climberY: frame.athleteRenderHipCentre.y,
-            steps: frame.visualSteps,
+            steps: frame.courseSteps,
             altitude: frame.progress.virtualAltitude,
             deltaTime: deltaTime
         )
         scene.far.place(markers: frame.markers)
+        scene.far.thinPassedGates(frame.markers, climberSteps: frame.courseSteps, lift: frame.cameraLift)
 
         publishDebugMetricsIfDue(frame)
     }
@@ -395,11 +412,12 @@ final class MountainSceneController {
         lastDebugPublishAt = clock
 
         let currentKind = frame.slots.first { $0.chunkIndex == frame.progress.chunkIndex }?.kind
-        let region = scene?.environment.world.regions.region(atSteps: frame.visualSteps)
+        let region = scene?.environment.world.regions.region(atSteps: frame.courseSteps)
         debugState.metrics = MountainDebugState.Metrics(
             framesPerSecond: smoothedFrameSeconds > 0 ? 1 / smoothedFrameSeconds : 0,
             logicalSteps: frame.logicalSteps,
             visualSteps: frame.visualSteps,
+            mountainSteps: frame.courseSteps,
             renderCadenceStepsPerMinute: frame.cadenceStepsPerMinute,
             animationPlaybackRate: frame.followerVelocity * 60 / MountainAnimationPacing.referenceStepsPerMinute,
             animationIntensity: frame.pacing.intensity,
