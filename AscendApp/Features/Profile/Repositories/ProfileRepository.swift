@@ -175,6 +175,36 @@ final class ProfileRepository: Sendable {
         }
     }
 
+    /// Records the "Show my heart rate on my profile" choice and applies it to the published
+    /// aggregates in one transaction, touching nothing else on the document: hidden deletes both,
+    /// shown writes `heartRate`'s values and deletes any it lacks. Returns `false`, having written
+    /// nothing, when the climber has no published stats yet - the caller publishes them whole.
+    func setHeartRateVisibility(
+        userId: String,
+        isPublic: Bool,
+        heartRate: ProfileHeartRateSummary?
+    ) async throws -> Bool {
+        let document = statsDocument(userId: userId)
+        let existed = try await db.runTransaction { transaction, errorPointer -> Any? in
+            do {
+                guard try transaction.getDocument(document).exists else { return false }
+                transaction.updateData(
+                    [
+                        Self.heartRatePublicField: isPublic,
+                        "average_heart_rate_bpm": Self.valueOrDelete(isPublic ? heartRate?.averageBpm : nil),
+                        "max_heart_rate_bpm": Self.valueOrDelete(isPublic ? heartRate?.maxBpm : nil)
+                    ],
+                    forDocument: document
+                )
+                return true
+            } catch let error as NSError {
+                errorPointer?.pointee = error
+                return nil
+            }
+        }
+        return (existed as? Bool) ?? false
+    }
+
     /// Whether the climber shows their heart rate on their profile. A climber who never chose
     /// shows it, which is the default the switch starts from.
     func fetchHeartRatePublic(userId: String) async throws -> Bool {

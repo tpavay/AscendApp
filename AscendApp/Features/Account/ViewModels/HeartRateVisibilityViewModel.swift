@@ -55,17 +55,17 @@ final class HeartRateVisibilityViewModel {
         let previous = isPublic
         isUpdating = true
         errorMessage = nil
-        // Move the switch now and put it back if the write fails, so it never shows a choice the
-        // server did not record.
+        // Move the switch now; if the write fails, show whatever the server holds rather than
+        // assuming the old value survived, since a failure can land after the write committed.
         isPublic = newValue
         defer { isUpdating = false }
 
         do {
             try await service.setIsPublic(newValue)
         } catch {
-            isPublic = previous
             errorMessage = (error as? ProfilePublicationError)?.errorDescription
                 ?? "Couldn't save. Check your connection."
+            isPublic = (try? await service.loadIsPublic()) ?? previous
         }
     }
 }

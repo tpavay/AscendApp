@@ -6,6 +6,6 @@ protocol HeartRateVisibilityProviding {
     /// The stored choice; a climber who never chose shows their heart rate.
     func loadIsPublic() async throws -> Bool
 
-    /// Records the choice and applies it to the public profile in the same write.
+    /// Records the choice and applies it to the published heart rate in the same write.
     func setIsPublic(_ isPublic: Bool) async throws
 }

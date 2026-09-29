@@ -9,6 +9,7 @@ struct HeartRateVisibilityViewModelTests {
         var stored: Bool
         var loadError: Error?
         var saveError: Error?
+        var commitsBeforeFailing = false
         private(set) var recorded: [Bool] = []
 
         init(stored: Bool) {
@@ -21,6 +22,7 @@ struct HeartRateVisibilityViewModelTests {
         }
 
         func setIsPublic(_ isPublic: Bool) async throws {
+            if commitsBeforeFailing { stored = isPublic }
             if let saveError { throw saveError }
             recorded.append(isPublic)
             stored = isPublic
@@ -68,6 +70,34 @@ struct HeartRateVisibilityViewModelTests {
 
         #expect(viewModel.isPublic)
         #expect(viewModel.errorMessage == "Couldn't save. Check your connection.")
+    }
+
+    @Test
+    func aFailureAfterTheWriteLandedShowsWhatTheServerRecorded() async {
+        let service = StubService(stored: true)
+        service.saveError = Failure()
+        service.commitsBeforeFailing = true
+        let viewModel = HeartRateVisibilityViewModel(service: service)
+        await viewModel.load()
+
+        await viewModel.setIsPublic(false)
+
+        #expect(!viewModel.isPublic)
+        #expect(viewModel.errorMessage == "Couldn't save. Check your connection.")
+    }
+
+    @Test
+    func aFailedSaveThatCannotReloadKeepsThePreviousChoice() async {
+        let service = StubService(stored: true)
+        let viewModel = HeartRateVisibilityViewModel(service: service)
+        await viewModel.load()
+        service.saveError = Failure()
+        service.loadError = Failure()
+
+        await viewModel.setIsPublic(false)
+
+        #expect(viewModel.isPublic)
+        #expect(viewModel.loadState == .ready)
     }
 
     @Test
