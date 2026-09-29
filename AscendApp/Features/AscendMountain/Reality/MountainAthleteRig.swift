@@ -19,7 +19,8 @@ struct MountainAthleteLook: Equatable, Sendable {
     /// A stand-in look for another climber until their saved athlete is available: the kit in
     /// one of a few colours, chosen by their id so the same climber always wears the same.
     static func standIn(for id: String) -> MountainAthleteLook {
-        let tops = [(0.53, 0.83, 0.04), (0.12, 0.44, 0.85), (0.88, 0.27, 0.48), (0.95, 0.54, 0.11), (0.95, 0.95, 0.95), (0.11, 0.12, 0.14), (0.55, 0.36, 0.85)]
+        // Lime is the climber's own kit, so no stand-in wears it.
+        let tops = [(0.12, 0.44, 0.85), (0.88, 0.27, 0.48), (0.95, 0.54, 0.11), (0.95, 0.95, 0.95), (0.11, 0.12, 0.14), (0.55, 0.36, 0.85)]
         let hairs = [(0.08, 0.06, 0.05), (0.29, 0.17, 0.09), (0.54, 0.35, 0.17), (0.85, 0.69, 0.39)]
         let hash = id.unicodeScalars.reduce(UInt32(2_166_136_261)) { ($0 ^ $1.value) &* 16_777_619 }
         var look = MountainAthleteLook()

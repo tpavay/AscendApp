@@ -335,6 +335,15 @@ struct AscendMountainAthleteTests {
     }
 
     @Test
+    func noStandInWearsTheClimbersLime() {
+        let lime = MountainAthleteLook.ascendKit.top
+        let tops = (1...200).map { MountainAthleteLook.standIn(for: "climber\($0)").top }
+
+        #expect(!tops.contains(lime))
+        #expect(Set(tops.map { "\($0.red),\($0.green),\($0.blue)" }).count > 1)
+    }
+
+    @Test
     func theAthleteAssetIsOneCleanSkinnedHuman() throws {
         let asset = try MountainAthleteAsset.bundled()
 
