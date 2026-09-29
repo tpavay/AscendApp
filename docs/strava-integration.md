@@ -81,12 +81,15 @@ node strava-access.mjs disable --env prod --confirm-production --apply
 {
   "clientId": "123456",
   "clientSecret": "<from the Strava API dashboard>",
-  "redirectUri": "ascendapp://<Authorization Callback Domain>/strava",
+  "redirectUri": "ascendapp://ascendstepper.com/strava",
   "webhookVerifyToken": "<at least 16 random characters>"
 }
 ```
 
-The `redirectUri` host must equal the "Authorization Callback Domain" set on the Strava API app, and its scheme must be the app's registered `ascendapp` scheme.
+The `redirectUri` host must equal the "Authorization Callback Domain" set on the Strava API app, or be a subdomain of it, and its scheme must be the app's registered `ascendapp` scheme.
+The Strava app's domain is `ascendstepper.com`, so every project uses `ascendapp://ascendstepper.com/strava`.
+With any other host Strava's authorize page answers `{"message":"Bad Request","errors":[{"resource":"Application","field":"redirect_uri","code":"invalid"}]}` before the climber ever sees a sign-in; a `localhost` host is always accepted, which is how to tell a domain mismatch from anything else.
+Strava grants `read` alongside `activity:write` whatever is requested; Ascend stores it and uses neither it nor anything it could read.
 A project that must stay inert holds `{"configured": false}`: every Strava surface then reports unavailable instead of failing.
 It is pinned in `functions/secret-versions.json` like every other secret, so staging and production need a version created and pinned before the first deploy that carries these functions - follow `docs/functions-secret-versions.md`, and create the inert value there until the integration is meant to be live in that project.
 Never type the client secret into a command argument or a file; read it with `read -rs` and pipe it into `gcloud secrets versions add`.
@@ -96,7 +99,7 @@ Never type the client secret into a command argument or a file; read it with `re
 At <https://www.strava.com/settings/api>, on the account that holds the Strava subscription:
 
 - Upgrade the capacity to 10 athletes.
-- Set the Authorization Callback Domain to the host in `redirectUri`.
+- Set the Authorization Callback Domain to `ascendstepper.com`, the host in `redirectUri`.
 - Copy the Client ID and Client Secret into the secret above.
 
 ### The webhook
