@@ -1,6 +1,7 @@
 import Foundation
 import RealityKit
 import SwiftUI
+import UIKit
 
 /// Applies `MountainSceneDirector`'s frames to RealityKit entities.
 ///
@@ -35,6 +36,7 @@ final class MountainSceneController {
     private let markerSource: @MainActor () -> [MountainMarker]
     private let elapsedSource: (@MainActor () -> TimeInterval)?
     private let journeySource: @MainActor () -> Int
+    private let cameraTuning: MountainSceneDirector.CameraTuning
     private var ghostRigs: [String: MountainAthleteRig] = [:]
     /// The tag each ghost's rig was built with; a tag is baked into its rig, so a new one means
     /// a new rig.
@@ -76,9 +78,11 @@ final class MountainSceneController {
         ghostSource: @escaping @MainActor () -> [MountainGhost] = { [] },
         markerSource: @escaping @MainActor () -> [MountainMarker] = { [] },
         elapsedSource: (@MainActor () -> TimeInterval)? = nil,
-        journeySource: @escaping @MainActor () -> Int = { 0 }
+        journeySource: @escaping @MainActor () -> Int = { 0 },
+        cameraTuning: MountainSceneDirector.CameraTuning = .standard
     ) {
         self.seed = seed
+        self.cameraTuning = cameraTuning
         self.worldSource = worldSource
         self.ghostSource = ghostSource
         self.markerSource = markerSource
@@ -152,12 +156,12 @@ final class MountainSceneController {
             return
         }
         guard scene == nil else { return }
-        director = MountainSceneDirector(seed: seed, world: world, journeyStart: journeySource())
+        director = MountainSceneDirector(seed: seed, world: world, journeyStart: journeySource(), cameraTuning: cameraTuning)
 
         let root = Entity()
         root.addChild(far.root)
         var decorSlots: [ModelEntity] = []
-        let chunkSlots = (0..<MountainChunkPool.windowSize).map { _ in
+        let chunkSlots = (0..<MountainChunkPool.Reach.lift.size).map { _ in
             let slot = ModelEntity()
             slot.isEnabled = false
             let decor = ModelEntity()
@@ -219,6 +223,7 @@ final class MountainSceneController {
         }
         let logicalSteps = climbed + (debugState?.visualStepOffset ?? 0)
         let elapsed = elapsedSource?() ?? clock
+        director.liftsAtGates = !UIAccessibility.isReduceMotionEnabled
         let frame = director.advance(
             logicalSteps: logicalSteps,
             time: clock,
@@ -268,6 +273,7 @@ final class MountainSceneController {
             deltaTime: deltaTime
         )
         scene.far.place(markers: frame.markers)
+        scene.far.thinPassedGates(frame.markers, climberSteps: frame.courseSteps, lift: frame.cameraLift)
 
         publishDebugMetricsIfDue(frame)
     }

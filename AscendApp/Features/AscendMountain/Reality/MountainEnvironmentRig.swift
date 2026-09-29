@@ -186,6 +186,30 @@ final class MountainEnvironmentRig {
         }
     }
 
+    /// How far behind the climber a gate still thins while the camera is up: past the stairs a
+    /// fast climber covers in a whole lift.
+    static let thinnedGateReach = 40.0
+
+    /// Thins the gate the climber has just walked through while the camera rises over it: from
+    /// up there, the line to the climber crosses the gate's lintel for a second or two, and the
+    /// climber must never be hidden. The gate comes back as the camera settles.
+    func thinPassedGates(_ markers: [MountainMarkerFrame], climberSteps: Double, lift: Double) {
+        for frame in markers where frame.marker.kind == .gate {
+            guard let gate = markerEntities[frame.marker.id] else { continue }
+            let behind = climberSteps - Double(frame.marker.step)
+            let thinned = lift > 0 && (0...Self.thinnedGateReach).contains(behind)
+            // A summit's flag flies above the lintel and never stands in the way, and a ghost of
+            // it hanging in the air reads as a fault; it stays whole.
+            for part in gate.children where part.name != Self.summitFlagName {
+                if thinned {
+                    part.components.set(OpacityComponent(opacity: Float(1 - 0.8 * lift)))
+                } else if part.components.has(OpacityComponent.self) {
+                    part.components.remove(OpacityComponent.self)
+                }
+            }
+        }
+    }
+
     private func makeMarker(_ marker: MountainMarker) -> Entity {
         let entity: Entity
         switch marker.kind {
@@ -267,8 +291,11 @@ final class MountainEnvironmentRig {
 
     /// A lime flag on a mast rising from a summit gate's crown, so a summit reads from far down
     /// the stairs as the top of something rather than one more gate.
+    private static let summitFlagName = "summit-flag"
+
     private static func summitFlag(standingOn base: Float) -> Entity {
         let flag = Entity()
+        flag.name = summitFlagName
         let mastHeight: Float = 2.7
         var metal = PhysicallyBasedMaterial()
         metal.baseColor = .init(tint: UIColor(white: 0.2, alpha: 1))

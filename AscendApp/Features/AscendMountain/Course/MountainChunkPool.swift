@@ -12,6 +12,19 @@ struct MountainChunkPool: Equatable, Sendable {
     static let chunksAhead = 6
     static var windowSize: Int { chunksBehind + 1 + chunksAhead }
 
+    /// How much of the course is built around the climber.
+    struct Reach: Equatable, Sendable {
+        let behind: Int
+        let ahead: Int
+
+        static let standard = Reach(behind: MountainChunkPool.chunksBehind, ahead: MountainChunkPool.chunksAhead)
+        /// While the camera lifts over a gate: far enough both ways that the risen view sees the
+        /// stairs wind on up the mountain and back down it, instead of stopping.
+        static let lift = Reach(behind: 5, ahead: 18)
+
+        var size: Int { behind + 1 + ahead }
+    }
+
     struct Assignment: Equatable, Sendable {
         let slot: Int
         let chunkIndex: Int
@@ -37,25 +50,28 @@ struct MountainChunkPool: Equatable, Sendable {
         slotCount - activeSlotCount
     }
 
-    static func window(around currentChunk: Int) -> ClosedRange<Int> {
-        (currentChunk - chunksBehind)...(currentChunk + chunksAhead)
+    static func window(around currentChunk: Int, reach: Reach = .standard) -> ClosedRange<Int> {
+        (currentChunk - reach.behind)...(currentChunk + reach.ahead)
     }
 
     /// Moves the window to `currentChunk` and returns only the slots whose piece changed, so the
-    /// renderer touches nothing that is already in place.
-    mutating func update(currentChunk: Int) -> [Assignment] {
-        let window = Self.window(around: currentChunk)
+    /// renderer touches nothing that is already in place. A pool with more slots than the reach
+    /// needs keeps the rest for a wider reach, and a piece a wider reach built stays standing
+    /// until its slot is wanted.
+    mutating func update(currentChunk: Int, reach: Reach = .standard) -> [Assignment] {
+        let window = Self.window(around: currentChunk, reach: reach)
         let kept = Set(slotChunkIndices.compactMap { index in
             index.flatMap { window.contains($0) ? $0 : nil }
         })
         let missing = window.filter { !kept.contains($0) }
         guard !missing.isEmpty else { return [] }
 
-        // Oldest pieces are released first, so a slot always recycles the piece furthest behind.
+        // Oldest pieces are released first, so a slot always recycles the piece furthest behind;
+        // a slot that has never held a piece is taken only once none is left to recycle.
         let reusableSlots = slotChunkIndices.indices
             .filter { slot in slotChunkIndices[slot].map { !window.contains($0) } ?? true }
             .sorted { lhs, rhs in
-                (slotChunkIndices[lhs] ?? .min) < (slotChunkIndices[rhs] ?? .min)
+                (slotChunkIndices[lhs] ?? .max) < (slotChunkIndices[rhs] ?? .max)
             }
 
         var assignments: [Assignment] = []

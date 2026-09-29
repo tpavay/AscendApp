@@ -19,7 +19,8 @@ struct AscendMountainRealityView: View {
         ghostSource: @escaping @MainActor () -> [MountainGhost] = { [] },
         markerSource: @escaping @MainActor () -> [MountainMarker] = { [] },
         elapsedSource: (@MainActor () -> TimeInterval)? = nil,
-        journeySource: @escaping @MainActor () -> Int = { 0 }
+        journeySource: @escaping @MainActor () -> Int = { 0 },
+        cameraTuning: MountainSceneDirector.CameraTuning = .standard
     ) {
         _controller = State(
             initialValue: MountainSceneController(
@@ -30,7 +31,8 @@ struct AscendMountainRealityView: View {
                 ghostSource: ghostSource,
                 markerSource: markerSource,
                 elapsedSource: elapsedSource,
-                journeySource: journeySource
+                journeySource: journeySource,
+                cameraTuning: cameraTuning
             )
         )
     }
