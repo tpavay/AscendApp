@@ -30,6 +30,7 @@ final class ChampionRegistry {
     @ObservationIgnored private var lastRefreshAt: Date?
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var flagObserver: Task<Void, Never>?
+    @ObservationIgnored private var expiryTask: Task<Void, Never>?
 
     init(
         repository: any LeaderboardResultsReading = LeaderboardResultsRepository.shared,
@@ -67,8 +68,10 @@ final class ChampionRegistry {
     }
 
     func titles(for userId: String?) -> ChampionTitles {
-        guard isEnabled, let userId, !userId.isEmpty else { return .none }
-        return titlesByUserId[userId] ?? .none
+        guard isEnabled, let userId, !userId.isEmpty,
+              let held = titlesByUserId[userId] else { return .none }
+        let now = clock()
+        return ChampionTitles(held.held.filter { reigns[$0]?.isCurrent(at: now) == true })
     }
 
     /// The titles for a picture: its climber's, or the signed-in climber's for a row that
@@ -78,8 +81,11 @@ final class ChampionRegistry {
     }
 
     func reign(for timeFrame: LeaderboardTimeFrame) -> ChampionReign? {
-        guard isEnabled, let title = ChampionTitle(timeFrame: timeFrame) else { return nil }
-        return reigns[title]
+        guard isEnabled,
+              let title = ChampionTitle(timeFrame: timeFrame),
+              let reign = reigns[title],
+              reign.isCurrent(at: clock()) else { return nil }
+        return reign
     }
 
     /// Reads the reigning result for every frame. A frame that fails to load keeps its last
@@ -166,6 +172,23 @@ final class ChampionRegistry {
         guard reigns != self.reigns else { return }
         self.reigns = reigns
         titlesByUserId = Self.titlesByUserId(for: reigns)
+        scheduleExpiry()
+    }
+
+    /// A reign ends at a fixed instant, so a screen left open across a reset re-reads at
+    /// that instant instead of crowning last period's champion until the next foreground.
+    private func scheduleExpiry() {
+        expiryTask?.cancel()
+        guard let endsAt = reigns.values.compactMap(\.endsAt).min() else {
+            expiryTask = nil
+            return
+        }
+        let delay = max(endsAt.timeIntervalSince(clock()), 0)
+        expiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            await self.refresh()
+        }
     }
 
     static func titlesByUserId(

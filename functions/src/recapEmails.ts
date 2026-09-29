@@ -157,12 +157,16 @@
  *     compose run's clock and stored as `inactive.gapCount`. The `all_time`
  *     row's `lastUpdated` is not a last-activity time: every reconcile (a
  *     demographics edit, an old workout's edit or delete, a backfill)
- *     restamps it. At send time, a latest workout at or after the closed
- *     period's end means the climber already came back, so no zero-activity
- *     email is sent; the app still shows the stored recap, because the
- *     period itself really did pass without a climb. Falls back to the
- *     closed period's own start date on the defensive case where no
- *     workout is found.
+ *     restamps it. The send step re-runs compose first, so a climb that
+ *     synced after 00:30 but started inside the period recomposes that
+ *     climber's stored inactive recap as active (keeping `seenAt`), and the
+ *     email and the app read the same corrected document. At send time a
+ *     latest workout at or after the closed period's start means the climber
+ *     climbed in it or already came back, so no zero-activity email is ever
+ *     sent for it; one newer than the stored `lastClimbAt` but before the
+ *     period (an older climb that synced late) rewrites the stored gap
+ *     before the email is sent. Falls back to the closed period's own start
+ *     date on the defensive case where no workout is found.
  *   - First Ascents in the zero-activity email read
  *     `live_replay_leaderboards` where `firstAscentUserId == uid` - the one
  *     durable, permanent record `liveReplayLeaderboard.ts` writes when a
@@ -235,6 +239,7 @@ import {
   referenceStepCount,
 } from "./climbDropNotifications";
 import {runWithBoundedConcurrency} from "./concurrency";
+import {keepNewestRow} from "./leaderboardResults";
 import {
   enqueueLifecycleEmailIfAllowed,
   type EnqueueLifecycleEmailOutcome,
@@ -404,6 +409,8 @@ export interface RecapComposeSummary {
   activeCount: number;
   alreadyComposed: number;
   composed: number;
+  /** Stored inactive recaps a late-synced climb in the period made active. */
+  recomposed: number;
   entitledUserCount: number;
   errors: number;
   everActiveUserCount: number;
@@ -415,6 +422,8 @@ export interface RecapComposeSummary {
 
 export interface RecapSendSummary {
   alreadyQueued: number;
+  /** Recaps the send's own compose pass had to create. */
+  composedAtSend: number;
   errors: number;
   periodKey: string;
   queued: number;
@@ -1295,7 +1304,10 @@ async function pageLeaderboardStatsRows(
   label: string,
   bound: CohortScanBound
 ): Promise<{rows: Map<string, LeaderboardStatsRow>; truncated: boolean}> {
-  const rows = new Map<string, LeaderboardStatsRow>();
+  const rows = new Map<
+    string,
+    LeaderboardStatsRow & {userId: string; lastUpdated: Date}
+  >();
   let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
   let pagesRead = 0;
 
@@ -1320,7 +1332,11 @@ async function pageLeaderboardStatsRows(
       if (!userId) {
         continue;
       }
-      rows.set(userId, {
+      keepNewestRow(rows, {
+        userId,
+        lastUpdated: data.lastUpdated instanceof admin.firestore.Timestamp ?
+          data.lastUpdated.toDate() :
+          new Date(0),
         totalFloors: numberValue(data.totalFloors),
         totalSteps: numberValue(data.totalSteps),
         totalWorkouts: numberValue(data.totalWorkouts),
@@ -1780,12 +1796,17 @@ async function composeInactiveRecap(
 /**
  * Writes one climber's recap unless it already exists.
  *
- * The existence read comes first so a re-run - a Cloud Scheduler retry, or
- * an operator re-running a period - skips the composition reads for every
- * climber already done. The write is still a `create`, so a recap that
- * appeared between the read and the write is never overwritten and its
- * `seenAt` never reset. `claimReceipt` is the same bounded create-once
- * primitive the climb-drop sweep claims its devices with.
+ * The existence read comes first so a re-run - a Cloud Scheduler retry, an
+ * operator re-running a period, or the send step's own pass - skips the
+ * composition reads for every climber already done. The write is still a
+ * `create`, so a recap that appeared between the read and the write is never
+ * overwritten and its `seenAt` never reset. `claimReceipt` is the same
+ * bounded create-once primitive the climb-drop sweep claims its devices with.
+ *
+ * The one exception: a stored inactive recap for a climber who now stands in
+ * the period's active cohort - a climb inside the period that synced after
+ * compose ran - is recomposed as active, updating only the payload so
+ * `seenAt` is kept. Nobody is told they were missed for a week they climbed.
  * @param {admin.firestore.DocumentReference} reference - The recap document
  * @param {object} identity - The document's cadence, period, and variant
  * @param {Function} composeMaps - Reads and builds the variant's maps
@@ -1802,9 +1823,20 @@ async function writeRecapOnce(
     active: StoredRecapActive | null;
     inactive: StoredRecapInactive | null;
   }>
-): Promise<"composed" | "already_composed"> {
-  if ((await reference.get()).exists) {
-    return "already_composed";
+): Promise<"composed" | "already_composed" | "recomposed"> {
+  const existing = await reference.get();
+  if (existing.exists) {
+    if (identity.variant !== "active" || existing.get("variant") !== "inactive") {
+      return "already_composed";
+    }
+    const {active, inactive} = await composeMaps();
+    await reference.update({
+      active,
+      composedAt: admin.firestore.FieldValue.serverTimestamp(),
+      inactive,
+      variant: identity.variant,
+    });
+    return "recomposed";
   }
   const {active, inactive} = await composeMaps();
   const {cadence, period, variant} = identity;
@@ -1845,6 +1877,7 @@ export async function runRecapCompose(
     alreadyComposed: 0,
     composed: 0,
     entitledUserCount: 0,
+    recomposed: 0,
     errors: 0,
     everActiveUserCount: 0,
     inactiveCount: 0,
@@ -1932,9 +1965,13 @@ export async function runRecapCompose(
     .doc(uid)
     .collection(RECAPS_COLLECTION)
     .doc(buildRecapDocumentId(cadence, period.key));
-  const record = (outcome: "composed" | "already_composed") => {
+  const record = (
+    outcome: "composed" | "already_composed" | "recomposed"
+  ) => {
     if (outcome === "composed") {
       summary.composed += 1;
+    } else if (outcome === "recomposed") {
+      summary.recomposed += 1;
     } else {
       summary.alreadyComposed += 1;
     }
@@ -2029,6 +2066,7 @@ export async function runRecapCompose(
  * @param {admin.firestore.DocumentReference} reference - The recap document
  * @param {StoredRecap} recap - The parsed recap
  * @param {RecapSendSummary} summary - Sweep counters to update
+ * @param {Date} now - The sweep's clock
  * @return {Promise<void>} Resolves once queued, suppressed, or skipped
  */
 async function sendStoredRecap(
@@ -2036,7 +2074,8 @@ async function sendStoredRecap(
   period: ClosedLeaderboardPeriod,
   reference: admin.firestore.DocumentReference,
   recap: StoredRecap,
-  summary: RecapSendSummary
+  summary: RecapSendSummary,
+  now: Date
 ): Promise<void> {
   if (recap.variant === "never_climbed") {
     summary.skippedNeverClimbed += 1;
@@ -2047,11 +2086,26 @@ async function sendStoredRecap(
     return;
   }
 
-  if (recap.variant === "inactive") {
+  let inactive = recap.variant === "inactive" ? recap.inactive : null;
+  if (inactive) {
     const lastActiveAt = await fetchLatestWorkoutStartedAt(firestore, uid);
-    if (lastActiveAt && lastActiveAt >= period.endAt) {
+    if (lastActiveAt && lastActiveAt >= period.startAt) {
       summary.suppressed += 1;
       return;
+    }
+    const storedLastClimbAt = inactive.lastClimbAt?.toDate() ?? null;
+    if (
+      lastActiveAt &&
+      (!storedLastClimbAt || lastActiveAt > storedLastClimbAt)
+    ) {
+      inactive = {
+        ...inactive,
+        gapCount: recap.cadence === "weekly" ?
+          weeksSince(lastActiveAt, now) :
+          monthsSince(lastActiveAt, now),
+        lastClimbAt: admin.firestore.Timestamp.fromDate(lastActiveAt),
+      };
+      await reference.update({inactive});
     }
   }
 
@@ -2076,7 +2130,7 @@ async function sendStoredRecap(
         emailType: weekly ? "weekly_recap_inactive" : "monthly_recap_inactive",
         payload: buildInactiveRecapEmailPayload(
           recap.periodLabel,
-          recap.inactive
+          inactive ?? recap.inactive
         ),
       };
   const outcome = await enqueueLifecycleEmailIfAllowed(firestore, {
@@ -2110,25 +2164,37 @@ function recordOutcome(
 }
 
 /**
- * Sends the recap email for every recap compose stored for the period that
- * just closed. Never composes: a period compose did not reach sends
- * nothing, loudly, rather than a second answer the app would disagree with.
+ * Sends the recap email for every recap stored for the period that just
+ * closed, always from the stored document so the app and the email agree.
+ *
+ * It first runs compose itself - create-only, so a stored recap and its
+ * `seenAt` are never replaced - which makes the send self-sufficient when
+ * the 00:30 compose never ran (a first deploy after it), and recomposes an
+ * inactive recap a late-synced climb in the period made active.
  * @param {RecapCadence} cadence - Weekly or monthly
  * @param {Date} now - The sweep's clock, injectable for tests
  * @param {CohortScanBound} recapScanBound - Stored-recap scan page bound,
  *   injectable for tests
+ * @param {CohortScanBound} cohortScanBound - The compose pass's cohort scan
+ *   page bound, injectable for tests
  * @return {Promise<RecapSendSummary>} What the sweep did
  */
 export async function runRecapSend(
   cadence: RecapCadence,
   now: Date,
-  recapScanBound: CohortScanBound = DEFAULT_RECAP_SCAN_BOUND
+  recapScanBound: CohortScanBound = DEFAULT_RECAP_SCAN_BOUND,
+  cohortScanBound: CohortScanBound = DEFAULT_COHORT_SCAN_BOUND
 ): Promise<RecapSendSummary> {
   const firestore = admin.firestore();
   const period = previousPeriod(cadence, now);
   const recapId = buildRecapDocumentId(cadence, period.key);
+  const compose = await runRecapCompose(cadence, now, cohortScanBound);
+  if (compose.errors > 0 || compose.outcome !== "composed") {
+    logger.error("recapEmails.composeAtSendDegraded", compose);
+  }
   const summary: RecapSendSummary = {
     alreadyQueued: 0,
+    composedAtSend: compose.composed,
     errors: 0,
     periodKey: period.key,
     queued: 0,
@@ -2175,7 +2241,14 @@ export async function runRecapSend(
         if (!recap) {
           throw new Error("malformed_recap");
         }
-        await sendStoredRecap(firestore, period, document.ref, recap, summary);
+        await sendStoredRecap(
+          firestore,
+          period,
+          document.ref,
+          recap,
+          summary,
+          now
+        );
       }
     );
     for (const failure of failures) {

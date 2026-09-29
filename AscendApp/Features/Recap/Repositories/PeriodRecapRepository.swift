@@ -9,6 +9,8 @@ import Foundation
 protocol PeriodRecapReading: Sendable {
     func fetchUnseen(userId: String, limit: Int) async throws -> [PeriodRecap]
     func markSeen(userId: String, recapIDs: [String]) async throws
+    /// Marks every unseen recap whose period ended at or before `cutoff` seen.
+    func markUnseenSeen(userId: String, endingOnOrBefore cutoff: Date) async throws
 }
 
 final class PeriodRecapRepository: PeriodRecapReading, Sendable {
@@ -41,6 +43,21 @@ final class PeriodRecapRepository: PeriodRecapReading, Sendable {
             )
         }
         try await batch.commit()
+    }
+
+    func markUnseenSeen(userId: String, endingOnOrBefore cutoff: Date) async throws {
+        let pageSize = 100
+        // A weekly and a monthly recap per period for twenty years is well under this.
+        for _ in 0..<20 {
+            let snapshot = try await recaps(userId: userId)
+                .whereField("seenAt", isEqualTo: NSNull())
+                .whereField("periodEndAt", isLessThanOrEqualTo: Timestamp(date: cutoff))
+                .order(by: "periodEndAt", descending: true)
+                .limit(to: pageSize)
+                .getDocuments(source: .server)
+            try await markSeen(userId: userId, recapIDs: snapshot.documents.map(\.documentID))
+            if snapshot.documents.count < pageSize { return }
+        }
     }
 
     private func recaps(userId: String) -> CollectionReference {
@@ -80,9 +97,8 @@ enum PeriodRecapParser {
         let firstAscents = (data["firstAscents"] as? [Any] ?? []).compactMap { value -> PeriodRecap.FirstAscent? in
             guard let map = value as? [String: Any],
                   let climbId = map["climbId"] as? String,
-                  let name = map["name"] as? String,
-                  !name.isEmpty else { return nil }
-            return PeriodRecap.FirstAscent(climbId: climbId, name: name)
+                  !climbId.isEmpty else { return nil }
+            return PeriodRecap.FirstAscent(climbId: climbId, name: nonEmpty(map["name"]))
         }
         return PeriodRecap.Active(
             rank: positiveInt(data["rank"]),

@@ -30,8 +30,53 @@ struct PeriodRecapStory: Identifiable, Equatable, Sendable {
     /// Every recap this story covers, including older ones folded into a catch-up, so
     /// dismissing it marks all of them seen.
     let recapIDs: [String]
+    /// When the oldest period the story covers ended. Anything unseen that ended earlier is
+    /// backlog the story already stands for, and is marked seen with it.
+    let oldestPeriodEndAt: Date?
     /// The climber has never climbed: the story ends on their first climb.
     let isFirstClimbInvitation: Bool
+}
+
+/// Where the climber goes when the recap closes.
+enum PeriodRecapExit: Equatable, Sendable {
+    case close
+    /// To the board that awarded the crown - "Take the crown", "Defend it".
+    case openBoard(LeaderboardTimeFrame)
+    /// To Home, where every climb starts.
+    case startClimb
+}
+
+/// The call to action on a story's last page.
+struct PeriodRecapEnding: Equatable, Sendable {
+    let title: String
+    let exit: PeriodRecapExit
+    let showsPastChampions: Bool
+}
+
+extension PeriodRecapStory {
+    /// How the story ends when `page` is its last. A climber who has never climbed is
+    /// always sent to their first climb, whichever page closes the story.
+    func ending(on page: Page) -> PeriodRecapEnding {
+        if isFirstClimbInvitation {
+            return PeriodRecapEnding(title: "START YOUR FIRST CLIMB", exit: .startClimb, showsPastChampions: false)
+        }
+        switch page {
+        case .crown(let crown):
+            return PeriodRecapEnding(
+                title: crown.viewerIsChampion ? "DEFEND IT" : "TAKE THE CROWN",
+                exit: .openBoard(crown.period.timeFrame),
+                showsPastChampions: true
+            )
+        case .crowns:
+            return PeriodRecapEnding(title: "CLIMB THIS WEEK", exit: .openBoard(.weekly), showsPastChampions: true)
+        case .catchUp:
+            return PeriodRecapEnding(title: "CLIMB TODAY", exit: .startClimb, showsPastChampions: true)
+        case .noClimbs:
+            return PeriodRecapEnding(title: "START A CLIMB", exit: .startClimb, showsPastChampions: false)
+        case .everyone, .yours:
+            return PeriodRecapEnding(title: "CLIMB THIS WEEK", exit: .openBoard(.weekly), showsPastChampions: false)
+        }
+    }
 }
 
 /// Everyone's period: what the whole community climbed.
@@ -84,14 +129,29 @@ struct PeriodRecapCrown: Equatable, Sendable {
 /// Every champion a climber missed while away, one line each.
 struct PeriodRecapCatchUp: Equatable, Sendable {
     struct Line: Equatable, Sendable {
-        let crown: PeriodRecapCrown
+        let period: LeaderboardPeriod
+        /// Nil when the period's result could not be read or crowned nobody.
+        let crown: PeriodRecapCrown?
         /// Only a title still held wears its crown here.
         let isReigning: Bool
+        /// The climber's own result for a period they climbed in, so a result they earned is
+        /// shown before it is marked seen.
+        let yours: PeriodRecap.Active?
     }
 
-    let missedWeeks: Int
+    /// Whole weeks since the climber's last climb, as the server measured it - never the
+    /// number of lines, which is capped.
+    let weeksAway: Int
     let lastClimbAt: Date?
     let lines: [Line]
+}
+
+/// One badge on the climber's own page.
+struct PeriodRecapEarnedRow: Identifiable, Equatable, Sendable {
+    let id: String
+    let asset: String
+    let title: String
+    let detail: String
 }
 
 /// A best effort set during the period, named the way Best Efforts names it.

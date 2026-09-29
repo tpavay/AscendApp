@@ -23,17 +23,14 @@ struct ChampionModelTests {
         let titles = ChampionTitles([.weekly, .yearly, .monthly])
         #expect(titles.leading == .yearly)
         #expect(titles.others == [.monthly, .weekly])
-        #expect(!titles.isUndisputed)
 
         let every = ChampionTitles(Set(ChampionTitle.allCases))
         #expect(every.leading == .allTime)
         #expect(every.others == [.yearly, .monthly, .weekly])
-        #expect(every.isUndisputed)
 
         let two = ChampionTitles([.weekly, .monthly])
         #expect(two.leading == .monthly)
         #expect(two.others == [.weekly])
-        #expect(!two.isUndisputed)
 
         #expect(ChampionTitles.none.leading == nil)
         #expect(ChampionTitles.none.others.isEmpty)
@@ -142,28 +139,28 @@ struct ChampionModelTests {
     }
 
     @Test
-    func severalTitlesNameTheRarestFirstAndAllThreeIsUndisputed() throws {
+    func severalTitlesNameOnlyTheRarest() throws {
         let now = Self.utc(2026, 9, 27)
         let fixtures = ChampionRecapFixtures(viewerId: "me", now: now)
         let reigns = fixtures.reigns(crowning: [.weekly, .monthly])
         let line = try #require(ChampionTitleLine.make(titles: ChampionTitles([.weekly, .monthly]), reigns: reigns))
-        #expect(line.text == "LAST MONTH'S & LAST WEEK'S CHAMPION")
+        #expect(line.text == "LAST MONTH'S CHAMPION")
         #expect(line.leadingTitle == .monthly)
 
-        let undisputed = try #require(ChampionTitleLine.make(
+        let every = try #require(ChampionTitleLine.make(
             titles: ChampionTitles(Set(ChampionTitle.allCases)),
             reigns: fixtures.reigns(crowning: Set(ChampionTitle.allCases))
         ))
-        #expect(undisputed.text == "UNDISPUTED CHAMPION")
-        #expect(undisputed.leadingTitle == .allTime)
+        #expect(every.text == "ALL-TIME CHAMPION")
+        #expect(every.leadingTitle == .allTime)
 
         let allTime = try #require(ChampionTitleLine.make(
             titles: ChampionTitles([.allTime, .weekly]),
             reigns: fixtures.reigns(crowning: [.allTime, .weekly])
         ))
-        #expect(allTime.text == "ALL-TIME & LAST WEEK'S CHAMPION")
+        #expect(allTime.text == "ALL-TIME CHAMPION")
 
-        // An exact tie on every held title is a co-championship.
+        // An exact tie on the named title is a co-championship.
         let week = fixtures.periods().week
         let tied = [ChampionTitle.weekly: ChampionReign(
             title: .weekly,

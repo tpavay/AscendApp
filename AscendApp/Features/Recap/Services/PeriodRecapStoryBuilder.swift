@@ -34,15 +34,17 @@ enum PeriodRecapStoryBuilder {
         let weeks = unseen.filter { $0.cadence == .weekly }
         let months = unseen.filter { $0.cadence == .monthly }
         let recapIDs = unseen.map(\.id)
+        let oldestPeriodEndAt = unseen.compactMap(\.period.endAt).min()
         let isFirstClimbInvitation = unseen.first?.variant == .neverClimbed
 
-        if weeks.count >= 2, weeks.first?.variant != .active {
+        if isCatchUp(weeks: weeks) {
             return catchUpStory(
                 weeks: Array(weeks.prefix(maxCatchUpWeeks)),
                 months: Array(months.prefix(maxCatchUpMonths)),
                 results: results,
                 viewerId: viewerId,
                 recapIDs: recapIDs,
+                oldestPeriodEndAt: oldestPeriodEndAt,
                 isFirstClimbInvitation: isFirstClimbInvitation,
                 now: now
             )
@@ -122,21 +124,31 @@ enum PeriodRecapStoryBuilder {
             pages: pages,
             chapters: featured.count > 1 ? chapters : [],
             recapIDs: recapIDs,
+            oldestPeriodEndAt: oldestPeriodEndAt,
             isFirstClimbInvitation: isFirstClimbInvitation
         )
     }
 
-    /// The recap IDs whose results a story may name - every unseen recap, newest first.
+    /// The result IDs the story will name, newest first: every line of a catch-up, or
+    /// otherwise only the latest week and month.
     static func resultIDs(for recaps: [PeriodRecap]) -> [String] {
         let unseen = recaps
             .filter { $0.seenAt == nil }
             .sorted { ($0.period.endAt ?? .distantPast) > ($1.period.endAt ?? .distantPast) }
-        let weeks = unseen.filter { $0.cadence == .weekly }.prefix(maxCatchUpWeeks)
-        let months = unseen.filter { $0.cadence == .monthly }.prefix(maxCatchUpMonths)
+        let weeks = unseen.filter { $0.cadence == .weekly }
+        let months = unseen.filter { $0.cadence == .monthly }
+        let shown = isCatchUp(weeks: weeks)
+            ? Array(weeks.prefix(maxCatchUpWeeks)) + Array(months.prefix(maxCatchUpMonths))
+            : Array(weeks.prefix(1)) + Array(months.prefix(1))
         var seen = Set<String>()
-        return (Array(weeks) + Array(months))
+        return shown
             .map(\.resultID)
             .filter { seen.insert($0).inserted }
+    }
+
+    /// Two or more unseen weeks whose latest had no climbing fold into one catch-up page.
+    private static func isCatchUp(weeks: [PeriodRecap]) -> Bool {
+        weeks.count >= 2 && weeks.first?.variant != .active
     }
 
     static func crown(from bundle: PeriodRecapResultBundle, viewerId: String?) -> PeriodRecapCrown? {
@@ -176,28 +188,36 @@ enum PeriodRecapStoryBuilder {
         results: [String: PeriodRecapResultBundle],
         viewerId: String?,
         recapIDs: [String],
+        oldestPeriodEndAt: Date?,
         isFirstClimbInvitation: Bool,
         now: Date
     ) -> PeriodRecapStory? {
         let lines = (weeks + months)
             .sorted { ($0.period.endAt ?? .distantPast) > ($1.period.endAt ?? .distantPast) }
             .compactMap { recap -> PeriodRecapCatchUp.Line? in
-                guard let bundle = results[recap.resultID],
-                      let crown = Self.crown(from: bundle, viewerId: viewerId) else { return nil }
+                let crown = results[recap.resultID].flatMap { Self.crown(from: $0, viewerId: viewerId) }
+                let yours = recap.variant == .active ? recap.active : nil
+                guard crown != nil || yours != nil else { return nil }
                 let reigning = recap.cadence.previousPeriod(referenceDate: now)?.key == recap.period.key
-                return PeriodRecapCatchUp.Line(crown: crown, isReigning: reigning)
+                return PeriodRecapCatchUp.Line(
+                    period: recap.period,
+                    crown: crown,
+                    isReigning: reigning,
+                    yours: yours
+                )
             }
-        let lastClimbAt = weeks.compactMap { $0.inactive?.lastClimbAt }.max()
+        let latestAway = weeks.first?.inactive
 
         return PeriodRecapStory(
             id: recapIDs.joined(separator: "+"),
             pages: [.catchUp(PeriodRecapCatchUp(
-                missedWeeks: weeks.count,
-                lastClimbAt: lastClimbAt,
+                weeksAway: latestAway?.gapCount ?? 1,
+                lastClimbAt: latestAway?.lastClimbAt,
                 lines: lines
             ))],
             chapters: [],
             recapIDs: recapIDs,
+            oldestPeriodEndAt: oldestPeriodEndAt,
             isFirstClimbInvitation: isFirstClimbInvitation
         )
     }

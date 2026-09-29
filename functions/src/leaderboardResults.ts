@@ -176,6 +176,24 @@ export function standingRowFromData(
 }
 
 /**
+ * Keeps `row` as its climber's row unless one already kept is at least as
+ * recently updated - the one rule every reader of a window's rows resolves a
+ * climber's duplicate rows by, so the recap and the frozen result agree.
+ * @param {Map<string, T>} byUser Rows kept so far, by climber.
+ * @param {T} row The row just read.
+ * @template T
+ */
+export function keepNewestRow<T extends {userId: string; lastUpdated: Date}>(
+  byUser: Map<string, T>,
+  row: T
+): void {
+  const existing = byUser.get(row.userId);
+  if (!existing || row.lastUpdated > existing.lastUpdated) {
+    byUser.set(row.userId, row);
+  }
+}
+
+/**
  * Keeps one row per climber - the most recently updated - in board order.
  *
  * A climber can hold two rows for one window (a legacy `{uid}_{timeFrame}`
@@ -189,10 +207,7 @@ export function standingRowFromData(
 export function dedupeStandings(rows: StandingRow[]): StandingRow[] {
   const byUser = new Map<string, StandingRow>();
   for (const row of rows) {
-    const existing = byUser.get(row.userId);
-    if (!existing || row.lastUpdated > existing.lastUpdated) {
-      byUser.set(row.userId, row);
-    }
+    keepNewestRow(byUser, row);
   }
 
   return [...byUser.values()].sort((lhs, rhs) => {
@@ -452,15 +467,25 @@ export async function readAwardStandings(
  * @param {object} options Paging bounds.
  * @param {number} options.pageSize Rows per page.
  * @param {number} options.maxPages Pages before giving up.
+ * @param {Function} options.readPage Reads one page; a caller that needs a
+ *   deadline on every read (a local script) wraps each page, not the scan.
  * @return {Promise<StandingRow[]>} Deduplicated rows in board order.
  */
 export async function readPeriodStandings(
   db: admin.firestore.Firestore,
   period: ClosedLeaderboardPeriod,
-  options: {pageSize?: number; maxPages?: number} = {}
+  options: {
+    pageSize?: number;
+    maxPages?: number;
+    readPage?: (
+      query: admin.firestore.Query
+    ) => Promise<admin.firestore.QuerySnapshot>;
+  } = {}
 ): Promise<StandingRow[]> {
   const pageSize = options.pageSize ?? PERIOD_STANDINGS_PAGE_SIZE;
   const maxPages = options.maxPages ?? PERIOD_STANDINGS_MAX_PAGES;
+  const readPage = options.readPage ??
+    ((query: admin.firestore.Query) => query.get());
   const query = periodStandingsQuery(db, period)
     .select(...PERIOD_STANDING_FIELDS)
     .limit(pageSize);
@@ -475,9 +500,9 @@ export async function readPeriodStandings(
       );
     }
 
-    const snapshot: admin.firestore.QuerySnapshot = await (
+    const snapshot: admin.firestore.QuerySnapshot = await readPage(
       cursor === null ? query : query.startAfter(cursor)
-    ).get();
+    );
     for (const row of parsedRows(snapshot.docs)) {
       rows.push(row);
     }

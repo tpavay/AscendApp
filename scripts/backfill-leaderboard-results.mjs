@@ -63,6 +63,7 @@ import {
   createProgressReporter,
   runPool,
   withRetry,
+  withTimeout,
 } from "./lib/firestore-bulk.mjs";
 import {isEntrypoint} from "./lib/is-entrypoint.mjs";
 
@@ -77,6 +78,9 @@ export const FINALIZED_TIME_FRAMES = Object.freeze([
   "monthly",
   "yearly",
 ]);
+
+// gRPC ALREADY_EXISTS, which the Admin SDK reports as a numeric `code`.
+const ALREADY_EXISTS = 6;
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const FUNCTIONS_DIR = resolve(SCRIPT_DIR, "..", "functions");
@@ -309,8 +313,10 @@ async function backfillPeriod({db, id, data, periodModule, results, commit}) {
   const awardRows = await withRetry(() => results.readAwardStandings(db, period), {
     description: `award query for ${id}`,
   });
-  const periodRows = await withRetry(() => results.readPeriodStandings(db, period), {
-    description: `period read for ${id}`,
+  const periodRows = await results.readPeriodStandings(db, period, {
+    readPage: (query) => withRetry(() => query.get(), {
+      description: `period read page for ${id}`,
+    }),
   });
   const computed = results.rankStandings(awardRows, results.TOP_RANK_LIMIT);
   const everyone = results.rankStandings(periodRows);
@@ -555,20 +561,35 @@ async function writeResult({db, resultRef, outcome, results}) {
         placing.data
       );
     }
-    await writer.flush();
-
-    // Re-checked immediately before the one write that makes the result
-    // visible, so a result that appeared while this ran is never replaced.
-    const existing = await withRetry(() => resultRef.get(), {
-      description: `re-read ${resultRef.path}`,
-    });
-    if (existing.exists) {
-      throw new Error(`${resultRef.path} appeared during the run; left untouched`);
-    }
-    writer.set(resultRef, outcome.result);
     await writer.drain();
+    await createResultOnce(resultRef, outcome.result);
+    progress.advance(1);
   } finally {
     progress.finish();
+  }
+}
+
+/**
+ * Creates the result - the one write that makes it visible - and never
+ * replaces one: a result that appeared while this ran (the finalizer, another
+ * run) is left untouched, atomically, by the create itself.
+ * @param {object} resultRef The result document.
+ * @param {object} data The result.
+ * @param {object} [options] Deadline settings.
+ * @param {number} [options.timeoutMs] Deadline for the create.
+ * @return {Promise<void>} Resolves once created.
+ */
+export async function createResultOnce(resultRef, data, {timeoutMs} = {}) {
+  try {
+    await withTimeout(() => resultRef.create(data), {
+      description: `create ${resultRef.path}`,
+      timeoutMs,
+    });
+  } catch (error) {
+    if (error?.code === ALREADY_EXISTS) {
+      throw new Error(`${resultRef.path} appeared during the run; left untouched`);
+    }
+    throw error;
   }
 }
 

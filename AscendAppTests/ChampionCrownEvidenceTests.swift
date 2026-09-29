@@ -161,7 +161,7 @@ struct ChampionCrownEvidenceTests {
                 entry: entry,
                 metric: .climb,
                 crownGapText: "516 STEPS TO CROWN",
-                countdownPeriod: week,
+                countdownTimeFrame: .weekly,
                 now: lastDay
             )
             .padding(.top, 20)
@@ -193,20 +193,32 @@ struct ChampionCrownEvidenceTests {
             )
         }.sorted { $0.rank < $1.rank }
 
+        let size = CGSize(width: 402, height: 260)
+        func podium(_ title: ChampionTitle?, _ registry: ChampionRegistry) -> some View {
+            NavigationStack {
+                LeaderboardPodiumView(entries: entries, metric: .climb, awardedTitle: title)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 30)
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .background(Color.black)
+            .environment(registry)
+            .environment(\.colorScheme, .dark)
+        }
+
+        // A filtered board awards nothing, so its first place keeps the plain gold.
+        let diamondOnMonthly = try await ink(podium(.monthly, registry()), size: size, where: Self.isDiamond)
+        let diamondUnawarded = try await ink(podium(nil, registry()), size: size, where: Self.isDiamond)
+        #expect(
+            diamondOnMonthly - diamondUnawarded > 40,
+            "the monthly podium's first place did not take the diamond (\(diamondOnMonthly) vs \(diamondUnawarded))"
+        )
+
         for title in ChampionTitle.allCases {
-            let size = CGSize(width: 402, height: 260)
-            try await RenderedScreen.host(
-                NavigationStack {
-                    LeaderboardPodiumView(entries: entries, metric: .climb, awardedTitle: title)
-                }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 30)
-                    .frame(width: size.width, height: size.height, alignment: .top)
-                    .background(Color.black)
-                    .environment(registry())
-                    .environment(\.colorScheme, .dark),
-                size: size
-            ) { screen in
+            let perched = try await crownInkAdded(size: size) { podium(title, $0) }
+            #expect(abs(perched) <= 4, "a ringed \(title) podium slot drew its perched crown (\(perched) ink pixels)")
+
+            try await RenderedScreen.host(podium(title, registry()), size: size) { screen in
                 // fixture-ezra (the monthly champion) stands first; the podium's floating crown
                 // is the only crown there, so nothing perches at the picture's top right.
                 let copy = try await screen.copy()
@@ -247,27 +259,29 @@ struct ChampionCrownEvidenceTests {
             )
         }
         let size = CGSize(width: 402, height: 420)
-        try await RenderedScreen.host(
+        func board(_ registry: ChampionRegistry) -> some View {
             NavigationStack {
-            ReplayCompletionLeaderboardView(
-                rows: rows,
-                completedCount: rows.count,
-                isLoading: false,
-                fetchFailed: false,
-                currentUserPhotoURL: nil,
-                effectiveColorScheme: .dark,
-                emptyTitle: "No completed times yet.",
-                emptyMessage: "",
-                emphasis: .duration
-            )
+                ReplayCompletionLeaderboardView(
+                    rows: rows,
+                    completedCount: rows.count,
+                    isLoading: false,
+                    fetchFailed: false,
+                    currentUserPhotoURL: nil,
+                    effectiveColorScheme: .dark,
+                    emptyTitle: "No completed times yet.",
+                    emptyMessage: "",
+                    emphasis: .duration
+                )
             }
             .padding(16)
             .frame(width: size.width, height: size.height, alignment: .top)
             .background(Color.black)
-            .environment(registry())
-            .environment(\.colorScheme, .dark),
-            size: size
-        ) { screen in
+            .environment(registry)
+            .environment(\.colorScheme, .dark)
+        }
+        let added = try await crownInkAdded(size: size, board)
+        #expect(added > 12, "Ezra's row wore no crown (\(added) ink pixels)")
+        try await RenderedScreen.host(board(registry()), size: size) { screen in
             #expect(try await screen.copy().contains("ezra kim"))
             try screen.photograph(named: "champion-completion-board")
         }
@@ -308,7 +322,7 @@ struct ChampionCrownEvidenceTests {
             now: Self.now
         )
         let size = CGSize(width: 402, height: 160)
-        try await RenderedScreen.host(
+        func feed(_ registry: ChampionRegistry) -> some View {
             HomeTodayActivitySection(
                 rows: [row],
                 presentations: [row.id: presentation],
@@ -320,10 +334,12 @@ struct ChampionCrownEvidenceTests {
             .padding(20)
             .frame(width: size.width, height: size.height, alignment: .top)
             .background(Color.black)
-            .environment(registry())
-            .environment(\.colorScheme, .dark),
-            size: size
-        ) { screen in
+            .environment(registry)
+            .environment(\.colorScheme, .dark)
+        }
+        let added = try await crownInkAdded(size: size, feed)
+        #expect(added > 12, "the feed row wore no crown (\(added) ink pixels)")
+        try await RenderedScreen.host(feed(registry()), size: size) { screen in
             #expect(try await screen.copy().contains("ezra kim"))
             try screen.photograph(named: "champion-home-feed-row")
         }
@@ -381,23 +397,25 @@ struct ChampionCrownEvidenceTests {
             isBlockListHydrated: true
         )
         let size = CGSize(width: 402, height: 220)
-        try await RenderedScreen.host(
+        func hero(_ registry: ChampionRegistry) -> some View {
             NavigationStack {
                 IdentityHeroSection(snapshot: Self.snapshot(userId: "double"), identity: identity)
             }
             .frame(width: size.width, height: size.height, alignment: .top)
             .background(Color.black)
-            .environment(registry())
-            .environment(\.colorScheme, .dark),
-            size: size
-        ) { screen in
+            .environment(registry)
+            .environment(\.colorScheme, .dark)
+        }
+        let added = try await crownInkAdded(size: size, hero)
+        #expect(added > 12, "the profile picture wore no crown (\(added) ink pixels)")
+        try await RenderedScreen.host(hero(registry()), size: size) { screen in
             #expect(try await screen.copy().contains("tyler pavay"))
             try screen.photograph(named: "champion-own-profile-two-titles")
         }
     }
 
     @Test
-    func theComparisonNamesEachTitleUnderTheName() async throws {
+    func theComparisonNamesTheRarestTitleUnderTheName() async throws {
         let viewer = CrossUserIdentityResolver.resolve(
             userId: "viewer",
             displayName: "Tyler Pavay",
@@ -410,7 +428,8 @@ struct ChampionCrownEvidenceTests {
         for (userId, name, expected) in [
             // This registry crowns several climbers per title, so every title here is shared.
             ("fixture-zoe", "Zoe Ramirez", "last week's co-champion"),
-            ("double", "Ezra Kim", "last month's & last week's co-champion")
+            // Several titles name only the rarest; the others are dots on the picture.
+            ("double", "Ezra Kim", "last month's co-champion")
         ] {
             let other = CrossUserIdentityResolver.resolve(
                 userId: userId,
@@ -480,7 +499,7 @@ struct ChampionCrownEvidenceTests {
         let registry = registry()
         #expect(registry.titles(for: nil, isCurrentUser: true) == ChampionTitles([.monthly]))
         let size = CGSize(width: 402, height: 360)
-        try await RenderedScreen.host(
+        func panel(_ registry: ChampionRegistry) -> some View {
             LiveReplayLeaderboardPanel(
                 rows: rows,
                 progressScaleSteps: 2_000,
@@ -495,9 +514,11 @@ struct ChampionCrownEvidenceTests {
             .frame(width: size.width, height: size.height, alignment: .top)
             .background(Color.black)
             .environment(registry)
-            .environment(\.colorScheme, .dark),
-            size: size
-        ) { screen in
+            .environment(\.colorScheme, .dark)
+        }
+        let added = try await crownInkAdded(size: size, panel)
+        #expect(added > 12, "the race rows wore no crown (\(added) ink pixels)")
+        try await RenderedScreen.host(panel(registry), size: size) { screen in
             #expect(try await screen.copy().contains("zoe ramirez"))
             try screen.photograph(named: "champion-live-race-row")
         }
@@ -506,14 +527,16 @@ struct ChampionCrownEvidenceTests {
     @Test
     func theSettingsHeaderWearsTheFullCrown() async throws {
         let size = CGSize(width: 402, height: 280)
-        try await RenderedScreen.host(
+        func header(_ registry: ChampionRegistry) -> some View {
             ProfileHeaderView(userId: "fixture-zoe", photoURL: nil, displayName: "Zoe Ramirez", email: "zoe@example.com")
                 .frame(width: size.width, height: size.height, alignment: .top)
                 .background(Color.black)
-                .environment(registry())
-                .environment(\.colorScheme, .dark),
-            size: size
-        ) { screen in
+                .environment(registry)
+                .environment(\.colorScheme, .dark)
+        }
+        let added = try await crownInkAdded(size: size, header)
+        #expect(added > 12, "the Settings header wore no crown (\(added) ink pixels)")
+        try await RenderedScreen.host(header(registry()), size: size) { screen in
             #expect(try await screen.copy().contains("zoe ramirez"))
             try screen.photograph(named: "champion-settings-header")
         }
@@ -605,6 +628,45 @@ struct ChampionCrownEvidenceTests {
 
     private struct Ink {
         let inPerch: Int
+    }
+
+    /// A registry that crowns nobody, with the same signed-in climber as `registry()`.
+    private func uncrownedRegistry() -> ChampionRegistry {
+        let registry = ChampionRegistry(repository: FakeLeaderboardResults(), isFeatureEnabled: { true }, clock: { Self.now })
+        registry.setCurrentUser("viewer-monthly")
+        return registry
+    }
+
+    /// The saturated ink a surface gains when its climbers are crowned: the same surface
+    /// rendered with nobody crowned is subtracted, so only the crowns' own pixels count,
+    /// whatever else the surface colours.
+    private func crownInkAdded<Content: View>(
+        size: CGSize,
+        _ surface: (ChampionRegistry) -> Content
+    ) async throws -> Int {
+        let crowned = try await ink(surface(registry()), size: size, where: Self.isSaturated)
+        let bare = try await ink(surface(uncrownedRegistry()), size: size, where: Self.isSaturated)
+        return crowned - bare
+    }
+
+    private func ink(_ view: some View, size: CGSize, where predicate: @escaping (RGBA) -> Bool) async throws -> Int {
+        try await RenderedScreen.host(view, size: size) { screen in
+            try screen.withPixels { pixels in
+                pixels.count(in: CGRect(origin: .zero, size: size), where: predicate)
+            }
+        }
+    }
+
+    private static func isSaturated(_ pixel: RGBA) -> Bool {
+        let high = Int(max(pixel.red, pixel.green, pixel.blue))
+        let low = Int(min(pixel.red, pixel.green, pixel.blue))
+        return high - low > 60 && high > 90
+    }
+
+    /// The monthly diamond (`#58E3FF`): blue and green well above red. Gold, silver and
+    /// bronze never are.
+    private static func isDiamond(_ pixel: RGBA) -> Bool {
+        Int(pixel.blue) - Int(pixel.red) > 90 && Int(pixel.green) - Int(pixel.red) > 70
     }
 
     /// Hosts one grey picture on black and counts every saturated pixel: the only coloured

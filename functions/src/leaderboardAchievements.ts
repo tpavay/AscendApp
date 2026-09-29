@@ -76,13 +76,23 @@ export const finalizeLeaderboardAchievements = onSchedule(
  * part-way therefore leaves the period unfinalized and resultless, and the
  * next run completes it without double-counting anything - a result that
  * exists always has its placings behind it.
+ *
+ * The awards need only the top-N query; the result needs the whole period's
+ * standings. If that full scan fails, the awards and the `finalized` status
+ * still commit and no result is written at all - never a partial one - and a
+ * structured error names the period so
+ * `scripts/backfill-leaderboard-results.mjs` can write it later.
  * @param {FinalizedTimeFrame} timeFrame The board's window.
  * @param {Date} now The run instant.
+ * @param {object} standingsOptions Paging for the full standings scan.
+ * @param {number} standingsOptions.pageSize Rows per page.
+ * @param {number} standingsOptions.maxPages Pages before the scan gives up.
  * @return {Promise<void>} Resolves once committed, or when there is no work.
  */
 async function finalizeMostRecentClosedPeriod(
   timeFrame: FinalizedTimeFrame,
-  now: Date
+  now: Date,
+  standingsOptions: {pageSize?: number; maxPages?: number} = {}
 ): Promise<void> {
   const db = admin.firestore();
   const period = previousPeriod(timeFrame, now);
@@ -129,9 +139,20 @@ async function finalizeMostRecentClosedPeriod(
   }
 
   const rankedRows = rankedQualifiers(await readAwardStandings(db, period));
-  const summary = summarizePeriodStandings(
-    await readPeriodStandings(db, period)
-  );
+  let summary: ReturnType<typeof summarizePeriodStandings> | null = null;
+  try {
+    summary = summarizePeriodStandings(
+      await readPeriodStandings(db, period, standingsOptions)
+    );
+  } catch (error) {
+    logger.error("leaderboardAchievements.result_scan_failed", {
+      periodId,
+      timeFrame: period.timeFrame,
+      periodKey: period.key,
+      error: error instanceof Error ? error.message : String(error),
+      remedy: "scripts/backfill-leaderboard-results.mjs",
+    });
+  }
   const units: FinalizerWrite[][] = [];
   let achievementCount = 0;
 
@@ -181,27 +202,31 @@ async function finalizeMostRecentClosedPeriod(
     achievementCount += 1;
   }
 
-  const outcome = buildLeaderboardResult({
+  const outcome = summary ? buildLeaderboardResult({
     period,
     placed: rankedRows,
     summary,
     source: "leaderboard_finalizer",
-  });
-  const resultRef = db
-    .collection(LEADERBOARD_RESULTS_COLLECTION)
-    .doc(outcome.resultId);
-  for (const placing of outcome.placings) {
-    units.push([{
-      ref: resultRef
-        .collection(LEADERBOARD_PLACINGS_COLLECTION)
-        .doc(placing.userId),
-      data: placing.data,
-      merge: false,
-    }]);
+  }) : null;
+  const resultWrites: FinalizerWrite[] = [];
+  if (outcome) {
+    const resultRef = db
+      .collection(LEADERBOARD_RESULTS_COLLECTION)
+      .doc(outcome.resultId);
+    for (const placing of outcome.placings) {
+      units.push([{
+        ref: resultRef
+          .collection(LEADERBOARD_PLACINGS_COLLECTION)
+          .doc(placing.userId),
+        data: placing.data,
+        merge: false,
+      }]);
+    }
+    resultWrites.push({ref: resultRef, data: outcome.result, merge: false});
   }
 
   units.push([
-    {ref: resultRef, data: outcome.result, merge: false},
+    ...resultWrites,
     {
       ref: periodRef,
       data: {
@@ -230,9 +255,12 @@ async function finalizeMostRecentClosedPeriod(
   logger.info("leaderboardAchievements.finalized", {
     periodId,
     achievementCount,
-    climberCount: summary.climberCount,
-    championCount: (outcome.result.championUserIds as string[]).length,
-    placingCount: outcome.placings.length,
+    climberCount: summary?.climberCount ?? null,
+    championCount: outcome ?
+      (outcome.result.championUserIds as string[]).length :
+      null,
+    placingCount: outcome?.placings.length ?? 0,
+    resultWritten: outcome !== null,
     commitCount: commits.length,
   });
 }

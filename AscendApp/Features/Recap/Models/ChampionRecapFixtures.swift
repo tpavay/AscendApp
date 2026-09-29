@@ -149,7 +149,7 @@ struct ChampionRecapFixtures {
             variant: variant,
             active: active,
             inactive: variant == .inactive ? PeriodRecap.Inactive(
-                gapCount: 2,
+                gapCount: lastClimbAt.map { max(Int(now.timeIntervalSince($0) / (7 * 86_400)), 1) } ?? 1,
                 lastClimbAt: lastClimbAt,
                 suggestedClimbId: "tallinn-tv-tower",
                 suggestedClimbName: "Tallinn TV Tower"

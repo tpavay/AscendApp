@@ -3,7 +3,7 @@ import Foundation
 /// Every title one climber holds right now.
 ///
 /// The rarest title leads the crown on their picture; each other title is a dot beside
-/// it on large pictures; every title at once is "Undisputed".
+/// it on large pictures.
 struct ChampionTitles: Equatable, Hashable, Sendable {
     static let none = ChampionTitles([])
 
@@ -26,10 +26,6 @@ struct ChampionTitles: Equatable, Hashable, Sendable {
     var others: [ChampionTitle] {
         guard let leading else { return [] }
         return held.filter { $0 != leading }.sorted(by: >)
-    }
-
-    var isUndisputed: Bool {
-        held.count == ChampionTitle.allCases.count
     }
 
     func adding(_ title: ChampionTitle) -> ChampionTitles {

@@ -87,6 +87,31 @@ enum PeriodRecapCopy {
         }
     }
 
+    /// What the climber earned in a period, each badge named in words: the award rank, then
+    /// up to three First Ascents. `climbName` names a First Ascent the server stored without
+    /// a name.
+    static func earnedRows(
+        for active: PeriodRecap.Active,
+        period: LeaderboardPeriod,
+        climbName: (String) -> String?
+    ) -> [PeriodRecapEarnedRow] {
+        var rows: [PeriodRecapEarnedRow] = []
+        if let awardRank = active.awardRank {
+            let award = award(rank: awardRank, period: period)
+            rows.append(PeriodRecapEarnedRow(id: "award", asset: award.asset, title: award.title, detail: award.detail))
+        }
+        for firstAscent in active.firstAscents.prefix(3) {
+            let name = firstAscent.name ?? climbName(firstAscent.climbId)
+            rows.append(PeriodRecapEarnedRow(
+                id: "first-ascent-\(firstAscent.climbId)",
+                asset: "FirstAscentBadgeDetailed",
+                title: "First Ascent",
+                detail: name.map { "\($0) - first to finish it" } ?? "First to finish it"
+            ))
+        }
+        return rows
+    }
+
     /// `Zoe R. took the crown.`, `You took the crown.`, `Zoe R. & Noah G. took the crown.`
     static func crownHeadline(names: [String], viewerIsChampion: Bool) -> String {
         guard viewerIsChampion else {
@@ -117,11 +142,20 @@ enum PeriodRecapCopy {
         return isTie ? "Tied at exactly \(stepsText) · \(climbers)" : "\(stepsText) · \(climbers)"
     }
 
-    /// `Your crown shows on your picture everywhere until Sunday, 7 PM.`
-    static func reignLine(endsAt: Date?, timeZone: TimeZone = .current, locale: Locale = .current) -> String? {
+    /// `Your crown shows on your picture everywhere until Sunday, 7 PM.`, with the date once
+    /// the end is more than a week out: `until Saturday, October 31, 8 PM.`
+    static func reignLine(
+        endsAt: Date?,
+        now: Date = .now,
+        timeZone: TimeZone = .current,
+        locale: Locale = .current
+    ) -> String? {
         guard let endsAt else { return nil }
         let base = Date.FormatStyle(locale: locale, timeZone: timeZone)
-        let day = endsAt.formatted(base.weekday(.wide))
+        let dayStyle = endsAt.timeIntervalSince(now) > 6 * 24 * 60 * 60
+            ? base.weekday(.wide).month(.wide).day()
+            : base.weekday(.wide)
+        let day = endsAt.formatted(dayStyle)
         let time = endsAt.formatted(base.hour())
         return "Your crown shows on your picture everywhere until \(day), \(time)."
     }
@@ -152,6 +186,14 @@ enum PeriodRecapCopy {
     static func catchUpHeadline(weeks: Int, champions: Int) -> String {
         "\(spelled(weeks).capitalizedFirst) \(weeks == 1 ? "week" : "weeks"). "
             + "\(spelled(champions).capitalizedFirst) \(champions == 1 ? "champion" : "champions")."
+    }
+
+    /// `You: #4 · 7,904 steps`, or `You: 7,904 steps` when the period had too few climbers
+    /// for a rank.
+    static func catchUpYoursLine(_ active: PeriodRecap.Active) -> String {
+        let steps = "\(active.steps.formatted()) steps"
+        guard let rank = active.awardRank ?? active.rank else { return "You: \(steps)" }
+        return "You: #\(rank) · \(steps)"
     }
 
     /// `Your last climb was Sep 2.`

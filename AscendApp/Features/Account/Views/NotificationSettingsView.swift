@@ -3,10 +3,14 @@ import UserNotifications
 
 struct NotificationSettingsView: View {
     @State private var notificationState: ClimbDropNotificationState
-    @State private var isChampionPushEnabled = ChampionPushPreferenceStore.isEnabled
+    @State private var championPush: ChampionPushPreference
 
-    init(notificationState: ClimbDropNotificationState = .shared) {
+    init(
+        notificationState: ClimbDropNotificationState = .shared,
+        championPush: ChampionPushPreference = ChampionPushPreference()
+    ) {
         _notificationState = State(initialValue: notificationState)
+        _championPush = State(initialValue: championPush)
     }
 
     var body: some View {
@@ -53,6 +57,9 @@ struct NotificationSettingsView: View {
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task {
             await notificationState.refreshIfNeeded()
+        }
+        .task {
+            await championPush.load()
         }
         .trackOnce(screen: .notificationSettings)
     }
@@ -142,23 +149,29 @@ struct NotificationSettingsView: View {
                     .font(.montserratSemiBold(size: 16))
                     .foregroundStyle(.white)
 
-                Text(championPushDetail)
+                Text(championPush.saveErrorMessage ?? championPushDetail)
                     .font(.montserratRegular(size: 13))
-                    .foregroundStyle(Color.white.opacity(0.64))
+                    .foregroundStyle(championPush.saveErrorMessage == nil ? Color.white.opacity(0.64) : Color.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 12)
 
-            Toggle("", isOn: $isChampionPushEnabled)
-                .labelsHidden()
-                .tint(.accent)
-                .accessibilityLabel("Crown alerts")
-                .onChange(of: isChampionPushEnabled) { _, isEnabled in
-                    Task {
-                        await PushNotificationService.shared.setChampionPushEnabled(isEnabled)
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { championPush.isEnabled },
+                    set: { isEnabled in
+                        Task {
+                            await championPush.setEnabled(isEnabled)
+                        }
                     }
-                }
+                )
+            )
+            .labelsHidden()
+            .tint(.accent)
+            .disabled(championPush.isSaving)
+            .accessibilityLabel("Crown alerts")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)

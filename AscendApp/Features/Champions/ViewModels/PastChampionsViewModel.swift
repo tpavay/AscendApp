@@ -22,6 +22,13 @@ final class PastChampionsViewModel {
 
     static let timeFrames: [LeaderboardTimeFrame] = [.weekly, .monthly, .yearly]
 
+    /// What decides how the board's climbers are shown: who is looking, and whom they block.
+    struct ModerationInputs: Equatable {
+        var viewerId: String?
+        var blockedUserIds: Set<String> = []
+        var isBlockListHydrated = false
+    }
+
     private(set) var selectedTimeFrame: LeaderboardTimeFrame
     private(set) var period: LeaderboardPeriod?
     private(set) var result: LeaderboardResult?
@@ -29,10 +36,14 @@ final class PastChampionsViewModel {
     private(set) var mostClimbsPlacings: [LeaderboardPlacing] = []
     private(set) var state: LoadState = .loading
     private(set) var canGoBack = false
+    /// The board's rows, moderated once per load or block-list change rather than per render.
+    private(set) var entries: [ModeratedLeaderboardEntry] = []
+    private(set) var mostClimbsEntries: [ModeratedLeaderboardEntry] = []
 
     @ObservationIgnored private let repository: any LeaderboardResultsReading
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var loadGeneration: UInt64 = 0
+    @ObservationIgnored private var moderationInputs = ModerationInputs()
 
     init(
         timeFrame: LeaderboardTimeFrame = .weekly,
@@ -56,6 +67,12 @@ final class PastChampionsViewModel {
 
     var awardedTitle: ChampionTitle? {
         ChampionTitle(timeFrame: selectedTimeFrame)
+    }
+
+    func updateModeration(_ inputs: ModerationInputs) {
+        guard inputs != moderationInputs else { return }
+        moderationInputs = inputs
+        moderateEntries()
     }
 
     func load() async {
@@ -90,6 +107,7 @@ final class PastChampionsViewModel {
         result = nil
         placings = []
         mostClimbsPlacings = []
+        moderateEntries()
         canGoBack = false
         state = .loading
 
@@ -133,10 +151,27 @@ final class PastChampionsViewModel {
                 uniquingKeysWith: { first, _ in first }
             )
             mostClimbsPlacings = (result.mostClimbs?.userIds ?? []).compactMap { byUser[$0] }
+            moderateEntries()
             state = .loaded
         } catch {
             guard generation == loadGeneration else { return }
             state = .failed
+        }
+    }
+
+    private func moderateEntries() {
+        entries = moderated(placings)
+        mostClimbsEntries = moderated(mostClimbsPlacings)
+    }
+
+    private func moderated(_ placings: [LeaderboardPlacing]) -> [ModeratedLeaderboardEntry] {
+        let inputs = moderationInputs
+        return placings.entries(currentUserId: inputs.viewerId).map {
+            CrossUserIdentityAdapter.leaderboardEntry(
+                $0,
+                blockedUserIds: inputs.blockedUserIds,
+                isBlockListHydrated: inputs.isBlockListHydrated
+            )
         }
     }
 

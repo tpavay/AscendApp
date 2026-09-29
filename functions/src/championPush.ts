@@ -460,6 +460,16 @@ async function deliverToChampion(params: {
     status: "claimed",
     userId: uid,
   }));
+  if (claim === "ambiguous") {
+    // A create that timed out may still have committed: sending could push
+    // twice, so it fails safe - and says so, because nothing retries this
+    // champion's crown alert once the marker exists.
+    logger.warn("championPush.claimAmbiguous", {
+      markerPath: markerRef.path,
+      resultId,
+      uid,
+    });
+  }
   if (claim !== "claimed") {
     return {...none, outcome: "already_claimed"};
   }

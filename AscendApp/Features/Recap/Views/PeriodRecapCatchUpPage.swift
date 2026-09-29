@@ -11,8 +11,8 @@ struct PeriodRecapCatchUpPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(PeriodRecapCopy.catchUpHeadline(
-                weeks: catchUp.missedWeeks,
-                champions: catchUp.lines.filter { $0.crown.title == .weekly }.count
+                weeks: catchUp.weeksAway,
+                champions: catchUp.lines.filter { $0.crown?.title == .weekly }.count
             ))
             .font(.montserratBold(size: 26))
             .foregroundStyle(.white)
@@ -42,41 +42,55 @@ struct PeriodRecapCatchUpPage: View {
     }
 
     private func row(_ line: PeriodRecapCatchUp.Line) -> some View {
-        let champions = moderationStore.moderate(line.crown.champions.entries(currentUserId: viewerId))
+        let champions = line.crown.map { moderationStore.moderate($0.champions.entries(currentUserId: viewerId)) } ?? []
         return HStack(spacing: 12) {
-            HStack(spacing: -12) {
-                ForEach(champions.prefix(2)) { champion in
-                    ClimberAvatar(
-                        userId: champion.userId,
-                        photoURL: champion.identity.photoURL,
-                        placeholder: RecapAvatarStyle.placeholder(for: champion, fontSize: 12),
-                        size: 36,
-                        showsChampionMark: line.isReigning,
-                        championTitlesOverride: ChampionTitles([line.crown.title])
-                    )
+            if let crown = line.crown {
+                HStack(spacing: -12) {
+                    ForEach(champions.prefix(2)) { champion in
+                        ClimberAvatar(
+                            userId: champion.userId,
+                            photoURL: champion.identity.photoURL,
+                            placeholder: RecapAvatarStyle.placeholder(for: champion, fontSize: 12),
+                            size: 36,
+                            showsChampionMark: line.isReigning,
+                            championTitlesOverride: ChampionTitles([crown.title])
+                        )
+                    }
                 }
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(ChampionNames.joined(champions.map(\.identity.displayName)))
+                Text(champions.isEmpty
+                    ? ChampionTitleLine.periodName(for: line.period).capitalized
+                    : ChampionNames.joined(champions.map(\.identity.displayName)))
                     .font(.montserratBold(size: 15))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
 
-                Text(subtitle(for: line.crown))
+                Text(subtitle(for: line))
                     .font(.montserratSemiBold(size: 11))
                     .foregroundStyle(RecapStyle.tertiaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+
+                if let yours = line.yours {
+                    Text(PeriodRecapCopy.catchUpYoursLine(yours))
+                        .font(.montserratSemiBold(size: 11))
+                        .foregroundStyle(Color.accent)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
 
             Spacer(minLength: 8)
 
-            Text(line.crown.winningSteps.formatted())
-                .font(.montserratBold(size: 14))
-                .foregroundStyle(.white)
-                .monospacedDigit()
+            if let crown = line.crown {
+                Text(crown.winningSteps.formatted())
+                    .font(.montserratBold(size: 14))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+            }
         }
         .padding(.vertical, 12)
         .overlay(alignment: .bottom) {
@@ -86,14 +100,14 @@ struct PeriodRecapCatchUpPage: View {
     }
 
     /// `Week 38 · Sep 14-20`, `Week 36 · tied at exactly 1,776 steps`, or `August`.
-    private func subtitle(for crown: PeriodRecapCrown) -> String {
-        let name = ChampionTitleLine.periodName(for: crown.period).capitalized
-        if crown.isTie {
+    private func subtitle(for line: PeriodRecapCatchUp.Line) -> String {
+        let name = ChampionTitleLine.periodName(for: line.period).capitalized
+        if let crown = line.crown, crown.isTie {
             return "\(name) · tied at exactly \(crown.winningSteps.formatted()) steps"
         }
-        switch crown.period.timeFrame {
+        switch line.period.timeFrame {
         case .weekly:
-            return "\(name) · \(PeriodRecapCopy.sentenceWindow(for: crown.period))"
+            return "\(name) · \(PeriodRecapCopy.sentenceWindow(for: line.period))"
         default:
             return name
         }

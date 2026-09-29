@@ -29,9 +29,20 @@ struct PastChampionsView: View {
         .background(Color.black.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .trackOnce(screen: .pastChampions)
+        .onChange(of: moderationInputs, initial: true) { _, inputs in
+            viewModel.updateModeration(inputs)
+        }
         .task {
             await viewModel.load()
         }
+    }
+
+    private var moderationInputs: PastChampionsViewModel.ModerationInputs {
+        PastChampionsViewModel.ModerationInputs(
+            viewerId: authVM.user?.uid,
+            blockedUserIds: moderationStore.blockedUserIds,
+            isBlockListHydrated: moderationStore.isBlockListHydrated
+        )
     }
 
     private var topBar: some View {
@@ -205,7 +216,7 @@ struct PastChampionsView: View {
 
     @ViewBuilder
     private var loadedBoard: some View {
-        let entries = moderationStore.moderate(viewModel.placings.entries(currentUserId: authVM.user?.uid))
+        let entries = viewModel.entries
         if entries.isEmpty {
             message(
                 title: "Nobody climbed \(periodSubject).",
@@ -247,9 +258,7 @@ struct PastChampionsView: View {
     private var footerText: String {
         guard let result = viewModel.result else { return "" }
         let climbers = "\(result.climberCount.formatted()) \(result.climberCount == 1 ? "CLIMBER" : "CLIMBERS")"
-        let mostClimbs = moderationStore.moderate(
-            viewModel.mostClimbsPlacings.entries(currentUserId: authVM.user?.uid)
-        )
+        let mostClimbs = viewModel.mostClimbsEntries
         guard let count = result.mostClimbs?.count, !mostClimbs.isEmpty else {
             return climbers
         }

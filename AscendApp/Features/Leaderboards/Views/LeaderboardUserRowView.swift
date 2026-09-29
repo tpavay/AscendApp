@@ -24,8 +24,9 @@ struct LeaderboardUserRowView: View {
     let standing: Standing
     let metric: LeaderboardMetric
     var crownGapText: String? = nil
-    /// The board's window. On its last day the chase line names the time left, in gold.
-    var countdownPeriod: LeaderboardPeriod? = nil
+    /// The board's frame. On the last day of its open period the chase line names the time
+    /// left, in gold.
+    var countdownTimeFrame: LeaderboardTimeFrame? = nil
     /// Fixes the clock for evidence tests and previews.
     var now: Date? = nil
 
@@ -33,13 +34,13 @@ struct LeaderboardUserRowView: View {
         entry: ModeratedLeaderboardEntry,
         metric: LeaderboardMetric,
         crownGapText: String? = nil,
-        countdownPeriod: LeaderboardPeriod? = nil,
+        countdownTimeFrame: LeaderboardTimeFrame? = nil,
         now: Date? = nil
     ) {
         self.standing = .ranked(entry)
         self.metric = metric
         self.crownGapText = crownGapText
-        self.countdownPeriod = countdownPeriod
+        self.countdownTimeFrame = countdownTimeFrame
         self.now = now
     }
 
@@ -50,7 +51,7 @@ struct LeaderboardUserRowView: View {
         photoURL: URL?,
         metric: LeaderboardMetric,
         crownGapText: String? = nil,
-        countdownPeriod: LeaderboardPeriod? = nil,
+        countdownTimeFrame: LeaderboardTimeFrame? = nil,
         now: Date? = nil
     ) {
         self.standing = .unranked(
@@ -61,7 +62,7 @@ struct LeaderboardUserRowView: View {
         )
         self.metric = metric
         self.crownGapText = crownGapText
-        self.countdownPeriod = countdownPeriod
+        self.countdownTimeFrame = countdownTimeFrame
         self.now = now
     }
 
@@ -148,15 +149,12 @@ struct LeaderboardUserRowView: View {
                     .minimumScaleFactor(0.74)
 
                 if let crownGapText {
-                    if let countdownPeriod, now == nil {
+                    if countdownTimeFrame != nil, now == nil {
                         TimelineView(.everyMinute) { context in
-                            crownGapLine(crownGapText, countdown: .make(period: countdownPeriod, now: context.date))
+                            crownGapLine(crownGapText, countdown: countdown(at: context.date))
                         }
                     } else {
-                        crownGapLine(
-                            crownGapText,
-                            countdown: countdownPeriod.flatMap { .make(period: $0, now: now ?? .now) }
-                        )
+                        crownGapLine(crownGapText, countdown: countdown(at: now ?? .now))
                     }
                 }
             }
@@ -193,6 +191,12 @@ struct LeaderboardUserRowView: View {
 
     /// On the board's last day the chase line names the time left and turns gold: the
     /// crown is on the line.
+    private func countdown(at date: Date) -> LeaderboardCountdown? {
+        countdownTimeFrame.flatMap {
+            LeaderboardCountdown.make(period: $0.currentPeriod(referenceDate: date), now: date)
+        }
+    }
+
     private func crownGapLine(_ text: String, countdown: LeaderboardCountdown?) -> some View {
         let isLastDay = countdown?.isLastDay ?? false
         let line = isLastDay ? "\(text) · \(countdown?.remainingText ?? "")" : text
@@ -226,8 +230,7 @@ struct LeaderboardUserRowView: View {
         guard let crownGapText else {
             return base
         }
-        let countdown = countdownPeriod.flatMap { LeaderboardCountdown.make(period: $0, now: now ?? .now) }
-        guard let countdown, countdown.isLastDay else {
+        guard let countdown = countdown(at: now ?? .now), countdown.isLastDay else {
             return "\(base), \(crownGapText)"
         }
         return "\(base), \(crownGapText) · \(countdown.remainingText)"

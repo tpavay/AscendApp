@@ -272,14 +272,14 @@ struct LeaderboardView: View {
                     .foregroundStyle(primaryTextColor.opacity(0.52))
                     .accessibilityHidden(true)
 
-                LeaderboardCountdownLabel(period: viewModel.selectedPeriod)
+                LeaderboardCountdownLabel(currentPeriodOf: viewModel.selectedTimeFrame)
             }
         }
     }
 
     /// The title this board awards: only the unfiltered Steps board crowns a champion.
     private var awardedTitle: ChampionTitle? {
-        guard viewModel.selectedMetric == .climb,
+        guard isUnfilteredStepsBoard,
               championRegistry?.isEnabled ?? false else { return nil }
         return ChampionTitle(timeFrame: viewModel.selectedTimeFrame)
     }
@@ -287,9 +287,13 @@ struct LeaderboardView: View {
     /// Last period's champion leads the Steps board all period, the Monday reset included.
     /// All-time has no strip: its champion is whoever stands first on its podium right now.
     private var displayedReign: ChampionReign? {
-        guard viewModel.selectedMetric == .climb,
+        guard isUnfilteredStepsBoard,
               viewModel.selectedTimeFrame != .allTime else { return nil }
         return championRegistry?.reign(for: viewModel.selectedTimeFrame)
+    }
+
+    private var isUnfilteredStepsBoard: Bool {
+        viewModel.selectedMetric == .climb && !viewModel.hasActiveDemographicFilters
     }
 
     private var demographicFilters: some View {
@@ -506,7 +510,7 @@ struct LeaderboardView: View {
                         userId: userEntry.userId,
                         podiumEntries: state.podiumEntries
                     ),
-                    countdownPeriod: viewModel.selectedPeriod
+                    countdownTimeFrame: viewModel.selectedTimeFrame
                 )
                 .padding(.top, 2)
 
@@ -522,7 +526,7 @@ struct LeaderboardView: View {
                         userId: nil,
                         podiumEntries: state.podiumEntries
                     ),
-                    countdownPeriod: viewModel.selectedPeriod
+                    countdownTimeFrame: viewModel.selectedTimeFrame
                 )
                 .padding(.top, 2)
             }

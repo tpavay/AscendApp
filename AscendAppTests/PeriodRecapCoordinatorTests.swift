@@ -15,6 +15,14 @@ final class FakePeriodRecaps: PeriodRecapReading, @unchecked Sendable {
     func markSeen(userId: String, recapIDs: [String]) async throws {
         markedSeen.append(recapIDs)
     }
+
+    func markUnseenSeen(userId: String, endingOnOrBefore cutoff: Date) async throws {
+        let seen = Set(markedSeen.flatMap { $0 })
+        let backlog = recaps
+            .filter { !seen.contains($0.id) && ($0.period.endAt ?? .distantFuture) <= cutoff }
+            .map(\.id)
+        if !backlog.isEmpty { markedSeen.append(backlog) }
+    }
 }
 
 @MainActor
@@ -84,13 +92,70 @@ struct PeriodRecapCoordinatorTests {
     }
 
     @Test
-    func aResultThatFailsToLoadHoldsTheRecapForTheNextOpen() async {
+    func aResultThatFailsToLoadOnlyCostsTheCrown() async throws {
         let (recaps, results, seenStore) = setUp()
         results.failsFor = ["weekly_2026-W38"]
         let coordinator = PeriodRecapCoordinator(recaps: recaps, results: results, seenStore: seenStore, isFeatureEnabled: { true })
 
         await coordinator.evaluate(userId: "me", modelContext: nil, now: Self.now)
+        let story = try #require(coordinator.story)
+        #expect(story.pages.count == 1)
+        guard case .yours = story.pages[0] else {
+            Issue.record("the climber's own week did not show")
+            return
+        }
+    }
+
+    @Test
+    func closingACatchUpMarksTheWholeBacklogSeen() async throws {
+        let recaps = FakePeriodRecaps()
+        var period = fixtures.periods().week
+        for _ in 0..<14 {
+            recaps.recaps.append(fixtures.recap(period: period, variant: .inactive, lastClimbAt: Self.now.addingTimeInterval(-100 * 86_400)))
+            period = period.previous!
+        }
+        let results = FakeLeaderboardResults()
+        results.store(fixtures.weekBundle(period: fixtures.periods().week, viewerPlaces: false, viewerWins: false))
+        let seenStore = PeriodRecapLocalSeenStore(suiteName: "PeriodRecapCoordinatorTests.\(UUID().uuidString)")
+        let coordinator = PeriodRecapCoordinator(recaps: recaps, results: results, seenStore: seenStore, isFeatureEnabled: { true })
+
+        await coordinator.evaluate(userId: "me", modelContext: nil, now: Self.now)
+        let story = try #require(coordinator.story)
+        #expect(story.recapIDs.count == PeriodRecapCoordinator.fetchLimit)
+        coordinator.storyDidAppear()
+        coordinator.dismiss()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(Set(recaps.markedSeen.flatMap { $0 }).count == 14)
+
+        // No second catch-up about the older weeks.
+        await coordinator.evaluate(userId: "me", modelContext: nil, now: Self.now)
         #expect(coordinator.story == nil)
+    }
+
+    @Test
+    func aLiveClimbThatStartsDuringTheReadsWinsAndTheRecapWaits() async throws {
+        let (recaps, results, seenStore) = setUp()
+        let coordinator = PeriodRecapCoordinator(recaps: recaps, results: results, seenStore: seenStore, isFeatureEnabled: { true })
+
+        await coordinator.evaluate(userId: "me", modelContext: nil, now: Self.now) { false }
+        #expect(coordinator.story == nil)
+        #expect(recaps.markedSeen.isEmpty)
+
+        await coordinator.evaluate(userId: "me", modelContext: nil, now: Self.now)
+        #expect(coordinator.story != nil)
+    }
+
+    @Test
+    func aStoryWhoseCoverNeverAppearedIsTakenBackForTheNextOpen() async throws {
+        let (recaps, results, seenStore) = setUp()
+        let coordinator = PeriodRecapCoordinator(recaps: recaps, results: results, seenStore: seenStore, isFeatureEnabled: { true })
+
+        await coordinator.evaluate(userId: "me", modelContext: nil, now: Self.now)
+        let first = try #require(coordinator.story)
+
+        // Another presentation won, so the cover never reported itself on screen.
+        await coordinator.evaluate(userId: "me", modelContext: nil, now: Self.now)
+        #expect(coordinator.story == first)
         #expect(recaps.markedSeen.isEmpty)
         #expect(seenStore.seenIDs(userId: "me").isEmpty)
     }
@@ -129,7 +194,10 @@ struct PeriodRecapParserTests {
         #expect(recap.variant == .active)
         #expect(recap.active?.rank == 3)
         #expect(recap.active?.previousSteps == 9_380)
-        #expect(recap.active?.firstAscents == [PeriodRecap.FirstAscent(climbId: "tallinn", name: "Tallinn TV Tower")])
+        #expect(recap.active?.firstAscents == [
+            PeriodRecap.FirstAscent(climbId: "tallinn", name: "Tallinn TV Tower"),
+            PeriodRecap.FirstAscent(climbId: "x", name: nil)
+        ])
         #expect(recap.seenAt == nil)
         #expect(recap.resultID == "weekly_2026-W38")
     }

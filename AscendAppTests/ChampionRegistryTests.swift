@@ -61,7 +61,7 @@ struct ChampionRegistryTests {
 
     @Test
     func theReigningChampionsAreThePreviousPeriodsNumberOnes() async {
-        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { true })
+        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { true }, clock: { Self.now })
         await registry.refresh(now: Self.now)
 
         #expect(registry.titles(for: "me") == ChampionTitles([.weekly]))
@@ -75,7 +75,7 @@ struct ChampionRegistryTests {
     @Test
     func turningTheSwitchOffHidesEveryCrownWithoutForgettingThem() async {
         var enabled = true
-        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { enabled })
+        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { enabled }, clock: { Self.now })
         await registry.refresh(now: Self.now)
         #expect(!registry.titles(for: "me").isEmpty)
 
@@ -92,7 +92,7 @@ struct ChampionRegistryTests {
     @Test
     func aFailedReadKeepsACurrentReignRatherThanStrippingTheCrown() async {
         let results = store(crowning: true)
-        let registry = ChampionRegistry(repository: results, isFeatureEnabled: { true })
+        let registry = ChampionRegistry(repository: results, isFeatureEnabled: { true }, clock: { Self.now })
         await registry.refresh(now: Self.now)
 
         results.failsFor = ["weekly_2026-W38"]
@@ -103,7 +103,7 @@ struct ChampionRegistryTests {
     @Test
     func aReignEndsWhenTheNextPeriodCloses() async {
         let results = store(crowning: true)
-        let registry = ChampionRegistry(repository: results, isFeatureEnabled: { true })
+        let registry = ChampionRegistry(repository: results, isFeatureEnabled: { true }, clock: { Self.now })
         await registry.refresh(now: Self.now)
 
         // A week later, week 39 has closed but its result has not landed: nobody reigns
@@ -115,13 +115,27 @@ struct ChampionRegistryTests {
     }
 
     @Test
+    func aScreenLeftOpenAcrossTheResetStopsWearingTheEndedReign() async {
+        var now = Self.now
+        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { true }, clock: { now })
+        await registry.refresh(now: Self.now)
+        #expect(registry.titles(for: "me") == ChampionTitles([.weekly]))
+
+        // Monday 00:00 UTC passes with no refresh: week 38's champion is no longer last week's.
+        now = Self.now.addingTimeInterval(7 * 86_400)
+        #expect(registry.titles(for: "me") == .none)
+        #expect(registry.reign(for: .weekly) == nil)
+        #expect(registry.titles(for: "fixture-ezra") == ChampionTitles([.monthly]))
+    }
+
+    @Test
     func theAllTimeCrownIsLiveOnWhoeverLeadsTheAllTimeBoard() async {
         let results = store(crowning: false)
         results.allTimeLeaders = [
             fixtures.placing(3, rank: 1, steps: 120_000, climbs: 80),
             fixtures.placing(4, rank: 1, steps: 120_000, climbs: 61)
         ]
-        let registry = ChampionRegistry(repository: results, isFeatureEnabled: { true })
+        let registry = ChampionRegistry(repository: results, isFeatureEnabled: { true }, clock: { Self.now })
         await registry.refresh(now: Self.now)
 
         #expect(registry.titles(for: "fixture-ezra") == ChampionTitles([.monthly, .allTime]))
@@ -132,7 +146,7 @@ struct ChampionRegistryTests {
 
     @Test
     func theSignedInClimbersOwnRowIsCrownedWithoutAUid() async {
-        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { true })
+        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { true }, clock: { Self.now })
         await registry.refresh(now: Self.now)
         registry.setCurrentUser("me")
 
@@ -142,7 +156,7 @@ struct ChampionRegistryTests {
 
     @Test
     func signingOutClearsEveryCrown() async {
-        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { true })
+        let registry = ChampionRegistry(repository: store(crowning: true), isFeatureEnabled: { true }, clock: { Self.now })
         await registry.refresh(now: Self.now)
         registry.clear()
         #expect(registry.titlesByUserId.isEmpty)

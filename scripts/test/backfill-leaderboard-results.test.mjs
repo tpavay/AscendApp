@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   PRODUCTION_PROJECT_ID,
   closedPeriodFromDocument,
+  createResultOnce,
   describePeriodPlan,
   parseArgs,
   reconcileWithAwards,
@@ -253,4 +254,27 @@ test("the summary says a dry run wrote nothing", () => {
   );
   assert.match(committed, /Results written: 1/);
   assert.doesNotMatch(committed, /Dry run/);
+});
+
+test("a result is created, never replacing one that appeared meanwhile", async () => {
+  const created = [];
+  const fresh = {path: "leaderboard_results/weekly_2026-W38", create: async (data) => created.push(data)};
+  await createResultOnce(fresh, {source: "backfill"});
+  assert.deepEqual(created, [{source: "backfill"}]);
+
+  const taken = {
+    path: "leaderboard_results/weekly_2026-W38",
+    create: async () => {
+      throw Object.assign(new Error("6 ALREADY_EXISTS"), {code: 6});
+    },
+  };
+  await assert.rejects(
+    createResultOnce(taken, {source: "backfill"}),
+    /leaderboard_results\/weekly_2026-W38 appeared during the run; left untouched/
+  );
+});
+
+test("a result create that hangs is cut off by its deadline", async () => {
+  const hanging = {path: "leaderboard_results/weekly_2026-W38", create: () => new Promise(() => {})};
+  await assert.rejects(createResultOnce(hanging, {}, {timeoutMs: 20}), /create leaderboard_results\/weekly_2026-W38/);
 });

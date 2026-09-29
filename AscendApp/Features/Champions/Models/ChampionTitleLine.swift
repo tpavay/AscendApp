@@ -1,12 +1,12 @@
 import Foundation
 
-/// The words that name the titles a climber holds right now, e.g. `LAST WEEK'S CHAMPION`.
+/// The words that name the rarest title a climber holds right now, e.g. `LAST WEEK'S CHAMPION`.
 ///
 /// The comparison screen prints it under a name. A held title is only ever the period
 /// that just closed (or the live all-time lead), so it is named relative to now - an
 /// older title never appears here; history lives on past boards and the CHAMPION history.
-/// Several titles lead with the rarest, every title at once is `UNDISPUTED`, and a title
-/// shared on an exact tie is a co-championship.
+/// Several titles name only the rarest - the others are the dots on the picture - and a
+/// title shared on an exact tie is a co-championship.
 struct ChampionTitleLine: Equatable, Sendable {
     let text: String
     let leadingTitle: ChampionTitle
@@ -15,16 +15,12 @@ struct ChampionTitleLine: Equatable, Sendable {
         titles: ChampionTitles,
         reigns: [ChampionTitle: ChampionReign]
     ) -> ChampionTitleLine? {
-        guard let leading = titles.leading else { return nil }
-        if titles.isUndisputed {
-            return ChampionTitleLine(text: "UNDISPUTED CHAMPION", leadingTitle: leading)
-        }
-
-        let held = ([leading] + titles.others).filter { reigns[$0] != nil }
-        guard !held.isEmpty else { return nil }
-        let isShared = held.allSatisfy { (reigns[$0]?.result.championUserIds.count ?? 0) > 1 }
+        guard let leading = ([titles.leading].compactMap { $0 } + titles.others)
+            .first(where: { reigns[$0] != nil }),
+              let reign = reigns[leading] else { return nil }
+        let isShared = reign.result.championUserIds.count > 1
         return ChampionTitleLine(
-            text: "\(held.map(relativeName).joined(separator: " & ")) \(isShared ? "CO-CHAMPION" : "CHAMPION")",
+            text: "\(relativeName(for: leading)) \(isShared ? "CO-CHAMPION" : "CHAMPION")",
             leadingTitle: leading
         )
     }

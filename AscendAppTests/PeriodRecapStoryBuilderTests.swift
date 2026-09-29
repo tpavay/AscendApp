@@ -97,7 +97,7 @@ struct PeriodRecapStoryBuilderTests {
             Issue.record("no catch-up page")
             return
         }
-        #expect(catchUp.missedWeeks == 3)
+        #expect(catchUp.weeksAway == 3)
         #expect(catchUp.lines.count == 4)
         // Only the title still held wears its crown.
         #expect(catchUp.lines.filter(\.isReigning).count == 2)
@@ -182,6 +182,124 @@ struct PeriodRecapStoryBuilderTests {
         #expect(PeriodRecapCopy.gainLine(current: 3, previous: nil, period: week) == nil)
         let month = fixtures.periods().month
         #expect(PeriodRecapCopy.gainLine(current: 18, previous: 12, period: month) == "+6 on July")
+    }
+
+    @Test
+    func aLongAbsenceCountsItsRealWeeksAndAClimbedWeekShowsTheClimbersOwnResult() throws {
+        var period = fixtures.periods().week
+        let away = PeriodRecap(
+            id: "weekly_\(period.key)",
+            period: period,
+            variant: .inactive,
+            active: nil,
+            inactive: PeriodRecap.Inactive(gapCount: 16, lastClimbAt: nil, suggestedClimbId: nil, suggestedClimbName: nil),
+            seenAt: nil
+        )
+        var recaps = [away]
+        var results: [String: PeriodRecapResultBundle] = [away.resultID: fixtures.weekBundle(period: period, viewerPlaces: false, viewerWins: false)]
+        period = period.previous!
+        let climbed = fixtures.recap(
+            period: period,
+            variant: .active,
+            active: fixtures.active(rank: 4, climbers: 38, steps: 7_904, climbs: 5, awardRank: 4)
+        )
+        recaps.append(climbed)
+        results[climbed.resultID] = fixtures.weekBundle(period: period, viewerPlaces: false, viewerWins: false)
+        for _ in 0..<5 {
+            period = period.previous!
+            recaps.append(fixtures.recap(period: period, variant: .inactive))
+        }
+
+        let story = try #require(PeriodRecapStoryBuilder.build(recaps: recaps, results: results, viewerId: "me", now: Self.now))
+        guard case .catchUp(let catchUp) = story.pages.first else {
+            Issue.record("no catch-up page")
+            return
+        }
+        #expect(catchUp.weeksAway == 16)
+        #expect(PeriodRecapCopy.catchUpHeadline(weeks: catchUp.weeksAway, champions: 2) == "Sixteen weeks. Two champions.")
+        let climbedLine = try #require(catchUp.lines.first { $0.period.key == climbed.period.key })
+        #expect(climbedLine.yours?.steps == 7_904)
+        #expect(PeriodRecapCopy.catchUpYoursLine(try #require(climbedLine.yours)) == "You: #4 · 7,904 steps")
+        #expect(story.recapIDs.count == recaps.count)
+        #expect(story.oldestPeriodEndAt == period.endAt)
+    }
+
+    @Test
+    func everyEndingOfAFirstClimbInvitationIsTheFirstClimb() throws {
+        let (week, month) = fixtures.periods()
+        let weekRecap = fixtures.recap(period: week, variant: .neverClimbed)
+        let monthRecap = fixtures.recap(period: month, variant: .neverClimbed)
+        let olderWeek = fixtures.recap(period: week.previous!, variant: .neverClimbed)
+        let results = [
+            weekRecap.resultID: fixtures.weekBundle(period: week, viewerPlaces: false, viewerWins: false),
+            monthRecap.resultID: fixtures.monthBundle(period: month)
+        ]
+
+        for recaps in [[weekRecap], [weekRecap, monthRecap], [weekRecap, olderWeek]] {
+            let story = try #require(PeriodRecapStoryBuilder.build(recaps: recaps, results: results, viewerId: "me", now: Self.now))
+            #expect(story.isFirstClimbInvitation)
+            let ending = story.ending(on: try #require(story.pages.last))
+            #expect(ending.title == "START YOUR FIRST CLIMB", "\(kinds(story))")
+            #expect(ending.exit == .startClimb)
+        }
+
+        let climber = try #require(fixtures.story(.catchUp))
+        #expect(climber.ending(on: try #require(climber.pages.last)).title == "CLIMB TODAY")
+    }
+
+    @Test
+    func onlyThePeriodsTheStoryShowsAreRead() {
+        let (week, month) = fixtures.periods()
+        let recaps = [
+            fixtures.recap(period: week, variant: .active, active: fixtures.active(rank: 3, climbers: 38, steps: 100, climbs: 1, awardRank: nil)),
+            fixtures.recap(period: week.previous!, variant: .inactive),
+            fixtures.recap(period: month, variant: .active, active: fixtures.active(rank: 3, climbers: 38, steps: 100, climbs: 1, awardRank: nil)),
+            fixtures.recap(period: month.previous!, variant: .inactive)
+        ]
+        #expect(PeriodRecapStoryBuilder.resultIDs(for: recaps) == ["weekly_\(week.key)", "monthly_\(month.key)"])
+    }
+
+    @Test
+    func aMonthlyReignNamesTheDateItEnds() {
+        let utc = TimeZone(secondsFromGMT: 0)!
+        let locale = Locale(identifier: "en_US")
+        let month = fixtures.periods().month
+        let monthLine = PeriodRecapCopy.reignLine(endsAt: month.next?.endAt, now: Self.now, timeZone: utc, locale: locale)
+        #expect(monthLine?.contains("October 1") == true, "\(monthLine ?? "")")
+        let week = fixtures.periods().week
+        let weekLine = PeriodRecapCopy.reignLine(endsAt: week.next?.endAt, now: Self.now, timeZone: utc, locale: locale)
+        #expect(weekLine?.contains("September") == false, "\(weekLine ?? "")")
+    }
+
+    @Test
+    func everyFirstAscentIsItsOwnRowAndAnUnnamedOneIsStillShown() {
+        let week = fixtures.periods().week
+        let active = PeriodRecap.Active(
+            rank: 3,
+            climberCount: 38,
+            percentileBand: nil,
+            climbs: 4,
+            steps: 7_000,
+            floors: 350,
+            previousClimbs: nil,
+            previousSteps: nil,
+            awardRank: 3,
+            firstAscents: [
+                PeriodRecap.FirstAscent(climbId: "tallinn", name: "Tallinn TV Tower"),
+                PeriodRecap.FirstAscent(climbId: "cn-tower", name: nil),
+                PeriodRecap.FirstAscent(climbId: "unknown", name: nil)
+            ],
+            landmarksFinished: []
+        )
+        let rows = PeriodRecapCopy.earnedRows(for: active, period: week) { $0 == "cn-tower" ? "CN Tower" : nil }
+        #expect(rows.count == 4)
+        #expect(Set(rows.map(\.id)).count == rows.count)
+        #expect(rows.map(\.detail) == [
+            "Bronze on the weekly board",
+            "Tallinn TV Tower - first to finish it",
+            "CN Tower - first to finish it",
+            "First to finish it"
+        ])
     }
 
     @Test

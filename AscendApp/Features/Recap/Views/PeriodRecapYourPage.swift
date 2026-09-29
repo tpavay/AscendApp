@@ -37,7 +37,7 @@ struct PeriodRecapYourPage: View {
                         .padding(.bottom, 12)
                         .recapEntrance(3)
                     VStack(alignment: .leading, spacing: 10) {
-                        ForEach(earnedRows, id: \.title) { row in
+                        ForEach(earnedRows) { row in
                             earnedRow(row)
                         }
                     }
@@ -142,29 +142,13 @@ struct PeriodRecapYourPage: View {
             .padding(.bottom, 18)
     }
 
-    private struct EarnedRow {
-        let asset: String
-        let title: String
-        let detail: String
+    private var earnedRows: [PeriodRecapEarnedRow] {
+        PeriodRecapCopy.earnedRows(for: recap, period: period) { climbId in
+            try? ClimbService.shared.climb(for: climbId)?.name
+        }
     }
 
-    private var earnedRows: [EarnedRow] {
-        var rows: [EarnedRow] = []
-        if let awardRank = recap.awardRank {
-            let award = PeriodRecapCopy.award(rank: awardRank, period: period)
-            rows.append(EarnedRow(asset: award.asset, title: award.title, detail: award.detail))
-        }
-        for firstAscent in recap.firstAscents.prefix(3) {
-            rows.append(EarnedRow(
-                asset: "FirstAscentBadgeDetailed",
-                title: "First Ascent",
-                detail: "\(firstAscent.name) - first to finish it"
-            ))
-        }
-        return rows
-    }
-
-    private func earnedRow(_ row: EarnedRow) -> some View {
+    private func earnedRow(_ row: PeriodRecapEarnedRow) -> some View {
         HStack(spacing: 14) {
             Image(row.asset)
                 .resizable()

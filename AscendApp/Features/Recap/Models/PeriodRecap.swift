@@ -14,7 +14,9 @@ struct PeriodRecap: Identifiable, Equatable, Sendable {
 
     struct FirstAscent: Equatable, Sendable {
         let climbId: String
-        let name: String
+        /// Nil when the server's catalogue could not name the climb; the app names it from
+        /// its own catalogue instead of dropping a badge the climber earned.
+        let name: String?
     }
 
     struct Active: Equatable, Sendable {

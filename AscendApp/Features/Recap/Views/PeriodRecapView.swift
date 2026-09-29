@@ -1,14 +1,5 @@
 import SwiftUI
 
-/// Where the climber goes when the recap closes.
-enum PeriodRecapExit: Equatable {
-    case close
-    /// To the board that awarded the crown - "Take the crown", "Defend it".
-    case openBoard(LeaderboardTimeFrame)
-    /// To Home, where every climb starts.
-    case startClimb
-}
-
 /// The recap story: full screen, a page at a time, each page advancing on its own or on a
 /// tap. The pages and their order come from `PeriodRecapStoryBuilder`; this view only
 /// shows them.
@@ -269,27 +260,8 @@ struct PeriodRecapView: View {
         }
     }
 
-    private var finalAction: (title: String, exit: PeriodRecapExit, showsPastChampions: Bool) {
-        switch page {
-        case .crown(let crown):
-            if crown.viewerIsChampion {
-                return ("DEFEND IT", .openBoard(crown.period.timeFrame), true)
-            }
-            if story.isFirstClimbInvitation {
-                return ("START YOUR FIRST CLIMB", .startClimb, false)
-            }
-            return ("TAKE THE CROWN", .openBoard(crown.period.timeFrame), true)
-        case .crowns:
-            return ("CLIMB THIS WEEK", .openBoard(.weekly), true)
-        case .catchUp:
-            return ("CLIMB TODAY", .startClimb, true)
-        case .noClimbs:
-            return ("START A CLIMB", .startClimb, false)
-        case .everyone, .yours:
-            return story.isFirstClimbInvitation
-                ? ("START YOUR FIRST CLIMB", .startClimb, false)
-                : ("CLIMB THIS WEEK", .openBoard(.weekly), false)
-        }
+    private var finalAction: PeriodRecapEnding {
+        story.ending(on: page)
     }
 
     private var pastChampionsTimeFrame: LeaderboardTimeFrame {

@@ -14,26 +14,33 @@ The rank model itself - what a rank counts and how ties resolve - stays owned by
   The captain asked for it on 2026-09-28 after testing the Dev build, because the all-time podium looked like the weekly one; the design had parked it as "all-time later".
   It is read from the all-time board itself (`LeaderboardResultsReading.fetchAllTimeLeaders`), has no strip, no past boards and no recap, and it inherits the all-time board's known exposure: its plausibility envelope is anchored at the climber's own earliest workout, so a backdated climb can stretch it (`ascend-leaderboards`).
 - **Steps only.** Only the unfiltered Steps board crowns, because it is the only board the finalizer awards.
+  An age, weight or location filter takes the strip and the first-place colours away: the filtered #1 holds no title.
   The climber with the most climbs is named on past boards and in the recap, and never crowned.
 - **The mark.** A crown perched on the picture, tilted, at the top right.
   Pictures 56pt and larger wear the full perch; smaller pictures wear the compact perch at half the picture's width.
   It is hidden on a picture that already wears a gold, silver or bronze ring (the global podium, and the top three rows of ALL TIMES and routine boards), and there is never a crown beside a name in a list row.
   That includes the live race, Just Climb and routine boards: a climber's attempt in progress carries no uid on its row, so their own picture finds their crown through `ChampionRegistry.currentUserId`.
-- **Several titles.** The rarest title leads (all-time, then yearly, monthly, weekly); large pictures carry a small dot per other title; holding every title at once is "Undisputed".
+- **Several titles.** The rarest title leads (all-time, then yearly, monthly, weekly); large pictures carry a small dot per other title; the comparison names only the rarest title (`ALL-TIME CHAMPION`, never a list), and `CO-CHAMPION` when that title is shared on an exact tie.
 - **Blocked climbers** keep their crown on the placeholder picture: a title is a standing, not identity.
 - **The board.** A slim champion strip leads the weekly, monthly and yearly Steps boards, with a chevron to past champions.
   It names the reign relative to now - `LAST WEEK'S CHAMPION`, `LAST MONTH'S CHAMPION`, `LAST YEAR'S CHAMPION`, plural for co-champions - because it only ever shows the period that just closed (the captain, 2026-09-28); past boards and the recap keep the dated names history needs.
   First place on the podium takes the board's colour - crown, ring and number - gold weekly, diamond monthly, ruby yearly, mythic all-time; #2 and #3 keep silver and bronze.
 - **Past champions are past boards.** The board frozen at each final result, stepped back one period at a time, with the climber count and most climbs underneath.
 - **Profiles.** The crown sits on the picture; there is no title bar.
-  The comparison screen names the title under the climber's name, relative to now like the strip - `LAST WEEK'S CHAMPION`, `ALL-TIME & LAST MONTH'S CHAMPION`, `LAST WEEK'S CO-CHAMPION` on an exact tie.
+  The comparison screen names the rarest title under the climber's name, relative to now like the strip - `LAST WEEK'S CHAMPION`, `ALL-TIME CHAMPION`, `LAST WEEK'S CO-CHAMPION` on an exact tie.
   A held title is only ever the reigning one, so an older title (July, read in September) never appears there; history lives on past boards and the profile's CHAMPION history.
+  A reign stops being worn the moment its period ends, even on a screen left open across the reset: `ChampionRegistry` only answers with a reign that is still current and re-reads at the earliest reign end.
 - **Countdown.** Every board's window line and the Home weekly rank tile read `ENDS IN 2D 14H`, hours and minutes on the last day, and turn gold on the last day.
+  Each counts down whichever period of its frame is open at that minute, so a board left on screen across a reset counts down the new period.
   All-time has none.
 - **Recap.** The first open after a week or month closes shows a story: everyone's period, then your period (rank, climbs and steps with gains, badges earned named in words, new best efforts), then the crown (the winner's coronation page when the viewer won).
-  Missed periods fold into one catch-up screen (at most four weeks and two months); a week and a month closing together show the month, then the week, and end on one page naming both champions; a period with no climbs is one short screen; someone who has never climbed gets everyone's period and the crown, ending on `START YOUR FIRST CLIMB`.
-  It is shown once per period across every device, never over the lockout, sign-in, the paywall or onboarding.
+  Missed periods fold into one catch-up screen (at most four weeks and two months); a week and a month closing together show the month, then the week, and end on one page naming both champions; a period with no climbs is one short screen; someone who has never climbed gets everyone's period and the crown, and every ending of their story is `START YOUR FIRST CLIMB`.
+  The catch-up headline counts the weeks since the last climb from the server's `inactive.gapCount`, never the capped number of lines, and a period in it that the climber did climb shows their own rank and steps on its line.
+  Closing a story marks seen every unseen recap that ended at or before the oldest one it covered, so a long absence never produces a second catch-up.
+  A result that cannot be read only costs that period its crown page; the climber's own recap still shows, and only the periods the story shows are read.
+  It is shown once per period across every device, never over the lockout, sign-in, the paywall, onboarding or the update nudge; whether it may show is asked again after its reads, so a Live Climb or a routed open that arrives meanwhile wins, and a recap whose cover never reached the screen is taken back for a later open.
 - **Winner push.** The champion gets one push when they take the crown, with an opt-out in Settings.
+  The switch reads and writes the account's own server preference, never a phone-local copy, and goes back with an error when a change does not save.
 - **Motion.** Crowns are static.
   The only animation is one shine when a crown first appears to a climber (the coronation and the recap's crown page).
 
@@ -45,6 +52,7 @@ No existing document, rule, callable or Remote Config key changes meaning, so 1.
 ### `leaderboard_results/{timeFrame}_{periodKey}`
 
 Written only by the Admin SDK, in the same batch as the period's achievements.
+If the full-period standings scan fails, the awards and the period's `finalized` status still commit without any result (never a partial one), and `leaderboardAchievements.result_scan_failed` names the period for `scripts/backfill-leaderboard-results.mjs`, which creates a result only where none exists.
 Readable by any climber with paid access.
 
 | Field | Type | Meaning |
@@ -85,6 +93,8 @@ Account deletion de-identifies placings (`Anonymous Climber`, no photo, `identit
 
 Composed by the server at 00:30 UTC after a week (Monday) or month (the 1st) closes, for every climber who ever climbed and, with the `never_climbed` variant, for every entitled account that has not.
 The 13:00 UTC recap email sends from this stored payload, so the app and the email can never disagree.
+The send first re-runs compose, create-only, so a period whose 00:30 compose never ran still gets its recaps; that pass also recomposes a stored `inactive` recap as `active`, keeping `seenAt`, when a climb inside the period synced after 00:30.
+No zero-activity email is sent to a climber whose latest workout started at or after the period's start, and one whose late-synced older climb is newer than the stored `lastClimbAt` has its gap rewritten before the email.
 The owner may read it and may set `seenAt` once, to `request.time`; nothing else is client-writable.
 
 | Field | Type | Meaning |
@@ -120,6 +130,7 @@ The owner may read it and may set `seenAt` once, to `request.time`; nothing else
 A new result written by the finalizer sends one `champion_crowned` push to each champion's deliverable devices.
 For a week or a month it waits (by retrying) until the champion's recap is composed, because the alert opens the app and the recap's last page is the coronation; 90 minutes after the close it goes without it.
 `_champion_push_deliveries/{resultId}_{uid}` is created before a send so a retried trigger can never push twice, and a backfilled or stale result never pushes at all.
+A marker create that timed out but may have committed is treated as claimed and logged as `championPush.claimAmbiguous`, so a lost crown alert is visible rather than silent.
 
 ### Remote Config
 

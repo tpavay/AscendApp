@@ -912,22 +912,85 @@ test(
   }
 );
 
-test("send never composes: no stored recaps means no email", async () => {
-  await seedUser("uncomposed-1", "uncomposed@example.com");
-  await seedWeeklyStats("uncomposed-1", closedWeek, {
-    totalFloors: 10,
-    totalSteps: 500,
-    totalWorkouts: 1,
-  });
+test(
+  "a send whose compose never ran composes first, then sends from the stored recap",
+  async () => {
+    await seedUser("uncomposed-1", "uncomposed@example.com");
+    await seedWeeklyStats("uncomposed-1", closedWeek, {
+      totalFloors: 10,
+      totalSteps: 500,
+      totalWorkouts: 1,
+    });
 
-  const summary = await runRecapSend("weekly", now);
+    const summary = await runRecapSend("weekly", now);
 
-  assert.equal(summary.recapsMissing, true);
-  assert.equal(summary.recapCount, 0);
-  assert.equal(summary.queued, 0);
-  assert.equal((await db.collection(EMAIL_JOBS).get()).size, 0);
-  assert.equal(await recapExists("uncomposed-1"), false);
-});
+    assert.equal(summary.recapsMissing, false);
+    assert.equal(summary.composedAtSend, 1);
+    assert.equal(summary.recapCount, 1);
+    assert.equal(summary.queued, 1);
+    assert.equal((await readRecap("uncomposed-1")).variant, "active");
+  }
+);
+
+test(
+  "a climb in the week that synced after compose is recomposed and never told it was missed",
+  async () => {
+    await seedUser("late-in-week", "lateinweek@example.com");
+    await seedAllTimeStats("late-in-week");
+    await seedCompletedLandmarkWorkout("late-in-week", "eiffel", addDays(now, -28));
+
+    await runRecapCompose("weekly", composeNow);
+    assert.equal((await readRecap("late-in-week")).variant, "inactive");
+    const seenAt = admin.firestore.Timestamp.fromDate(addDays(now, -0.25));
+    await recapRef("late-in-week").update({seenAt});
+
+    // Sunday 23:00 UTC, synced Monday morning, before the 13:00 send.
+    await seedCompletedLandmarkWorkout(
+      "late-in-week",
+      "short-climb",
+      new Date(closedWeek.endAt.getTime() - 60 * 60 * 1000)
+    );
+    await seedWeeklyStats("late-in-week", closedWeek, {
+      totalFloors: 10,
+      totalSteps: 500,
+      totalWorkouts: 1,
+    });
+
+    const send = await runRecapSend("weekly", now);
+
+    const recap = await readRecap("late-in-week");
+    assert.equal(recap.variant, "active");
+    assert.equal(recap.inactive, null);
+    assert.ok(seenAt.isEqual(recap.seenAt as admin.firestore.Timestamp));
+    assert.equal(send.queued, 1);
+    const job = await db.collection(EMAIL_JOBS).doc(buildEmailJobId(
+      buildRecapDedupeKey("weekly", closedWeek.key, "late-in-week")
+    )).get();
+    assert.equal(job.data()?.type, "weekly_recap_active");
+  }
+);
+
+test(
+  "an older climb that synced late corrects the stored gap before the email",
+  async () => {
+    await seedUser("old-sync", "oldsync@example.com");
+    await seedAllTimeStats("old-sync");
+    await seedCompletedLandmarkWorkout("old-sync", "eiffel", addDays(now, -60));
+
+    await runRecapCompose("weekly", composeNow);
+    await seedCompletedLandmarkWorkout("old-sync", "short-climb", addDays(now, -15));
+
+    await runRecapSend("weekly", now);
+
+    const inactive = (await readRecap("old-sync")).inactive as
+      Record<string, unknown>;
+    assert.equal(
+      (inactive.lastClimbAt as admin.firestore.Timestamp).toMillis(),
+      addDays(now, -15).getTime()
+    );
+    assert.equal(inactive.gapCount, 2);
+  }
+);
 
 test(
   "compose waits for the finalizer, then composes without it once the grace runs out",
@@ -956,7 +1019,7 @@ test(
 );
 
 test(
-  "re-composing never overwrites a stored recap or resets seenAt",
+  "re-composing only turns an inactive recap active, and never resets seenAt",
   async () => {
     await seedUser("seen-1", "seen@example.com");
     await seedAllTimeStats("seen-1");
@@ -975,10 +1038,14 @@ test(
     const second = await runRecapCompose("weekly", composeNow);
 
     assert.equal(second.composed, 0);
-    assert.equal(second.alreadyComposed, 1);
+    assert.equal(second.recomposed, 1);
     const recap = await readRecap("seen-1");
-    assert.equal(recap.variant, "inactive");
+    assert.equal(recap.variant, "active");
     assert.ok(seenAt.isEqual(recap.seenAt as admin.firestore.Timestamp));
+
+    const third = await runRecapCompose("weekly", composeNow);
+    assert.equal(third.recomposed, 0);
+    assert.equal(third.alreadyComposed, 1);
   }
 );
 
@@ -1079,7 +1146,12 @@ async function composeAndSend(cohortScanBound?: CohortScanBound): Promise<{
   send: RecapSendSummary;
 }> {
   const compose = await runRecapCompose("weekly", composeNow, cohortScanBound);
-  const send = await runRecapSend("weekly", now);
+  const send = await runRecapSend(
+    "weekly",
+    now,
+    undefined,
+    cohortScanBound
+  );
   return {compose, send};
 }
 

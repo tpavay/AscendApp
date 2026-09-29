@@ -140,11 +140,10 @@ final class PushNotificationService: NSObject, MessagingDelegate {
         await registerDevice(token: token, authorizationStatus: authorizationStatus)
     }
 
-    /// Records the crown-alert opt-out on this device and on the server, which is where the
-    /// champion push reads it (`pushChampionCrownEnabled`).
-    func setChampionPushEnabled(_ isEnabled: Bool) async {
-        ChampionPushPreferenceStore.isEnabled = isEnabled
-        guard Auth.auth().currentUser != nil else { return }
+    /// Records the signed-in climber's crown-alert opt-out on the server, which is where the
+    /// champion push reads it (`pushChampionCrownEnabled`). Throws so the switch can go back
+    /// when the answer did not land.
+    func setChampionPushEnabled(_ isEnabled: Bool) async throws {
         do {
             try await callFunction(
                 "updatePushNotificationPreferences",
@@ -156,6 +155,7 @@ final class PushNotificationService: NSObject, MessagingDelegate {
                 context: .network,
                 code: "push_champion_preference_sync_failed"
             )
+            throw error
         }
     }
 

@@ -321,6 +321,48 @@ test("the paged period read agrees with one unbounded page", async () => {
   assert.equal((await readAwardStandings(db, WEEK)).length, 249);
 });
 
+test("a standings scan that fails still awards, and writes no result",
+  async () => {
+    await seedRows(standardBoard());
+
+    await finalizeMostRecentClosedPeriod("weekly", NOW, {
+      pageSize: 100,
+      maxPages: 2,
+    });
+
+    const award = await db
+      .doc(`users/u000/achievements/global_steps_weekly_${WEEK.key}`)
+      .get();
+    assert.ok(award.exists, "the champion's award must still land");
+    const periodDocument = (await db
+      .doc(`leaderboard_periods/weekly_${WEEK.key}`).get()).data();
+    assert.equal(periodDocument?.status, "finalized");
+    assert.equal(periodDocument?.achievementCount, 100);
+    assert.equal((await db.doc(WEEK_RESULT).get()).exists, false);
+    assert.equal(
+      (await db.collection(`${WEEK_RESULT}/placings`).get()).size,
+      0,
+      "never a partial result"
+    );
+  });
+
+test("every page of the period read goes through the caller's page reader",
+  async () => {
+    await seedRows(standardBoard());
+    let pages = 0;
+
+    const rows = await readPeriodStandings(db, WEEK, {
+      pageSize: 100,
+      readPage: (query) => {
+        pages += 1;
+        return query.get();
+      },
+    });
+
+    assert.equal(pages, 4);
+    assert.equal(rows.length, (await readPeriodStandings(db, WEEK)).length);
+  });
+
 test("a period past the page bound refuses to freeze a partial count",
   async () => {
     await seedRows(standardBoard());
