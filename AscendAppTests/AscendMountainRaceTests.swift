@@ -344,3 +344,144 @@ private func row(
         userId: userId
     )
 }
+
+@MainActor
+struct AscendMountainChosenClimbersTests {
+    private let context = LiveReplayLeaderboardContext.justClimbGlobal()
+
+    @Test
+    func aFilteredRaceIsOnlyTheChosenClimbersReadFromTheBoard() async throws {
+        let board = FakeMountainRaceBoard()
+        board.bests["climber-jorge"] = MountainRaceBest(
+            row: row(id: "jorge-best", userId: "climber-jorge", steps: 18, final: 7_950, duration: 3_600, displayName: "Jorge Diaz"),
+            splitBucketCount: 360
+        )
+        board.stepsByBucket["jorge-best"] = [3: 60]
+        let race = AscendMountainRace(board: board)
+        race.ingest(window(rows: [rival("maya", steps: 45, final: 900, duration: 600)]), identities: [])
+
+        race.choose(["climber-jorge"])
+        await race.refreshChosen(context: context, bucketIndex: 3, moderate: moderated)
+
+        #expect(race.ghosts.map(\.id) == ["climber-jorge"], "Maya is in the window but not chosen")
+        let jorge = try #require(race.ghosts.first)
+        #expect(jorge.label == "JORGE")
+        #expect(jorge.steps(40) == 60, "the checkpoint read at the end of bucket three")
+    }
+
+    @Test
+    func aChosenClimberIsReadOnceABucketAndNotOnceHome() async {
+        let board = FakeMountainRaceBoard()
+        board.bests["climber-sam"] = MountainRaceBest(
+            row: row(id: "sam-best", userId: "climber-sam", steps: 12, final: 400, duration: 60, displayName: "Sam Rivera"),
+            splitBucketCount: 6
+        )
+        let race = AscendMountainRace(board: board)
+        race.choose(["climber-sam"])
+
+        await race.refreshChosen(context: context, bucketIndex: 4, moderate: moderated)
+        await race.refreshChosen(context: context, bucketIndex: 4, moderate: moderated)
+        await race.refreshChosen(context: context, bucketIndex: 9, moderate: moderated)
+
+        #expect(board.bestReads == ["climber-sam"])
+        #expect(board.bucketReads == ["sam-best@4"], "once in bucket four, none after the climb ended")
+    }
+
+    @Test
+    func theChoiceIsKeptForTheNextClimbAndCappedAtFifty() async {
+        let store = FakeMountainRaceFilterStore(stored: (1...60).map { "climber-\($0)" })
+        let race = AscendMountainRace(filterStore: store, userId: "me")
+
+        await race.loadChosen()
+        #expect(race.selection.chosen.count == MountainRaceSelection.chosenLimit)
+
+        await race.choose(["climber-2", "climber-9"])?.value
+        #expect(race.selection.chosen == ["climber-2", "climber-9"])
+        #expect(store.saved == [["climber-2", "climber-9"]])
+    }
+
+    @Test
+    func theDirectoryOffersEveryoneButTheClimberAPageAtATime() async {
+        let board = FakeMountainRaceBoard()
+        board.near = [
+            row(id: "a", userId: "climber-a", steps: 1, final: 8_410, duration: 4_000),
+            row(id: "me", userId: "me", steps: 1, final: 8_167, duration: 4_000, isCurrentUser: true)
+        ]
+        board.pages = [
+            MountainRaceBoardPage(rows: [row(id: "b", userId: "climber-b", steps: 1, final: 9_840, duration: 5_000)], next: MountainRaceBoardCursor(finalSteps: 9_840, entryId: "b")),
+            MountainRaceBoardPage(rows: [row(id: "c", userId: "climber-c", steps: 1, final: 4_122, duration: 2_000)], next: nil)
+        ]
+        let directory = MountainClimberDirectory(board: board, context: context)
+
+        await directory.load(nearSteps: 8_167)
+        #expect(directory.closeToYourBest.map(\.id) == ["a"])
+        #expect(directory.everyone.map(\.id) == ["b"])
+        #expect(directory.canLoadMore)
+
+        await directory.loadMore()
+        #expect(directory.everyone.map(\.id) == ["b", "c"])
+        #expect(!directory.canLoadMore)
+        #expect(!directory.shouldReadOnForSearch(matches: 0))
+    }
+
+    private func moderated(_ rows: [LiveReplayLeaderboardRow]) -> [ModeratedReplayLeaderboardRow] {
+        rows.map { CrossUserIdentityAdapter.replayRow($0, blockedUserIds: [], isBlockListHydrated: true) }
+    }
+
+    private func window(rows: [LiveReplayLeaderboardRow]) -> LiveReplayLeaderboardWindow {
+        LiveReplayLeaderboardWindow(
+            context: context,
+            bucketIndex: 2,
+            currentSteps: 40,
+            fetchedAt: Date(timeIntervalSince1970: 1_777_777_777),
+            rows: rows,
+            currentUserRank: 2,
+            totalClimbers: 3
+        )
+    }
+}
+
+private final class FakeMountainRaceBoard: MountainRaceBoard, @unchecked Sendable {
+    var bests: [String: MountainRaceBest] = [:]
+    var stepsByBucket: [String: [Int: Int]] = [:]
+    var near: [LiveReplayLeaderboardRow] = []
+    var pages: [MountainRaceBoardPage] = []
+    private(set) var bestReads: [String] = []
+    private(set) var bucketReads: [String] = []
+
+    func raceBest(context: LiveReplayLeaderboardContext, userId: String) async throws -> MountainRaceBest? {
+        bestReads.append(userId)
+        return bests[userId]
+    }
+
+    func stepsAtBucket(context: LiveReplayLeaderboardContext, entryId: String, bucketIndex: Int) async throws -> Int? {
+        bucketReads.append("\(entryId)@\(bucketIndex)")
+        return stepsByBucket[entryId]?[bucketIndex]
+    }
+
+    func bests(context: LiveReplayLeaderboardContext, near steps: Int, limit: Int) async throws -> [LiveReplayLeaderboardRow] {
+        near
+    }
+
+    func bests(context: LiveReplayLeaderboardContext, after cursor: MountainRaceBoardCursor?, limit: Int) async throws -> MountainRaceBoardPage {
+        pages.isEmpty ? MountainRaceBoardPage(rows: [], next: nil) : pages.removeFirst()
+    }
+}
+
+private final class FakeMountainRaceFilterStore: MountainRaceFilterRepository, @unchecked Sendable {
+    private let stored: [String]
+    private(set) var saved: [[String]] = []
+
+    init(stored: [String]) {
+        self.stored = stored
+    }
+
+    func fetchChosen(userId: String) async throws -> [String] {
+        stored
+    }
+
+    func save(userId: String, chosen: [String]) async throws {
+        saved.append(chosen)
+    }
+
+}

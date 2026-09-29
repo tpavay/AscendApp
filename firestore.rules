@@ -1293,6 +1293,26 @@ service cloud.firestore {
         request.resource.data.createdAt == request.time;
     }
 
+    // One climber the owner filters Ascend Mountain's race down to, keyed by that climber's uid.
+    // Nothing but the owner reads it: nobody is told they were chosen.
+    function isValidRaceFilterDocument(climberUserId) {
+      return request.resource.data.keys().hasOnly([
+          "climberUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "climberUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.climberUid is string &&
+        request.resource.data.climberUid == climberUserId &&
+        request.resource.data.climberUid != request.auth.uid &&
+        request.resource.data.climberUid.size() > 0 &&
+        request.resource.data.climberUid.size() <= 128 &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.createdAt == request.time;
+    }
+
     function isValidModerationReportDocument() {
       return request.resource.data.keys().hasOnly([
           "reportedUserId",
@@ -1507,6 +1527,18 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if isOwner(userId) &&
           isValidBlockedClimberDocument(blockedUserId);
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
+
+      // The climbers the owner filters Ascend Mountain's race down to, one document each, kept
+      // for every climb. Private like the block list. Choosing is the paid product, so a create
+      // needs access; reading and deleting stay the owner's alone, so account deletion can
+      // always sweep the list.
+      match /race_filter/{climberUserId} {
+        allow read: if isOwner(userId);
+        allow create: if isPaidOwner(userId) &&
+          isValidRaceFilterDocument(climberUserId);
         allow update: if false;
         allow delete: if isOwner(userId);
       }

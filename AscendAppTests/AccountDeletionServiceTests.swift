@@ -45,6 +45,7 @@ struct AccountDeletionServiceTests {
             .deleteWorkoutBackups,
             .deleteRoutineBackups,
             .deleteBlockedClimbers,
+            .deleteRaceFilter,
             .deletePublicProfileMirrors,
             .unregisterPushDevice,
             .deleteUserDocument,
@@ -82,6 +83,7 @@ struct AccountDeletionServiceTests {
             .deleteWorkoutBackups,
             .deleteRoutineBackups,
             .deleteBlockedClimbers,
+            .deleteRaceFilter,
             .deletePublicProfileMirrors,
             .deleteUserDocument,
         ]
@@ -573,6 +575,7 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
         case deleteWorkoutBackups
         case deleteRoutineBackups
         case deleteBlockedClimbers
+        case deleteRaceFilter
         case deletePublicProfileMirrors
         case unregisterPushDevice
         case deleteUserDocument
@@ -613,6 +616,10 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
 
     func deleteBlockedClimbers(userId: String) async throws {
         steps.append(.deleteBlockedClimbers)
+    }
+
+    func deleteRaceFilter(userId: String) async throws {
+        steps.append(.deleteRaceFilter)
     }
 
     func deletePublicProfileMirrors(userId: String) async throws {

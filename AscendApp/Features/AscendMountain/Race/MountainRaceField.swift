@@ -18,6 +18,9 @@ struct MountainRaceField: Equatable, Sendable {
 
     private(set) var climbers: [String: Climber] = [:]
     private(set) var yourBest: MountainRivalCurve?
+    /// The climbers the race is filtered down to, by user id, each read from the board by owner
+    /// rather than found in a window.
+    private(set) var chosen: [String: Climber] = [:]
 
     /// Folds one fetched window in. A row still climbing at the window's bucket gives a
     /// checkpoint at that bucket's end; a row already home adds nothing its finish did not say.
@@ -42,6 +45,22 @@ struct MountainRaceField: Equatable, Sendable {
             Self.record(best, at: checkpointSeconds, into: &curve)
             yourBest = curve
         }
+    }
+
+    /// Starts a chosen climber's path from their best's first bucket.
+    mutating func learnChosen(userId: String, best: LiveReplayLeaderboardRow, bucketIntervalSeconds: Int) {
+        var curve = MountainRivalCurve(finalSteps: Double(best.finalSteps), finishSeconds: best.completionDurationSeconds)
+        Self.record(best, at: Double(bucketIntervalSeconds), into: &curve)
+        chosen[userId] = Climber(id: best.id, userId: userId, curve: curve)
+    }
+
+    /// Adds where a chosen climber's best stood at the end of `bucketIndex`.
+    mutating func recordChosen(userId: String, steps: Int, bucketIndex: Int, bucketIntervalSeconds: Int) {
+        guard var climber = chosen[userId] else { return }
+        let seconds = Double((bucketIndex + 1) * bucketIntervalSeconds)
+        if let finish = climber.curve.finishSeconds, finish <= seconds { return }
+        climber.curve.record(steps: Double(steps), atSeconds: seconds)
+        chosen[userId] = climber
     }
 
     private static func record(_ row: LiveReplayLeaderboardRow, at seconds: Double, into curve: inout MountainRivalCurve) {

@@ -30,6 +30,9 @@ protocol AccountDeletionGateway {
     func deleteRoutineBackups(userId: String) async throws
     func deleteBlockedClimbers(userId: String) async throws
 
+    /// Deletes the climbers the user filters Ascend Mountain's race down to.
+    func deleteRaceFilter(userId: String) async throws
+
     /// Deletes the publicly readable mirrors of the user's profile.
     func deletePublicProfileMirrors(userId: String) async throws
 
@@ -195,6 +198,10 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
 
     func deleteBlockedClimbers(userId: String) async throws {
         try await deleteAllDocuments(in: userDocument(userId).collection("blocked"))
+    }
+
+    func deleteRaceFilter(userId: String) async throws {
+        try await deleteAllDocuments(in: userDocument(userId).collection("race_filter"))
     }
 
     /// Deletes the publicly readable mirrors of the user's profile.

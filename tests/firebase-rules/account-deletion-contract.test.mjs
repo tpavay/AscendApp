@@ -24,6 +24,7 @@ const emptyUnentitledOwnerId = 'empty-unentitled-owner-789';
 const entitledIntruderId = 'entitled-intruder-012';
 const unentitledIntruderId = 'unentitled-intruder-345';
 const blockedClimberId = 'blocked-climber-678';
+const filteredClimberId = 'filtered-climber-912';
 
 const workoutId = '550E8400-E29B-41D4-A716-446655440000';
 const secondWorkoutId = '660E8400-E29B-41D4-A716-446655440000';
@@ -71,6 +72,15 @@ const sweptCollections = [
     name: 'blocked',
     documentId: blockedClimberId,
     makeDocument: makeBlockedClimberDocument,
+    paidWrites: false,
+    crossAccountReadable: false,
+  },
+  {
+    // Choosing is paid, but a choice is never updated, only created or deleted, so the
+    // create gate is pinned in race-filter-contract.test.mjs rather than by the update probe here.
+    name: 'race_filter',
+    documentId: filteredClimberId,
+    makeDocument: makeRaceFilterDocument,
     paidWrites: false,
     crossAccountReadable: false,
   },
@@ -312,6 +322,13 @@ function makeBlockedClimberDocument() {
   return {
     blockedUid: blockedClimberId,
     createdAt: new Date('2026-04-10T07:00:00.000Z'),
+  };
+}
+
+function makeRaceFilterDocument() {
+  return {
+    climberUid: filteredClimberId,
+    createdAt: new Date('2026-09-29T07:00:00.000Z'),
   };
 }
 

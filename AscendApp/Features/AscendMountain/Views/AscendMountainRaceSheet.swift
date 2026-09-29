@@ -1,11 +1,15 @@
 import SwiftUI
 
 /// Who races the climber on the Mountain, changed mid-climb with the hands still on the rails:
-/// every row is one tap, and a change reaches the stairs at once.
-struct AscendMountainRaceSheet: View {
+/// every row is one tap, and a change reaches the stairs at once. Everyone narrows to chosen
+/// climbers through Filter, which opens `filterScreen`.
+struct AscendMountainRaceSheet<FilterScreen: View>: View {
     @Bindable var race: AscendMountainRace
     /// Nobody else has finished this board, so there is nobody for Everyone to show.
     let isAloneOnBoard: Bool
+    @ViewBuilder let filterScreen: () -> FilterScreen
+
+    @State private var showingFilter = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -17,12 +21,16 @@ struct AscendMountainRaceSheet: View {
 
             row(
                 title: "Everyone",
-                subtitle: isAloneOnBoard ? "Nobody else has finished yet" : "Every climber's best climb",
+                subtitle: everyoneSubtitle,
                 dot: .accent,
                 isOn: race.selection.everyone,
                 isEnabled: !race.selection.justYou
             ) {
                 race.selection.everyone.toggle()
+            } accessory: {
+                if !isAloneOnBoard {
+                    filterLink
+                }
             }
 
             row(
@@ -65,10 +73,40 @@ struct AscendMountainRaceSheet: View {
         .background(Color.black)
         .preferredColorScheme(.dark)
         .animation(.smooth(duration: 0.18), value: race.selection)
+        .sheet(isPresented: $showingFilter) {
+            filterScreen()
+        }
+    }
+
+    private var everyoneSubtitle: String {
+        if isAloneOnBoard { return "Nobody else has finished yet" }
+        let chosen = race.selection.chosen.count
+        guard chosen > 0 else { return "Every climber's best climb" }
+        return chosen == 1 ? "1 climber chosen" : "\(chosen) climbers chosen"
+    }
+
+    private var filterLink: some View {
+        Button {
+            showingFilter = true
+        } label: {
+            HStack(spacing: 4) {
+                Text("Filter")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+            }
+            .font(.montserratBold(size: 13))
+            .foregroundStyle(Color.accent)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .padding(.leading, 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(race.selection.justYou)
+        .accessibilityLabel("Filter climbers")
     }
 
     /// The pacer's own ice blue, the colour it wears on the stairs.
-    private static let pacerBlue = Color(red: 0.75, green: 0.9, blue: 1)
+    private static var pacerBlue: Color { Color(red: 0.75, green: 0.9, blue: 1) }
 
     private var yourBestSubtitle: String {
         guard let best = race.field.yourBest else { return "No best on this board yet" }

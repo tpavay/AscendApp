@@ -258,8 +258,10 @@ test("declares every server collection-group field index", () => {
   // A field override replaces the field's whole index configuration, so
   // entries.userId has to restate the COLLECTION-scoped single-field indexes
   // that the per-climb best-completion reads and the Cloud Function
-  // reconciliation query run against. finishers and blocked are addressed by
-  // document ID, so they need the collection-group index only. The entitlement
+  // reconciliation query run against. finishers, blocked and race_filter are
+  // addressed by document ID, so they need the collection-group index only;
+  // account cleanup finds the blocks and race filters naming a deleted climber
+  // with a collection-group query. The entitlement
   // expiry sweep orders active grants by accessUntil across every user, and the
   // webhook ledger and the analytics outbox are each bounded by a TTL policy on
   // their own future retention stamp rather than by any query.
@@ -267,6 +269,12 @@ test("declares every server collection-group field index", () => {
     [
       "blocked",
       "blockedUid",
+      [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+      false,
+    ],
+    [
+      "race_filter",
+      "climberUid",
       [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
       false,
     ],

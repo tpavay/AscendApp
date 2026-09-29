@@ -39,6 +39,8 @@ struct LiveClimbSessionView: View {
     @State private var showingMountainRaceSheet = false
 
     private let experience: JustClimbExperience
+    /// Where Ascend Mountain reads the climbers someone can filter the race to.
+    private let mountainBoard: MountainRaceBoard
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(
@@ -51,6 +53,7 @@ struct LiveClimbSessionView: View {
         ))
         _mountainRace = State(initialValue: AscendMountainRace())
         experience = .classic
+        mountainBoard = FirestoreLiveReplayLeaderboardRepository.shared
     }
 
     init(
@@ -68,9 +71,23 @@ struct LiveClimbSessionView: View {
     }
 
     /// Ascend Mountain only ever presents a Just Climb; a landmark climb always runs Classic.
-    init(viewModel: LiveClimbSessionViewModel, experience: JustClimbExperience = .classic) {
+    init(
+        viewModel: LiveClimbSessionViewModel,
+        experience: JustClimbExperience = .classic,
+        mountainBoard: MountainRaceBoard = FirestoreLiveReplayLeaderboardRepository.shared,
+        mountainFilterStore: MountainRaceFilterRepository = FirestoreMountainRaceFilterRepository.shared
+    ) {
         _viewModel = State(initialValue: viewModel)
-        _mountainRace = State(initialValue: AscendMountainRace(goal: viewModel.mode.justClimbGoal))
+        self.mountainBoard = mountainBoard
+        let isMountain = !viewModel.mode.isLandmarkClimb && experience == .mountain
+        _mountainRace = State(initialValue: isMountain
+            ? AscendMountainRace(
+                goal: viewModel.mode.justClimbGoal,
+                board: mountainBoard,
+                filterStore: mountainFilterStore,
+                userId: Auth.auth().currentUser?.uid
+            )
+            : AscendMountainRace())
         self.experience = viewModel.mode.isLandmarkClimb ? .classic : experience
 #if DEBUG
         if self.experience == .mountain {
@@ -132,8 +149,21 @@ struct LiveClimbSessionView: View {
                 .appSheetStyle(.fitted())
         }
         .sheet(isPresented: $showingMountainRaceSheet) {
-            AscendMountainRaceSheet(race: mountainRace, isAloneOnBoard: !viewModel.leaderboardStanding.showsLeaderboardRank)
-                .appSheetStyle(.fitted())
+            AscendMountainRaceSheet(race: mountainRace, isAloneOnBoard: !viewModel.leaderboardStanding.showsLeaderboardRank) {
+                AscendMountainFilterSheet(
+                    board: mountainBoard,
+                    context: viewModel.replayContext,
+                    chosen: mountainRace.selection.chosen,
+                    nearSteps: mountainFilterNearSteps,
+                    onDone: { mountainRace.choose($0) }
+                )
+                .appSheetStyle(.large)
+            }
+            .appSheetStyle(.fitted())
+        }
+        .task {
+            guard experience == .mountain else { return }
+            await mountainRace.loadChosen()
         }
         .onChange(of: viewModel.leaderboardWindow) { _, window in
             guard experience == .mountain, let window else { return }
@@ -239,6 +269,14 @@ struct LiveClimbSessionView: View {
             Task {
                 await viewModel.refreshReplayLeaderboardIfNeeded()
                 await viewModel.updateLiveActivity()
+                if experience == .mountain {
+                    let context = viewModel.replayContext
+                    await mountainRace.refreshChosen(
+                        context: context,
+                        bucketIndex: Int(viewModel.displayedDuration) / context.bucketIntervalSeconds,
+                        moderate: { moderationStore.moderate($0) }
+                    )
+                }
             }
         }
         .trackOnce(screen: .liveClimbSession)
@@ -584,6 +622,12 @@ struct LiveClimbSessionView: View {
         } else {
             Color.clear
         }
+    }
+
+    /// Where Filter measures "close to your best" from: the climber's best, or this climb's steps
+    /// before they have one.
+    private var mountainFilterNearSteps: Int {
+        mountainRace.field.yourBest.map { Int($0.finalSteps.rounded()) } ?? viewModel.totalRecordedSteps
     }
 
     /// The race pill lives on the Mountain's own page and nowhere else.

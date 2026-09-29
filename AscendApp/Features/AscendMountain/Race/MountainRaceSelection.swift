@@ -8,14 +8,20 @@ import Foundation
 struct MountainRaceSelection: Equatable, Sendable {
     static let pacerRange = 40...200
     static let pacerIncrement = 5
+    /// The most climbers a filter holds, which also bounds the reads racing them costs.
+    static let chosenLimit = 50
 
     var everyone = true
+    /// The climbers Everyone is filtered down to, by user id; empty races everyone. Kept with the
+    /// climber's account for every climb.
+    var chosen: [String] = []
     var yourBest = false
     var pacer = false
     var pacerStepsPerMinute = 90
     var justYou = false
 
     var showsEveryone: Bool { everyone && !justYou }
+    var isFiltered: Bool { !chosen.isEmpty }
     var showsYourBest: Bool { yourBest && !justYou }
     var showsPacer: Bool { pacer && !justYou }
 
