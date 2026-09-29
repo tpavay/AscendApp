@@ -3,12 +3,14 @@
   "status": "Provisional placeholders. Region count, ids, step thresholds, looks, marker steps and designs are undecided; replace freely.",
   "markers": [
     {"id": "marker_01", "step": 500, "kind": "gate", "design": "gate_stone", "title": "500", "subtitle": "STEPS"},
-    {"id": "marker_02", "step": 10000, "kind": "gate", "design": "gate_grand", "title": "10,000", "subtitle": "STEPS"},
+    {"id": "marker_02", "step": 10000, "kind": "gate", "design": "gate_summit", "title": "10,000", "subtitle": "SUMMIT"},
     {"id": "marker_03", "step": 20000, "kind": "gate", "design": "gate_grand", "title": "20,000", "subtitle": "STEPS"},
-    {"id": "marker_04", "step": 50000, "kind": "gate", "design": "gate_grand", "title": "50,000", "subtitle": "STEPS"},
-    {"id": "marker_05", "step": 100000, "kind": "gate", "design": "gate_grand", "title": "100,000", "subtitle": "STEPS"}
+    {"id": "summit_25000", "step": 25000, "kind": "gate", "design": "gate_summit", "title": "25,000", "subtitle": "SUMMIT"},
+    {"id": "marker_04", "step": 50000, "kind": "gate", "design": "gate_summit", "title": "50,000", "subtitle": "SUMMIT"},
+    {"id": "marker_05", "step": 100000, "kind": "gate", "design": "gate_summit", "title": "100,000", "subtitle": "SUMMIT"}
   ],
   "markerSeries": [
+    {"id": "summit", "every": 250000, "kind": "gate", "design": "gate_summit", "subtitle": "SUMMIT"},
     {"id": "gate", "every": 1000, "kind": "gate", "design": "gate_stone", "subtitle": "STEPS"},
     {"id": "post", "every": 100, "kind": "post", "design": "post_stone"}
   ],

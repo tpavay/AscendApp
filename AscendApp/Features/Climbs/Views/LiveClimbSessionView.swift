@@ -36,6 +36,8 @@ struct LiveClimbSessionView: View {
     @State private var mountainDebugState: MountainDebugState?
     /// Who races on the Mountain, and the ghosts that puts on the stairs.
     @State private var mountainRace: AscendMountainRace
+    /// Where on the Mountain this climb begins: the climber's steps across every climb before it.
+    @State private var mountainJourney = MountainJourney()
     @State private var showingMountainRaceSheet = false
 
     private let experience: JustClimbExperience
@@ -164,6 +166,10 @@ struct LiveClimbSessionView: View {
         .task {
             guard experience == .mountain else { return }
             await mountainRace.loadChosen()
+        }
+        .task {
+            guard experience == .mountain else { return }
+            await mountainJourney.load(userId: Auth.auth().currentUser?.uid)
         }
         .onChange(of: viewModel.leaderboardWindow) { _, window in
             guard experience == .mountain, let window else { return }
@@ -391,13 +397,15 @@ struct LiveClimbSessionView: View {
     private var mountainBackdrop: some View {
         let viewModel = viewModel
         let race = mountainRace
+        let journey = mountainJourney
         return AscendMountainRealityView(
             seed: MountainCourse.ascendMountainSeed,
             stepSource: { viewModel.totalRecordedSteps },
             debugState: mountainDebugState,
             ghostSource: { race.ghosts },
             markerSource: { race.markers },
-            elapsedSource: { viewModel.displayedDuration }
+            elapsedSource: { viewModel.displayedDuration },
+            journeySource: { journey.startSteps }
         )
         .overlay {
             // Legibility for the chrome above and the stat row and controls below.

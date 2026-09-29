@@ -190,7 +190,12 @@ final class MountainEnvironmentRig {
         let entity: Entity
         switch marker.kind {
         case .gate:
-            entity = makeGate(for: marker, proportions: marker.design == "gate_grand" ? .grand : .standard)
+            let proportions: GateProportions = switch marker.design {
+            case MountainMarker.summitDesign: .summit
+            case "gate_grand": .grand
+            default: .standard
+            }
+            entity = makeGate(for: marker, proportions: proportions)
         case .post:
             entity = makePost(for: marker)
         case .line:
@@ -204,6 +209,8 @@ final class MountainEnvironmentRig {
     private struct GateProportions {
         static let standard = GateProportions(pillarWidth: 0.46, pillarHeight: 3.3, lintelHeight: 0.5, crown: false, plaqueWidth: 1.9)
         static let grand = GateProportions(pillarWidth: 0.62, pillarHeight: 3.5, lintelHeight: 0.64, crown: true, plaqueWidth: 2.4)
+        /// A summit is the grand gate with its flag flying.
+        static let summit = GateProportions(pillarWidth: 0.62, pillarHeight: 3.5, lintelHeight: 0.64, crown: true, plaqueWidth: 2.4, flag: true)
 
         let pillarWidth: Float
         let pillarHeight: Float
@@ -211,6 +218,7 @@ final class MountainEnvironmentRig {
         /// A second, narrower block stacked on the lintel.
         let crown: Bool
         let plaqueWidth: Float
+        var flag = false
     }
 
     /// A stone gate spanning the staircase, its number on the lintel facing the approaching climber.
@@ -240,6 +248,9 @@ final class MountainEnvironmentRig {
             let crown = ModelEntity(mesh: .generateBox(size: [span * 1.1, proportions.lintelHeight * 0.7, lintelDepth * 0.8], cornerRadius: 0.05), materials: [stone])
             crown.position = [0, lintelY + proportions.lintelHeight * 0.85, 0]
             gate.addChild(crown)
+            if proportions.flag {
+                gate.addChild(Self.summitFlag(standingOn: lintelY + proportions.lintelHeight * 1.2))
+            }
         }
 
         if let plaque = Self.plaqueMaterial(title: marker.title, subtitle: marker.subtitle) {
@@ -249,6 +260,72 @@ final class MountainEnvironmentRig {
             gate.addChild(face)
         }
         return gate
+    }
+
+    /// Ascend lime, the colour of what the climber has earned.
+    private static let earnedLime = UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1)
+
+    /// A lime flag on a mast rising from a summit gate's crown, so a summit reads from far down
+    /// the stairs as the top of something rather than one more gate.
+    private static func summitFlag(standingOn base: Float) -> Entity {
+        let flag = Entity()
+        let mastHeight: Float = 2.7
+        var metal = PhysicallyBasedMaterial()
+        metal.baseColor = .init(tint: UIColor(white: 0.2, alpha: 1))
+        metal.metallic = .init(floatLiteral: 0.7)
+        metal.roughness = .init(floatLiteral: 0.4)
+        let mast = ModelEntity(mesh: .generateCylinder(height: mastHeight, radius: 0.045), materials: [metal])
+        mast.position = [0, base + mastHeight / 2, 0]
+        flag.addChild(mast)
+        let finial = ModelEntity(mesh: .generateSphere(radius: 0.08), materials: [metal])
+        finial.position = [0, base + mastHeight + 0.04, 0]
+        flag.addChild(finial)
+
+        let clothHeight: Float = 0.78
+        if let cloth = try? MeshResource.generate(from: [Self.clothDescriptor(width: 1.35, height: clothHeight)]) {
+            var material = PhysicallyBasedMaterial()
+            material.baseColor = .init(tint: earnedLime)
+            material.emissiveColor = .init(color: earnedLime)
+            material.emissiveIntensity = 0.45
+            material.roughness = .init(floatLiteral: 0.85)
+            material.metallic = .init(floatLiteral: 0)
+            material.faceCulling = .none
+            let entity = ModelEntity(mesh: cloth, materials: [material])
+            entity.position = [0.04, base + mastHeight - clothHeight - 0.1, 0]
+            flag.addChild(entity)
+        }
+        return flag
+    }
+
+    /// A flag's cloth hanging from its mast along x, rippling more toward its free end.
+    private static func clothDescriptor(width: Float, height: Float) -> MeshDescriptor {
+        let columns = 12
+        let rows = 3
+        var positions: [SIMD3<Float>] = []
+        var normals: [SIMD3<Float>] = []
+        for row in 0...rows {
+            for column in 0...columns {
+                let u = Float(column) / Float(columns)
+                let phase = u * 2 * .pi * 1.1
+                let amplitude = 0.07 * u
+                positions.append([u * width, Float(row) / Float(rows) * height, sin(phase) * amplitude])
+                let slope = cos(phase) * amplitude * 2 * .pi * 1.1 / width + sin(phase) * 0.07 / width
+                normals.append(simd_normalize(SIMD3(-slope, 0, 1)))
+            }
+        }
+        var indices: [UInt32] = []
+        let stride = UInt32(columns + 1)
+        for row in 0..<UInt32(rows) {
+            for column in 0..<UInt32(columns) {
+                let a = row * stride + column, b = a + 1, c = a + stride, d = c + 1
+                indices.append(contentsOf: [a, b, c, b, d, c])
+            }
+        }
+        var descriptor = MeshDescriptor(name: "summit-flag")
+        descriptor.positions = MeshBuffers.Positions(positions)
+        descriptor.normals = MeshBuffers.Normals(normals)
+        descriptor.primitives = .triangles(indices)
+        return descriptor
     }
 
     /// A stone trail post just outside the right kerb, its sign turned in toward the climber.

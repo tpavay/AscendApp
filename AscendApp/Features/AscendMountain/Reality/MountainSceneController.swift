@@ -34,6 +34,7 @@ final class MountainSceneController {
     private let ghostSource: @MainActor () -> [MountainGhost]
     private let markerSource: @MainActor () -> [MountainMarker]
     private let elapsedSource: (@MainActor () -> TimeInterval)?
+    private let journeySource: @MainActor () -> Int
     private var ghostRigs: [String: MountainAthleteRig] = [:]
     /// The tag each ghost's rig was built with; a tag is baked into its rig, so a new one means
     /// a new rig.
@@ -65,6 +66,8 @@ final class MountainSceneController {
     ///   - markerSource: this climb's own marks on the stairs, such as the line of the best.
     ///   - elapsedSource: the climb's own elapsed time, which places every ghost; the scene's
     ///     clock when a caller has no workout.
+    ///   - journeySource: the steps the climber brought to this climb, where on the mountain its
+    ///     first stair stands.
     init(
         seed: UInt64,
         stepSource: @escaping @MainActor () -> Int,
@@ -72,13 +75,15 @@ final class MountainSceneController {
         worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
         ghostSource: @escaping @MainActor () -> [MountainGhost] = { [] },
         markerSource: @escaping @MainActor () -> [MountainMarker] = { [] },
-        elapsedSource: (@MainActor () -> TimeInterval)? = nil
+        elapsedSource: (@MainActor () -> TimeInterval)? = nil,
+        journeySource: @escaping @MainActor () -> Int = { 0 }
     ) {
         self.seed = seed
         self.worldSource = worldSource
         self.ghostSource = ghostSource
         self.markerSource = markerSource
         self.elapsedSource = elapsedSource
+        self.journeySource = journeySource
         self.stepSource = stepSource
         self.debugState = debugState
         self.director = MountainSceneDirector(seed: seed)
@@ -147,7 +152,7 @@ final class MountainSceneController {
             return
         }
         guard scene == nil else { return }
-        director = MountainSceneDirector(seed: seed, world: world)
+        director = MountainSceneDirector(seed: seed, world: world, journeyStart: journeySource())
 
         let root = Entity()
         root.addChild(far.root)
@@ -206,7 +211,13 @@ final class MountainSceneController {
             smoothedFrameSeconds += (deltaTime - smoothedFrameSeconds) * 0.1
         }
 
-        let logicalSteps = stepSource() + (debugState?.visualStepOffset ?? 0)
+        let climbed = stepSource()
+        // A journey total that lands while the climber is still on the start line moves the start
+        // line; once they have stepped, the mountain under them never jumps.
+        if climbed == 0 {
+            director.rebase(journeyStart: journeySource())
+        }
+        let logicalSteps = climbed + (debugState?.visualStepOffset ?? 0)
         let elapsed = elapsedSource?() ?? clock
         let frame = director.advance(
             logicalSteps: logicalSteps,
@@ -248,11 +259,11 @@ final class MountainSceneController {
         scene.camera.look(at: frame.cameraTarget, from: frame.cameraPosition, relativeTo: nil)
 
         let regions = scene.environment.world.regions
-        scene.sun.light.intensity = Float(regions.blended({ $0.sky.sunIntensity }, atSteps: frame.visualSteps) * 950)
+        scene.sun.light.intensity = Float(regions.blended({ $0.sky.sunIntensity }, atSteps: frame.courseSteps) * 950)
         scene.far.update(
             camera: frame.cameraPosition,
             climberY: frame.athleteRenderHipCentre.y,
-            steps: frame.visualSteps,
+            steps: frame.courseSteps,
             altitude: frame.progress.virtualAltitude,
             deltaTime: deltaTime
         )
@@ -324,11 +335,12 @@ final class MountainSceneController {
         lastDebugPublishAt = clock
 
         let currentKind = frame.slots.first { $0.chunkIndex == frame.progress.chunkIndex }?.kind
-        let region = scene?.environment.world.regions.region(atSteps: frame.visualSteps)
+        let region = scene?.environment.world.regions.region(atSteps: frame.courseSteps)
         debugState.metrics = MountainDebugState.Metrics(
             framesPerSecond: smoothedFrameSeconds > 0 ? 1 / smoothedFrameSeconds : 0,
             logicalSteps: frame.logicalSteps,
             visualSteps: frame.visualSteps,
+            mountainSteps: frame.courseSteps,
             renderCadenceStepsPerMinute: frame.cadenceStepsPerMinute,
             animationPlaybackRate: frame.followerVelocity * 60 / MountainAnimationPacing.referenceStepsPerMinute,
             animationIntensity: frame.pacing.intensity,

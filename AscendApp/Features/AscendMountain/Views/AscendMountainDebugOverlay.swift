@@ -35,6 +35,7 @@ struct AscendMountainDebugOverlay: View {
             row("logical", metrics.logicalSteps.formatted())
             row("visual", metrics.visualSteps.formatted(.number.precision(.fractionLength(2))))
             row("lag", (Double(metrics.logicalSteps) - metrics.visualSteps).formatted(.number.precision(.fractionLength(2))))
+            row("mountain", metrics.mountainSteps.formatted(.number.precision(.fractionLength(0))))
             row("cadence", metrics.renderCadenceStepsPerMinute.formatted(.number.precision(.fractionLength(0))) + " spm")
             row("anim", metrics.animationPlaybackRate.formatted(.number.precision(.fractionLength(2))) + "x  i " + metrics.animationIntensity.formatted(.number.precision(.fractionLength(2))))
             row("chunks", "\(metrics.activeChunks) active  \(metrics.idleChunkSlots) idle  \(metrics.chunkRecycles) recycled")

@@ -26,8 +26,13 @@ struct MountainMarkerFrame: Equatable, Sendable {
 }
 
 struct MountainSceneFrame: Equatable, Sendable {
+    /// This climb's own count, as the workout records it.
     let logicalSteps: Int
+    /// This climb's count as the athlete is drawn, smoothed toward `logicalSteps`.
     let visualSteps: Double
+    /// Where on the mountain the athlete stands: the journey the climber brought to this climb
+    /// plus `visualSteps`. The scenery - areas, gates, posts, clouds - is read at this number.
+    let courseSteps: Double
     let followerVelocity: Double
     let progress: MountainCourseProgress
     let cadenceStepsPerMinute: Double
@@ -60,6 +65,12 @@ struct MountainSceneFrame: Equatable, Sendable {
 /// and each pooled chunk go. Everything is rebuilt from `(step count, seed)`: a scene that is
 /// torn down and recreated starts its follower at the live count, so the athlete reappears on
 /// the stair they are on instead of re-climbing from the bottom.
+///
+/// The climb begins at `journeyStart`, the steps the climber has climbed across every earlier
+/// climb, so the mountain carries on where they left it (captain, round 16: "the journey decides
+/// the scenery; racing always starts from your start line"). Only the world moves: the count,
+/// every ghost and every mark of this climb's own stay counted from this climb's first step, and
+/// the director places them `journeyStart` stairs up the one staircase everyone shares.
 struct MountainSceneDirector: Sendable {
     struct CameraTuning: Equatable, Sendable {
         /// Camera offset behind and above the athlete, in the athlete's frame.
@@ -84,6 +95,8 @@ struct MountainSceneDirector: Sendable {
     private(set) var course: MountainCourse
     private(set) var pool: MountainChunkPool
     private let world: MountainWorld?
+    /// The stair this climb's first step stands on.
+    private(set) var journeyStart: Int
     private(set) var cadence = MountainCadenceEstimator()
     private(set) var follower: MountainStepFollower?
     private let cameraTuning: CameraTuning
@@ -98,11 +111,22 @@ struct MountainSceneDirector: Sendable {
     /// through the steps the climber took off screen.
     private var needsResynchronization = false
 
-    init(seed: UInt64, world: MountainWorld? = nil, cameraTuning: CameraTuning = .standard) {
+    init(seed: UInt64, world: MountainWorld? = nil, journeyStart: Int = 0, cameraTuning: CameraTuning = .standard) {
         self.course = MountainCourse(seed: seed)
         self.pool = MountainChunkPool()
         self.world = world
+        self.journeyStart = max(journeyStart, 0)
         self.cameraTuning = cameraTuning
+    }
+
+    /// Moves this climb to start from another point of the journey, placing everything afresh
+    /// from there. Meant for the start line - a journey total that arrives before the first
+    /// step - never mid-climb, where the whole world would jump.
+    mutating func rebase(journeyStart: Int) {
+        let start = max(journeyStart, 0)
+        guard start != self.journeyStart else { return }
+        self.journeyStart = start
+        resynchronize()
     }
 
     /// The mountain is a renderer of the workout, never a record of it: after rendering pauses,
@@ -154,16 +178,18 @@ struct MountainSceneDirector: Sendable {
         follower.advance(toward: Double(steps), cadence: stepsPerSecond, deltaTime: dt)
         self.follower = follower
         let visualSteps = follower.visualSteps
+        let start = Double(journeyStart)
+        let courseSteps = start + visualSteps
 
         let movingTarget = follower.velocity > 0.05 ? 1.0 : 0.0
         smoothedMovement = Self.smooth(smoothedMovement, toward: movingTarget, seconds: 0.25, deltaTime: dt)
         let pacing = MountainAnimationPacing(stepsPerMinute: stepsPerSecond * 60)
         smoothedIntensity = Self.smooth(smoothedIntensity, toward: pacing.intensity, seconds: 0.4, deltaTime: dt)
 
-        let progress = course.progress(atSteps: visualSteps)
+        let progress = course.progress(atSteps: courseSteps)
         var course = self.course
         let athlete = MountainAthleteKinematics(
-            visualSteps: visualSteps,
+            visualSteps: courseSteps,
             intensity: smoothedIntensity,
             movement: smoothedMovement,
             time: time,
@@ -186,10 +212,13 @@ struct MountainSceneDirector: Sendable {
             )
         }
 
-        let lookAhead = self.course.progress(atSteps: visualSteps + cameraTuning.lookAheadSteps).pose.position
+        let lookAhead = self.course.progress(atSteps: courseSteps + cameraTuning.lookAheadSteps).pose.position
         let camera = updateCamera(athletePose: progress.pose, lookAhead: lookAhead, deltaTime: dt)
         let window = (visualSteps - MountainWorld.markersBehind)...(visualSteps + MountainWorld.markersAhead)
-        let nearby = (world?.markers(near: visualSteps) ?? []) + extraMarkers.filter { window.contains(Double($0.step)) }
+        // This climb's own marks count from its first step; the world's from the foot of the
+        // mountain.
+        let own = extraMarkers.filter { window.contains(Double($0.step)) }.map { $0.moved(by: journeyStart) }
+        let nearby = (world?.markers(near: courseSteps) ?? []) + own
         let markers = nearby.map { marker -> MountainMarkerFrame in
             // A line marks one exact stair, so unlike a gate it is never moved off a turn.
             let step = marker.kind == .line ? marker.step : self.course.markerStep(for: marker.step)
@@ -204,7 +233,7 @@ struct MountainSceneDirector: Sendable {
             let lane = Self.lane(for: ghost.id)
             var course = self.course
             let kinematics = MountainAthleteKinematics(
-                visualSteps: max(ghost.steps, 0),
+                visualSteps: start + max(ghost.steps, 0),
                 intensity: pacing.intensity,
                 movement: ghost.stepsPerMinute > 1 ? 1 : 0,
                 time: time,
@@ -220,6 +249,7 @@ struct MountainSceneDirector: Sendable {
         return MountainSceneFrame(
             logicalSteps: steps,
             visualSteps: visualSteps,
+            courseSteps: courseSteps,
             followerVelocity: follower.velocity,
             progress: progress,
             cadenceStepsPerMinute: stepsPerSecond * 60,

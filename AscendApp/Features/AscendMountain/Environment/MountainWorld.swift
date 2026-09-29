@@ -12,6 +12,11 @@ struct MountainMarker: Decodable, Equatable, Sendable {
         case line
     }
 
+    /// The design of a summit's gate. A climber's journey runs through a range of summits
+    /// (captain, round 16: 10,000, 25,000, 50,000, 100,000, 250,000), and each is the gate of
+    /// that design at its number, so the summits are content like every other marker.
+    static let summitDesign = "gate_summit"
+
     let id: String
     /// The stair the climber stands on when their count reaches this number.
     let step: Int
@@ -29,6 +34,12 @@ struct MountainMarker: Decodable, Equatable, Sendable {
         self.design = design
         self.title = title
         self.subtitle = subtitle
+    }
+
+    /// The same marker `steps` stairs further up, keeping its words: a mark of this climb's own,
+    /// counted from its first step, stood where that step is on the journey.
+    func moved(by steps: Int) -> MountainMarker {
+        MountainMarker(id: id, step: step + steps, kind: kind, design: design, title: title, subtitle: subtitle)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -145,5 +156,24 @@ struct MountainWorld: Sendable {
             }
         }
         return (own + repeated).sorted { $0.step < $1.step }
+    }
+
+    /// The first summit above `steps` on the journey, or nil when the world names none.
+    func nextSummit(above steps: Double) -> Int? {
+        let own = markers.first { $0.design == MountainMarker.summitDesign && Double($0.step) > steps }?.step
+        let repeated = markerSeries
+            .filter { $0.design == MountainMarker.summitDesign }
+            .map { (Int((max(steps, 0) / Double($0.every)).rounded(.down)) + 1) * $0.every }
+        return ([own].compactMap(\.self) + repeated).min()
+    }
+
+    /// The last summit at or below `steps`, where the climb toward the next one began: the foot
+    /// of the mountain before the first.
+    func previousSummit(atOrBelow steps: Double) -> Int {
+        let own = markers.last { $0.design == MountainMarker.summitDesign && Double($0.step) <= steps }?.step
+        let repeated = markerSeries
+            .filter { $0.design == MountainMarker.summitDesign }
+            .map { Int((max(steps, 0) / Double($0.every)).rounded(.down)) * $0.every }
+        return ([own ?? 0] + repeated).max() ?? 0
     }
 }

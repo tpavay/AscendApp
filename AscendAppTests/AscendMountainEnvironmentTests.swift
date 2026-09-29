@@ -169,6 +169,8 @@ struct AscendMountainRegionTests {
 
     /// A gate at 500 and then every thousand steps, a trail post every hundred, and the heavier
     /// gate at the numbers the captain approved (2026-09-28); a post never takes a gate's stair.
+    /// Where a heavier gate stands on a summit (round 16) it is the summit's gate - the same
+    /// grand gate with its flag - which `AscendMountainJourneyTests` holds.
     @Test
     func theBundledWorldStandsAGateEveryThousandStepsAndAPostEveryHundred() throws {
         let world = try MountainWorld.bundled()
@@ -180,7 +182,7 @@ struct AscendMountainRegionTests {
         #expect(world.markers(near: 490, behind: 0, ahead: 20).map(\.kind) == [.gate])
         for grand in [10_000, 20_000, 50_000, 100_000] {
             let gate = try #require(world.markers(near: Double(grand), behind: 0, ahead: 0).first)
-            #expect(gate.kind == .gate && gate.design == "gate_grand", "\(grand)")
+            #expect(gate.kind == .gate && [MountainMarker.summitDesign, "gate_grand"].contains(gate.design), "\(grand)")
         }
     }
 

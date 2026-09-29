@@ -6,7 +6,8 @@ import SwiftUI
 ///
 /// `stepSource`, `ghostSource` and `markerSource` are read once per rendered frame and are the
 /// scene's only inputs, so the view can be dropped and recreated freely - it resumes on the stair the count
-/// says, never from zero, with whoever is racing at that moment.
+/// says, never from zero, with whoever is racing at that moment. `journeySource` says where on the
+/// mountain the climb began; the scene follows it only while the climber is on the start line.
 struct AscendMountainRealityView: View {
     @State private var controller: MountainSceneController
 
@@ -17,7 +18,8 @@ struct AscendMountainRealityView: View {
         worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
         ghostSource: @escaping @MainActor () -> [MountainGhost] = { [] },
         markerSource: @escaping @MainActor () -> [MountainMarker] = { [] },
-        elapsedSource: (@MainActor () -> TimeInterval)? = nil
+        elapsedSource: (@MainActor () -> TimeInterval)? = nil,
+        journeySource: @escaping @MainActor () -> Int = { 0 }
     ) {
         _controller = State(
             initialValue: MountainSceneController(
@@ -27,7 +29,8 @@ struct AscendMountainRealityView: View {
                 worldSource: worldSource,
                 ghostSource: ghostSource,
                 markerSource: markerSource,
-                elapsedSource: elapsedSource
+                elapsedSource: elapsedSource,
+                journeySource: journeySource
             )
         )
     }
