@@ -59,11 +59,12 @@ final class MountainSceneController {
     /// The same course the director climbs, for the pieces either side of one being given its
     /// mountainside: a tree may stand beside a neighbouring flight the camera follows.
     private var decorCourse: MountainCourse
-    /// The pieces whose stairs a piece's trees keep clear of: any within this many either side
-    /// whose entry is near, because the course switches back and a mountainside can fall onto a
-    /// flight several pieces below it.
-    nonisolated static let decorNeighbours = 16
-    nonisolated static let decorNeighbourMetres = 45.0
+    /// The pieces whose stairs a piece's ground and trees keep clear of: any within this many
+    /// either side whose entry is near, because the course switches back and a mountainside can
+    /// fall onto a flight several pieces below it. Wide enough that two pieces sharing an edge
+    /// always weigh the same stairs, so the ground meets without a seam.
+    nonisolated static let decorNeighbours = 24
+    nonisolated static let decorNeighbourMetres = 70.0
 
     /// The pieces near `piece` on `course`, for `MountainTerrainPatch`'s `nearby`.
     nonisolated static func decorNeighbours(of piece: MountainChunkPlacement, on course: inout MountainCourse) -> [MountainChunkPlacement] {

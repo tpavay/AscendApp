@@ -623,3 +623,87 @@ struct AscendMountainCameraClearanceTests {
     }
 }
 
+
+extension AscendMountainCameraClearanceTests {
+    /// The mountainside may rise beside the stairs, but never between the camera and the climber:
+    /// at a turn the camera swings over the ground, and a hill there hid the climber (step 240).
+    @Test
+    func theGroundNeverHidesTheClimber() throws {
+        let world = try MountainWorld.bundled()
+        var director = MountainSceneDirector(seed: MountainCourse.ascendMountainSeed, world: world)
+        var course = MountainCourse(seed: MountainCourse.ascendMountainSeed)
+        struct Ground {
+            let triangles: [(SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)]
+            let low: SIMD3<Float>
+            let high: SIMD3<Float>
+        }
+        var grounds: [Int: Ground] = [:]
+        var hidden: [String] = []
+        let stepsPerSecond = 3.4, frameSeconds = 1.0 / 30
+        var time = 0.0, steps = 0.0, frameCount = 0
+        _ = director.advance(logicalSteps: 0, time: 0, deltaTime: 0)
+        while steps < 5_000 {
+            steps += stepsPerSecond * frameSeconds
+            time += frameSeconds
+            frameCount += 1
+            let frame = director.advance(logicalSteps: Int(steps), time: time, deltaTime: frameSeconds)
+            guard frameCount % 10 == 0 else { continue }
+            let camera = frame.cameraPosition
+            let chest = frame.athleteRenderHipCentre + SIMD3(0, 0.5, 0)
+            for slot in frame.slots where simd_distance(slot.renderPosition, camera) < 45 {
+                let ground: Ground
+                if let known = grounds[slot.chunkIndex] {
+                    ground = known
+                } else {
+                    let nearby = MountainSceneController.decorNeighbours(of: slot.placement, on: &course)
+                    let patch = MountainTerrainPatch(placement: slot.placement, regions: world.regions, nearby: nearby)
+                    let points = patch.positions
+                    var triangles: [(SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)] = []
+                    var low = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
+                    var high = SIMD3<Float>(repeating: -.greatestFiniteMagnitude)
+                    for index in stride(from: 0, to: points.count, by: 3) {
+                        triangles.append((points[index], points[index + 1], points[index + 2]))
+                    }
+                    for point in points {
+                        low = simd_min(low, point)
+                        high = simd_max(high, point)
+                    }
+                    ground = Ground(triangles: triangles, low: low, high: high)
+                    grounds[slot.chunkIndex] = ground
+                }
+                // The sight line in the piece's own frame.
+                let toLocal = simd_quatf(angle: -slot.heading, axis: [0, 1, 0])
+                let from = toLocal.act(camera - slot.renderPosition), to = toLocal.act(chest - slot.renderPosition)
+                let low = simd_min(from, to), high = simd_max(from, to)
+                guard all(high .>= ground.low), all(low .<= ground.high) else { continue }
+                for (a, b, c) in ground.triangles {
+                    let tLow = simd_min(a, simd_min(b, c)), tHigh = simd_max(a, simd_max(b, c))
+                    guard all(tHigh .>= low), all(tLow .<= high) else { continue }
+                    if let t = Self.crossing(from: from, to: to, a, b, c), t > 0.02, t < 0.98 {
+                        hidden.append("step \(Int(steps)): piece \(slot.chunkIndex) at \(String(format: "%.2f", t)) of the way to the climber")
+                        break
+                    }
+                }
+            }
+        }
+
+        #expect(hidden.isEmpty, "the ground hid the climber \(hidden.count) times, first at \(hidden.first ?? "-")")
+    }
+
+    /// Where the segment crosses the triangle, as a fraction of the way along it (Moller-Trumbore).
+    private static func crossing(from: SIMD3<Float>, to: SIMD3<Float>, _ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>) -> Float? {
+        let direction = to - from
+        let edge1 = b - a, edge2 = c - a
+        let p = simd_cross(direction, edge2)
+        let determinant = simd_dot(edge1, p)
+        guard abs(determinant) > 1e-7 else { return nil }
+        let inverse = 1 / determinant
+        let s = from - a
+        let u = simd_dot(s, p) * inverse
+        guard u >= 0, u <= 1 else { return nil }
+        let q = simd_cross(s, edge1)
+        let v = simd_dot(direction, q) * inverse
+        guard v >= 0, u + v <= 1 else { return nil }
+        return simd_dot(edge2, q) * inverse
+    }
+}
