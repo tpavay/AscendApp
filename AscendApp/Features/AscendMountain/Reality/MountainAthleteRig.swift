@@ -60,6 +60,7 @@ final class MountainAthleteRig {
     let root = Entity()
     private let model: ModelEntity
     private let poser: MountainAthletePoser
+    private var groundRing: ModelEntity?
 
     /// How far the foot joint sits behind the middle of the foot, so the sole lands centred on
     /// the tread.
@@ -221,13 +222,17 @@ final class MountainAthleteRig {
         return material
     }
 
-    /// Makes the whole athlete see-through, for a rival in a pack.
-    func fade(to opacity: Float) {
-        model.components.set(OpacityComponent(opacity: opacity))
+    /// The lime ring under the climber's feet that marks them out when others share the stairs
+    /// (captain, 2026-09-29), hidden when they climb alone.
+    func showGroundRing(_ visible: Bool) {
+        if groundRing == nil, visible, let ring = Self.makeGroundRing() {
+            root.addChild(ring)
+            groundRing = ring
+        }
+        groundRing?.isEnabled = visible
     }
 
-    /// A lime ring under the athlete's feet that marks them out in a pack.
-    func addGroundRing() {
+    private static func makeGroundRing() -> ModelEntity? {
         var descriptor = MeshDescriptor(name: "athlete-ring")
         let segments = 48, inner: Float = 0.34, outer: Float = 0.44
         var positions: [SIMD3<Float>] = [], indices: [UInt32] = []
@@ -241,12 +246,12 @@ final class MountainAthleteRig {
         descriptor.positions = MeshBuffers.Positions(positions)
         descriptor.normals = MeshBuffers.Normals(Array(repeating: SIMD3<Float>(0, 1, 0), count: positions.count))
         descriptor.primitives = .triangles(indices)
-        guard let mesh = try? MeshResource.generate(from: [descriptor]) else { return }
+        guard let mesh = try? MeshResource.generate(from: [descriptor]) else { return nil }
         var material = UnlitMaterial(color: UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1))
         material.blending = .transparent(opacity: .init(floatLiteral: 0.9))
         let ring = ModelEntity(mesh: mesh, materials: [material])
         ring.position = [0, 0.03, 0]
-        root.addChild(ring)
+        return ring
     }
 
     /// Poses the athlete for this frame. `origin` is the course point at the render origin.

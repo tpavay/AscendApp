@@ -15,7 +15,6 @@ struct AscendMountainRealityView: View {
         debugState: MountainDebugState? = nil,
         worldSource: @escaping @Sendable () throws -> MountainWorld = { try MountainWorld.bundled() },
         ghosts: [MountainGhost] = [],
-        emphasis: MountainClimberEmphasis = .none,
         elapsedSource: (@MainActor () -> TimeInterval)? = nil
     ) {
         _controller = State(
@@ -25,7 +24,6 @@ struct AscendMountainRealityView: View {
                 debugState: debugState,
                 worldSource: worldSource,
                 ghosts: ghosts,
-                emphasis: emphasis,
                 elapsedSource: elapsedSource
             )
         )
