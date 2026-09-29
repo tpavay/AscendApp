@@ -164,6 +164,35 @@ struct AscendMountainSceneDirectorTests {
         #expect(simd_distance(ghost.kinematics.bodyPose.position, course.progress(atSteps: 30).pose.position) < 1)
     }
 
+    /// The athlete rides a little behind the live count so the climb looks continuous. Racers
+    /// are drawn back by the same distance, so the stairs agree with the rank: someone on your
+    /// count climbs level with you, and a leader never sees the climber they lead ahead of them.
+    @Test
+    func theStairsAgreeWithTheRankWhileTheAthleteTrailsTheCount() throws {
+        var director = MountainSceneDirector(seed: MountainCourse.ascendMountainSeed)
+        let stepsPerSecond = 130.0 / 60
+        var onYourCount: [Double] = []
+        var justBehind: [Double] = []
+
+        for tick in 0...(12 * 60) {
+            let time = Double(tick) * Self.frameSeconds
+            let climbed = stepsPerSecond * time
+            let count = Int(climbed)
+            let ghosts = [
+                MountainGhostSample(id: "level", kind: .rival, label: "", steps: Double(count), stepsPerMinute: 130),
+                MountainGhostSample(id: "behind", kind: .rival, label: "", steps: climbed - 1.5, stepsPerMinute: 130)
+            ]
+            let frame = director.advance(logicalSteps: count, time: time, deltaTime: tick == 0 ? 0 : Self.frameSeconds, ghosts: ghosts)
+            guard time > 5 else { continue }
+            #expect(count - Int(frame.visualSteps) >= 1, "the athlete trails the count, as it is meant to")
+            onYourCount.append(try #require(frame.ghosts.first { $0.id == "level" }).lead)
+            justBehind.append(try #require(frame.ghosts.first { $0.id == "behind" }).lead)
+        }
+
+        #expect(onYourCount.allSatisfy { abs($0) < 0.75 }, "level with you, not a stride ahead")
+        #expect(justBehind.allSatisfy { $0 < 0 }, "behind you on the stairs as on the board")
+    }
+
     /// A climb's own mark - the line of the climber's best - stands on its exact stair when it is
     /// near, beside the world's markers, and is let go when it is not.
     @Test

@@ -125,6 +125,10 @@ struct MountainSceneDirector: Sendable {
     private var cameraHeading: Double?
     private var smoothedIntensity = 0.0
     private var smoothedMovement = 0.0
+    /// How far the drawn athlete rides behind the live count, smoothed. The follower trails on
+    /// purpose so the climb looks continuous, so every racer is drawn back by the same distance:
+    /// someone level with your count stands level with you, and a leader sees nobody ahead.
+    private var drawnTrail = 0.0
     /// Set when rendering stopped for a while (the app was in the background, the view was torn
     /// down); the next frame places everything from the authoritative count instead of climbing
     /// through the steps the climber took off screen.
@@ -209,6 +213,7 @@ struct MountainSceneDirector: Sendable {
             cameraTarget = nil
             cameraHeading = nil
             smoothedMovement = 0
+            drawnTrail = 0
             lift = nil
             lastCourseSteps = nil
         }
@@ -220,6 +225,9 @@ struct MountainSceneDirector: Sendable {
         follower.advance(toward: Double(steps), cadence: stepsPerSecond, deltaTime: dt)
         self.follower = follower
         let visualSteps = follower.visualSteps
+        // Smoothed well past a stride, so the trail's rise and fall with each arriving step never
+        // shows as the racers around you twitching.
+        drawnTrail = Self.smooth(drawnTrail, toward: Double(steps) - visualSteps, seconds: 1.2, deltaTime: dt)
         let start = Double(journeyStart)
         let courseSteps = start + visualSteps
 
@@ -275,14 +283,16 @@ struct MountainSceneDirector: Sendable {
             return MountainMarkerFrame(marker: marker, renderPosition: SIMD3<Float>(pose.position - origin), heading: Float(pose.heading))
         }
 
+        let trail = drawnTrail
         let ghostFrames = ghosts.compactMap { ghost -> MountainGhostFrame? in
-            let lead = ghost.steps - visualSteps
+            let drawnSteps = ghost.steps - trail
+            let lead = drawnSteps - visualSteps
             guard Self.ghostDrawRange.contains(lead) else { return nil }
             let pacing = MountainAnimationPacing(stepsPerMinute: ghost.stepsPerMinute)
             let lane = Self.passingLane(Self.lane(for: ghost.id), lead: lead)
             var course = self.course
             let kinematics = MountainAthleteKinematics(
-                visualSteps: start + max(ghost.steps, 0),
+                visualSteps: start + max(drawnSteps, 0),
                 intensity: pacing.intensity,
                 movement: ghost.stepsPerMinute > 1 ? 1 : 0,
                 time: time,
