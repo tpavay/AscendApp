@@ -1,7 +1,8 @@
 #!/bin/bash
 #
-# Builds the staging test bundle once, then runs the suite as two host
-# processes instead of one: the movie-export suite alone, then everything else.
+# Builds the staging test bundle once, then runs the suite as three host
+# processes instead of one: the movie-export suite alone, the suites that host
+# the RealityKit Mountain together, then everything else.
 #
 # WHY, measured 2026-09-01 against `iOS Verify (Staging)`: one process could not
 # hold this suite. Run whole it peaked at 4,228 MB RSS on a `macos-15` runner
@@ -45,6 +46,17 @@
 # 1080x2340 story frame, and that cost is the assertion. See `ISOLATED_PASSES`
 # in `plan-test-passes.mjs`, which is why this script runs however many pass
 # files the planner wrote rather than a fixed number.
+#
+# The suites that host the RealityKit Mountain - `AscendMountainSessionEvidenceTests`
+# and the two Sentry mask proofs, `SentryMaskingEvidenceTests` and
+# `SentryMaskInteractionTests` - share a host of their own, for a crash rather
+# than memory. On 2026-09-30 (job 109735737306) a RealityKit render-thread
+# assertion (`re::MaterialParameterTableLayers::getTechniqueAtIndex` in
+# `RenderGraphMeshNodeBase::sortMeshParts`) killed the shared host once while
+# the Mountain was hosted; after the restart every test passed, and the same
+# code had passed the run before. In the remainder pass that one kill failed the
+# pass holding ~2,300 unrelated tests and dropped the tests in flight; in its own pass
+# it is contained to the three suites that draw the Mountain.
 #
 # What the one-host runs exposed was never memory. A hosted screen carrying a
 # `@Query` keeps observing SwiftData after its window is gone, and a container

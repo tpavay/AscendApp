@@ -61,13 +61,28 @@ const TEST_TARGET = "AscendAppTests";
  * movie through the AVFoundation pipeline at the 1080x2340 story frame - the
  * cost is the assertion, so it keeps a host entirely to itself.
  *
+ * The suites that host the RealityKit Mountain get a host of their own too,
+ * and that one is for a crash, not memory. On 2026-09-30 (job 109735737306)
+ * the shared host was killed once by a RealityKit render-thread assertion -
+ * `re::MaterialParameterTableLayers::getTechniqueAtIndex` inside
+ * `RenderGraphMeshNodeBase::sortMeshParts` - while
+ * `AscendMountainSessionEvidenceTests` hosted the Mountain; after the restart
+ * every test passed, and the same code had passed the run before. A kill in
+ * the shared host fails the whole remainder pass and drops the tests in
+ * flight, so every suite that draws the Mountain - the session evidence and
+ * the two Sentry mask proofs, which host it to prove the mask - shares one
+ * host that nothing else rides in.
+ *
  * Add a suite only with a measurement, and remove it the moment it stops
  * needing a host of its own. A name that no longer matches a real suite is
  * fatal on purpose, through the post-pass `.xcresult` check: a silently
  * dropped entry sends the suite back into the shared host, which is exactly
  * how this job started exhausting its runner.
  */
-export const ISOLATED_PASSES = [["ShareComposerBackgroundFillEvidenceTests"]];
+export const ISOLATED_PASSES = [
+    ["ShareComposerBackgroundFillEvidenceTests"],
+    ["AscendMountainSessionEvidenceTests", "SentryMaskingEvidenceTests", "SentryMaskInteractionTests"],
+];
 
 /**
  * The fewest tests a green job may have executed across all of its passes.
