@@ -208,14 +208,21 @@ struct SentryMaskingEvidenceTests {
 
     @Test
     func theMountainRendersIdenticallyWhateverItShows() async throws {
-        let mountain = AscendMountainRealityView(seed: MountainCourse.ascendMountainSeed, stepSource: { 1_200 })
-
         try await Self.expectSensitiveContentMasked(
-            mountain,
-            mountain.scaleEffect(x: -1, y: 1),
+            FreshMountain(),
+            FreshMountain().scaleEffect(x: -1, y: 1),
             named: "ascend-mountain",
-            settledWhen: sceneIsDrawn
+            settledWhen: Self.sceneIsDrawn
         )
+    }
+
+    /// Builds its world inside `body`, so every hosting gets a scene controller of its own. One
+    /// `AscendMountainRealityView` value hosted twice shares its `@State` controller, which the
+    /// first hosting's `onDisappear` has already stopped, and the second window stays black.
+    private struct FreshMountain: View {
+        var body: some View {
+            AscendMountainRealityView(seed: MountainCourse.ascendMountainSeed, stepSource: { 1_200 })
+        }
     }
 
     // MARK: - Identity

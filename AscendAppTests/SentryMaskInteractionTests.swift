@@ -208,7 +208,7 @@ struct SentryMaskInteractionTests {
 
         try await Self.expectNoTouchSwallowed(by: session, named: "AscendMountainRealityView")
 
-        try await SentryMaskTestHost.hosting(session, size: surfaceSize) { window, root in
+        try await SentryMaskTestHost.hosting(session, size: Self.surfaceSize) { window, root in
             var pager: UIScrollView?
             for _ in 0..<40 {
                 root.layoutIfNeeded()
@@ -226,7 +226,7 @@ struct SentryMaskInteractionTests {
                 "the pager is not over the masked Mountain, so this proves nothing about the mask"
             )
 
-            let points = probePoints(in: pages, within: window)
+            let points = Self.probePoints(in: pages, within: window)
             try #require(!points.isEmpty)
             for point in points {
                 let hit = window.hitTest(point, with: nil)
