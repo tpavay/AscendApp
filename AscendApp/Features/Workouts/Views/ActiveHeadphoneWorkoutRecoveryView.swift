@@ -223,18 +223,7 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
             )
 
         case .justClimb:
-            let kind = draft.justClimbGoalKindRawValue.flatMap(JustClimbGoalKind.init(rawValue:)) ?? .open
-            let goal = JustClimbGoal(
-                kind: kind,
-                durationMinutes: draft.justClimbDurationMinutes ?? JustClimbGoal.defaultDurationMinutes,
-                stepCount: draft.justClimbStepCount ?? JustClimbGoal.defaultStepCount
-            )
-            resumedLiveClimbViewModel = LiveClimbSessionViewModel(
-                justClimbGoal: goal,
-                experience: .remembered(),
-                liveActivitySessionID: draft.sessionID,
-                recoveredDraft: draft
-            )
+            resumedLiveClimbViewModel = Self.resumedJustClimb(from: draft)
 
         case .routine:
             guard let routine = fetchRoutine() else {
@@ -334,6 +323,25 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    /// A recovered Just Climb, drawn the way the climber last chose on the setup sheet.
+    static func resumedJustClimb(
+        from draft: ActiveHeadphoneWorkoutDraft,
+        defaults: UserDefaults = .standard
+    ) -> LiveClimbSessionViewModel {
+        let kind = draft.justClimbGoalKindRawValue.flatMap(JustClimbGoalKind.init(rawValue:)) ?? .open
+        let goal = JustClimbGoal(
+            kind: kind,
+            durationMinutes: draft.justClimbDurationMinutes ?? JustClimbGoal.defaultDurationMinutes,
+            stepCount: draft.justClimbStepCount ?? JustClimbGoal.defaultStepCount
+        )
+        return LiveClimbSessionViewModel(
+            justClimbGoal: goal,
+            experience: .remembered(in: defaults),
+            liveActivitySessionID: draft.sessionID,
+            recoveredDraft: draft
+        )
     }
 }
 

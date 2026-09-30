@@ -185,11 +185,21 @@ struct AscendMountainSessionEvidenceTests {
 
     @Test("A recovered Just Climb opens as the climber last chose, Mountain until they have chosen")
     func recoveredJustClimbUsesTheRememberedChoice() throws {
+        let draft = ActiveHeadphoneWorkoutDraft(
+            sessionID: "mountain-recovery",
+            kind: .justClimb,
+            startedAt: Date(timeIntervalSinceNow: -120),
+            title: "Just Climb",
+            subtitle: "",
+            workoutName: "Just Climb",
+            targetStepCount: nil,
+            targetDurationSeconds: nil
+        )
         let fresh = try #require(UserDefaults(suiteName: "just-climb-recovery-\(UUID().uuidString)"))
-        #expect(JustClimbExperience.remembered(in: fresh) == .mountain)
+        #expect(ActiveHeadphoneWorkoutRecoveryView.resumedJustClimb(from: draft, defaults: fresh).experience == .mountain)
 
         fresh.set(JustClimbExperience.classic.rawValue, forKey: JustClimbSetupSheet.experienceKey)
-        #expect(JustClimbExperience.remembered(in: fresh) == .classic)
+        #expect(ActiveHeadphoneWorkoutRecoveryView.resumedJustClimb(from: draft, defaults: fresh).experience == .classic)
     }
 
     @Test("A climber who never chose opens Just Climb on the Mountain; a chosen Classic stays Classic")
