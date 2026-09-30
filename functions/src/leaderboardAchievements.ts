@@ -9,7 +9,6 @@ import {
 import {
   LEADERBOARD_PLACINGS_COLLECTION,
   LEADERBOARD_RESULTS_COLLECTION,
-  PeriodStandingsTruncatedError,
   RankedStanding,
   StandingRow,
   TOP_RANK_LIMIT,
@@ -58,12 +57,41 @@ export const finalizeLeaderboardAchievements = onSchedule(
     memory: "512MiB",
   },
   async () => {
-    const now = new Date();
-    for (const timeFrame of FINALIZED_TIME_FRAMES) {
-      await finalizeMostRecentClosedPeriod(timeFrame, now);
-    }
+    await finalizeClosedPeriods(new Date());
   }
 );
+
+/**
+ * Finalizes every time frame's most recently closed period, each on its own:
+ * a frame that fails is logged and the rest still finalize, and the run then
+ * fails so the failure is never silent.
+ * @param {Date} now The run instant.
+ * @param {Function} finalize Finalizes one frame.
+ * @return {Promise<void>} Resolves when every frame finalized.
+ */
+async function finalizeClosedPeriods(
+  now: Date,
+  finalize: (
+    timeFrame: FinalizedTimeFrame,
+    now: Date
+  ) => Promise<void> = finalizeMostRecentClosedPeriod
+): Promise<void> {
+  const failed: FinalizedTimeFrame[] = [];
+  for (const timeFrame of FINALIZED_TIME_FRAMES) {
+    try {
+      await finalize(timeFrame, now);
+    } catch (error) {
+      failed.push(timeFrame);
+      logger.error("leaderboardAchievements.frame_failed", {
+        timeFrame,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (failed.length > 0) {
+    throw new Error(`Finalizing failed for ${failed.join(", ")}`);
+  }
+}
 
 /**
  * Finalizes the most recently closed period of one time frame, once.
@@ -79,12 +107,11 @@ export const finalizeLeaderboardAchievements = onSchedule(
  * exists always has its placings behind it.
  *
  * The awards need only the top-N query; the result needs the whole period's
- * standings. If that full scan is too large for its page bound - which no
- * retry can fix - the awards and the `finalized` status still commit and no
- * result is written at all - never a partial one - and a structured error
- * names the period so `scripts/backfill-leaderboard-results.mjs` can write it
- * later. Any other scan failure throws before anything is written, so the
- * next run retries the awards and the result together.
+ * standings. If that full scan fails for any reason - too large for its page
+ * bound, or a transient read error - the awards and the `finalized` status
+ * still commit and no result is written at all - never a partial one - and a
+ * structured error names the period so
+ * `scripts/backfill-leaderboard-results.mjs` can restore it.
  * @param {FinalizedTimeFrame} timeFrame The board's window.
  * @param {Date} now The run instant.
  * @param {object} standingsOptions Paging for the full standings scan.
@@ -146,14 +173,11 @@ async function finalizeMostRecentClosedPeriod(
       await readPeriodStandings(db, period, standingsOptions)
     );
   } catch (error) {
-    if (!(error instanceof PeriodStandingsTruncatedError)) {
-      throw error;
-    }
     logger.error("leaderboardAchievements.result_scan_failed", {
       periodId,
       timeFrame: period.timeFrame,
       periodKey: period.key,
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       remedy: "scripts/backfill-leaderboard-results.mjs",
     });
   }
@@ -349,6 +373,7 @@ function profileStatsIncrement(
 
 export const leaderboardAchievementsTestHooks = {
   achievementType,
+  finalizeClosedPeriods,
   finalizeMostRecentClosedPeriod,
   maxWritesPerCommit: MAX_WRITES_PER_COMMIT,
   packCommitUnits,

@@ -346,26 +346,23 @@ test("a standings scan too large for its bound still awards, and writes no resul
     );
   });
 
-test("a transient standings failure writes nothing, so the next run retries",
+test("a transient standings failure still awards, and writes no result",
   async () => {
     await seedRows(standardBoard());
 
-    await assert.rejects(
-      finalizeMostRecentClosedPeriod("weekly", NOW, {
-        readPage: async () => {
-          throw new Error("4 DEADLINE_EXCEEDED");
-        },
-      }),
-      /DEADLINE_EXCEEDED/
-    );
+    await finalizeMostRecentClosedPeriod("weekly", NOW, {
+      readPage: async () => {
+        throw new Error("4 DEADLINE_EXCEEDED");
+      },
+    });
 
     const award = await db
       .doc(`users/u000/achievements/global_steps_weekly_${WEEK.key}`)
       .get();
-    assert.equal(award.exists, false, "no award without its result");
+    assert.ok(award.exists, "the champion's award must still land");
     const periodDocument = (await db
       .doc(`leaderboard_periods/weekly_${WEEK.key}`).get()).data();
-    assert.notEqual(periodDocument?.status, "finalized");
+    assert.equal(periodDocument?.status, "finalized");
     assert.equal((await db.doc(WEEK_RESULT).get()).exists, false);
   });
 

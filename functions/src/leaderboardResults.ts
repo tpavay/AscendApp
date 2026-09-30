@@ -458,21 +458,6 @@ export async function readAwardStandings(
 }
 
 /**
- * A period too large for the bounded standings scan. Deterministic - the
- * same period fails the same way on every run - unlike a transient read
- * failure, which a later run can simply retry.
- */
-export class PeriodStandingsTruncatedError extends Error {
-  /**
-   * @param {string} message What was cut short.
-   */
-  constructor(message: string) {
-    super(message);
-    this.name = "PeriodStandingsTruncatedError";
-  }
-}
-
-/**
  * Every row in a period, a bounded page at a time.
  *
  * Pages on the award query's own ordering and composite index, so the read
@@ -509,7 +494,7 @@ export async function readPeriodStandings(
   let cursor: admin.firestore.QueryDocumentSnapshot | null = null;
   for (let page = 0; ; page += 1) {
     if (page >= maxPages) {
-      throw new PeriodStandingsTruncatedError(
+      throw new Error(
         `leaderboard_stats for ${period.timeFrame} ${period.key} exceeded ` +
           `${maxPages} pages of ${pageSize}; refusing to freeze a partial count`
       );

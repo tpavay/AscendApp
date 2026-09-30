@@ -8,6 +8,7 @@ import {
 
 const {
   achievementType,
+  finalizeClosedPeriods,
   maxWritesPerCommit,
   packCommitUnits,
   profileStatsIncrement,
@@ -261,4 +262,21 @@ test("every climber tied at the award cutoff is awarded", () => {
     ]).length,
     102
   );
+});
+
+test("a frame that fails to finalize never skips the frames after it", async () => {
+  const attempted: string[] = [];
+  await assert.rejects(
+    finalizeClosedPeriods(
+      new Date("2026-10-01T00:15:00.000Z"),
+      async (timeFrame) => {
+        attempted.push(timeFrame);
+        if (timeFrame === "weekly") {
+          throw new Error("4 DEADLINE_EXCEEDED");
+        }
+      }
+    ),
+    /Finalizing failed for weekly/
+  );
+  assert.deepEqual(attempted, ["weekly", "monthly", "yearly"]);
 });

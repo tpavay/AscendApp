@@ -52,8 +52,8 @@ No existing document, rule, callable or Remote Config key changes meaning, so 1.
 ### `leaderboard_results/{timeFrame}_{periodKey}`
 
 Written only by the Admin SDK, in the same batch as the period's achievements.
-If the full-period standings scan is too large for its page bound, which no retry can fix, the awards and the period's `finalized` status still commit without any result (never a partial one), and `leaderboardAchievements.result_scan_failed` names the period for `scripts/backfill-leaderboard-results.mjs`, which creates a result only where none exists.
-Any other scan failure writes nothing, so the next daily run retries the awards and the result together.
+If the full-period standings scan fails for any reason (too large for its page bound, or a transient read error), the awards and the period's `finalized` status still commit without any result (never a partial one), and `leaderboardAchievements.result_scan_failed` names the time frame and period key; `scripts/backfill-leaderboard-results.mjs` restores that result, creating one only where none exists.
+Each time frame finalizes on its own, so a weekly failure never stops the monthly or yearly period closing the same day; the run still fails afterwards so the failure is surfaced.
 Readable by any climber with paid access.
 
 | Field | Type | Meaning |
