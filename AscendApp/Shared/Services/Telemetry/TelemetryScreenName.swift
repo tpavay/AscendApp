@@ -102,6 +102,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case bodyMetricsEditor = "body_metrics_editor"
     case notificationSettings = "notification_settings"
     case emailPreferences = "email_preferences"
+    case heartRateVisibility = "heart_rate_visibility"
     case measurementSystemSettings = "measurement_system_settings"
     case integrations
     case contactUs = "contact_us"
@@ -109,6 +110,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case deleteAccountConfirmation = "delete_account_confirmation"
     case appleHealthManage = "apple_health_manage"
     case heartRateMonitorManage = "heart_rate_monitor_manage"
+    case stravaManage = "strava_manage"
 
     // MARK: - Sharing
 
@@ -176,6 +178,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .bodyMetricsEditor: "BodyMetricsEditorView"
         case .notificationSettings: "NotificationSettingsView"
         case .emailPreferences: "EmailPreferencesView"
+        case .heartRateVisibility: "HeartRateVisibilityView"
         case .measurementSystemSettings: "MeasurementSystemSelectionView"
         case .integrations: "IntegrationsView"
         case .contactUs: "ContactUsView"
@@ -183,6 +186,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .deleteAccountConfirmation: "DeleteAccountConfirmationView"
         case .appleHealthManage: "AppleHealthManageSheet"
         case .heartRateMonitorManage: "HeartRateMonitorManageSheet"
+        case .stravaManage: "StravaManageSheet"
         case .shareComposer: "ShareComposerView"
         case .appUpdateNudge: "AppUpdateSheet"
         }

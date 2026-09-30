@@ -52,5 +52,14 @@ export {
   monthlyRecapEmails,
   weeklyRecapEmails,
 } from "./recapEmails";
+export {
+  onWorkoutWrittenStravaUpload,
+  processStravaUploads,
+  stravaBeginConnect,
+  stravaCompleteConnect,
+  stravaDisconnect,
+  stravaGetStatus,
+  stravaWebhook,
+} from "./strava/functions";
 
 setGlobalOptions({maxInstances: 10});

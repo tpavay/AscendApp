@@ -49,11 +49,11 @@ The two missing Live Replay indexes are both collection-scoped `entries` indexes
 The current query filters every live race with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
-Current `develop` declares 25 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index, four more collection-scoped `entries` indexes for the live window's finished-attempt and own-history reads: `isBestForUser + finalSteps + splitBucketCount` in both directions, `userId + stepsAtBucket`, and `userId + finalSteps + splitBucketCount` - and five more collection-scoped `entries` indexes behind `bestForGoals` (`array-contains`) for a Just Climb run against a goal: `bestForGoals + stepsAtBucket` in both directions, `bestForGoals + finalSteps + splitBucketCount` in both directions, and `bestForGoals + userId` for the climber's own goal row.
+Current `develop` declares 27 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), the two matching `_strava_upload_jobs` upload-queue indexes (`docs/strava-integration.md`), the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index, four more collection-scoped `entries` indexes for the live window's finished-attempt and own-history reads: `isBestForUser + finalSteps + splitBucketCount` in both directions, `userId + stepsAtBucket`, and `userId + finalSteps + splitBucketCount` - and five more collection-scoped `entries` indexes behind `bestForGoals` (`array-contains`) for a Just Climb run against a goal: `bestForGoals + stepsAtBucket` in both directions, `bestForGoals + finalSteps + splitBucketCount` in both directions, and `bestForGoals + userId` for the climber's own goal row.
 Every `bestForGoals` index mirrors an `isBestForUser` window read exactly, because the goal-aware window is the same query with one different equality (`ascend-live-climbs`).
-It also declares six field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, and `_revenuecat_analytics_outbox.retainUntil`.
+It also declares seven field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, `_revenuecat_analytics_outbox.retainUntil`, and `_strava_upload_jobs.retainUntil`.
 The first four carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
-The two `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger and the analytics outbox.
+The three `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger, the analytics outbox, and the Strava upload queue.
 That restatement is required because a field override replaces the field's entire index configuration, and the server's best-entry reconciliation still queries `entries` by `userId` inside a single leaderboard.
 The production workflow waits until every composite index and every scope inside every field override reports `READY` before Functions deploy.
 `ascend-live-climbs` owns why the live window's finished-attempt and own-history reads exist; `scripts/test/production-backend-rollout.test.mjs` holds each of those queries' stated `orderBy` against the index declared for it, so a wrong field order fails there rather than as `FAILED_PRECONDITION` in production.
@@ -158,6 +158,33 @@ It never writes a climber's private workout: every reader repairs a clamped curv
 Seeded rows have no workout behind them and are skipped; the seed's own Just Climb window now reaches its slowest rival, so reseeding a board (`content:staging`) republishes its seeded long rivals.
 Measured on production (`ascend-prod-9c8f2`) on 2026-09-26, before the script existed: 29 bucket-zero entries across 10 boards, 4 of them an hour or longer, all on `just_climb__global` (74, 90, 101 and 150 minutes), each with `splitBucketCount` 360 and its final steps in bucket 359.
 The same day staging (`ascend-staging-fa7d5`) planned no writes: its 78 long rows across 62 boards are all seeded.
+
+### Profile heart-rate aggregates
+
+The profile comparison's heart-rate rows read two optional `profile_stats` fields, `average_heart_rate_bpm` and `max_heart_rate_bpm`, which the app derives and publishes itself (`ProfileHeartRateSummary`) and which carry only those two aggregates - never a sample or a per-climb heart rate.
+A climber can hide them with "Show my heart rate on my profile" (Settings -> Privacy), stored as `heart_rate_public` on the same document; the rules refuse a hidden document that carries either aggregate, and the backfill never writes heart rate for a hidden climber.
+The change is additive: builds that predate the fields keep writing `profile_stats` without them and keep passing the rules.
+The ordering is still load-bearing, because a build that publishes the fields writes them into the same merge as every other stat, and `hasOnly` rejects the whole document on an environment whose rules do not list them yet - that climber's entire public profile would stop updating, and publication failures are only logged.
+So the rules deploy before the binary that writes the fields, on every environment:
+
+1. Deploy `firestore:rules` (the deploy pipelines already do this before the archive).
+2. Only after step 1 has landed on that environment, run the backfill on staging, dry run first; a second run must report `Profiles to update: 0`.
+   The order matters in both directions: a field the backfill writes onto an environment whose rules do not list it yet makes every later publication from that climber fail `hasOnly`, including publications from builds that never heard of the field.
+
+```sh
+node scripts/backfill-profile-heart-rate.mjs --env staging
+node scripts/backfill-profile-heart-rate.mjs --env staging --apply
+```
+
+3. Run it on production the same way only when the captain decides to, dry run first, reading the dry run's `gaining heart rate` count as the measurement of how many published profiles it fills:
+
+```sh
+node scripts/backfill-profile-heart-rate.mjs --env prod --confirm-production ascend-prod-9c8f2
+node scripts/backfill-profile-heart-rate.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
+```
+
+The backfill is not a prerequisite for the binary: without it, a climber's heart rate appears the next time their own updated app republishes their profile, and the rows stay hidden until then.
+What it adds is coverage of climbers who have not updated or not opened the app, derived from their synced workouts; a later publication from a build that predates the fields leaves the backfilled numbers in place without refreshing them.
 
 ### Public identity backfill
 

@@ -1,0 +1,80 @@
+{
+  "description": "The public profile's heart-rate aggregates. ProfileHeartRateSummary.derive (Swift, publish time) and deriveProfileHeartRate in scripts/lib/profile-heart-rate.mjs (the backfill) must both produce every expected value, so a climber's published numbers never depend on which of the two wrote them. Average is the duration-weighted mean of each climb's own average over the climbs carrying one; max is the highest per-climb max; readings outside 25...250 bpm are ignored; null means the field is absent.",
+  "cases": [
+    {
+      "name": "no climbs publishes nothing",
+      "climbs": [],
+      "expected": { "averageBpm": null, "maxBpm": null }
+    },
+    {
+      "name": "climbs without heart rate publish nothing",
+      "climbs": [
+        { "durationSeconds": 1200, "averageBpm": null, "maxBpm": null },
+        { "durationSeconds": 900, "averageBpm": null, "maxBpm": null }
+      ],
+      "expected": { "averageBpm": null, "maxBpm": null }
+    },
+    {
+      "name": "one climb is its own aggregate",
+      "climbs": [
+        { "durationSeconds": 1200, "averageBpm": 141, "maxBpm": 172 }
+      ],
+      "expected": { "averageBpm": 141, "maxBpm": 172 }
+    },
+    {
+      "name": "the average is weighted by duration, not by climb",
+      "climbs": [
+        { "durationSeconds": 2400, "averageBpm": 150, "maxBpm": 176 },
+        { "durationSeconds": 600, "averageBpm": 120, "maxBpm": 181 }
+      ],
+      "expected": { "averageBpm": 144, "maxBpm": 181 }
+    },
+    {
+      "name": "climbs without heart rate do not dilute the average",
+      "climbs": [
+        { "durationSeconds": 1800, "averageBpm": 138, "maxBpm": 165 },
+        { "durationSeconds": 3600, "averageBpm": null, "maxBpm": null }
+      ],
+      "expected": { "averageBpm": 138, "maxBpm": 165 }
+    },
+    {
+      "name": "a half beat rounds up",
+      "climbs": [
+        { "durationSeconds": 600, "averageBpm": 140, "maxBpm": null },
+        { "durationSeconds": 600, "averageBpm": 141, "maxBpm": null }
+      ],
+      "expected": { "averageBpm": 141, "maxBpm": null }
+    },
+    {
+      "name": "an average on a zero-length climb carries no weight",
+      "climbs": [
+        { "durationSeconds": 0, "averageBpm": 200, "maxBpm": 200 },
+        { "durationSeconds": 900, "averageBpm": 130, "maxBpm": 160 }
+      ],
+      "expected": { "averageBpm": 130, "maxBpm": 200 }
+    },
+    {
+      "name": "implausible readings are ignored on both sides of the range",
+      "climbs": [
+        { "durationSeconds": 900, "averageBpm": 12, "maxBpm": 400 },
+        { "durationSeconds": 900, "averageBpm": 135, "maxBpm": 168 },
+        { "durationSeconds": 900, "averageBpm": 251, "maxBpm": 24 }
+      ],
+      "expected": { "averageBpm": 135, "maxBpm": 168 }
+    },
+    {
+      "name": "the range bounds themselves are plausible",
+      "climbs": [
+        { "durationSeconds": 600, "averageBpm": 25, "maxBpm": 250 }
+      ],
+      "expected": { "averageBpm": 25, "maxBpm": 250 }
+    },
+    {
+      "name": "a max without any average still publishes the max",
+      "climbs": [
+        { "durationSeconds": 900, "averageBpm": null, "maxBpm": 174 }
+      ],
+      "expected": { "averageBpm": null, "maxBpm": 174 }
+    }
+  ]
+}

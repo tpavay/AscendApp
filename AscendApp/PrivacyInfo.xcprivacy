@@ -135,6 +135,9 @@
 
         <!--
           Health - HealthKit reads plus user-entered body metrics (height, weight).
+          App Functionality also covers the average and max heart rate across a
+          climber's climbs, published to their public profile for the comparison
+          unless they switch off "Show my heart rate on my profile".
           Analytics is declared because banded body values reach Firebase Analytics
           and Mixpanel: `profile_weight_group` as a user property, and
           `profile_height_group` and the leaderboard `body_weight_filter` as event

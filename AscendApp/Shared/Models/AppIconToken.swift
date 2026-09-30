@@ -36,6 +36,7 @@ enum AppIconToken: Hashable, Sendable {
     case settingsRestorePurchases
     case settingsManageSubscription
     case settingsBlockedClimbers
+    case settingsHeartRateVisibility
     case profileBirthday
     case profileGender
     case profileWeight
@@ -106,6 +107,8 @@ enum AppIconToken: Hashable, Sendable {
             return .systemSymbol("creditcard")
         case .settingsBlockedClimbers:
             return .systemSymbol("person.crop.circle.badge.xmark")
+        case .settingsHeartRateVisibility:
+            return .systemSymbol("heart")
         case .profileBirthday:
             return .systemSymbol("calendar")
         case .profileGender:
