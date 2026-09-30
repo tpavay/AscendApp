@@ -39,6 +39,64 @@ test("push register payload trims metadata", () => {
   assert.equal(payload.platform, "ios");
 });
 
+test("an old caller's climb-drop-only preference request is unchanged", () => {
+  assert.deepEqual(
+    pushNotificationTestHooks.normalizePushPreferencesPayload({
+      climbDropPushEnabled: false,
+    }),
+    {championPushEnabled: null, climbDropPushEnabled: false}
+  );
+});
+
+test("the champion preference can change on its own or alongside", () => {
+  assert.deepEqual(
+    pushNotificationTestHooks.normalizePushPreferencesPayload({
+      championPushEnabled: false,
+    }),
+    {championPushEnabled: false, climbDropPushEnabled: null}
+  );
+  assert.deepEqual(
+    pushNotificationTestHooks.normalizePushPreferencesPayload({
+      championPushEnabled: true,
+      climbDropPushEnabled: true,
+    }),
+    {championPushEnabled: true, climbDropPushEnabled: true}
+  );
+});
+
+test("a preference request must change at least one preference", () => {
+  assert.throws(
+    () => pushNotificationTestHooks.normalizePushPreferencesPayload({}),
+    /climbDropPushEnabled or championPushEnabled is required/
+  );
+  assert.throws(
+    () => pushNotificationTestHooks.normalizePushPreferencesPayload({
+      championPushEnabled: null,
+      climbDropPushEnabled: null,
+    }),
+    /climbDropPushEnabled or championPushEnabled is required/
+  );
+});
+
+test("a preference that is not a boolean is refused", () => {
+  assert.throws(
+    () => pushNotificationTestHooks.normalizePushPreferencesPayload({
+      championPushEnabled: "no",
+    }),
+    /championPushEnabled must be a boolean/
+  );
+  assert.throws(
+    () => pushNotificationTestHooks.normalizePushPreferencesPayload({
+      climbDropPushEnabled: 1,
+    }),
+    /climbDropPushEnabled must be a boolean/
+  );
+  assert.throws(
+    () => pushNotificationTestHooks.normalizePushPreferencesPayload(null),
+    /Payload must be an object/
+  );
+});
+
 test("climb-drop send payload defaults to all opted-in devices", () => {
   const payload = pushNotificationTestHooks.normalizeSendClimbDropPayload({
     body: "A new climb just opened.",

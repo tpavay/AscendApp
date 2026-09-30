@@ -129,40 +129,20 @@ struct HomeTodayActivityRowView: View {
         }
     }
 
-    @ViewBuilder
     private var avatar: some View {
-        if let photoURL = row.identity.photoURL {
-            AsyncImage(url: photoURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                default:
-                    avatarToken
-                }
-            }
-            .frame(width: 38, height: 38)
-            .clipShape(Circle())
-            .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
-        } else {
-            avatarToken
-        }
-    }
-
-    private var avatarToken: some View {
-        Group {
-            if row.identity.avatarToken.isEmpty {
-                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
-                    .font(.system(size: 15, weight: .semibold))
-            } else {
-                Text(row.identity.avatarToken)
-                    .font(.montserratBold(size: 12))
-            }
-        }
-        .foregroundStyle(row.isCurrentUser ? .black : .white)
-        .frame(width: 38, height: 38)
-        .background(Circle().fill(row.isCurrentUser ? Color.accent : Color.white.opacity(0.14)))
+        ClimberAvatar(
+            userId: row.userId,
+            isCurrentUser: row.isCurrentUser,
+            photoURL: row.identity.photoURL,
+            placeholder: .initials(
+                row.identity.avatarToken,
+                fill: row.isCurrentUser ? Color.accent : Color.white.opacity(0.14),
+                foreground: row.isCurrentUser ? .black : .white,
+                fontSize: 12
+            ),
+            size: 38,
+            border: .init(color: .white.opacity(0.12), width: 1, onlyOverPhoto: true)
+        )
         .accessibilityHidden(true)
     }
 }

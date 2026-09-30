@@ -1,18 +1,33 @@
 /**
- * Weekly and monthly recap emails.
+ * Weekly and monthly period recaps: one composition, two channels.
  *
- * Two scheduled sweeps - one per cadence - that compose and enqueue a recap
- * for every climber who has ever had at least one eligible workout. An
- * ACTIVE climber (activity in the closed window) gets a stats recap: a
- * rank/percentile hero, an optional row of earned achievement badges, stat
- * cards with delta chips against the prior period, and an activity
- * calendar heatmap. A ZERO-ACTIVITY climber (no activity in the window, but
- * a real history before it) gets a gentle re-engagement email instead,
- * naming the real gap since they were last active and their First Ascents,
- * if they hold any. A climber who has never completed a climb at all gets
- * neither - that gap belongs to the onboarding-abandonment lifecycle emails,
- * not this one, so a brand-new signup mid-onboarding is never told "we
- * missed you".
+ * COMPOSE (00:30 UTC, `composeWeeklyRecaps` / `composeMonthlyRecaps`) writes
+ * `users/{uid}/recaps/{cadence}_{periodKey}` once per climber for the period
+ * that just closed (docs/champion-recognition.md owns the document contract).
+ * An ACTIVE climber (activity in the closed window) gets the `active`
+ * variant: rank, climber count, percentile band, climbs/steps/floors with
+ * their prior-period values, award rank, the period's First Ascents,
+ * landmarks finished, streak and calendar - raw values the app renders. A
+ * ZERO-ACTIVITY climber (no activity in the window, but a real history
+ * before it) gets the `inactive` variant: the real gap since they last
+ * climbed, the First Ascents they hold, and a suggested comeback climb. An
+ * account that has never climbed but holds `entitlements/app_access` gets
+ * `never_climbed`, which carries neither map. Compose writes for every such
+ * climber whether or not they have an email address, and never overwrites a
+ * recap that already exists - a re-run can never reset a `seenAt`.
+ *
+ * SEND (13:00 UTC, `weeklyRecapEmails` / `monthlyRecapEmails`) reads those
+ * stored recaps back and maps each one onto the existing email payloads, so
+ * the app and the email can never disagree about a climber's period. The
+ * send keeps every rule the emails always had: an email address is
+ * required, consent is gated at enqueue, the dedupe key is per climber per
+ * period, and a zero-activity climber who has already come back (latest
+ * workout at or after the period's end) gets no "we missed you" email. A
+ * `never_climbed` recap is app-only - that gap belongs to the
+ * onboarding-abandonment lifecycle emails, not this one, so a brand-new
+ * signup mid-onboarding is never told "we missed you". If compose never ran
+ * for the period, send logs an error and sends nothing rather than composing
+ * a second, different answer.
  *
  * Design direction (captain, 2026-09-24, Wispr-Flow-inspired layout,
  * Ascend's own dark/green/landmark brand - see templates.ts for the render
@@ -50,6 +65,17 @@
  * processor.ts, and unsubscribe.ts are untouched apart from registering the
  * four new EmailType entries.
  *
+ * COMPOSE WAITS FOR THE FINALIZER. The award rank is read from the
+ * achievement record `finalizeLeaderboardAchievements` writes at 00:15 UTC,
+ * and a recap is written once, for good - so compose first checks that the
+ * closed period's `leaderboard_periods/{cadence}_{periodKey}` record reads
+ * `finalized` (the finalizer commits that status last, once every
+ * achievement has landed). Until it does, and for up to an hour after the
+ * period closed, compose writes nothing and fails the run so Cloud Scheduler
+ * retries it ten minutes later; past that hour it composes anyway and logs
+ * the missing finalization loudly, because a recap without a badge beats no
+ * recap at all.
+ *
  * EFFICIENT SOURCING. `leaderboard_stats` already carries one document per
  * {user, timeFrame, period} with totals derived from that user's workouts
  * (leaderboardStats.ts), and a period with zero workouts never gets a row at
@@ -60,6 +86,13 @@
  *   - The "has ever climbed" population is exactly the rows at
  *     {timeFrame: "all_time"} - same shape, same cost.
  *   - ZERO-ACTIVITY is the set difference of those two, computed in memory.
+ *   - NEVER-CLIMBED is every `users/{uid}/entitlements/app_access` grant
+ *     (a collection-group read on the `accessUntil` index the expiry sweep
+ *     already uses) whose holder is in neither set. A grant exists only
+ *     while access is live, so this is exactly the paying and comped
+ *     accounts. It is skipped outright when the `all_time` scan was
+ *     truncated: a climber past that cutoff would otherwise be told, for
+ *     good, that they have never climbed.
  *   - RANK AND PERCENTILE come from ranking the already-loaded active cohort
  *     in memory (mirroring leaderboardAchievements.ts's standard competition
  *     ranking, uncapped) rather than a second Firestore read per user - the
@@ -85,20 +118,23 @@
  * bounded by cohort size: an active climber's is a `startedAt` range query
  * bounded to the single closed period, to resolve landmark completions and
  * the daily activity calendar; a zero-activity climber's is one indexed
- * `orderBy("startedAt", "desc").limit(1)` read of their latest workout, for
- * the real gap (`fetchLatestWorkoutStartedAt`). Neither is a scan.
- * Per-recipient composition and enqueue runs with bounded concurrency
- * (`RECIPIENT_CONCURRENCY`), not sequentially, so a large cohort cannot run
- * the 540s invocation out the clock and silently strand the rest of a
- * period's recipients - `onSchedule` does not retry a timed-out run.
+ * `orderBy("startedAt", "desc").limit(1)` read of their latest workout
+ * before the period closed, for the real gap
+ * (`fetchLatestWorkoutStartedAt`). Neither is a scan. The send step adds one
+ * more of those latest-workout reads per zero-activity recap, unbounded by
+ * the period this time, because "already came back" is a fact about 13:00,
+ * not about 00:30. Per-recipient composition, and per-recipient enqueue,
+ * run with bounded concurrency (`RECIPIENT_CONCURRENCY`), not sequentially,
+ * so a large cohort cannot run the 540s invocation out the clock and
+ * silently strand the rest of a period's recipients - a timed-out
+ * `onSchedule` run is not resumed where it stopped.
  *
  * DOCUMENTED ASSUMPTIONS:
- *   - Send time: weekly Monday 13:00 UTC, monthly the 1st at 13:00 UTC. Both
- *     land comfortably after the 00:15 UTC finalizer
- *     (leaderboardAchievements.ts) has frozen that closed period's global
- *     steps achievements - moot for rank/percentile now that both are
- *     computed directly from `leaderboard_stats`, but still true for the
- *     permanent achievement records themselves.
+ *   - Compose time: weekly Monday 00:30 UTC, monthly the 1st at 00:30 UTC,
+ *     fifteen minutes after the 00:15 UTC finalizer
+ *     (leaderboardAchievements.ts) - see COMPOSE WAITS FOR THE FINALIZER.
+ *     Send time: weekly Monday 13:00 UTC, monthly the 1st at 13:00 UTC,
+ *     unchanged from when the email composed itself.
  *   - The monthly recap does not suppress the weekly recap in the same
  *     calendar week (the two answer different questions - "last week" vs.
  *     "last month" - and neither is a subset view of the other; a week can
@@ -114,16 +150,23 @@
  *     period - never a decline or an unchanged figure - so the recap can
  *     never read as a scolding. A flat or down period simply shows no chip
  *     on that stat.
- *   - The zero-activity email's gap ("We haven't seen you in N weeks/
- *     months") reads the climber's latest workout `startedAt` - one indexed
- *     `orderBy("startedAt", "desc").limit(1)` read per zero-activity
- *     climber, never their history. The `all_time` row's `lastUpdated` is
- *     not a last-activity time: every reconcile (a demographics edit, an
- *     old workout's edit or delete, a backfill) restamps it. A latest
- *     workout at or after the closed period's end means the climber already
- *     came back, so no zero-activity email is sent. Falls back to the
- *     closed period's own start date on the defensive case where no
- *     workout is found.
+ *   - The zero-activity gap ("We haven't seen you in N weeks/months") reads
+ *     the climber's latest workout `startedAt` before the closed period's
+ *     end - one indexed `orderBy("startedAt", "desc").limit(1)` read per
+ *     zero-activity climber, never their history - measured against the
+ *     compose run's clock and stored as `inactive.gapCount`. The `all_time`
+ *     row's `lastUpdated` is not a last-activity time: every reconcile (a
+ *     demographics edit, an old workout's edit or delete, a backfill)
+ *     restamps it. The send step re-runs compose first, so a climb that
+ *     synced after 00:30 but started inside the period recomposes that
+ *     climber's stored inactive recap as active (keeping `seenAt`), and the
+ *     email and the app read the same corrected document. At send time a
+ *     latest workout at or after the closed period's start means the climber
+ *     climbed in it or already came back, so no zero-activity email is ever
+ *     sent for it; one newer than the stored `lastClimbAt` but before the
+ *     period (an older climb that synced late) rewrites the stored gap
+ *     before the email is sent. Falls back to the closed period's own start
+ *     date on the defensive case where no workout is found.
  *   - First Ascents in the zero-activity email read
  *     `live_replay_leaderboards` where `firstAscentUserId == uid` - the one
  *     durable, permanent record `liveReplayLeaderboard.ts` writes when a
@@ -191,15 +234,19 @@ import {
 import {
   type CatalogClimb,
   availableClimbIds,
+  claimReceipt,
   makeHostedClimbCatalogSource,
   referenceStepCount,
 } from "./climbDropNotifications";
 import {runWithBoundedConcurrency} from "./concurrency";
+import {keepNewestRow} from "./leaderboardResults";
 import {
   enqueueLifecycleEmailIfAllowed,
   type EnqueueLifecycleEmailOutcome,
 } from "./email/queue";
 import type {
+  EmailJobPayload,
+  EmailType,
   RecapActivePayload,
   RecapCalendarCell,
   RecapDeltaChip,
@@ -223,22 +270,45 @@ const APP_STORE_URL = "https://apps.apple.com/app/id6757202987";
 
 const USERS_COLLECTION = "users";
 const WORKOUTS_COLLECTION = "workouts";
+const RECAPS_COLLECTION = "recaps";
+const ENTITLEMENTS_COLLECTION = "entitlements";
+const APP_ACCESS_ENTITLEMENT_ID = "app_access";
 const LEADERBOARD_STATS_COLLECTION = "leaderboard_stats";
+const LEADERBOARD_PERIODS_COLLECTION = "leaderboard_periods";
 const ACHIEVEMENTS_COLLECTION = "achievements";
 const LIVE_REPLAY_LEADERBOARDS_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
+const RECAP_SCHEMA_VERSION = 1;
 
-/** Page size and page budget for the two `leaderboard_stats` cohort scans. */
+/**
+ * Page size and page budget for each cohort scan: the two
+ * `leaderboard_stats` scans and the `app_access` grant scan.
+ */
 const DEFAULT_COHORT_SCAN_BOUND: CohortScanBound = {
   maxPages: 50,
   pageSize: 200,
 };
+/**
+ * Page size and page budget for the send step's read of a period's stored
+ * recaps. Every cohort compose writes lands here, so it gets the sum of
+ * their budgets.
+ */
+const DEFAULT_RECAP_SCAN_BOUND: CohortScanBound = {
+  maxPages: 150,
+  pageSize: 200,
+};
+/**
+ * How long after a period closes compose keeps waiting for the finalizer
+ * before it composes without the achievement records.
+ */
+const FINALIZATION_GRACE_MS = 60 * 60 * 1000;
 /** Bounds how far back the streak walk reads before giving up. */
 const MAX_WEEKLY_STREAK_LOOKBACK = 26;
 /** Recipients composed and enqueued at once, per sweep. */
 const RECIPIENT_CONCURRENCY = 10;
 
 export type RecapCadence = "weekly" | "monthly";
+export type RecapVariant = "active" | "inactive" | "never_climbed";
 
 interface LeaderboardStatsRow {
   totalFloors: number;
@@ -256,12 +326,111 @@ export interface CohortScanBound {
   pageSize: number;
 }
 
-export interface RecapSweepSummary {
-  activeUserCount: number;
-  alreadyQueued: number;
+/** A First Ascent claimed in the recap's period, as stored. */
+export interface StoredRecapFirstAscent {
+  climbId: string;
+  /** Null when the hosted catalogue could not name the climb. */
+  name: string | null;
+}
+
+/**
+ * The `active` map of a stored recap: raw values the app renders, never
+ * pre-formatted email chips. docs/champion-recognition.md documents each
+ * field.
+ */
+export interface StoredRecapActive {
+  awardRank: number | null;
+  calendar: RecapCalendarCell[];
+  climberCount: number | null;
+  climbs: number;
+  currentStreakWeeks: number | null;
+  firstAscents: StoredRecapFirstAscent[];
+  floors: number;
+  landmarksFinished: string[];
+  percentileBand: string | null;
+  previousClimbs: number | null;
+  previousFloors: number | null;
+  previousSteps: number | null;
+  rank: number;
+  steps: number;
+}
+
+/** The `inactive` map of a stored recap. */
+export interface StoredRecapInactive {
+  firstAscentsHeld: string[];
+  gapCount: number;
+  lastClimbAt: admin.firestore.Timestamp | null;
+  suggestedClimbId: string | null;
+  suggestedClimbName: string | null;
+}
+
+interface StoredRecapBase {
+  cadence: RecapCadence;
+  periodKey: string;
+  periodLabel: string;
+}
+
+/** A stored recap as the send step reads it back. */
+export type StoredRecap =
+  | StoredRecapBase & {
+      active: StoredRecapActive;
+      inactive: null;
+      variant: "active";
+    }
+  | StoredRecapBase & {
+      active: null;
+      inactive: StoredRecapInactive;
+      variant: "inactive";
+    }
+  | StoredRecapBase & {
+      active: null;
+      inactive: null;
+      variant: "never_climbed";
+    };
+
+/** Who a compose run writes a recap for, one list per variant. */
+export interface RecapCohortPlan {
+  active: string[];
+  inactive: string[];
+  neverClimbed: string[];
+}
+
+/**
+ * How a compose run ended. `awaiting_finalization` wrote nothing and asks
+ * for a retry; `skipped_truncated` wrote nothing because the active cohort
+ * could not be read whole.
+ */
+export type RecapComposeOutcome =
+  | "composed"
+  | "awaiting_finalization"
+  | "skipped_truncated";
+
+export interface RecapComposeSummary {
+  activeCount: number;
+  alreadyComposed: number;
+  composed: number;
+  /** Stored inactive recaps a late-synced climb in the period made active. */
+  recomposed: number;
+  entitledUserCount: number;
   errors: number;
   everActiveUserCount: number;
+  inactiveCount: number;
+  neverClimbedCount: number;
+  outcome: RecapComposeOutcome;
+  periodKey: string;
+}
+
+export interface RecapSendSummary {
+  alreadyQueued: number;
+  /** Recaps the send's own compose pass had to create. */
+  composedAtSend: number;
+  errors: number;
+  periodKey: string;
   queued: number;
+  recapCount: number;
+  /** True when compose left nothing to send for the period. */
+  recapsMissing: boolean;
+  skippedNeverClimbed: number;
   skippedNoEmail: number;
   suppressed: number;
 }
@@ -284,6 +453,20 @@ export function buildRecapDedupeKey(
   uid: string
 ): string {
   return `${cadence}-recap:${periodKey}:${uid}`;
+}
+
+/**
+ * Builds the id of a climber's stored recap for one closed period, under
+ * `users/{uid}/recaps/`.
+ * @param {RecapCadence} cadence - Weekly or monthly
+ * @param {string} periodKey - Closed period key (e.g. "2026-W38")
+ * @return {string} Recap document id, e.g. "weekly_2026-W38"
+ */
+export function buildRecapDocumentId(
+  cadence: RecapCadence,
+  periodKey: string
+): string {
+  return `${cadence}_${periodKey}`;
 }
 
 /**
@@ -320,15 +503,42 @@ export function buildFirstAscentBadge(
   if (distinctIds.length === 0) {
     return undefined;
   }
-  const label = distinctIds.length === 1 ? "First Ascent" : "First Ascents";
   const allResolved = distinctIds.every((climbId) =>
     climbNameById.has(climbId));
+  return firstAscentBadge(
+    distinctIds.length,
+    allResolved ? dedupeLandmarkNames(distinctIds, climbNameById) : null
+  );
+}
+
+/**
+ * Builds the First Ascent badge for the lifetime-held First Ascents a
+ * zero-activity recap stores by name - every one already resolved by the
+ * catalogue at compose time, so the badge always names them.
+ * @param {string[]} names - Held First Ascent landmark names
+ * @return {RecapEarnedBadge | undefined} The badge, or nothing with none
+ */
+export function buildHeldFirstAscentBadge(
+  names: string[]
+): RecapEarnedBadge | undefined {
+  return names.length === 0 ? undefined : firstAscentBadge(names.length, names);
+}
+
+/**
+ * The one shape of a First Ascent badge, singular or plural.
+ * @param {number} count - Distinct landmarks first-ascended
+ * @param {string[] | null} names - Every landmark's name, or null when any
+ *   one of them could not be named
+ * @return {RecapEarnedBadge} The badge
+ */
+function firstAscentBadge(
+  count: number,
+  names: string[] | null
+): RecapEarnedBadge {
   return {
-    ...(allResolved ?
-      {detail: dedupeLandmarkNames(distinctIds, climbNameById).join(", ")} :
-      {}),
+    ...(names ? {detail: names.join(", ")} : {}),
     id: "first-ascent",
-    label,
+    label: count === 1 ? "First Ascent" : "First Ascents",
   };
 }
 
@@ -378,6 +588,21 @@ export function formatMonthlyPeriodLabel(
     timeZone: "UTC",
     year: "numeric",
   });
+}
+
+/**
+ * Formats a closed period's label for its cadence.
+ * @param {RecapCadence} cadence - Weekly or monthly
+ * @param {ClosedLeaderboardPeriod} period - The closed window
+ * @return {string} Display label
+ */
+export function formatRecapPeriodLabel(
+  cadence: RecapCadence,
+  period: ClosedLeaderboardPeriod
+): string {
+  return cadence === "weekly" ?
+    formatWeeklyPeriodLabel(period) :
+    formatMonthlyPeriodLabel(period);
 }
 
 /**
@@ -642,6 +867,415 @@ export function buildCalendarCells(
   return cells;
 }
 
+/**
+ * Decides which recap variant each climber gets for one closed period.
+ *
+ * `active` is every climber ranked this period (steps above zero).
+ * `inactive` is every climber with lifetime steps and no row at all this
+ * period. `never_climbed` is every `app_access` holder in neither set. A
+ * climber with a zero-step row this period is in none of them: they logged a
+ * session, so "we missed you" and "start your first climb" would both be
+ * wrong, and there is no rank to show - the same silence the recap email
+ * always kept for them. `entitledUserIds` is null when the lifetime cohort
+ * could not be read whole, which withholds every `never_climbed` recap
+ * rather than risk telling a veteran past the scan cutoff, permanently, that
+ * they have never climbed.
+ * @param {object} input - The period's cohorts
+ * @return {RecapCohortPlan} Climber ids per variant
+ */
+export function planRecapCohorts(input: {
+  activeRows: Map<string, unknown>;
+  entitledUserIds: Set<string> | null;
+  everActiveUserIds: Set<string>;
+  standings: Map<string, RecapStanding>;
+}): RecapCohortPlan {
+  const active = [...input.standings.keys()];
+  const inactive = [...input.everActiveUserIds]
+    .filter((uid) => !input.activeRows.has(uid));
+  const neverClimbed = input.entitledUserIds === null ?
+    [] :
+    [...input.entitledUserIds].filter((uid) =>
+      !input.everActiveUserIds.has(uid) && !input.activeRows.has(uid));
+  return {active, inactive, neverClimbed};
+}
+
+/**
+ * Whether compose must hold off because the finalizer has not frozen the
+ * closed period's achievements yet. Past the grace window it stops waiting:
+ * a recap missing its award badge beats no recap at all.
+ * @param {boolean} finalized - Whether the period record reads `finalized`
+ * @param {ClosedLeaderboardPeriod} period - The closed window
+ * @param {Date} now - The compose run's clock
+ * @param {number} graceMs - How long after the close to keep waiting
+ * @return {boolean} True when compose should write nothing and retry
+ */
+export function shouldAwaitFinalization(
+  finalized: boolean,
+  period: ClosedLeaderboardPeriod,
+  now: Date,
+  graceMs: number = FINALIZATION_GRACE_MS
+): boolean {
+  return !finalized && now.getTime() - period.endAt.getTime() < graceMs;
+}
+
+/**
+ * Builds the stored `active` map from what compose read for one climber.
+ * @param {object} input - The climber's period, standing, and reads
+ * @return {StoredRecapActive} Raw values the app renders
+ */
+export function buildStoredActiveRecap(input: {
+  aggregate: LeaderboardStatsRow;
+  awardRank: number | null;
+  climbNameById: Map<string, string>;
+  completedClimbIds: string[];
+  currentStreakWeeks: number | null;
+  firstAscentClimbIds: string[];
+  period: ClosedLeaderboardPeriod;
+  previousTotals: LeaderboardStatsRow | null;
+  standing: RecapStanding;
+  stepsByDayKey: Map<string, number>;
+}): StoredRecapActive {
+  const {aggregate, previousTotals, standing} = input;
+  return {
+    awardRank: input.awardRank,
+    calendar: buildCalendarCells(input.period, input.stepsByDayKey),
+    climberCount: isRankableField(standing.fieldSize) ?
+      standing.fieldSize :
+      null,
+    climbs: aggregate.totalWorkouts,
+    currentStreakWeeks: input.currentStreakWeeks,
+    firstAscents: [...new Set(input.firstAscentClimbIds)].map((climbId) => ({
+      climbId,
+      name: input.climbNameById.get(climbId) ?? null,
+    })),
+    floors: aggregate.totalFloors,
+    landmarksFinished: dedupeLandmarkNames(
+      input.completedClimbIds,
+      input.climbNameById
+    ),
+    percentileBand: percentileBand(standing.rank, standing.fieldSize) ?? null,
+    previousClimbs: previousTotals?.totalWorkouts ?? null,
+    previousFloors: previousTotals?.totalFloors ?? null,
+    previousSteps: previousTotals?.totalSteps ?? null,
+    rank: standing.rank,
+    steps: aggregate.totalSteps,
+  };
+}
+
+/**
+ * Builds the stored `inactive` map from what compose read for one climber.
+ * A First Ascent the catalogue cannot name is left out rather than shown as
+ * a raw id.
+ * @param {object} input - The climber's last climb, holdings, and the run
+ * @return {StoredRecapInactive} Raw values the app renders
+ */
+export function buildStoredInactiveRecap(input: {
+  cadence: RecapCadence;
+  climbNameById: Map<string, string>;
+  firstAscentClimbIds: string[];
+  lastClimbAt: Date | null;
+  now: Date;
+  period: ClosedLeaderboardPeriod;
+  suggestedClimb: CatalogClimb | null;
+}): StoredRecapInactive {
+  const heldClimbIds = input.firstAscentClimbIds
+    .filter((climbId) => input.climbNameById.has(climbId));
+  const since = input.lastClimbAt ?? input.period.startAt;
+  return {
+    firstAscentsHeld: dedupeLandmarkNames(heldClimbIds, input.climbNameById),
+    gapCount: input.cadence === "weekly" ?
+      weeksSince(since, input.now) :
+      monthsSince(since, input.now),
+    lastClimbAt: input.lastClimbAt ?
+      admin.firestore.Timestamp.fromDate(input.lastClimbAt) :
+      null,
+    suggestedClimbId: input.suggestedClimb?.id ?? null,
+    suggestedClimbName: input.suggestedClimb?.name ?? null,
+  };
+}
+
+/**
+ * Maps a stored `active` recap onto the active email's payload - the one
+ * place the email's chips and badges are derived from the app's raw values.
+ * A missing `climberCount` means a field of one: the climber holds a rank,
+ * so the field is at least one, and it was stored only above one.
+ * @param {RecapCadence} cadence - Weekly or monthly
+ * @param {string} periodLabel - The stored period label
+ * @param {StoredRecapActive} active - The stored `active` map
+ * @return {RecapActivePayload} The email payload
+ */
+export function buildActiveRecapEmailPayload(
+  cadence: RecapCadence,
+  periodLabel: string,
+  active: StoredRecapActive
+): RecapActivePayload {
+  const deltaLabel = cadence === "weekly" ? "vs last week" : "vs last month";
+  const firstAscentNames = new Map<string, string>();
+  for (const firstAscent of active.firstAscents) {
+    if (firstAscent.name !== null) {
+      firstAscentNames.set(firstAscent.climbId, firstAscent.name);
+    }
+  }
+  const earnedBadges: RecapEarnedBadge[] = [
+    active.awardRank !== null ? buildRankBadge(active.awardRank) : undefined,
+    buildFirstAscentBadge(
+      active.firstAscents.map((firstAscent) => firstAscent.climbId),
+      firstAscentNames
+    ),
+  ].filter((badge): badge is RecapEarnedBadge => badge !== undefined);
+
+  return {
+    calendar: active.calendar,
+    earnedBadges,
+    climbsCompleted: active.climbs,
+    climbsDelta: buildDeltaChip(
+      active.climbs,
+      active.previousClimbs,
+      deltaLabel
+    ),
+    ctaUrl: APP_STORE_URL,
+    currentStreakWeeks: active.currentStreakWeeks ?? undefined,
+    fieldSize: active.climberCount ?? 1,
+    floorsDelta: buildDeltaChip(
+      active.floors,
+      active.previousFloors,
+      deltaLabel
+    ),
+    landmarksFinished: active.landmarksFinished,
+    percentileBand: active.percentileBand ?? undefined,
+    periodLabel,
+    rank: active.rank,
+    stepsDelta: buildDeltaChip(
+      active.steps,
+      active.previousSteps,
+      deltaLabel
+    ),
+    totalFloors: active.floors,
+    totalSteps: active.steps,
+  };
+}
+
+/**
+ * Maps a stored `inactive` recap onto the zero-activity email's payload.
+ * @param {string} periodLabel - The stored period label
+ * @param {StoredRecapInactive} inactive - The stored `inactive` map
+ * @return {RecapInactivePayload} The email payload
+ */
+export function buildInactiveRecapEmailPayload(
+  periodLabel: string,
+  inactive: StoredRecapInactive
+): RecapInactivePayload {
+  return {
+    ctaUrl: APP_STORE_URL,
+    earnedBadges: [
+      buildHeldFirstAscentBadge(inactive.firstAscentsHeld),
+    ].filter(
+      (badge): badge is RecapEarnedBadge => badge !== undefined
+    ),
+    firstAscents: inactive.firstAscentsHeld,
+    gapCount: inactive.gapCount,
+    periodLabel,
+    suggestedClimbName: inactive.suggestedClimbName ?? undefined,
+  };
+}
+
+/**
+ * Reads a stored recap document back, refusing a malformed one rather than
+ * sending an email built from half of it.
+ * @param {Record<string, unknown>} data - The recap document's fields
+ * @return {StoredRecap | null} The recap, or null when it is malformed
+ */
+export function parseStoredRecap(
+  data: Record<string, unknown>
+): StoredRecap | null {
+  const cadence = data.cadence;
+  const periodKey = stringValue(data.periodKey);
+  const periodLabel = stringValue(data.periodLabel);
+  if ((cadence !== "weekly" && cadence !== "monthly") ||
+    !periodKey ||
+    !periodLabel) {
+    return null;
+  }
+  const base = {cadence, periodKey, periodLabel} as const;
+
+  switch (data.variant) {
+  case "active": {
+    const active = parseStoredActive(data.active);
+    return active && data.inactive === null ?
+      {...base, active, inactive: null, variant: "active"} :
+      null;
+  }
+  case "inactive": {
+    const inactive = parseStoredInactive(data.inactive);
+    return inactive && data.active === null ?
+      {...base, active: null, inactive, variant: "inactive"} :
+      null;
+  }
+  case "never_climbed":
+    return data.active === null && data.inactive === null ?
+      {...base, active: null, inactive: null, variant: "never_climbed"} :
+      null;
+  default:
+    return null;
+  }
+}
+
+/**
+ * Parses a stored `active` map.
+ * @param {unknown} value - Candidate map
+ * @return {StoredRecapActive | null} The map, or null when malformed
+ */
+function parseStoredActive(value: unknown): StoredRecapActive | null {
+  if (!isPlainRecord(value)) {
+    return null;
+  }
+  const rank = value.rank;
+  const counts = [value.climbs, value.steps, value.floors];
+  const calendar = parseCalendar(value.calendar);
+  const firstAscents = parseFirstAscents(value.firstAscents);
+  const landmarksFinished = parseStringArray(value.landmarksFinished);
+  const nullableNumbers = [
+    value.awardRank,
+    value.climberCount,
+    value.currentStreakWeeks,
+    value.previousClimbs,
+    value.previousFloors,
+    value.previousSteps,
+  ];
+  if (typeof rank !== "number" || rank < 1 ||
+    !counts.every(isFiniteNumber) ||
+    !nullableNumbers.every((entry) =>
+      entry === null || isFiniteNumber(entry)) ||
+    (value.percentileBand !== null &&
+      typeof value.percentileBand !== "string") ||
+    !calendar || !firstAscents || !landmarksFinished) {
+    return null;
+  }
+  return {
+    awardRank: value.awardRank as number | null,
+    calendar,
+    climberCount: value.climberCount as number | null,
+    climbs: value.climbs as number,
+    currentStreakWeeks: value.currentStreakWeeks as number | null,
+    firstAscents,
+    floors: value.floors as number,
+    landmarksFinished,
+    percentileBand: value.percentileBand as string | null,
+    previousClimbs: value.previousClimbs as number | null,
+    previousFloors: value.previousFloors as number | null,
+    previousSteps: value.previousSteps as number | null,
+    rank,
+    steps: value.steps as number,
+  };
+}
+
+/**
+ * Parses a stored `inactive` map.
+ * @param {unknown} value - Candidate map
+ * @return {StoredRecapInactive | null} The map, or null when malformed
+ */
+function parseStoredInactive(value: unknown): StoredRecapInactive | null {
+  if (!isPlainRecord(value)) {
+    return null;
+  }
+  const firstAscentsHeld = parseStringArray(value.firstAscentsHeld);
+  const lastClimbAt = value.lastClimbAt;
+  const optionalStrings = [value.suggestedClimbId, value.suggestedClimbName];
+  if (!firstAscentsHeld ||
+    !isFiniteNumber(value.gapCount) ||
+    (lastClimbAt !== null &&
+      !(lastClimbAt instanceof admin.firestore.Timestamp)) ||
+    !optionalStrings.every((entry) =>
+      entry === null || typeof entry === "string")) {
+    return null;
+  }
+  return {
+    firstAscentsHeld,
+    gapCount: value.gapCount as number,
+    lastClimbAt: lastClimbAt as admin.firestore.Timestamp | null,
+    suggestedClimbId: value.suggestedClimbId as string | null,
+    suggestedClimbName: value.suggestedClimbName as string | null,
+  };
+}
+
+/**
+ * Parses stored calendar cells.
+ * @param {unknown} value - Candidate array
+ * @return {RecapCalendarCell[] | null} The cells, or null when malformed
+ */
+function parseCalendar(value: unknown): RecapCalendarCell[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const levels = new Set(["blank", "none", "active", "peak"]);
+  const cells: RecapCalendarCell[] = [];
+  for (const cell of value) {
+    if (!isPlainRecord(cell) ||
+      !(cell.dayOfMonth === null || isFiniteNumber(cell.dayOfMonth)) ||
+      typeof cell.level !== "string" ||
+      !levels.has(cell.level)) {
+      return null;
+    }
+    cells.push({
+      dayOfMonth: cell.dayOfMonth as number | null,
+      level: cell.level as RecapCalendarCell["level"],
+    });
+  }
+  return cells;
+}
+
+/**
+ * Parses stored period First Ascents.
+ * @param {unknown} value - Candidate array
+ * @return {StoredRecapFirstAscent[] | null} The entries, or null when
+ *   malformed
+ */
+function parseFirstAscents(value: unknown): StoredRecapFirstAscent[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const firstAscents: StoredRecapFirstAscent[] = [];
+  for (const entry of value) {
+    if (!isPlainRecord(entry) ||
+      typeof entry.climbId !== "string" ||
+      !(entry.name === null || typeof entry.name === "string")) {
+      return null;
+    }
+    firstAscents.push({climbId: entry.climbId, name: entry.name});
+  }
+  return firstAscents;
+}
+
+/**
+ * Parses a stored array of strings.
+ * @param {unknown} value - Candidate array
+ * @return {string[] | null} The strings, or null when malformed
+ */
+function parseStringArray(value: unknown): string[] | null {
+  return Array.isArray(value) &&
+    value.every((entry) => typeof entry === "string") ?
+    value as string[] :
+    null;
+}
+
+/**
+ * Whether a value is a plain field map.
+ * @param {unknown} value - Candidate value
+ * @return {boolean} True for a non-array object
+ */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Whether a value is a finite number.
+ * @param {unknown} value - Candidate value
+ * @return {boolean} True for a finite number
+ */
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 // =============================================================================
 // Firestore-backed composition and enqueue
 // =============================================================================
@@ -670,7 +1304,10 @@ async function pageLeaderboardStatsRows(
   label: string,
   bound: CohortScanBound
 ): Promise<{rows: Map<string, LeaderboardStatsRow>; truncated: boolean}> {
-  const rows = new Map<string, LeaderboardStatsRow>();
+  const rows = new Map<
+    string,
+    LeaderboardStatsRow & {userId: string; lastUpdated: Date}
+  >();
   let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
   let pagesRead = 0;
 
@@ -695,7 +1332,11 @@ async function pageLeaderboardStatsRows(
       if (!userId) {
         continue;
       }
-      rows.set(userId, {
+      keepNewestRow(rows, {
+        userId,
+        lastUpdated: data.lastUpdated instanceof admin.firestore.Timestamp ?
+          data.lastUpdated.toDate() :
+          new Date(0),
         totalFloors: numberValue(data.totalFloors),
         totalSteps: numberValue(data.totalSteps),
         totalWorkouts: numberValue(data.totalWorkouts),
@@ -786,16 +1427,27 @@ async function fetchPeriodWorkoutDetails(
  * Reads when the climber's latest workout started, or null with none.
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
  * @param {string} uid - Firebase Auth user ID
+ * @param {Date} [before] - Only consider workouts that started before this
+ *   instant
  * @return {Promise<Date | null>} Latest workout's start time
  */
 async function fetchLatestWorkoutStartedAt(
   firestore: admin.firestore.Firestore,
-  uid: string
+  uid: string,
+  before?: Date
 ): Promise<Date | null> {
-  const snapshot = await firestore
+  let query: admin.firestore.Query = firestore
     .collection(USERS_COLLECTION)
     .doc(uid)
-    .collection(WORKOUTS_COLLECTION)
+    .collection(WORKOUTS_COLLECTION);
+  if (before) {
+    query = query.where(
+      "startedAt",
+      "<",
+      admin.firestore.Timestamp.fromDate(before)
+    );
+  }
+  const snapshot = await query
     .orderBy("startedAt", "desc")
     .limit(1)
     .select("startedAt")
@@ -958,7 +1610,90 @@ async function loadClimbCatalogSafely(): Promise<{
 }
 
 /**
- * Composes and enqueues one active climber's recap.
+ * Pages every live `users/{uid}/entitlements/app_access` grant into the set
+ * of their holders.
+ *
+ * A grant exists only while access is live (revenueCat/firestoreStore.ts
+ * deletes it when access ends, and the expiry sweep deletes it the moment
+ * `accessUntil` passes), so holding one is holding paid or comped access.
+ * The query rides the `accessUntil` collection-group index the expiry sweep
+ * already uses; the `entitlements` group is shared with any other
+ * subcollection of that name, so only an `app_access` grant under a user
+ * counts.
+ * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
+ * @param {Date} now - The compose run's clock
+ * @param {CohortScanBound} bound - Page size and page budget
+ * @return {Promise<{truncated: boolean, userIds: Set<string>}>} Holders, and
+ *   whether the page bound cut the scan short
+ */
+async function pageEntitledUserIds(
+  firestore: admin.firestore.Firestore,
+  now: Date,
+  bound: CohortScanBound
+): Promise<{truncated: boolean; userIds: Set<string>}> {
+  const userIds = new Set<string>();
+  const baseQuery = firestore.collectionGroup(ENTITLEMENTS_COLLECTION)
+    .where("accessUntil", ">", admin.firestore.Timestamp.fromDate(now))
+    .orderBy("accessUntil");
+  let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
+
+  for (let page = 0; page < bound.maxPages; page++) {
+    const query = cursor ?
+      baseQuery.startAfter(cursor).limit(bound.pageSize) :
+      baseQuery.limit(bound.pageSize);
+    const snapshot = await query.get();
+    if (snapshot.empty) {
+      return {truncated: false, userIds};
+    }
+    cursor = snapshot.docs[snapshot.docs.length - 1];
+
+    for (const document of snapshot.docs) {
+      const segments = document.ref.path.split("/");
+      if (segments.length === 4 &&
+        segments[0] === USERS_COLLECTION &&
+        segments[2] === ENTITLEMENTS_COLLECTION &&
+        segments[3] === APP_ACCESS_ENTITLEMENT_ID) {
+        userIds.add(segments[1]);
+      }
+    }
+
+    if (snapshot.size < bound.pageSize) {
+      return {truncated: false, userIds};
+    }
+  }
+
+  logger.error("recapEmails.cohortScanTruncated", {
+    label: "app_access",
+    pagesRead: bound.maxPages,
+    rowsRead: userIds.size,
+  });
+  return {truncated: true, userIds};
+}
+
+/**
+ * Reads whether the finalizer has frozen the closed period yet - the
+ * `leaderboard_periods` record it marks `finalized` in its last commit, once
+ * every one of the period's achievements has landed.
+ * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
+ * @param {RecapCadence} cadence - Weekly or monthly
+ * @param {ClosedLeaderboardPeriod} period - The closed window
+ * @return {Promise<boolean>} True once the period is finalized
+ */
+async function isPeriodFinalized(
+  firestore: admin.firestore.Firestore,
+  cadence: RecapCadence,
+  period: ClosedLeaderboardPeriod
+): Promise<boolean> {
+  const snapshot = await firestore
+    .collection(LEADERBOARD_PERIODS_COLLECTION)
+    .doc(`${cadence}_${period.key}`)
+    .get();
+  return snapshot.get("status") === "finalized";
+}
+
+/**
+ * Reads everything one active climber's recap needs and builds its stored
+ * `active` map.
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
  * @param {RecapCadence} cadence - Weekly or monthly
  * @param {ClosedLeaderboardPeriod} period - The closed window
@@ -966,25 +1701,17 @@ async function loadClimbCatalogSafely(): Promise<{
  * @param {LeaderboardStatsRow} aggregate - This period's totals
  * @param {RecapStanding} standing - This period's rank and field size
  * @param {Map<string, string>} climbNameById - Catalogue name lookup
- * @param {RecapSweepSummary} summary - Sweep counters to update
- * @return {Promise<void>} Resolves once queued, suppressed, or skipped
+ * @return {Promise<StoredRecapActive>} The stored `active` map
  */
-async function composeAndEnqueueActiveRecap(
+async function composeActiveRecap(
   firestore: admin.firestore.Firestore,
   cadence: RecapCadence,
   period: ClosedLeaderboardPeriod,
   uid: string,
   aggregate: LeaderboardStatsRow,
   standing: RecapStanding,
-  climbNameById: Map<string, string>,
-  summary: RecapSweepSummary
-): Promise<void> {
-  const email = await fetchUserEmail(firestore, uid);
-  if (!email) {
-    summary.skippedNoEmail += 1;
-    return;
-  }
-
+  climbNameById: Map<string, string>
+): Promise<StoredRecapActive> {
   const [workoutDetails, previousTotals, achievementRank] = await Promise.all([
     fetchPeriodWorkoutDetails(firestore, uid, period),
     fetchPreviousPeriodTotals(firestore, uid, cadence, period),
@@ -993,22 +1720,13 @@ async function composeAndEnqueueActiveRecap(
   const firstAscentRecords = workoutDetails.completedWorkoutIds.size > 0 ?
     await fetchFirstAscentRecords(firestore, uid) :
     [];
-  const landmarksFinished = dedupeLandmarkNames(
-    workoutDetails.completedClimbIds,
-    climbNameById
-  );
-  const firstAscentClimbIdsThisPeriod = firstAscentRecords
+  const firstAscentClimbIds = firstAscentRecords
     .filter((record) => record.workoutId !== null &&
       workoutDetails.completedWorkoutIds.has(record.workoutId))
     .map((record) => record.climbId);
-  const earnedBadges: RecapEarnedBadge[] = [
-    achievementRank !== undefined ? buildRankBadge(achievementRank) : undefined,
-    buildFirstAscentBadge(firstAscentClimbIdsThisPeriod, climbNameById),
-  ].filter((badge): badge is RecapEarnedBadge => badge !== undefined);
 
-  let currentStreakWeeks: number | undefined;
-  if (cadence === "weekly") {
-    currentStreakWeeks = await computeCurrentStreakWeeks(
+  const currentStreakWeeks = cadence === "weekly" ?
+    await computeCurrentStreakWeeks(
       period,
       async (periodKey) => {
         const docId = leaderboardDocumentId(uid, "weekly", periodKey);
@@ -1019,160 +1737,170 @@ async function composeAndEnqueueActiveRecap(
         return snapshot.exists &&
           numberValue(snapshot.get("totalWorkouts")) > 0;
       }
-    );
-  }
+    ) :
+    null;
 
-  const deltaLabel = cadence === "weekly" ? "vs last week" : "vs last month";
-  const payload: RecapActivePayload = {
-    calendar: buildCalendarCells(period, workoutDetails.stepsByDayKey),
-    earnedBadges,
-    climbsCompleted: aggregate.totalWorkouts,
-    climbsDelta: buildDeltaChip(
-      aggregate.totalWorkouts,
-      previousTotals?.totalWorkouts ?? null,
-      deltaLabel
-    ),
-    ctaUrl: APP_STORE_URL,
+  return buildStoredActiveRecap({
+    aggregate,
+    awardRank: achievementRank ?? null,
+    climbNameById,
+    completedClimbIds: workoutDetails.completedClimbIds,
     currentStreakWeeks,
-    fieldSize: standing.fieldSize,
-    floorsDelta: buildDeltaChip(
-      aggregate.totalFloors,
-      previousTotals?.totalFloors ?? null,
-      deltaLabel
-    ),
-    landmarksFinished,
-    percentileBand: percentileBand(standing.rank, standing.fieldSize),
-    periodLabel: cadence === "weekly" ?
-      formatWeeklyPeriodLabel(period) :
-      formatMonthlyPeriodLabel(period),
-    rank: standing.rank,
-    stepsDelta: buildDeltaChip(
-      aggregate.totalSteps,
-      previousTotals?.totalSteps ?? null,
-      deltaLabel
-    ),
-    totalFloors: aggregate.totalFloors,
-    totalSteps: aggregate.totalSteps,
-  };
-
-  const outcome = await enqueueLifecycleEmailIfAllowed(firestore, {
-    dedupeKey: buildRecapDedupeKey(cadence, period.key, uid),
-    emailType: cadence === "weekly" ?
-      "weekly_recap_active" :
-      "monthly_recap_active",
-    payload,
-    recipientEmail: email,
-    sourceRef: `leaderboard_stats/${leaderboardDocumentId(uid, cadence, period.key)}`,
-    uid,
+    firstAscentClimbIds,
+    period,
+    previousTotals,
+    standing,
+    stepsByDayKey: workoutDetails.stepsByDayKey,
   });
-  recordOutcome(summary, outcome);
 }
 
 /**
- * Composes and enqueues one zero-activity climber's re-engagement email.
+ * Reads everything one zero-activity climber's recap needs and builds its
+ * stored `inactive` map. The last climb is the latest one before the period
+ * closed: a climber who came back in the half hour before compose ran still
+ * had an empty period, and the send step is what keeps them from being told
+ * they were missed.
  * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
  * @param {RecapCadence} cadence - Weekly or monthly
  * @param {ClosedLeaderboardPeriod} period - The closed window
+ * @param {Date} now - The compose run's clock
  * @param {string} uid - Firebase Auth user ID
  * @param {CatalogClimb | null} suggestedClimb - This run's comeback pick
- * @param {RecapSweepSummary} summary - Sweep counters to update
- * @return {Promise<void>} Resolves once queued, suppressed, or skipped
+ * @param {Map<string, string>} climbNameById - Catalogue name lookup
+ * @return {Promise<StoredRecapInactive>} The stored `inactive` map
  */
-async function composeAndEnqueueInactiveRecap(
+async function composeInactiveRecap(
   firestore: admin.firestore.Firestore,
   cadence: RecapCadence,
   period: ClosedLeaderboardPeriod,
   now: Date,
   uid: string,
   suggestedClimb: CatalogClimb | null,
-  climbNameById: Map<string, string>,
-  summary: RecapSweepSummary
-): Promise<void> {
-  const lastActiveAt = await fetchLatestWorkoutStartedAt(firestore, uid);
-  if (lastActiveAt && lastActiveAt >= period.endAt) {
-    summary.suppressed += 1;
-    return;
-  }
-
-  const email = await fetchUserEmail(firestore, uid);
-  if (!email) {
-    summary.skippedNoEmail += 1;
-    return;
-  }
-
-  const firstAscentRecords = await fetchFirstAscentRecords(firestore, uid);
-  const firstAscentClimbIds = firstAscentRecords
-    .map((record) => record.climbId)
-    .filter((climbId) => climbNameById.has(climbId));
-  const firstAscents = dedupeLandmarkNames(firstAscentClimbIds, climbNameById);
-  const since = lastActiveAt ?? period.startAt;
-
-  const payload: RecapInactivePayload = {
-    ctaUrl: APP_STORE_URL,
-    earnedBadges: [
-      buildFirstAscentBadge(firstAscentClimbIds, climbNameById),
-    ].filter(
-      (badge): badge is RecapEarnedBadge => badge !== undefined
-    ),
-    firstAscents,
-    gapCount: cadence === "weekly" ?
-      weeksSince(since, now) :
-      monthsSince(since, now),
-    periodLabel: cadence === "weekly" ?
-      formatWeeklyPeriodLabel(period) :
-      formatMonthlyPeriodLabel(period),
-    suggestedClimbName: suggestedClimb?.name,
-  };
-
-  const outcome = await enqueueLifecycleEmailIfAllowed(firestore, {
-    dedupeKey: buildRecapDedupeKey(cadence, period.key, uid),
-    emailType: cadence === "weekly" ?
-      "weekly_recap_inactive" :
-      "monthly_recap_inactive",
-    payload,
-    recipientEmail: email,
-    sourceRef: null,
-    uid,
+  climbNameById: Map<string, string>
+): Promise<StoredRecapInactive> {
+  const [lastClimbAt, firstAscentRecords] = await Promise.all([
+    fetchLatestWorkoutStartedAt(firestore, uid, period.endAt),
+    fetchFirstAscentRecords(firestore, uid),
+  ]);
+  return buildStoredInactiveRecap({
+    cadence,
+    climbNameById,
+    firstAscentClimbIds: firstAscentRecords.map((record) => record.climbId),
+    lastClimbAt,
+    now,
+    period,
+    suggestedClimb,
   });
-  recordOutcome(summary, outcome);
 }
 
 /**
- * Applies one enqueue outcome to the sweep summary.
- * @param {RecapSweepSummary} summary - Sweep counters to update
- * @param {EnqueueLifecycleEmailOutcome} outcome - What the enqueue did
- * @return {void}
+ * Writes one climber's recap unless it already exists.
+ *
+ * The existence read comes first so a re-run - a Cloud Scheduler retry, an
+ * operator re-running a period, or the send step's own pass - skips the
+ * composition reads for every climber already done. The write is still a
+ * `create`, so a recap that appeared between the read and the write is never
+ * overwritten and its `seenAt` never reset. `claimReceipt` is the same
+ * bounded create-once primitive the climb-drop sweep claims its devices with.
+ *
+ * The one exception: a stored inactive or never_climbed recap for a climber
+ * who now stands in the period's active cohort - a climb inside the period
+ * that synced after compose ran - is recomposed as active, updating only the
+ * payload so `seenAt` is kept. Nobody is told they were missed, or invited to
+ * a first climb, for a week they climbed.
+ * @param {admin.firestore.DocumentReference} reference - The recap document
+ * @param {object} identity - The document's cadence, period, and variant
+ * @param {Function} composeMaps - Reads and builds the variant's maps
+ * @return {Promise<"composed" | "already_composed" | "recomposed">} What
+ *   happened
  */
-function recordOutcome(
-  summary: RecapSweepSummary,
-  outcome: EnqueueLifecycleEmailOutcome
-): void {
-  if (outcome === "queued") {
-    summary.queued += 1;
-  } else if (outcome === "already_queued") {
-    summary.alreadyQueued += 1;
-  } else {
-    summary.suppressed += 1;
+async function writeRecapOnce(
+  reference: admin.firestore.DocumentReference,
+  identity: {
+    cadence: RecapCadence;
+    period: ClosedLeaderboardPeriod;
+    variant: RecapVariant;
+  },
+  composeMaps: () => Promise<{
+    active: StoredRecapActive | null;
+    inactive: StoredRecapInactive | null;
+  }>
+): Promise<"composed" | "already_composed" | "recomposed"> {
+  const existing = await reference.get();
+  if (existing.exists) {
+    if (identity.variant !== "active" || existing.get("variant") === "active") {
+      return "already_composed";
+    }
+    const {active, inactive} = await composeMaps();
+    await reference.update({
+      active,
+      composedAt: admin.firestore.FieldValue.serverTimestamp(),
+      inactive,
+      variant: identity.variant,
+    });
+    return "recomposed";
   }
+  const {active, inactive} = await composeMaps();
+  const {cadence, period, variant} = identity;
+  const claim = await claimReceipt(() => reference.create({
+    active,
+    cadence,
+    composedAt: admin.firestore.FieldValue.serverTimestamp(),
+    inactive,
+    periodEndAt: admin.firestore.Timestamp.fromDate(period.endAt),
+    periodKey: period.key,
+    periodLabel: formatRecapPeriodLabel(cadence, period),
+    periodStartAt: admin.firestore.Timestamp.fromDate(period.startAt),
+    schemaVersion: RECAP_SCHEMA_VERSION,
+    seenAt: null,
+    variant,
+  }));
+  return claim === "claimed" ? "composed" : "already_composed";
 }
 
 /**
- * Runs one weekly or monthly recap sweep end to end.
+ * Composes and stores every climber's recap for the period that just
+ * closed. Idempotent: an existing recap is never rewritten.
  * @param {RecapCadence} cadence - Weekly or monthly
- * @param {Date} now - The sweep's clock, injectable for tests
+ * @param {Date} now - The compose run's clock, injectable for tests
  * @param {CohortScanBound} cohortScanBound - Cohort scan page bound,
  *   injectable for tests
- * @return {Promise<RecapSweepSummary>} What the sweep did
+ * @return {Promise<RecapComposeSummary>} What the run did
  */
-export async function runRecapSweep(
+export async function runRecapCompose(
   cadence: RecapCadence,
   now: Date,
   cohortScanBound: CohortScanBound = DEFAULT_COHORT_SCAN_BOUND
-): Promise<RecapSweepSummary> {
+): Promise<RecapComposeSummary> {
   const firestore = admin.firestore();
   const period = previousPeriod(cadence, now);
+  const summary: RecapComposeSummary = {
+    activeCount: 0,
+    alreadyComposed: 0,
+    composed: 0,
+    entitledUserCount: 0,
+    recomposed: 0,
+    errors: 0,
+    everActiveUserCount: 0,
+    inactiveCount: 0,
+    neverClimbedCount: 0,
+    outcome: "composed",
+    periodKey: period.key,
+  };
 
-  const [activeScan, allTimeScan, catalog] = await Promise.all([
+  const finalized = await isPeriodFinalized(firestore, cadence, period);
+  if (shouldAwaitFinalization(finalized, period, now)) {
+    summary.outcome = "awaiting_finalization";
+    return summary;
+  }
+  if (!finalized) {
+    logger.error("recapEmails.composedBeforeFinalization", {
+      cadence,
+      periodKey: period.key,
+    });
+  }
+
+  const [activeScan, allTimeScan, entitledScan, catalog] = await Promise.all([
     pageLeaderboardStatsRows(
       firestore,
       firestore
@@ -1194,24 +1922,9 @@ export async function runRecapSweep(
       "all_time",
       cohortScanBound
     ),
+    pageEntitledUserIds(firestore, now, cohortScanBound),
     loadClimbCatalogSafely(),
   ]);
-
-  const activeRows = activeScan.rows;
-  const everActiveRows = new Map(
-    [...allTimeScan.rows.entries()].filter(([, row]) => row.totalSteps > 0)
-  );
-  const standings = rankActiveCohort(activeRows);
-
-  const summary: RecapSweepSummary = {
-    activeUserCount: standings.size,
-    alreadyQueued: 0,
-    errors: 0,
-    everActiveUserCount: everActiveRows.size,
-    queued: 0,
-    skippedNoEmail: 0,
-    suppressed: 0,
-  };
 
   if (activeScan.truncated) {
     logger.error("recapEmails.sweepSkipped", {
@@ -1219,66 +1932,372 @@ export async function runRecapSweep(
       periodKey: period.key,
       reason: "active_cohort_scan_truncated",
     });
+    summary.outcome = "skipped_truncated";
     return summary;
   }
-
-  const activeFailures = await runWithBoundedConcurrency(
-    [...activeRows.entries()].filter(([uid]) => standings.has(uid)),
-    RECIPIENT_CONCURRENCY,
-    async ([uid, aggregate]) => {
-      const standing = standings.get(uid);
-      if (!standing) {
-        return;
-      }
-      await composeAndEnqueueActiveRecap(
-        firestore,
-        cadence,
-        period,
-        uid,
-        aggregate,
-        standing,
-        catalog.climbNameById,
-        summary
-      );
-    }
-  );
-  for (const failure of activeFailures) {
-    summary.errors += 1;
-    logger.error("recapEmails.activeComposeFailed", {
+  if (allTimeScan.truncated) {
+    logger.error("recapEmails.neverClimbedSkipped", {
       cadence,
-      errorMessage: failure.error instanceof Error ?
-        failure.error.message :
-        "unknown_error",
-      uid: failure.item[0],
+      periodKey: period.key,
+      reason: "all_time_scan_truncated",
     });
   }
 
-  const inactiveEntries = [...everActiveRows.entries()]
-    .filter(([uid]) => !activeRows.has(uid));
-  const inactiveFailures = await runWithBoundedConcurrency(
-    inactiveEntries,
-    RECIPIENT_CONCURRENCY,
-    async ([uid]) => {
-      await composeAndEnqueueInactiveRecap(
-        firestore,
-        cadence,
-        period,
-        now,
-        uid,
-        catalog.suggestedClimb,
-        catalog.climbNameById,
-        summary
-      );
-    }
+  const activeRows = activeScan.rows;
+  const everActiveUserIds = new Set(
+    [...allTimeScan.rows.entries()]
+      .filter(([, row]) => row.totalSteps > 0)
+      .map(([uid]) => uid)
   );
-  for (const failure of inactiveFailures) {
-    summary.errors += 1;
-    logger.error("recapEmails.inactiveComposeFailed", {
+  const standings = rankActiveCohort(activeRows);
+  const plan = planRecapCohorts({
+    activeRows,
+    entitledUserIds: allTimeScan.truncated ? null : entitledScan.userIds,
+    everActiveUserIds,
+    standings,
+  });
+  summary.activeCount = plan.active.length;
+  summary.entitledUserCount = entitledScan.userIds.size;
+  summary.everActiveUserCount = everActiveUserIds.size;
+  summary.inactiveCount = plan.inactive.length;
+  summary.neverClimbedCount = plan.neverClimbed.length;
+
+  const recapRef = (uid: string) => firestore
+    .collection(USERS_COLLECTION)
+    .doc(uid)
+    .collection(RECAPS_COLLECTION)
+    .doc(buildRecapDocumentId(cadence, period.key));
+  const record = (
+    outcome: "composed" | "already_composed" | "recomposed"
+  ) => {
+    if (outcome === "composed") {
+      summary.composed += 1;
+    } else if (outcome === "recomposed") {
+      summary.recomposed += 1;
+    } else {
+      summary.alreadyComposed += 1;
+    }
+  };
+  const reportFailures = (
+    variant: RecapVariant,
+    failures: Array<{error: unknown; item: string}>
+  ) => {
+    for (const failure of failures) {
+      summary.errors += 1;
+      logger.error("recapEmails.composeFailed", {
+        cadence,
+        errorMessage: failure.error instanceof Error ?
+          failure.error.message :
+          "unknown_error",
+        uid: failure.item,
+        variant,
+      });
+    }
+  };
+
+  reportFailures("active", await runWithBoundedConcurrency(
+    plan.active,
+    RECIPIENT_CONCURRENCY,
+    async (uid) => {
+      const aggregate = activeRows.get(uid);
+      const standing = standings.get(uid);
+      if (!aggregate || !standing) {
+        return;
+      }
+      record(await writeRecapOnce(
+        recapRef(uid),
+        {cadence, period, variant: "active"},
+        async () => ({
+          active: await composeActiveRecap(
+            firestore,
+            cadence,
+            period,
+            uid,
+            aggregate,
+            standing,
+            catalog.climbNameById
+          ),
+          inactive: null,
+        })
+      ));
+    }
+  ));
+
+  reportFailures("inactive", await runWithBoundedConcurrency(
+    plan.inactive,
+    RECIPIENT_CONCURRENCY,
+    async (uid) => {
+      record(await writeRecapOnce(
+        recapRef(uid),
+        {cadence, period, variant: "inactive"},
+        async () => ({
+          active: null,
+          inactive: await composeInactiveRecap(
+            firestore,
+            cadence,
+            period,
+            now,
+            uid,
+            catalog.suggestedClimb,
+            catalog.climbNameById
+          ),
+        })
+      ));
+    }
+  ));
+
+  reportFailures("never_climbed", await runWithBoundedConcurrency(
+    plan.neverClimbed,
+    RECIPIENT_CONCURRENCY,
+    async (uid) => {
+      record(await writeRecapOnce(
+        recapRef(uid),
+        {cadence, period, variant: "never_climbed"},
+        async () => ({active: null, inactive: null})
+      ));
+    }
+  ));
+
+  return summary;
+}
+
+/**
+ * Builds and enqueues one stored recap's email.
+ * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
+ * @param {ClosedLeaderboardPeriod} period - The closed window
+ * @param {admin.firestore.DocumentReference} reference - The recap document
+ * @param {StoredRecap} recap - The parsed recap
+ * @param {RecapSendSummary} summary - Sweep counters to update
+ * @param {Date} now - The sweep's clock
+ * @return {Promise<void>} Resolves once queued, suppressed, or skipped
+ */
+async function sendStoredRecap(
+  firestore: admin.firestore.Firestore,
+  period: ClosedLeaderboardPeriod,
+  reference: admin.firestore.DocumentReference,
+  recap: StoredRecap,
+  summary: RecapSendSummary,
+  now: Date
+): Promise<void> {
+  if (recap.variant === "never_climbed") {
+    summary.skippedNeverClimbed += 1;
+    return;
+  }
+  const uid = reference.parent.parent?.id;
+  if (!uid) {
+    return;
+  }
+
+  let inactive = recap.variant === "inactive" ? recap.inactive : null;
+  if (inactive) {
+    const lastActiveAt = await fetchLatestWorkoutStartedAt(firestore, uid);
+    if (lastActiveAt && lastActiveAt >= period.startAt) {
+      summary.suppressed += 1;
+      return;
+    }
+    const storedLastClimbAt = inactive.lastClimbAt?.toDate() ?? null;
+    if (
+      lastActiveAt &&
+      (!storedLastClimbAt || lastActiveAt > storedLastClimbAt)
+    ) {
+      inactive = {
+        ...inactive,
+        gapCount: recap.cadence === "weekly" ?
+          weeksSince(lastActiveAt, now) :
+          monthsSince(lastActiveAt, now),
+        lastClimbAt: admin.firestore.Timestamp.fromDate(lastActiveAt),
+      };
+      await reference.update({inactive});
+    }
+  }
+
+  const email = await fetchUserEmail(firestore, uid);
+  if (!email) {
+    summary.skippedNoEmail += 1;
+    return;
+  }
+
+  const weekly = recap.cadence === "weekly";
+  const content: {emailType: EmailType; payload: EmailJobPayload} =
+    recap.variant === "active" ?
+      {
+        emailType: weekly ? "weekly_recap_active" : "monthly_recap_active",
+        payload: buildActiveRecapEmailPayload(
+          recap.cadence,
+          recap.periodLabel,
+          recap.active
+        ),
+      } :
+      {
+        emailType: weekly ? "weekly_recap_inactive" : "monthly_recap_inactive",
+        payload: buildInactiveRecapEmailPayload(
+          recap.periodLabel,
+          inactive ?? recap.inactive
+        ),
+      };
+  const outcome = await enqueueLifecycleEmailIfAllowed(firestore, {
+    dedupeKey: buildRecapDedupeKey(recap.cadence, recap.periodKey, uid),
+    emailType: content.emailType,
+    payload: content.payload,
+    recipientEmail: email,
+    sourceRef: reference.path,
+    uid,
+  });
+  recordOutcome(summary, outcome);
+}
+
+/**
+ * Applies one enqueue outcome to the sweep summary.
+ * @param {RecapSendSummary} summary - Sweep counters to update
+ * @param {EnqueueLifecycleEmailOutcome} outcome - What the enqueue did
+ * @return {void}
+ */
+function recordOutcome(
+  summary: RecapSendSummary,
+  outcome: EnqueueLifecycleEmailOutcome
+): void {
+  if (outcome === "queued") {
+    summary.queued += 1;
+  } else if (outcome === "already_queued") {
+    summary.alreadyQueued += 1;
+  } else {
+    summary.suppressed += 1;
+  }
+}
+
+/**
+ * Sends the recap email for every recap stored for the period that just
+ * closed, always from the stored document so the app and the email agree.
+ *
+ * It first runs compose itself - create-only, so a stored recap and its
+ * `seenAt` are never replaced - which makes the send self-sufficient when
+ * the 00:30 compose never ran (a first deploy after it), and recomposes an
+ * inactive recap a late-synced climb in the period made active. That pass
+ * is best effort: if it fails, the failure is logged and the recaps already
+ * stored still send, each still behind its own per-climber checks.
+ * @param {RecapCadence} cadence - Weekly or monthly
+ * @param {Date} now - The sweep's clock, injectable for tests
+ * @param {CohortScanBound} recapScanBound - Stored-recap scan page bound,
+ *   injectable for tests
+ * @param {CohortScanBound} cohortScanBound - The compose pass's cohort scan
+ *   page bound, injectable for tests
+ * @param {Function} compose - The compose pass, injectable for tests
+ * @return {Promise<RecapSendSummary>} What the sweep did
+ */
+export async function runRecapSend(
+  cadence: RecapCadence,
+  now: Date,
+  recapScanBound: CohortScanBound = DEFAULT_RECAP_SCAN_BOUND,
+  cohortScanBound: CohortScanBound = DEFAULT_COHORT_SCAN_BOUND,
+  compose: typeof runRecapCompose = runRecapCompose
+): Promise<RecapSendSummary> {
+  const firestore = admin.firestore();
+  const period = previousPeriod(cadence, now);
+  const recapId = buildRecapDocumentId(cadence, period.key);
+  let composedAtSend = 0;
+  try {
+    const composed = await compose(cadence, now, cohortScanBound);
+    composedAtSend = composed.composed;
+    if (composed.errors > 0 || composed.outcome !== "composed") {
+      logger.error("recapEmails.composeAtSendDegraded", composed);
+    }
+  } catch (error) {
+    logger.error("recapEmails.composeAtSendDegraded", {
       cadence,
-      errorMessage: failure.error instanceof Error ?
-        failure.error.message :
-        "unknown_error",
-      uid: failure.item[0],
+      errorMessage: error instanceof Error ? error.message : "unknown_error",
+      periodKey: period.key,
+    });
+  }
+  const summary: RecapSendSummary = {
+    alreadyQueued: 0,
+    composedAtSend,
+    errors: 0,
+    periodKey: period.key,
+    queued: 0,
+    recapCount: 0,
+    recapsMissing: false,
+    skippedNeverClimbed: 0,
+    skippedNoEmail: 0,
+    suppressed: 0,
+  };
+
+  // The composite index on `cadence` + `periodKey` ends in the implicit
+  // document-name order, so this pages without a second index.
+  const baseQuery = firestore.collectionGroup(RECAPS_COLLECTION)
+    .where("cadence", "==", cadence)
+    .where("periodKey", "==", period.key)
+    .orderBy(admin.firestore.FieldPath.documentId());
+  let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
+  let exhausted = false;
+
+  for (let page = 0; page < recapScanBound.maxPages; page++) {
+    const query = cursor ?
+      baseQuery.startAfter(cursor).limit(recapScanBound.pageSize) :
+      baseQuery.limit(recapScanBound.pageSize);
+    const snapshot = await query.get();
+    if (snapshot.empty) {
+      exhausted = true;
+      break;
+    }
+    cursor = snapshot.docs[snapshot.docs.length - 1];
+
+    const recaps = snapshot.docs.filter((document) => {
+      const segments = document.ref.path.split("/");
+      return segments.length === 4 &&
+        segments[0] === USERS_COLLECTION &&
+        segments[3] === recapId;
+    });
+    summary.recapCount += recaps.length;
+
+    const failures = await runWithBoundedConcurrency(
+      recaps,
+      RECIPIENT_CONCURRENCY,
+      async (document) => {
+        const recap = parseStoredRecap(document.data());
+        if (!recap) {
+          throw new Error("malformed_recap");
+        }
+        await sendStoredRecap(
+          firestore,
+          period,
+          document.ref,
+          recap,
+          summary,
+          now
+        );
+      }
+    );
+    for (const failure of failures) {
+      summary.errors += 1;
+      logger.error("recapEmails.sendFailed", {
+        cadence,
+        errorMessage: failure.error instanceof Error ?
+          failure.error.message :
+          "unknown_error",
+        path: failure.item.ref.path,
+      });
+    }
+
+    if (snapshot.size < recapScanBound.pageSize) {
+      exhausted = true;
+      break;
+    }
+  }
+
+  if (!exhausted) {
+    logger.error("recapEmails.recapScanTruncated", {
+      cadence,
+      pagesRead: recapScanBound.maxPages,
+      periodKey: period.key,
+      recapsRead: summary.recapCount,
+    });
+  }
+  if (summary.recapCount === 0) {
+    summary.recapsMissing = true;
+    logger.error("recapEmails.recapsMissing", {
+      cadence,
+      periodKey: period.key,
+      reason: "compose_did_not_run",
     });
   }
 
@@ -1336,10 +2355,100 @@ function dayKeyUTC(date: Date): string {
 }
 
 /**
- * Sends every eligible climber their weekly recap.
+ * Runs one scheduled compose and reports it.
  *
- * Monday 13:00 UTC: comfortably after the 00:15 UTC finalizer has frozen the
- * week that just closed (see file header for the send-time assumption).
+ * Throwing is what asks Cloud Scheduler for a retry (`RECAP_COMPOSE_RETRY`):
+ * a run still waiting on the finalizer throws before writing anything, and a
+ * run that failed some climbers throws after writing everyone else, so the
+ * retry - which skips every recap already stored - picks up exactly the
+ * ones that failed.
+ * @param {string} name - The scheduled function's name, for the log line
+ * @param {RecapCadence} cadence - Weekly or monthly
+ * @return {Promise<void>} Resolves when the run needs no retry
+ */
+async function runScheduledRecapCompose(
+  name: string,
+  cadence: RecapCadence
+): Promise<void> {
+  const summary = await runRecapCompose(cadence, new Date());
+  if (summary.outcome === "awaiting_finalization") {
+    logger.log(`${name} waiting for the leaderboard finalizer`, summary);
+    throw new Error(
+      `${name}: ${cadence} ${summary.periodKey} is not finalized yet`
+    );
+  }
+  const degraded = summary.errors > 0 || summary.outcome !== "composed";
+  const write = degraded ? logger.error : logger.log;
+  write(`${name} completed`, summary);
+  if (summary.errors > 0) {
+    throw new Error(`${name}: ${summary.errors} recaps failed to compose`);
+  }
+}
+
+/**
+ * Cloud Scheduler's retry for a compose run: every ten minutes, five times.
+ * Enough to outlast the finalizer grace window with room to spare for a
+ * transient failure, bounded so a persistent one stops.
+ */
+const RECAP_COMPOSE_RETRY = {
+  maxBackoffSeconds: 600,
+  maxDoublings: 0,
+  minBackoffSeconds: 600,
+  retryCount: 5,
+};
+
+/**
+ * Stores every climber's weekly recap. Monday 00:30 UTC, fifteen minutes
+ * after the 00:15 UTC finalizer froze the week that just closed.
+ */
+export const composeWeeklyRecaps = onSchedule(
+  {
+    ...RECAP_COMPOSE_RETRY,
+    memory: "512MiB",
+    schedule: "30 0 * * 1",
+    timeoutSeconds: 540,
+    timeZone: "Etc/UTC",
+  },
+  async () => {
+    await runScheduledRecapCompose("composeWeeklyRecaps", "weekly");
+  }
+);
+
+/**
+ * Stores every climber's monthly recap. The 1st of the month, 00:30 UTC.
+ */
+export const composeMonthlyRecaps = onSchedule(
+  {
+    ...RECAP_COMPOSE_RETRY,
+    memory: "512MiB",
+    schedule: "30 0 1 * *",
+    timeoutSeconds: 540,
+    timeZone: "Etc/UTC",
+  },
+  async () => {
+    await runScheduledRecapCompose("composeMonthlyRecaps", "monthly");
+  }
+);
+
+/**
+ * Runs one scheduled send and reports it.
+ * @param {string} name - The scheduled function's name, for the log line
+ * @param {RecapCadence} cadence - Weekly or monthly
+ * @return {Promise<void>} Resolves when the sweep is done
+ */
+async function runScheduledRecapSend(
+  name: string,
+  cadence: RecapCadence
+): Promise<void> {
+  const summary = await runRecapSend(cadence, new Date());
+  const degraded = summary.errors > 0 || summary.recapsMissing;
+  const write = degraded ? logger.error : logger.log;
+  write(`${name} sweep completed`, summary);
+}
+
+/**
+ * Emails every eligible climber the weekly recap compose stored. Monday
+ * 13:00 UTC.
  */
 export const weeklyRecapEmails = onSchedule(
   {
@@ -1349,14 +2458,13 @@ export const weeklyRecapEmails = onSchedule(
     timeZone: "Etc/UTC",
   },
   async () => {
-    const summary = await runRecapSweep("weekly", new Date());
-    const write = summary.errors > 0 ? logger.error : logger.log;
-    write("weeklyRecapEmails sweep completed", summary);
+    await runScheduledRecapSend("weeklyRecapEmails", "weekly");
   }
 );
 
 /**
- * Sends every eligible climber their monthly recap. 1st of month, 13:00 UTC.
+ * Emails every eligible climber the monthly recap compose stored. The 1st
+ * of the month, 13:00 UTC.
  */
 export const monthlyRecapEmails = onSchedule(
   {
@@ -1366,8 +2474,6 @@ export const monthlyRecapEmails = onSchedule(
     timeZone: "Etc/UTC",
   },
   async () => {
-    const summary = await runRecapSweep("monthly", new Date());
-    const write = summary.errors > 0 ? logger.error : logger.log;
-    write("monthlyRecapEmails sweep completed", summary);
+    await runScheduledRecapSend("monthlyRecapEmails", "monthly");
   }
 );

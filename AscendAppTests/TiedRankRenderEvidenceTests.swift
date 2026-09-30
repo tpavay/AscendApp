@@ -290,6 +290,7 @@ struct TiedRankRenderEvidenceTests {
 
                 LeaderboardUserRowView(
                     unrankedFormattedValue: "0",
+                    userId: nil,
                     displayName: "Maya Chen",
                     photoURL: nil,
                     metric: .climb,

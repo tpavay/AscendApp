@@ -266,14 +266,18 @@ private struct ProfileComparisonTopBar: View {
     }
 }
 
-private struct ProfileComparisonHeader: View {
+struct ProfileComparisonHeader: View {
+    @Environment(ChampionRegistry.self) private var championRegistry: ChampionRegistry?
+
     let viewerIdentity: ResolvedUserIdentity
     let otherIdentity: ResolvedUserIdentity
     let isViewerLoading: Bool
     let isOtherLoading: Bool
 
     var body: some View {
-        HStack(alignment: .center, spacing: 18) {
+        // Top-aligned so a title line under one name never lifts that side's picture off
+        // the other's; VS sits at the pictures' centre.
+        HStack(alignment: .top, spacing: 18) {
             competitor(
                 identity: viewerIdentity,
                 tint: Color.ascendAccent,
@@ -284,7 +288,7 @@ private struct ProfileComparisonHeader: View {
             Text("VS")
                 .font(.montserratBold(size: 18))
                 .foregroundStyle(ProfileVisualStyle.tertiaryText)
-                .frame(width: 46)
+                .frame(width: 46, height: 76)
 
             competitor(
                 identity: otherIdentity,
@@ -307,21 +311,49 @@ private struct ProfileComparisonHeader: View {
             if isLoading {
                 AscendSkeletonCircle(size: 76, tint: tint)
             } else {
-                ProfileAvatarImageView(photoURL: identity.photoURL, size: 76)
-                    .overlay(Circle().stroke(tint, lineWidth: 2))
+                ClimberAvatar(
+                    userId: identity.userId,
+                    photoURL: identity.photoURL,
+                    placeholder: .profileDefault,
+                    size: 76,
+                    border: .init(color: tint, width: 2)
+                )
+                .accessibilityHidden(true)
             }
 
             if isLoading {
                 AscendSkeletonText(width: 78, height: 18)
             } else {
-                Text(resolvedName(identity.displayName, fallback: fallbackName))
-                    .font(.montserratBold(size: 18))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                VStack(spacing: 6) {
+                    Text(resolvedName(identity.displayName, fallback: fallbackName))
+                        .font(.montserratBold(size: 18))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    if let titleLine = titleLine(for: identity) {
+                        Text(titleLine.text)
+                            .font(.montserratBold(size: 10))
+                            .tracking(1.4)
+                            .foregroundStyle(titleLine.leadingTitle.tint)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// The comparison names a champion's title under their name; the crown is on the picture.
+    private func titleLine(for identity: ResolvedUserIdentity) -> ChampionTitleLine? {
+        guard let championRegistry else { return nil }
+        return ChampionTitleLine.make(
+            titles: championRegistry.titles(for: identity.userId),
+            reigns: championRegistry.reigns
+        )
     }
 
     private func resolvedName(_ name: String, fallback: String) -> String {

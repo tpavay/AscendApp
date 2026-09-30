@@ -40,6 +40,11 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case leaderboard
     case profile
 
+    // MARK: - Champions
+
+    case pastChampions = "past_champions"
+    case periodRecap = "period_recap"
+
     // MARK: - Climbs
 
     case climbBrowse = "climb_browse"
@@ -134,6 +139,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .routines: "RoutinesView"
         case .leaderboard: "LeaderboardView"
         case .profile: "ProfileView"
+        case .pastChampions: "PastChampionsView"
+        case .periodRecap: "PeriodRecapView"
         case .climbBrowse: "ClimbBrowseView"
         case .climbDetail: "ClimbDetailView"
         case .climbFlyover: "ClimbFlyoverScreen"

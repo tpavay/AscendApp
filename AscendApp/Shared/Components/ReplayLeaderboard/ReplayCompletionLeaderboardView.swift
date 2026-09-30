@@ -375,64 +375,30 @@ private struct ReplayCompletionLeaderboardRowView: View {
         }
     }
 
-    @ViewBuilder
+    /// A top-three row already wears its medal ring, so a champion's crown is hidden there.
     private func avatarView(size: CGFloat, borderColor: Color?) -> some View {
-        let resolvedBorderColor = borderColor ?? (row.isCurrentUser ? Color.accent : .white.opacity(0.14))
-
-        if let photoURL = row.isCurrentUser ?
-            (row.identity.photoURL ?? currentUserPhotoURL) :
-            row.identity.photoURL {
-            AsyncImage(
-                url: photoURL,
-                transaction: Transaction(animation: .easeInOut(duration: 0.2))
-            ) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .empty, .failure:
-                    avatarToken(size: size, borderColor: resolvedBorderColor)
-                @unknown default:
-                    avatarToken(size: size, borderColor: resolvedBorderColor)
-                }
-            }
-            .frame(width: size, height: size)
-            .clipShape(Circle())
-            .overlay(
-                Circle()
-                    .stroke(resolvedBorderColor, lineWidth: row.isCurrentUser || borderColor != nil ? 2 : 1)
-            )
-            .id(photoURL)
-        } else {
-            avatarToken(size: size, borderColor: resolvedBorderColor)
-        }
-    }
-
-    @ViewBuilder
-    private func avatarToken(size: CGFloat, borderColor: Color?) -> some View {
-        Group {
-            if row.identity.avatarToken.isEmpty {
-                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
-                    .font(.system(size: 16, weight: .semibold))
-                    .accessibilityHidden(true)
-            } else {
-                Text(row.identity.avatarToken)
-                    .font(.montserratBold(size: 13))
-            }
-        }
-            .foregroundStyle(row.isCurrentUser ? .black : .white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .frame(width: size, height: size)
-            .background(
-                Circle()
-                    .fill(row.isCurrentUser ? Color.accent : avatarBackgroundColor)
-            )
-            .overlay(
-                Circle()
-                    .stroke(borderColor ?? (row.isCurrentUser ? Color.accent.opacity(0.7) : .white.opacity(0.14)), lineWidth: borderColor == nil ? 1 : 2)
-            )
+        ClimberAvatar(
+            userId: row.userId,
+            isCurrentUser: row.isCurrentUser,
+            photoURL: row.isCurrentUser ?
+                (row.identity.photoURL ?? currentUserPhotoURL) :
+                row.identity.photoURL,
+            placeholder: .initials(
+                row.identity.avatarToken,
+                fill: row.isCurrentUser ? Color.accent : ClimberAvatarPalette.color(
+                    in: ClimberAvatarPalette.vivid,
+                    for: row.userId ?? row.id
+                ),
+                foreground: row.isCurrentUser ? .black : .white,
+                fontSize: 13
+            ),
+            size: size,
+            border: .init(
+                color: borderColor ?? (row.isCurrentUser ? Color.accent : .white.opacity(0.14)),
+                width: row.isCurrentUser || borderColor != nil ? 2 : 1
+            ),
+            showsChampionMark: borderColor == nil
+        )
     }
 
     @ViewBuilder
@@ -469,16 +435,6 @@ private struct ReplayCompletionLeaderboardRowView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.accent.opacity(effectiveColorScheme == .dark ? 0.12 : 0.10))
         }
-    }
-
-    private var avatarBackgroundColor: Color {
-        let colors: [Color] = [
-            Color(red: 0.94, green: 0.33, blue: 0.43),
-            Color(red: 0.21, green: 0.72, blue: 0.69),
-            Color(red: 1.0, green: 0.57, blue: 0.08),
-            Color(red: 0.40, green: 0.34, blue: 0.86)
-        ]
-        return colors[StableAvatarPalette.index(for: row.id, count: colors.count)]
     }
 
     private func isPodiumRank(_ rank: Int?) -> Bool {

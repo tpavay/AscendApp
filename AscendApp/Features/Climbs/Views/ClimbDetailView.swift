@@ -1215,45 +1215,8 @@ struct ClimbDetailView: View {
         return DurationFormatter.format(duration: completionDurationSeconds)
     }
 
-    @ViewBuilder
+    /// A top-three row already wears its medal ring, so a champion's crown is hidden there.
     private func leaderboardAvatar(
-        for row: ModeratedReplayLeaderboardRow,
-        size: CGFloat = 42,
-        borderColor: Color? = nil
-    ) -> some View {
-        let resolvedBorderColor = borderColor ?? (row.isCurrentUser ? Color.accent : .white.opacity(0.14))
-
-        if let photoURL = row.isCurrentUser ?
-            (row.identity.photoURL ?? currentUserPhotoURL) :
-            row.identity.photoURL {
-            AsyncImage(
-                url: photoURL,
-                transaction: Transaction(animation: .easeInOut(duration: 0.2))
-            ) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .empty, .failure:
-                    leaderboardAvatarToken(for: row, size: size, borderColor: resolvedBorderColor)
-                @unknown default:
-                    leaderboardAvatarToken(for: row, size: size, borderColor: resolvedBorderColor)
-                }
-            }
-            .frame(width: size, height: size)
-            .clipShape(Circle())
-            .overlay(
-                Circle()
-                    .stroke(resolvedBorderColor, lineWidth: row.isCurrentUser || borderColor != nil ? 2 : 1)
-            )
-            .id(photoURL)
-        } else {
-            leaderboardAvatarToken(for: row, size: size, borderColor: resolvedBorderColor)
-        }
-    }
-
-    private func leaderboardAvatarToken(
         for row: ModeratedReplayLeaderboardRow,
         size: CGFloat = 42,
         borderColor: Color? = nil
@@ -1261,28 +1224,25 @@ struct ClimbDetailView: View {
         let avatarToken = row.isCurrentUser ?
             currentUserAvatar.identity.avatarToken :
             row.identity.avatarToken
-        return Group {
-            if avatarToken.isEmpty {
-                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
-                    .font(.system(size: 16, weight: .semibold))
-                    .accessibilityHidden(true)
-            } else {
-                Text(avatarToken)
-                    .font(.montserratBold(size: 13))
-            }
-        }
-            .foregroundStyle(row.isCurrentUser ? .black : .white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .frame(width: size, height: size)
-            .background(
-                Circle()
-                    .fill(row.isCurrentUser ? Color.accent : communityAvatarColor(for: row.id))
-            )
-            .overlay(
-                Circle()
-                    .stroke(borderColor ?? (row.isCurrentUser ? Color.accent.opacity(0.7) : .white.opacity(0.14)), lineWidth: borderColor == nil ? 1 : 2)
-            )
+        return ClimberAvatar(
+            userId: row.userId,
+            isCurrentUser: row.isCurrentUser,
+            photoURL: row.isCurrentUser ?
+                (row.identity.photoURL ?? currentUserPhotoURL) :
+                row.identity.photoURL,
+            placeholder: .initials(
+                avatarToken,
+                fill: row.isCurrentUser ? Color.accent : communityAvatarColor(for: row.userId ?? row.id),
+                foreground: row.isCurrentUser ? .black : .white,
+                fontSize: 13
+            ),
+            size: size,
+            border: .init(
+                color: borderColor ?? (row.isCurrentUser ? Color.accent : .white.opacity(0.14)),
+                width: row.isCurrentUser || borderColor != nil ? 2 : 1
+            ),
+            showsChampionMark: borderColor == nil
+        )
     }
 
     private func isPodiumRank(_ rank: Int?) -> Bool {
@@ -1593,7 +1553,7 @@ struct ClimbDetailView: View {
         return ClimbCommunityAvatar(
             id: row.id,
             identity: row.identity,
-            backgroundColor: communityAvatarColor(for: row.id),
+            backgroundColor: communityAvatarColor(for: row.userId ?? row.id),
             usesGenericAvatar: row.identity.photoURL == nil && row.identity.avatarToken.isEmpty,
             style: .regular,
             isCurrentUser: row.isCurrentUser
@@ -1631,13 +1591,7 @@ struct ClimbDetailView: View {
     }
 
     private func communityAvatarColor(for id: String) -> Color {
-        let colors: [Color] = [
-            Color(red: 0.94, green: 0.33, blue: 0.43),
-            Color(red: 0.21, green: 0.72, blue: 0.69),
-            Color(red: 1.0, green: 0.57, blue: 0.08),
-            Color(red: 0.40, green: 0.34, blue: 0.86)
-        ]
-        return colors[StableAvatarPalette.index(for: id, count: colors.count)]
+        ClimberAvatarPalette.color(in: ClimberAvatarPalette.vivid, for: id)
     }
 
     private var communityPrimaryColor: Color {
@@ -1981,74 +1935,49 @@ private struct ClimbCommunityAvatarView: View {
     let effectiveColorScheme: ColorScheme
 
     var body: some View {
-        avatarContent
-            .frame(width: 44, height: 44)
-            .clipShape(Circle())
-            .overlay {
-                borderOverlay
-            }
-            .shadow(
-                color: glowColor,
-                radius: glowRadius,
-                x: 0,
-                y: 0
+        ClimberAvatar(
+            userId: avatar.identity.userId,
+            isCurrentUser: avatar.isCurrentUser,
+            photoURL: avatar.identity.photoURL,
+            placeholder: placeholder,
+            size: 44,
+            border: border,
+            crownCutColor: effectiveColorScheme == .dark ? .black : .white
+        )
+        .shadow(
+            color: glowColor,
+            radius: glowRadius,
+            x: 0,
+            y: 0
+        )
+    }
+
+    private var placeholder: ClimberAvatarPlaceholder {
+        if avatar.usesGenericAvatar {
+            return .glyph(
+                systemName: PublicClimberIdentity.genericAvatarSystemName,
+                fill: avatar.backgroundColor.opacity(0.28),
+                foreground: .white.opacity(0.62),
+                glyphSize: 16
             )
-    }
-
-    @ViewBuilder
-    private var avatarContent: some View {
-        if let photoURL = avatar.identity.photoURL {
-            AsyncImage(
-                url: photoURL,
-                transaction: Transaction(animation: .easeInOut(duration: 0.2))
-            ) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .empty, .failure:
-                    tokenContent
-                @unknown default:
-                    tokenContent
-                }
-            }
-        } else {
-            tokenContent
         }
+        return .initials(
+            avatar.identity.avatarToken,
+            fill: avatar.backgroundColor,
+            foreground: .white,
+            fontSize: 13
+        )
     }
 
-    @ViewBuilder
-    private var tokenContent: some View {
-        ZStack {
-            Circle()
-                .fill(avatar.backgroundColor.opacity(avatar.usesGenericAvatar ? 0.28 : 1))
-
-            if avatar.usesGenericAvatar {
-                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.62))
-            } else {
-                Text(avatar.identity.avatarToken)
-                    .font(.montserratBold(size: 13))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private var borderOverlay: some View {
+    private var border: ClimberAvatar.Border {
         switch avatar.style {
         case .regular:
-            Circle()
-                .stroke(effectiveColorScheme == .dark ? .black.opacity(0.3) : .white.opacity(0.8), lineWidth: 2)
+            .init(
+                color: effectiveColorScheme == .dark ? .black.opacity(0.3) : .white.opacity(0.8),
+                width: 2
+            )
         case .currentCompleted:
-            Circle()
-                .stroke(Color.accent, lineWidth: 2.5)
-                .padding(1.5)
+            .init(color: Color.accent, width: 2.5, inset: 1.5)
         }
     }
 

@@ -22,6 +22,11 @@ struct MainTabView: View {
     @State private var showOfflineHighlight = false
     @State private var offlineHighlightTask: Task<Void, Never>?
     @State private var recoveryDraft: ActiveHeadphoneWorkoutDraft?
+    @State private var recapCoordinator = PeriodRecapCoordinator.shared
+    @State private var appVersionGateState = AppVersionGateState.shared
+    /// When a push, a deep link or a Live Climb resume last routed the app. An open that
+    /// arrived with somewhere to go is not interrupted by the recap; the next one shows it.
+    @State private var lastRoutedAt: Date?
     @State private var tabBarOverlayHeight: CGFloat = 0
 
     // Easy configuration - just change this array to modify tabs
@@ -82,6 +87,7 @@ struct MainTabView: View {
             consumePendingPushDestinationIfNeeded()
             consumePendingLiveActivityRouteIfNeeded()
             await presentActiveHeadphoneRecoveryIfNeeded()
+            await presentPeriodRecapIfNeeded()
         }
         .onChange(of: connectivityService.isConnected) { oldValue, newValue in
             handleConnectivityChange(from: oldValue, to: newValue)
@@ -92,10 +98,41 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .liveClimbActivityRouteDidChange)) { _ in
             consumePendingLiveActivityRouteIfNeeded()
         }
+        .onChange(of: appVersionGateState.nudgePresentation == nil) { _, isNudgeGone in
+            guard isNudgeGone else { return }
+            Task { await presentPeriodRecapIfNeeded() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             Task {
                 await presentActiveHeadphoneRecoveryIfNeeded()
+                // A notification tap routes a moment after the foreground event; give it
+                // that moment so the recap can stand aside for it.
+                try? await Task.sleep(for: .seconds(1))
+                await presentPeriodRecapIfNeeded()
             }
+        }
+        .fullScreenCover(
+            item: Binding(
+                get: { recapCoordinator.story },
+                set: { story in
+                    if story == nil {
+                        recapCoordinator.dismiss()
+                    }
+                }
+            )
+        ) { story in
+            PeriodRecapView(story: story, viewerId: authVM.user?.uid) { exit in
+                recapCoordinator.dismiss()
+                switch exit {
+                case .close:
+                    break
+                case .openBoard:
+                    tabRouter.select(.leaderboard, reason: .appRouting)
+                case .startClimb:
+                    tabRouter.select(.home, reason: .appRouting)
+                }
+            }
+            .onAppear { recapCoordinator.storyDidAppear() }
         }
         .fullScreenCover(
             isPresented: Binding(
@@ -238,10 +275,12 @@ struct MainTabView: View {
 
         tabRouter.select(.home, reason: .appRouting)
         homeNavigationPath = [.onboardingFirstClimb(climbId)]
+        lastRoutedAt = .now
     }
 
     private func consumePendingPushDestinationIfNeeded() {
         guard let destination = PushNotificationRouter.shared.consumePendingDestination() else { return }
+        lastRoutedAt = .now
 
         switch destination {
         case .climbDetail(let climbId):
@@ -254,9 +293,33 @@ struct MainTabView: View {
 
     private func consumePendingLiveActivityRouteIfNeeded() {
         guard let route = LiveClimbActivityRouter.shared.consumePendingRoute() else { return }
+        lastRoutedAt = .now
 
         tabRouter.select(.home, reason: .appRouting)
         homeNavigationPath = [.liveActivitySession(route.sessionID, route.climbID)]
+    }
+
+    /// The recap shows on the first open after a week or month closes - never over a
+    /// recovering or live climb, the update nudge, or an open that came with somewhere to go.
+    /// Asked before the reads and again just before presenting, since any of those can
+    /// arrive while the reads are in flight.
+    private func presentPeriodRecapIfNeeded() async {
+        guard let userId = authVM.user?.uid, isPeriodRecapEligible(userId: userId) else { return }
+        await recapCoordinator.evaluate(userId: userId, modelContext: modelContext) {
+            isPeriodRecapEligible(userId: userId)
+        }
+    }
+
+    private func isPeriodRecapEligible(userId: String) -> Bool {
+        guard authVM.user?.uid == userId,
+              recoveryDraft == nil,
+              appVersionGateState.nudgePresentation == nil,
+              !LiveClimbSessionCoordinator.shared.hasActiveSession,
+              !ActiveHeadphoneWorkoutRuntimeRegistry.shared.hasActiveSession else { return false }
+        if let lastRoutedAt, Date.now.timeIntervalSince(lastRoutedAt) < 5 {
+            return false
+        }
+        return true
     }
 
     private func presentActiveHeadphoneRecoveryIfNeeded() async {

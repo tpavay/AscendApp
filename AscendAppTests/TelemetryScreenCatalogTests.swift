@@ -26,6 +26,8 @@ struct TelemetryScreenCatalogTests {
         "routines": "RoutinesView",
         "leaderboard": "LeaderboardView",
         "profile": "ProfileView",
+        "past_champions": "PastChampionsView",
+        "period_recap": "PeriodRecapView",
         "climb_browse": "ClimbBrowseView",
         "climb_detail": "ClimbDetailView",
         "climb_flyover": "ClimbFlyoverScreen",

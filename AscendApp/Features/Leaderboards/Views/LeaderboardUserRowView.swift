@@ -16,7 +16,7 @@ struct LeaderboardUserRowView: View {
     /// assemble a row that carries a rank and an unranked treatment at the same time.
     enum Standing {
         case ranked(ModeratedLeaderboardEntry)
-        case unranked(displayName: String, formattedValue: String, photoURL: URL?)
+        case unranked(userId: String?, displayName: String, formattedValue: String, photoURL: URL?)
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -24,39 +24,63 @@ struct LeaderboardUserRowView: View {
     let standing: Standing
     let metric: LeaderboardMetric
     var crownGapText: String? = nil
+    /// The board's frame. On the last day of its open period the chase line names the time
+    /// left, in gold.
+    var countdownTimeFrame: LeaderboardTimeFrame? = nil
+    /// Fixes the clock for evidence tests and previews.
+    var now: Date? = nil
 
     init(
         entry: ModeratedLeaderboardEntry,
         metric: LeaderboardMetric,
-        crownGapText: String? = nil
+        crownGapText: String? = nil,
+        countdownTimeFrame: LeaderboardTimeFrame? = nil,
+        now: Date? = nil
     ) {
         self.standing = .ranked(entry)
         self.metric = metric
         self.crownGapText = crownGapText
+        self.countdownTimeFrame = countdownTimeFrame
+        self.now = now
     }
 
     init(
         unrankedFormattedValue: String,
+        userId: String?,
         displayName: String,
         photoURL: URL?,
         metric: LeaderboardMetric,
-        crownGapText: String? = nil
+        crownGapText: String? = nil,
+        countdownTimeFrame: LeaderboardTimeFrame? = nil,
+        now: Date? = nil
     ) {
         self.standing = .unranked(
+            userId: userId,
             displayName: displayName,
             formattedValue: unrankedFormattedValue,
             photoURL: photoURL
         )
         self.metric = metric
         self.crownGapText = crownGapText
+        self.countdownTimeFrame = countdownTimeFrame
+        self.now = now
     }
 
     private var displayName: String {
         switch standing {
         case .ranked(let entry):
             return entry.identity.displayName
-        case .unranked(let displayName, _, _):
+        case .unranked(_, let displayName, _, _):
             return displayName
+        }
+    }
+
+    private var userId: String? {
+        switch standing {
+        case .ranked(let entry):
+            return entry.userId
+        case .unranked(let userId, _, _, _):
+            return userId
         }
     }
 
@@ -64,7 +88,7 @@ struct LeaderboardUserRowView: View {
         switch standing {
         case .ranked(let entry):
             return entry.identity.photoURL
-        case .unranked(_, _, let photoURL):
+        case .unranked(_, _, _, let photoURL):
             return photoURL
         }
     }
@@ -73,7 +97,7 @@ struct LeaderboardUserRowView: View {
         switch standing {
         case .ranked(let entry):
             return entry.formattedValue
-        case .unranked(_, let formattedValue, _):
+        case .unranked(_, _, let formattedValue, _):
             return formattedValue
         }
     }
@@ -125,18 +149,12 @@ struct LeaderboardUserRowView: View {
                     .minimumScaleFactor(0.74)
 
                 if let crownGapText {
-                    HStack(spacing: 5) {
-                        Image("LeaderboardCrown")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 16, height: 16)
-                            .accessibilityHidden(true)
-
-                        Text(crownGapText)
-                            .font(.montserratBold(size: 9))
-                            .foregroundStyle(Color.accent)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
+                    if countdownTimeFrame != nil, now == nil {
+                        TimelineView(.everyMinute) { context in
+                            crownGapLine(crownGapText, countdown: countdown(at: context.date))
+                        }
+                    } else {
+                        crownGapLine(crownGapText, countdown: countdown(at: now ?? .now))
                     }
                 }
             }
@@ -171,6 +189,33 @@ struct LeaderboardUserRowView: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
+    /// On the board's last day the chase line names the time left and turns gold: the
+    /// crown is on the line.
+    private func countdown(at date: Date) -> LeaderboardCountdown? {
+        countdownTimeFrame.flatMap {
+            LeaderboardCountdown.make(period: $0.currentPeriod(referenceDate: date), now: date)
+        }
+    }
+
+    private func crownGapLine(_ text: String, countdown: LeaderboardCountdown?) -> some View {
+        let isLastDay = countdown?.isLastDay ?? false
+        let line = isLastDay ? "\(text) · \(countdown?.remainingText ?? "")" : text
+        return HStack(spacing: 5) {
+            Image("LeaderboardCrown")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
+
+            Text(line)
+                .font(.montserratBold(size: 9))
+                .foregroundStyle(isLastDay ? Color.championGold : Color.accent)
+                .lineLimit(isLastDay ? 2 : 1)
+                .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: false, vertical: isLastDay)
+        }
+    }
+
     private var accessibilityLabel: String {
         let rankText: String
         switch standing {
@@ -185,53 +230,27 @@ struct LeaderboardUserRowView: View {
         guard let crownGapText else {
             return base
         }
-        return "\(base), \(crownGapText)"
-    }
-
-    @ViewBuilder
-    private var profileImage: some View {
-        if let photoURL {
-            AsyncImage(url: photoURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .clipShape(.circle)
-                case .failure:
-                    defaultAvatar
-                case .empty:
-                    defaultAvatar
-                        .overlay(
-                            ProgressView()
-                                .scaleEffect(0.5)
-                        )
-                @unknown default:
-                    defaultAvatar
-                }
-            }
-            .overlay(
-                Circle()
-                    .stroke(Color.accent.opacity(0.78), lineWidth: 1.5)
-            )
-            .id(photoURL)
-        } else {
-            defaultAvatar
+        guard let countdown = countdown(at: now ?? .now), countdown.isLastDay else {
+            return "\(base), \(crownGapText)"
         }
+        return "\(base), \(crownGapText) · \(countdown.remainingText)"
     }
 
-    private var defaultAvatar: some View {
-        Circle()
-            .fill(Color.accent.opacity(colorScheme == .dark ? 0.22 : 0.16))
-            .overlay(
-                Image(systemName: "person.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.accent)
-            )
-            .overlay(
-                Circle()
-                    .stroke(Color.accent.opacity(0.78), lineWidth: 1.5)
-            )
+    private var profileImage: some View {
+        ClimberAvatar(
+            userId: userId,
+            photoURL: photoURL,
+            placeholder: .glyph(
+                systemName: "person.fill",
+                fill: Color.accent.opacity(colorScheme == .dark ? 0.22 : 0.16),
+                foreground: .accent,
+                glyphSize: 16
+            ),
+            size: 42,
+            border: .init(color: Color.accent.opacity(0.78), width: 1.5),
+            crownCutColor: colorScheme == .dark ? Color(white: 0.055) : Color(white: 0.955),
+            showsLoadingIndicator: true
+        )
     }
 }
 
@@ -254,6 +273,7 @@ struct LeaderboardUserRowView: View {
 #Preview("Unranked") {
     LeaderboardUserRowView(
         unrankedFormattedValue: "0",
+        userId: nil,
         displayName: "Maya Chen",
         photoURL: nil,
         metric: .climb,

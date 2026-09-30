@@ -103,6 +103,13 @@ enum LeaderboardTimeFrame: String, CaseIterable, Codable, Identifiable, Sendable
         }
     }
 
+    /// The window that closed most recently - the one the nightly finalizer freezes and
+    /// whose champion reigns now. Mirrors `previousPeriod` in `functions/src/leaderboardPeriod.ts`.
+    /// All-time never closes, so it has none.
+    func previousPeriod(referenceDate: Date = Date()) -> LeaderboardPeriod? {
+        currentPeriod(referenceDate: referenceDate).previous
+    }
+
     func contains(_ workoutDate: Date, referenceDate: Date = Date()) -> Bool {
         currentPeriod(referenceDate: referenceDate).contains(workoutDate, referenceDate: referenceDate)
     }
