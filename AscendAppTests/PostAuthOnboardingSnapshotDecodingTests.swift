@@ -54,7 +54,10 @@ struct PostAuthOnboardingSnapshotDecodingTests {
 
         #expect(snapshot.isComplete, "a finished climber must not be dropped back into onboarding")
         #expect(snapshot.completedAt == Date(timeIntervalSinceReferenceDate: 2000))
-        #expect(snapshot.completedStages == Set(PostAuthOnboardingStage.allCases))
+        #expect(
+            snapshot.completedStages == Set(PostAuthOnboardingStage.allCases).subtracting([.athlete]),
+            "every stage they finished that still exists; the athlete step came after them"
+        )
         #expect(snapshot.currentStage == .first, "a stage that no longer exists falls back to the first")
     }
 

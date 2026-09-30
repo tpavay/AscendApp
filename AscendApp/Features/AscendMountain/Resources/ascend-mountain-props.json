@@ -1,0 +1,16 @@
+{
+ "format": "ascend-props-v1",
+ "props": [
+  {
+   "name": "pine",
+   "firstTriangle": 0,
+   "triangleCount": 291
+  },
+  {
+   "name": "boulder",
+   "firstTriangle": 291,
+   "triangleCount": 262
+  }
+ ],
+ "license": "pine modelled by this script; boulder from Poly Haven boulder_01, CC0 1.0"
+}

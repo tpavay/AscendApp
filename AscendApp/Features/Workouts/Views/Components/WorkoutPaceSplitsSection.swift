@@ -21,12 +21,18 @@ struct WorkoutPaceSplitsSection: View {
         effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15)
     }
 
+    /// Only splits that measured a segment's own pace set the bars' scale; an unsplit stretch's
+    /// average is drawn against it, never allowed to stretch it.
     private var minStepsPerMinute: Double {
-        splits.map(\.stepsPerMinute).min() ?? 0
+        splits.filter(\.isMeasured).map(\.stepsPerMinute).min() ?? 0
     }
 
     private var maxStepsPerMinute: Double {
-        splits.map(\.stepsPerMinute).max() ?? 0
+        splits.filter(\.isMeasured).map(\.stepsPerMinute).max() ?? 0
+    }
+
+    private var unsplitStretch: LiveClimbPaceSplit? {
+        splits.first { !$0.isMeasured }
     }
 
     private var averageText: String {
@@ -88,6 +94,17 @@ struct WorkoutPaceSplitsSection: View {
                             .stroke(borderColor, lineWidth: 1)
                     )
             )
+
+            if let unsplitStretch {
+                Text(
+                    LiveClimbPaceSplitCopy.unsplitStretchNote(
+                        fromClockText: clockTime(unsplitStretch.startElapsedSeconds)
+                    )
+                )
+                .font(.montserratMedium(size: 12))
+                .foregroundStyle(secondaryTextColor)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
@@ -145,7 +162,7 @@ private struct WorkoutPaceSplitRow: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
 
-                        Text("SPM")
+                        Text(split.isMeasured ? "SPM" : LiveClimbPaceSplitCopy.unsplitPaceUnit)
                             .font(.montserratBold(size: 8))
                             .foregroundStyle(secondaryTextColor)
                     }
@@ -157,10 +174,18 @@ private struct WorkoutPaceSplitRow: View {
                         Capsule()
                             .fill(secondaryTextColor.opacity(0.15))
 
-                        Capsule()
-                            .fill(splitBarGradient)
-                            .frame(width: max(proxy.size.width * barProgress, 12))
-                            .shadow(color: .accent.opacity(0.22), radius: 8, x: 0, y: 0)
+                        // Lime means a pace the climber earned in that segment; an unsplit stretch
+                        // only has its average, so it is drawn without it.
+                        if split.isMeasured {
+                            Capsule()
+                                .fill(splitBarGradient)
+                                .frame(width: max(proxy.size.width * barProgress, 12))
+                                .shadow(color: .accent.opacity(0.22), radius: 8, x: 0, y: 0)
+                        } else {
+                            Capsule()
+                                .fill(secondaryTextColor.opacity(0.4))
+                                .frame(width: max(proxy.size.width * barProgress, 12))
+                        }
                     }
                 }
                 .frame(height: 8)
@@ -168,7 +193,7 @@ private struct WorkoutPaceSplitRow: View {
         }
         .padding(.vertical, 12)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(timeRangeText), \(split.steps.formatted()) steps, \(Int(split.stepsPerMinute.rounded()).formatted()) steps per minute")
+        .accessibilityLabel(LiveClimbPaceSplitCopy.accessibilityLabel(for: split, timeRangeText: timeRangeText))
     }
 
     private var splitBarGradient: LinearGradient {

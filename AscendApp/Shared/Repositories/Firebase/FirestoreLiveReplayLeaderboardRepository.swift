@@ -2025,3 +2025,69 @@ private extension String {
         isEmpty ? nil : self
     }
 }
+
+// MARK: - Ascend Mountain
+
+/// The reads that let the Mountain race climbers outside the session's window. Same collection and
+/// same best-per-climber filter as the live race (`liveRaceEntries`), so a chosen climber races on
+/// exactly the run the board would draw for them.
+extension FirestoreLiveReplayLeaderboardRepository: MountainRaceBoard {
+    func raceBest(context: LiveReplayLeaderboardContext, userId: String) async throws -> MountainRaceBest? {
+        let snapshot = try await liveRaceEntries(context: context, bucketIndex: 0)
+            .whereField("userId", isEqualTo: userId)
+            .limit(to: 1)
+            .getDocuments(source: .server)
+        let viewer = Auth.auth().currentUser?.uid
+        return snapshot.documents.lazy.compactMap { document -> MountainRaceBest? in
+            guard let row = self.parseRow(id: document.documentID, data: document.data(), currentSteps: 0, currentUserId: viewer) else {
+                return nil
+            }
+            return MountainRaceBest(row: row, splitBucketCount: self.intValue(for: "splitBucketCount", in: document.data()))
+        }.first
+    }
+
+    func stepsAtBucket(context: LiveReplayLeaderboardContext, entryId: String, bucketIndex: Int) async throws -> Int? {
+        let data = try await entriesCollection(context: context, bucketIndex: bucketIndex)
+            .document(entryId)
+            .getDocument(source: .server)
+            .data()
+        return data.flatMap { intValue(for: "stepsAtBucket", in: $0) }
+    }
+
+    func bests(context: LiveReplayLeaderboardContext, near steps: Int, limit: Int) async throws -> [LiveReplayLeaderboardRow] {
+        let entries = liveRaceEntries(context: context, bucketIndex: 0)
+        async let above = entries
+            .whereField("finalSteps", isGreaterThanOrEqualTo: steps)
+            .order(by: "finalSteps")
+            .limit(to: limit)
+            .getDocuments(source: .server)
+        async let below = entries
+            .whereField("finalSteps", isLessThan: steps)
+            .order(by: "finalSteps", descending: true)
+            .limit(to: limit)
+            .getDocuments(source: .server)
+        let viewer = Auth.auth().currentUser?.uid
+        let documents = try await above.documents.reversed() + below.documents
+        return documents.compactMap { parseRow(id: $0.documentID, data: $0.data(), currentSteps: 0, currentUserId: viewer) }
+    }
+
+    func bests(
+        context: LiveReplayLeaderboardContext,
+        after cursor: MountainRaceBoardCursor?,
+        limit: Int
+    ) async throws -> MountainRaceBoardPage {
+        var query = liveRaceEntries(context: context, bucketIndex: 0)
+            .order(by: "finalSteps", descending: true)
+            // Descending like the implicit tie-break, so the same index serves this and the
+            // steps-below read.
+            .order(by: FieldPath.documentID(), descending: true)
+        if let cursor {
+            query = query.start(after: [cursor.finalSteps, cursor.entryId])
+        }
+        let documents = try await query.limit(to: limit).getDocuments(source: .server).documents
+        let viewer = Auth.auth().currentUser?.uid
+        let rows = documents.compactMap { parseRow(id: $0.documentID, data: $0.data(), currentSteps: 0, currentUserId: viewer) }
+        let next = documents.count == limit ? rows.last.map { MountainRaceBoardCursor(finalSteps: $0.finalSteps, entryId: $0.id) } : nil
+        return MountainRaceBoardPage(rows: rows, next: next)
+    }
+}

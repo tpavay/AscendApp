@@ -61,13 +61,38 @@ const TEST_TARGET = "AscendAppTests";
  * movie through the AVFoundation pipeline at the 1080x2340 story frame - the
  * cost is the assertion, so it keeps a host entirely to itself.
  *
+ * The suites that host the RealityKit Mountain get a host of their own too,
+ * and that one is for a crash, not memory. On 2026-09-30 (job 109735737306)
+ * the shared host was killed once by a RealityKit render-thread assertion -
+ * `re::MaterialParameterTableLayers::getTechniqueAtIndex` inside
+ * `RenderGraphMeshNodeBase::sortMeshParts` - while
+ * `AscendMountainSessionEvidenceTests` hosted the Mountain; after the restart
+ * every test passed, and the same code had passed the run before. A kill in
+ * the shared host fails the whole remainder pass and drops the tests in
+ * flight, so every suite that draws the Mountain - the session evidence and
+ * the two Sentry mask proofs, which host it to prove the mask - shares one
+ * host that nothing else rides in.
+ *
+ * It killed a host again in 2 of the next 3 runs, and never in about 20 runs
+ * on Apple Silicon: the runner is a virtual Mac, and its paravirtualized GPU
+ * is what trips the assertion (#629). So the tests that host the Mountain
+ * skip themselves under a hypervisor (`TestHost.isVirtualMachine`, reason
+ * naming #629) and run everywhere else. The group keeps its own host anyway:
+ * each of its three suites still executes its other tests on CI - the
+ * Classic session, the crowd counts, the setup sheet, recovery, and every
+ * non-Mountain mask proof - so the named-suite check stays honest, and on a
+ * machine that does draw the Mountain a kill stays contained to them.
+ *
  * Add a suite only with a measurement, and remove it the moment it stops
  * needing a host of its own. A name that no longer matches a real suite is
  * fatal on purpose, through the post-pass `.xcresult` check: a silently
  * dropped entry sends the suite back into the shared host, which is exactly
  * how this job started exhausting its runner.
  */
-export const ISOLATED_PASSES = [["ShareComposerBackgroundFillEvidenceTests"]];
+export const ISOLATED_PASSES = [
+    ["ShareComposerBackgroundFillEvidenceTests"],
+    ["AscendMountainSessionEvidenceTests", "SentryMaskingEvidenceTests", "SentryMaskInteractionTests"],
+];
 
 /**
  * The fewest tests a green job may have executed across all of its passes.

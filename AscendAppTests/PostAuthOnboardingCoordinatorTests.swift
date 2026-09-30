@@ -13,6 +13,7 @@ struct PostAuthOnboardingCoordinatorTests {
             .plan,
             .features,
             .gender,
+            .athlete,
             .age,
             .weight,
             .location,
@@ -22,7 +23,7 @@ struct PostAuthOnboardingCoordinatorTests {
         ])
         #expect(PostAuthOnboardingStage.first == .stairStepperBaseline)
         #expect(PostAuthOnboardingStage.segmentID == "post_auth_onboarding")
-        #expect(PostAuthOnboardingStage.plannedStepCount == 13)
+        #expect(PostAuthOnboardingStage.plannedStepCount == 14)
 
         // The name step is gone, not hidden: App Review rejected 1.0 for asking a
         // Sign in with Apple climber to type a name the framework already

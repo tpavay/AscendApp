@@ -396,6 +396,7 @@ private final class TranscriptDeletionGateway: AccountDeletionGateway {
         case deleteWorkoutBackups
         case deleteRoutineBackups
         case deleteBlockedClimbers
+        case deleteRaceFilter
         case deletePublicProfileMirrors
         case unregisterPushDevice
         case deleteUserDocument
@@ -419,6 +420,7 @@ private final class TranscriptDeletionGateway: AccountDeletionGateway {
     func deleteWorkoutBackups(userId: String) async throws { steps.append(.deleteWorkoutBackups) }
     func deleteRoutineBackups(userId: String) async throws { steps.append(.deleteRoutineBackups) }
     func deleteBlockedClimbers(userId: String) async throws { steps.append(.deleteBlockedClimbers) }
+    func deleteRaceFilter(userId: String) async throws { steps.append(.deleteRaceFilter) }
     func deletePublicProfileMirrors(userId: String) async throws { steps.append(.deletePublicProfileMirrors) }
     func unregisterPushDevice() async { steps.append(.unregisterPushDevice) }
     func deleteUserDocument(userId: String) async throws { steps.append(.deleteUserDocument) }

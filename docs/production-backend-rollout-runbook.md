@@ -49,11 +49,11 @@ The two missing Live Replay indexes are both collection-scoped `entries` indexes
 The current query filters every live race with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
-Current `develop` declares 25 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index, four more collection-scoped `entries` indexes for the live window's finished-attempt and own-history reads: `isBestForUser + finalSteps + splitBucketCount` in both directions, `userId + stepsAtBucket`, and `userId + finalSteps + splitBucketCount` - and five more collection-scoped `entries` indexes behind `bestForGoals` (`array-contains`) for a Just Climb run against a goal: `bestForGoals + stepsAtBucket` in both directions, `bestForGoals + finalSteps + splitBucketCount` in both directions, and `bestForGoals + userId` for the climber's own goal row.
+Current `develop` declares 27 composite indexes because later work also added the `workouts(source, climbId)` projection index, the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index, the two `_revenuecat_analytics_outbox` delivery-queue indexes (`status + readyAt` and `status + processingStartedAt`), the two matching `_strava_upload_jobs` upload-queue indexes (`docs/strava-integration.md`), the climb-drop sweep's `climb_drop_dispatches(state, createdAt)` index, four more collection-scoped `entries` indexes for the live window's finished-attempt and own-history reads: `isBestForUser + finalSteps + splitBucketCount` in both directions, `userId + stepsAtBucket`, and `userId + finalSteps + splitBucketCount` - and five more collection-scoped `entries` indexes behind `bestForGoals` (`array-contains`) for a Just Climb run against a goal: `bestForGoals + stepsAtBucket` in both directions, `bestForGoals + finalSteps + splitBucketCount` in both directions, and `bestForGoals + userId` for the climber's own goal row.
 Every `bestForGoals` index mirrors an `isBestForUser` window read exactly, because the goal-aware window is the same query with one different equality (`ascend-live-climbs`).
-It also declares six field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, and `_revenuecat_analytics_outbox.retainUntil`.
+It also declares seven field overrides, for `blocked.blockedUid`, `entries.userId`, `finishers.userId`, `entitlements.accessUntil`, `_revenuecat_webhook_events.retainUntil`, `_revenuecat_analytics_outbox.retainUntil`, and `_strava_upload_jobs.retainUntil`.
 The first four carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
-The two `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger and the analytics outbox.
+The three `retainUntil` overrides declare no index at all: they exist to carry the TTL policies that expire the webhook dedupe ledger, the analytics outbox, and the Strava upload queue.
 That restatement is required because a field override replaces the field's entire index configuration, and the server's best-entry reconciliation still queries `entries` by `userId` inside a single leaderboard.
 The production workflow waits until every composite index and every scope inside every field override reports `READY` before Functions deploy.
 `ascend-live-climbs` owns why the live window's finished-attempt and own-history reads exist; `scripts/test/production-backend-rollout.test.mjs` holds each of those queries' stated `orderBy` against the index declared for it, so a wrong field order fails there rather than as `FAILED_PRECONDITION` in production.
@@ -90,6 +90,8 @@ Complete every item before starting the production workflow.
 10. Complete every production captain action for server-side entitlement enforcement before this rollout: the `REVENUECAT_SERVER_CONFIG` Functions secret, the project-scoped `MIXPANEL_SERVER_CONFIG` service-account secret, the production RevenueCat webhook destination and its credentials, the App Store Server Notification URLs, the cross-service Storage-to-Firestore IAM role, and a reconciled grant for every account that already has paid access.
     Firestore and Storage rules deny paid data to a signed-in account with no server-owned grant, so a missed step here is a subscriber lockout rather than a degraded feature.
     `docs/revenuecat-server-entitlement-enforcement.md` owns the full action list; do not restate it here.
+11. Confirm every Functions secret's latest version is the one `functions/secret-versions.json` pins at the release SHA, with `node scripts/verify-functions-secrets.mjs preflight --project ascend-prod-9c8f2`.
+    The workflow refuses to deploy otherwise, so a secret version created since the last release has to be reviewed and pinned before the merge, never discovered by the run (`docs/functions-secret-versions.md`).
 
 Use these read-only GitHub checks:
 
@@ -125,6 +127,64 @@ A climber's writes are split into commits under a `bestForGoals` element budget 
 A dry run that plans any commit over the budget names that climber under `Over the goal-key budget` and exits 1, so a clean dry run is evidence the write run's commits fit.
 A binary shipped ahead of the script renders a Just Climb run against a goal over an empty field, because the goal keys it filters on are what the script writes - the ordering (indexes and Functions, the script on every environment, then the binary) is owned by `ascend-live-climbs`.
 Measured on production (`ascend-prod-9c8f2`) on 2026-09-22, before the script ran: `just_climb__global` held 12 bucket-zero entries from 4 climbers over 234 buckets, only 5 entries carried any `isBestForUser`, none carried `bestForGoals`, and the captain's one flagged row was his shortest climb rather than his most steps - which is the defect the script corrects.
+
+### Long-attempt republish backfill
+
+Attempts published before the split fix that ran past the hour sit on their boards with 360 entries, the last one holding the final steps, and a `splitBucketCount` of 360, so a live race counts every such rival home at 60:00 (`ascend-live-climbs`).
+The fixed Cloud Function publishes new and re-published long attempts correctly on its own; `scripts/backfill-live-replay-long-attempts.mjs` rewrites the ones already there, and it is a required step of the release that ships the fix, in this order:
+
+1. Deploy the Cloud Functions.
+2. Run the long-attempt backfill on staging, plan first.
+   One run also re-derives the race-best flags and goal keys on every board holding a long attempt, once its bucket-zero writes have landed, because the goal keys it copies onto the new entries were derived from the bent curves: a clamped curve credited `duration:3600` to a climber who reached those steps hours later.
+   The plan prints that pass as a dry run, goal-key rewrites included:
+
+```sh
+node scripts/backfill-live-replay-long-attempts.mjs --env staging
+node scripts/backfill-live-replay-long-attempts.mjs --env staging --apply
+```
+
+3. Run it on production the same way, and verify a long attempt's bucket zero now states its whole span:
+
+```sh
+node scripts/backfill-live-replay-long-attempts.mjs --env prod --confirm-production ascend-prod-9c8f2
+node scripts/backfill-live-replay-long-attempts.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
+node scripts/firestore-query.mjs get live_replay_leaderboards/just_climb__global/splitBuckets/0/entries/<workoutId> --env prod --confirm-production
+```
+
+The script is idempotent - bucket zero is written last and is what it diffs against, so a second plan reports `Attempts to republish: 0` and the race-best pass writes nothing.
+It exits 1 when it names an attempt under `Left alone, needing a look`, when the race-best pass skips a climber, or when a plan finds a climber over the goal-key commit budget.
+A board whose long attempts are all republished still gets the race-best pass, so re-running the same command reaches a climber the previous run skipped.
+It never writes a climber's private workout: every reader repairs a clamped curve on read, on the device and on the server.
+Seeded rows have no workout behind them and are skipped; the seed's own Just Climb window now reaches its slowest rival, so reseeding a board (`content:staging`) republishes its seeded long rivals.
+Measured on production (`ascend-prod-9c8f2`) on 2026-09-26, before the script existed: 29 bucket-zero entries across 10 boards, 4 of them an hour or longer, all on `just_climb__global` (74, 90, 101 and 150 minutes), each with `splitBucketCount` 360 and its final steps in bucket 359.
+The same day staging (`ascend-staging-fa7d5`) planned no writes: its 78 long rows across 62 boards are all seeded.
+
+### Profile heart-rate aggregates
+
+The profile comparison's heart-rate rows read two optional `profile_stats` fields, `average_heart_rate_bpm` and `max_heart_rate_bpm`, which the app derives and publishes itself (`ProfileHeartRateSummary`) and which carry only those two aggregates - never a sample or a per-climb heart rate.
+A climber can hide them with "Show my heart rate on my profile" (Settings -> Privacy), stored as `heart_rate_public` on the same document; the rules refuse a hidden document that carries either aggregate, and the backfill never writes heart rate for a hidden climber.
+The change is additive: builds that predate the fields keep writing `profile_stats` without them and keep passing the rules.
+The ordering is still load-bearing, because a build that publishes the fields writes them into the same merge as every other stat, and `hasOnly` rejects the whole document on an environment whose rules do not list them yet - that climber's entire public profile would stop updating, and publication failures are only logged.
+So the rules deploy before the binary that writes the fields, on every environment:
+
+1. Deploy `firestore:rules` (the deploy pipelines already do this before the archive).
+2. Only after step 1 has landed on that environment, run the backfill on staging, dry run first; a second run must report `Profiles to update: 0`.
+   The order matters in both directions: a field the backfill writes onto an environment whose rules do not list it yet makes every later publication from that climber fail `hasOnly`, including publications from builds that never heard of the field.
+
+```sh
+node scripts/backfill-profile-heart-rate.mjs --env staging
+node scripts/backfill-profile-heart-rate.mjs --env staging --apply
+```
+
+3. Run it on production the same way only when the captain decides to, dry run first, reading the dry run's `gaining heart rate` count as the measurement of how many published profiles it fills:
+
+```sh
+node scripts/backfill-profile-heart-rate.mjs --env prod --confirm-production ascend-prod-9c8f2
+node scripts/backfill-profile-heart-rate.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
+```
+
+The backfill is not a prerequisite for the binary: without it, a climber's heart rate appears the next time their own updated app republishes their profile, and the rows stay hidden until then.
+What it adds is coverage of climbers who have not updated or not opened the app, derived from their synced workouts; a later publication from a build that predates the fields leaves the backfilled numbers in place without refreshing them.
 
 ### Public identity backfill
 
@@ -168,21 +228,24 @@ The workflow performs the following order automatically:
 2. Request the single `production` environment approval and hold until the captain grants it.
 3. Build and retain the signed production IPA.
 4. Build the Functions and Hosting artifacts.
-5. Deploy Firestore indexes.
-6. Poll the Firestore Admin API until all 20 composite indexes and every declared query scope inside all six field overrides report `READY`.
-7. Deploy Functions.
-8. Verify `cleanupDeletedUserData`, `expireRevenueCatEntitlements`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, `processRevenueCatAnalyticsOutbox`, `reconcileAppAccess`, `revenueCatWebhook`, and `unsubscribeFromEmails` report `ACTIVE`.
-9. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
-10. Deploy Firestore rules.
-11. Deploy Storage rules.
-12. Deploy Hosting.
-13. Verify Hosting serves `/climbs/manifest.json` successfully.
-14. Prove the downloaded IPA embeds the exact build number the build job published, then upload it to TestFlight only after every backend step succeeds.
+5. Verify every Functions secret's latest version is the one `functions/secret-versions.json` pins at this SHA and that the RevenueCat allowlist it would bind keeps every product that grants access, then record every live paid-access grant - before anything deploys (`docs/functions-secret-versions.md`).
+6. Verify the production bucket carries artwork for every available climb.
+7. Deploy Firestore indexes.
+8. Poll the Firestore Admin API until every declared composite index and every declared query scope inside every field override report `READY`.
+9. Deploy Functions.
+10. Verify `cleanupDeletedUserData`, `expireRevenueCatEntitlements`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, `processRevenueCatAnalyticsOutbox`, `reconcileAppAccess`, `revenueCatWebhook`, and `unsubscribeFromEmails` report `ACTIVE`.
+11. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
+12. Verify every function is bound to the pinned secret versions and every grant recorded in step 5 still exists and is still allowlisted by the version the functions now run.
+13. Deploy Firestore rules.
+14. Deploy Storage rules.
+15. Deploy Hosting.
+16. Verify Hosting serves `/climbs/manifest.json` successfully.
+17. Prove the downloaded IPA embeds the exact build number the build job published, then upload it to TestFlight only after every backend step succeeds.
     A missing or mismatched build number fails the job before Apple is contacted, so it can never be confused with an upload or App Store Connect failure.
-15. Hold the upload job until App Store Connect records the exact build upload as `PROCESSING` or `COMPLETE`, so the next run's build number is derived from post-upload state.
+18. Hold the upload job until App Store Connect records the exact build upload as `PROCESSING` or `COMPLETE`, so the next run's build number is derived from post-upload state.
     The allocator reads active upload records as well as processed builds, so this gate does not wait for Apple's later build-processing index.
     `scripts/ci/await-build-upload-recorded.mjs` owns the bounded upload-ledger wait and its distinct missing, failed, and timeout diagnostics.
-16. Assert the run reached a real outcome, so a run that deployed nothing fails instead of reporting green.
+19. Assert the run reached a real outcome, so a run that deployed nothing fails instead of reporting green.
 
 This ordering makes indexes available before `onWorkoutWritten` can execute its `source + climbId` query.
 It also puts the entitlement Functions and the `entitlements.accessUntil` expiry index in place before the Firestore and Storage rules that require a server-owned paid grant, so a missing RevenueCat secret stops the rollout instead of locking every subscriber out of the backend - `docs/revenuecat-server-entitlement-enforcement.md` owns that system.
@@ -260,7 +323,7 @@ Do not replace this command with `firebase firestore:operations:list --token` wh
 That command omits the CLI authentication hook, so `--token` is ignored on a clean runner even though adjacent index commands authenticate successfully.
 The direct state reader installs the workflow refresh token into the pinned CLI client explicitly and checks the state that determines whether an index can serve queries.
 Because it loads that CLI's private `lib/auth.js` and `lib/firestore/api.js`, it asserts the resolved package is exactly `firebase-tools@15.22.1` and refuses to run against any other tree.
-Bumping the CLI pin therefore requires updating `PINNED_FIREBASE_TOOLS_VERSION` in `scripts/lib/firestore-index-state-reader.mjs` and re-verifying both private modules against the new release.
+Bumping the CLI pin therefore requires updating `PINNED_FIREBASE_TOOLS_VERSION` in `scripts/lib/pinned-firebase-tools.mjs` and re-verifying every private module it and its callers load against the new release.
 
 Rollback: do not delete a newly created additive index during an incident.
 An unused composite index does not change query results, and deleting it adds risk while providing no immediate recovery benefit.
@@ -268,7 +331,14 @@ Revert the declaration in a reviewed follow-up only after confirming no released
 
 ### 2. Functions
 
+A Functions deploy binds every function to each secret's latest version, so check the secrets before it and the paid-access grants after it.
+Never create a secret version from a local copy; `docs/functions-secret-versions.md` owns how a version is built, pinned and recovered.
+
 ```sh
+ROLLOUT_TMP="$(mktemp -d)"
+node scripts/verify-functions-secrets.mjs preflight --project ascend-prod-9c8f2 \
+  --snapshot "$ROLLOUT_TMP/functions-secret-snapshot.json"
+
 npx -y firebase-tools@15.22.1 deploy --project production \
   --only functions --non-interactive --force
 ```
@@ -298,6 +368,14 @@ Then reconcile the whole deployed set against the checked-out source, which is w
 
 ```sh
 node scripts/verify-deployed-functions.mjs --project production
+```
+
+Then prove the deploy bound the pinned secret versions and kept every paid-access grant the preflight recorded.
+A grant is only deleted on that climber's next webhook delivery or reconciliation, so this also fails on a grant that still exists but is no longer allowlisted:
+
+```sh
+node scripts/verify-functions-secrets.mjs verify-deploy --project ascend-prod-9c8f2 \
+  --snapshot "$ROLLOUT_TMP/functions-secret-snapshot.json"
 ```
 
 Run it from the ref production is supposed to be running, because the expectation is that ref's `functions/src/index.ts`.

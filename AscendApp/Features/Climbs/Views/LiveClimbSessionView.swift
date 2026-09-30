@@ -6,6 +6,7 @@ struct LiveClimbSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @Environment(ModerationStore.self) private var moderationStore
 
     @State private var viewModel: LiveClimbSessionViewModel
@@ -15,6 +16,9 @@ struct LiveClimbSessionView: View {
     @State private var hasStartedRecording = false
     @State private var countdownRunID = 0
     @State private var showingHeadphoneRequirement = false
+    @State private var showingMotionAccessRequirement = false
+    @State private var didTrackMotionAccessRequirement = false
+    @State private var motionAccessGate = HeadphoneMotionAccessGate()
     @State private var showingCompatibleHeadphones = false
     @State private var headphoneMotionService = HeadphoneMotionReadinessService.shared
     @State private var didTrackHeadphoneRequirement = false
@@ -32,7 +36,19 @@ struct LiveClimbSessionView: View {
     /// to the calibration sheet, the summary must not remount underneath it.
     @State private var didHandOffToStepAccuracyCalibration = false
     @State private var didSubmitStepAccuracyCalibration = false
+    /// Ascend Mountain's developer read-out; only a Dev build running Mountain creates one.
+    @State private var mountainDebugState: MountainDebugState?
+    /// Who races on the Mountain, and the ghosts that puts on the stairs.
+    @State private var mountainRace: AscendMountainRace
+    /// Where on the Mountain this climb begins: the climber's steps across every climb before it.
+    @State private var mountainJourney = MountainJourney()
+    @State private var showingMountainRaceSheet = false
+    /// The climber's own athlete on the Mountain.
+    private let athleteLookStore = AthleteLookStore.shared
 
+    private let experience: JustClimbExperience
+    /// Where Ascend Mountain reads the climbers someone can filter the race to.
+    private let mountainBoard: MountainRaceBoard
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(
@@ -43,20 +59,50 @@ struct LiveClimbSessionView: View {
             climb: climb,
             analyticsEntryPoint: analyticsEntryPoint
         ))
+        _mountainRace = State(initialValue: AscendMountainRace())
+        experience = .classic
+        mountainBoard = FirestoreLiveReplayLeaderboardRepository.shared
     }
 
     init(
         justClimbGoal: JustClimbGoal,
+        experience: JustClimbExperience = .classic,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     ) {
-        _viewModel = State(initialValue: LiveClimbSessionViewModel(
-            justClimbGoal: justClimbGoal,
-            analyticsEntryPoint: analyticsEntryPoint
-        ))
+        self.init(
+            viewModel: LiveClimbSessionViewModel(
+                justClimbGoal: justClimbGoal,
+                experience: experience,
+                analyticsEntryPoint: analyticsEntryPoint
+            )
+        )
     }
 
-    init(viewModel: LiveClimbSessionViewModel) {
+    /// Ascend Mountain only ever presents a Just Climb; a landmark climb always runs Classic.
+    init(
+        viewModel: LiveClimbSessionViewModel,
+        mountainBoard: MountainRaceBoard = FirestoreLiveReplayLeaderboardRepository.shared,
+        mountainFilterStore: MountainRaceFilterRepository = FirestoreMountainRaceFilterRepository.shared,
+        athleteLooks: AthleteLookRepository = FirestoreAthleteLookRepository.shared
+    ) {
         _viewModel = State(initialValue: viewModel)
+        self.mountainBoard = mountainBoard
+        let isMountain = !viewModel.mode.isLandmarkClimb && viewModel.experience == .mountain
+        _mountainRace = State(initialValue: isMountain
+            ? AscendMountainRace(
+                goal: viewModel.mode.justClimbGoal,
+                board: mountainBoard,
+                filterStore: mountainFilterStore,
+                looks: athleteLooks,
+                userId: Auth.auth().currentUser?.uid
+            )
+            : AscendMountainRace())
+        self.experience = isMountain ? .mountain : .classic
+#if DEBUG
+        if self.experience == .mountain {
+            _mountainDebugState = State(initialValue: MountainDebugState())
+        }
+#endif
     }
 
     var body: some View {
@@ -95,6 +141,10 @@ struct LiveClimbSessionView: View {
                     headphoneRequiredOverlay
                 }
 
+                if showingMotionAccessRequirement {
+                    motionAccessRequiredOverlay
+                }
+
                 if let stepSyncPrompt = viewModel.stepSyncPrompt {
                     stepSyncOverlay(prompt: stepSyncPrompt)
                 }
@@ -110,6 +160,36 @@ struct LiveClimbSessionView: View {
         .sheet(isPresented: $showingCompatibleHeadphones) {
             CompatibleHeadphonesHelpSheet()
                 .appSheetStyle(.fitted())
+        }
+        .sheet(isPresented: $showingMountainRaceSheet) {
+            AscendMountainRaceSheet(race: mountainRace, isAloneOnBoard: !viewModel.leaderboardStanding.showsLeaderboardRank) {
+                AscendMountainFilterSheet(
+                    board: mountainBoard,
+                    context: viewModel.replayContext,
+                    chosen: mountainRace.selection.chosen,
+                    nearSteps: mountainFilterNearSteps,
+                    onDone: { mountainRace.choose($0) }
+                )
+                .appSheetStyle(.large)
+            }
+            .appSheetStyle(.fitted())
+        }
+        .task {
+            guard experience == .mountain else { return }
+            async let chosen: Void = mountainRace.loadChosen()
+            if let userId = Auth.auth().currentUser?.uid {
+                await athleteLookStore.load(userId: userId)
+            }
+            await chosen
+        }
+        .task {
+            guard experience == .mountain else { return }
+            await mountainJourney.load(userId: Auth.auth().currentUser?.uid)
+        }
+        .onChange(of: viewModel.leaderboardWindow) { _, window in
+            guard experience == .mountain, let window else { return }
+            mountainRace.ingest(window, identities: moderationStore.moderate(window.rows), now: viewModel.displayedDuration)
+            Task { await mountainRace.refreshLooks() }
         }
         .sheet(
             isPresented: $showingStepAccuracyCalibration,
@@ -149,6 +229,7 @@ struct LiveClimbSessionView: View {
             dismiss()
         }
         .onAppear {
+            motionAccessGate.isAppActive = scenePhase == .active
             if viewModel.phase != .idle {
                 hasStartedRecording = true
             }
@@ -159,6 +240,7 @@ struct LiveClimbSessionView: View {
                 sessionID: viewModel.liveActivitySessionID,
                 registrationID: liveActivityControlRegistrationID
             )
+            viewModel.cancelPreparedBackgroundSession()
         }
         .task(id: countdownRunID) {
             await runCountdownThenStart()
@@ -195,6 +277,10 @@ struct LiveClimbSessionView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            motionAccessGate.isAppActive = phase == .active
+            if phase == .active {
+                retryAfterMotionAccessChangeIfNeeded()
+            }
             guard phase == .inactive || phase == .background else { return }
             viewModel.checkpointForLifecycleChange(modelContext: modelContext)
         }
@@ -211,6 +297,16 @@ struct LiveClimbSessionView: View {
             Task {
                 await viewModel.refreshReplayLeaderboardIfNeeded()
                 await viewModel.updateLiveActivity()
+                if experience == .mountain {
+                    let context = viewModel.replayContext
+                    await mountainRace.refreshChosen(
+                        context: context,
+                        bucketIndex: Int(viewModel.displayedDuration) / context.bucketIntervalSeconds,
+                        now: viewModel.displayedDuration,
+                        moderate: { moderationStore.moderate($0) }
+                    )
+                    await mountainRace.refreshLooks()
+                }
             }
         }
         .trackOnce(screen: .liveClimbSession)
@@ -288,7 +384,16 @@ struct LiveClimbSessionView: View {
         ZStack {
             Color.black
 
-            if showsClimbPhotoBackground, let climb = viewModel.mode.climb {
+            if showsMountain {
+                mountainBackdrop
+                    .overlay {
+                        // The leaderboard page reads over the world, not through it.
+                        Color.black
+                            .opacity(viewModel.isRecording && selectedTab == .leaderboard ? 0.95 : 0)
+                            .allowsHitTesting(false)
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: selectedTab)
+            } else if showsClimbPhotoBackground, let climb = viewModel.mode.climb {
                 ClimbArtworkView(climb: climb, variant: .hero)
                     .overlay(
                         LinearGradient(
@@ -305,6 +410,44 @@ struct LiveClimbSessionView: View {
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.25), value: showsClimbPhotoBackground)
+    }
+
+    /// Ascend Mountain draws the world behind the countdown and the climb, and gives way to the
+    /// completion summary like any other backdrop.
+    private var showsMountain: Bool {
+        experience == .mountain && viewModel.savedWorkout == nil
+    }
+
+    private var mountainBackdrop: some View {
+        let viewModel = viewModel
+        let race = mountainRace
+        let looks = athleteLookStore
+        let journey = mountainJourney
+        return AscendMountainRealityView(
+            seed: MountainCourse.ascendMountainSeed,
+            stepSource: { viewModel.totalRecordedSteps },
+            debugState: mountainDebugState,
+            ghostSource: { race.ghosts },
+            markerSource: { race.markers },
+            elapsedSource: { viewModel.displayedDuration },
+            athleteLook: { looks.current },
+            journeySource: { journey.startSteps },
+            packReport: { race.drawnPack = $0 }
+        )
+        .overlay {
+            // Legibility for the chrome above and the stat row and controls below.
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.55), location: 0),
+                    .init(color: .clear, location: 0.26),
+                    .init(color: .clear, location: 0.7),
+                    .init(color: .black.opacity(0.7), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+        }
     }
 
     /// Redundant against a full-bleed photo, so the small artwork thumbnail in
@@ -411,6 +554,13 @@ struct LiveClimbSessionView: View {
                     .padding(.leading, 10)
             }
 
+            if showsMountainRacePill {
+                AscendMountainRacePill(standing: viewModel.leaderboardStandingText) {
+                    showingMountainRaceSheet = true
+                }
+                .padding(.leading, 10)
+            }
+
             if !(viewModel.isRecording && selectedTab == .justMe) {
                 Text(viewModel.elapsedClock)
                     .font(.montserratBold(size: 13))
@@ -477,7 +627,54 @@ struct LiveClimbSessionView: View {
         }
     }
 
+    @ViewBuilder
     private var liveLeaderboardSection: some View {
+        if experience == .mountain {
+            mountainSection
+        } else {
+            classicLiveSection
+        }
+    }
+
+    /// Mountain keeps the world clear during the countdown, then swipes between its own read-out
+    /// and the leaderboard once the climb is recording. The Mountain's page stands where Just Me
+    /// does, so the top chrome treats the two pages exactly as it treats Classic's two tabs.
+    @ViewBuilder
+    private var mountainSection: some View {
+        if viewModel.isRecording {
+            VStack(spacing: 10) {
+                TabView(selection: $selectedTab) {
+                    AscendMountainSessionHUD(
+                        viewModel: viewModel,
+                        debugState: mountainDebugState,
+                        crowd: MountainCrowdCounts(standing: viewModel.leaderboardStandingText, drawn: mountainRace.drawnPack)
+                    )
+                        .tag(LiveClimbSessionTab.justMe)
+
+                    leaderboardPanel
+                        .tag(LiveClimbSessionTab.leaderboard)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+
+                AscendMountainPageDots(isOnLeaderboard: selectedTab == .leaderboard)
+            }
+        } else {
+            Color.clear
+        }
+    }
+
+    /// Where Filter measures "close to your best" from: the climber's best, or this climb's steps
+    /// before they have one.
+    private var mountainFilterNearSteps: Int {
+        mountainRace.field.yourBest.map { Int($0.finalSteps.rounded()) } ?? viewModel.totalRecordedSteps
+    }
+
+    /// The race pill lives on the Mountain's own page and nowhere else.
+    private var showsMountainRacePill: Bool {
+        experience == .mountain && viewModel.isRecording && selectedTab == .justMe
+    }
+
+    private var classicLiveSection: some View {
         VStack(spacing: 14) {
             if viewModel.isRecording {
                 LiveClimbSessionTabBar(selection: $selectedTab)
@@ -525,6 +722,16 @@ struct LiveClimbSessionView: View {
                 message: "Synced with machine. Continuing from \(confirmation.correctedSteps.formatted()) steps.",
                 tint: .accent
             )
+        } else if viewModel.shouldShowMotionAccessStatus {
+            Button(action: openAppSettings) {
+                trackingBanner(
+                    iconName: "figure.stair.stepper",
+                    message: "Motion & Fitness is off. Turn it on in Settings to keep counting steps.",
+                    tint: .accent
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens Settings")
         } else if viewModel.shouldShowTrackingRecoveryStatus {
             trackingBanner(
                 iconName: "airpodspro",
@@ -726,13 +933,29 @@ struct LiveClimbSessionView: View {
               viewModel.phase == .idle else { return }
 
         countdownValue = 3
+        // Motion & Fitness is settled before the countdown, so its alert meets a climber who is
+        // still looking at the screen instead of one who has already started climbing.
+        let motionAccess = await motionAccessGate.resolve()
+        guard !Task.isCancelled else { return }
+
         headphoneMotionService.refresh()
-        guard headphoneMotionService.readiness.canStartLiveClimb else {
+        switch HeadphoneSessionStartRequirement(
+            motionAccess: motionAccess,
+            headphones: headphoneMotionService.readiness
+        ) {
+        case .motionAccessBlocked:
+            showMotionAccessRequirement()
+            return
+        case .headphonesRequired:
             showHeadphoneRequirement()
             return
+        case .ready:
+            break
         }
 
         showingHeadphoneRequirement = false
+        showingMotionAccessRequirement = false
+        viewModel.prepareBackgroundSessionForCountdown()
 
         for value in stride(from: 3, through: 1, by: -1) {
             headphoneMotionService.refresh()
@@ -771,6 +994,7 @@ struct LiveClimbSessionView: View {
     private func showHeadphoneRequirement() {
         countdownValue = 3
         showingHeadphoneRequirement = true
+        viewModel.cancelPreparedBackgroundSession()
 
         guard !didTrackHeadphoneRequirement,
               let climb = viewModel.mode.climb else { return }
@@ -782,6 +1006,37 @@ struct LiveClimbSessionView: View {
                 reason: .headphonesUnavailable
             )
         )
+    }
+
+    private func showMotionAccessRequirement() {
+        countdownValue = 3
+        showingMotionAccessRequirement = true
+
+        guard !didTrackMotionAccessRequirement,
+              let climb = viewModel.mode.climb else { return }
+        didTrackMotionAccessRequirement = true
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.detailStartBlocked(
+                climb: climb,
+                entryPoint: viewModel.analyticsEntryPoint,
+                reason: .motionAccessDenied
+            )
+        )
+    }
+
+    /// Picks the countdown back up when the climber returns from Settings with access turned on.
+    private func retryAfterMotionAccessChangeIfNeeded() {
+        guard showingMotionAccessRequirement,
+              !HeadphoneMotionAuthorizationState.current().blocksStepCounting else { return }
+
+        showingMotionAccessRequirement = false
+        countdownValue = 3
+        countdownRunID += 1
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        openURL(url)
     }
 
     private func retryHeadphoneCountdown() {
@@ -891,6 +1146,20 @@ struct LiveClimbSessionView: View {
             secondaryAction: { dismiss() },
             tertiaryTitle: "See compatible headphones",
             tertiaryAction: presentCompatibleHeadphones
+        )
+    }
+
+    private var motionAccessRequiredOverlay: some View {
+        liveClimbFullScreenOverlay(
+            iconName: "figure.stair.stepper",
+            title: "Motion & Fitness is off",
+            message: viewModel.mode.isLandmarkClimb
+                ? "Ascend counts your steps from your headphones' motion sensors. Turn on Motion & Fitness for Ascend in Settings to start this live climb."
+                : "Ascend counts your steps from your headphones' motion sensors. Turn on Motion & Fitness for Ascend in Settings to start climbing.",
+            primaryTitle: "Open Settings",
+            primaryAction: openAppSettings,
+            secondaryTitle: "Close",
+            secondaryAction: { dismiss() }
         )
     }
 
@@ -1007,8 +1276,9 @@ struct LiveClimbSessionView: View {
         tertiaryAction: (() -> Void)? = nil
     ) -> some View {
         ZStack {
+            // Opaque: the countdown it stands in front of would otherwise show its numeral
+            // through the scrim, right behind this overlay's copy.
             Color.black
-                .opacity(0.96)
                 .ignoresSafeArea()
 
             VStack(spacing: 22) {

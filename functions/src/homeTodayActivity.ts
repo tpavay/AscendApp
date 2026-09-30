@@ -2,9 +2,19 @@
  * Home's ON THE GLOBE TODAY projection.
  *
  * One server-owned document, `home_today_activity/global`, holding the most
- * recent uploaded climbs across every session kind - Live Climb completions,
- * Just Climbs and routine sessions - newest first. Home reads it through one
- * listener and shows the first three rows; SEE ALL shows the rest.
+ * recent uploaded climbs across every session kind - Live Climbs, Just Climbs
+ * and routine sessions, finished or stopped short - newest first. Home reads it
+ * through one listener and shows the first three rows; SEE ALL shows the rest.
+ *
+ * Any saved session with real progress is news. A Live Climb that stopped
+ * before the top, a routine stopped early and a Just Climb stopped before its
+ * goal all publish, marked `isPartial` so no surface reads them as a finish.
+ * The deliberate exclusions: a discarded session (never saved), a session with
+ * no steps or no time (no progress to show), anything not recorded by the
+ * in-app sensor flow (manual and Apple Health rows survive only as legacy
+ * data, #437), and a workout the feed first sees more than a day after it
+ * finished. Ascend has no private-profile setting; identity is always the
+ * public snapshot, and blocking is applied on the reading device.
  *
  * Every row is derived here from the canonical private workout, the same way
  * `landmarkResults` and the replay boards are: the client never writes this
@@ -60,7 +70,8 @@ const TRANSACTION_MAX_ATTEMPTS = 5;
 const LIVE_CLIMB_TRACKING_MODE = "live_climb";
 const JUST_CLIMB_TRACKING_MODE = "just_climb";
 const ROUTINE_TRACKING_MODE = "routine";
-const USER_STOPPED_REASON = "user_stopped";
+/** A session the climber threw away. The app never saves one on purpose. */
+const DISCARDED_STOP_REASON = "discarded";
 
 export type HomeTodayActivityKind =
   "live_climb" |
@@ -91,8 +102,15 @@ export interface HomeTodayActivityCandidate {
   workoutId: string;
   userId: string;
   kind: HomeTodayActivityKind;
-  /** The landmark climbed; only on `live_climb`. */
+  /**
+   * The landmark finished; only on a `live_climb` completion. A 1.1 client
+   * titles the row with this landmark and opens it, so it is never set on an
+   * attempt that stopped short - that row names its landmark in
+   * `attemptClimbId` instead, and reads on 1.1 as a plain "Live Climb".
+   */
   climbId: string | null;
+  /** The landmark a `live_climb` that stopped short was climbing. */
+  attemptClimbId: string | null;
   /** The catalog template run; only on `routine_template`. */
   routineTemplateId: string | null;
   steps: number;
@@ -102,6 +120,16 @@ export interface HomeTodayActivityCandidate {
   justClimbGoalKind: HomeTodayJustClimbGoalKind | null;
   /** Minutes for a duration goal, steps for a step goal, null when open. */
   justClimbGoalValue: number | null;
+  /**
+   * True when the session ended before its target: a Live Climb short of the
+   * climb's step count, a routine that did not run its plan through, a Just
+   * Climb stopped before its goal. An open Just Climb has no target to miss.
+   */
+  isPartial: boolean;
+  /** The climb's step count, on a `live_climb` that stopped short. */
+  targetSteps: number | null;
+  /** The plan's length in seconds, on a routine that stopped short. */
+  targetDurationSeconds: number | null;
 }
 
 /** A candidate plus when it first landed and who climbed it. */
@@ -146,13 +174,15 @@ export type HomeTodayActivityOutcome = "written" | "skipped";
  * Reduces a raw workout document to a feed candidate, or null when the
  * session is not one the feed shows.
  *
- * The gates mirror the publication rules the replay boards already apply,
- * re-derived from evidence rather than read off `leaderboardEligible`:
- * a Live Climb must be a completion under the shared legacy-completion
- * contract, a Just Climb must have ended by target or by the climber, and a
- * routine must have reached its target (a skipped interval ends a routine as
- * `skipped`). A personal routine is kept as `routine` with no template id: its
- * row opens nothing, because a private routine is not shareable.
+ * Every saved session with real progress qualifies; whether it reached its
+ * target only decides `isPartial`, re-derived from evidence rather than read
+ * off `leaderboardEligible`. A Live Climb is a finish under the shared
+ * legacy-completion contract (steps against the climb's step count) and
+ * partial otherwise; a routine is a finish only when it ran its plan through
+ * (`target_reached` - a skipped interval ends it as `skipped`); a Just Climb
+ * with a goal is a finish when it ended by reaching it. A personal routine is
+ * kept as `routine` with no template id: its row opens nothing, because a
+ * private routine is not shareable.
  * @param {string} userId Owning user id.
  * @param {string} workoutId Workout document id.
  * @param {Record<string, unknown> | undefined} data Raw workout data.
@@ -187,6 +217,9 @@ export function parseHomeTodayActivityCandidate(
 
   const trackingMode = stringValue(metadata.trackingMode);
   const stopReason = stringValue(metadata.stopReason) ?? "";
+  if (stopReason === DISCARDED_STOP_REASON) {
+    return null;
+  }
   const targetStepCount = positiveIntegerValue(metadata.climbTargetStepCount) ??
     positiveIntegerValue(metadata.targetStepCount);
   const targetDurationSeconds = positiveNumberValue(
@@ -198,12 +231,16 @@ export function parseHomeTodayActivityCandidate(
     workoutId,
     userId,
     climbId: null,
+    attemptClimbId: null,
     routineTemplateId: null,
     steps,
     durationSeconds: Math.round(durationSeconds),
     completedAtMillis: completedAtMillis(data.startedAt, durationSeconds),
     justClimbGoalKind: null,
     justClimbGoalValue: null,
+    isPartial: false,
+    targetSteps: null,
+    targetDurationSeconds: null,
   };
 
   if (trackingMode === LIVE_CLIMB_TRACKING_MODE) {
@@ -217,29 +254,34 @@ export function parseHomeTodayActivityCandidate(
       steps,
       targetStepCount,
     });
-    if (!completed) {
+    if (completed) {
+      return {...base, kind: "live_climb", climbId};
+    }
+    if (!hasProgress(steps, durationSeconds)) {
       return null;
     }
-    return {...base, kind: "live_climb", climbId};
+    return {
+      ...base,
+      kind: "live_climb",
+      attemptClimbId: climbId,
+      isPartial: true,
+      targetSteps: targetStepCount,
+    };
   }
 
-  if (steps === 0 || durationSeconds <= 0) {
+  if (!hasProgress(steps, durationSeconds)) {
     return null;
   }
+  const reachedTarget = stopReason === TARGET_REACHED_STOP_REASON;
 
   if (trackingMode === JUST_CLIMB_TRACKING_MODE) {
-    if (
-      stopReason !== TARGET_REACHED_STOP_REASON &&
-      stopReason !== USER_STOPPED_REASON
-    ) {
-      return null;
-    }
     if (targetDurationSeconds !== null) {
       return {
         ...base,
         kind: "just_climb",
         justClimbGoalKind: "duration",
         justClimbGoalValue: Math.max(1, Math.round(targetDurationSeconds / 60)),
+        isPartial: !reachedTarget,
       };
     }
     if (targetStepCount !== null) {
@@ -248,23 +290,45 @@ export function parseHomeTodayActivityCandidate(
         kind: "just_climb",
         justClimbGoalKind: "steps",
         justClimbGoalValue: targetStepCount,
+        isPartial: !reachedTarget,
       };
     }
     return {...base, kind: "just_climb", justClimbGoalKind: "open"};
   }
 
   if (trackingMode === ROUTINE_TRACKING_MODE) {
-    if (stopReason !== TARGET_REACHED_STOP_REASON) {
-      return null;
-    }
+    const progress = reachedTarget ?
+      {} :
+      {
+        isPartial: true,
+        targetDurationSeconds: targetDurationSeconds === null ?
+          null :
+          Math.round(targetDurationSeconds),
+      };
     const routineTemplateId = stringValue(metadata.routineTemplateId);
     if (routineTemplateId) {
-      return {...base, kind: "routine_template", routineTemplateId};
+      return {
+        ...base,
+        ...progress,
+        kind: "routine_template",
+        routineTemplateId,
+      };
     }
-    return {...base, kind: "routine"};
+    return {...base, ...progress, kind: "routine"};
   }
 
   return null;
+}
+
+/**
+ * Whether a session moved at all. A session with no steps or no time has
+ * nothing to show, finished or not.
+ * @param {number} steps Recorded steps.
+ * @param {number} durationSeconds Recorded length.
+ * @return {boolean} True when there is progress to publish.
+ */
+function hasProgress(steps: number, durationSeconds: number): boolean {
+  return steps > 0 && durationSeconds > 0;
 }
 
 /**
@@ -286,12 +350,16 @@ export function candidatesEqual(
     lhs.userId === rhs.userId &&
     lhs.kind === rhs.kind &&
     lhs.climbId === rhs.climbId &&
+    lhs.attemptClimbId === rhs.attemptClimbId &&
     lhs.routineTemplateId === rhs.routineTemplateId &&
     lhs.steps === rhs.steps &&
     lhs.durationSeconds === rhs.durationSeconds &&
     lhs.completedAtMillis === rhs.completedAtMillis &&
     lhs.justClimbGoalKind === rhs.justClimbGoalKind &&
-    lhs.justClimbGoalValue === rhs.justClimbGoalValue;
+    lhs.justClimbGoalValue === rhs.justClimbGoalValue &&
+    lhs.isPartial === rhs.isPartial &&
+    lhs.targetSteps === rhs.targetSteps &&
+    lhs.targetDurationSeconds === rhs.targetDurationSeconds;
 }
 
 /**
@@ -723,6 +791,20 @@ function rowToData(row: HomeTodayActivityRow): Record<string, unknown> {
   if (row.justClimbGoalValue !== null) {
     data.justClimbGoalValue = row.justClimbGoalValue;
   }
+  // Written only on a partial row, so a finish reads byte-for-byte as it did
+  // before partial sessions were published.
+  if (row.isPartial) {
+    data.isPartial = true;
+  }
+  if (row.attemptClimbId !== null) {
+    data.attemptClimbId = row.attemptClimbId;
+  }
+  if (row.targetSteps !== null) {
+    data.targetSteps = row.targetSteps;
+  }
+  if (row.targetDurationSeconds !== null) {
+    data.targetDurationSeconds = row.targetDurationSeconds;
+  }
   return data;
 }
 
@@ -762,6 +844,7 @@ function rowFromData(value: unknown): HomeTodayActivityRow | null {
     userId,
     kind: kind as HomeTodayActivityKind,
     climbId: stringValue(data.climbId),
+    attemptClimbId: stringValue(data.attemptClimbId),
     routineTemplateId: stringValue(data.routineTemplateId),
     steps,
     durationSeconds,
@@ -772,6 +855,9 @@ function rowFromData(value: unknown): HomeTodayActivityRow | null {
       goalKind as HomeTodayJustClimbGoalKind :
       null,
     justClimbGoalValue: positiveIntegerValue(data.justClimbGoalValue),
+    isPartial: data.isPartial === true,
+    targetSteps: positiveIntegerValue(data.targetSteps),
+    targetDurationSeconds: positiveIntegerValue(data.targetDurationSeconds),
     displayName,
     avatarToken: typeof data.avatarToken === "string" ? data.avatarToken : "",
     photoURL,

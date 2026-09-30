@@ -12,11 +12,13 @@
  *   list was built from, and every pass - the remainder included - runs with
  *   `-parallel-testing-enabled NO`, because parallelism measured no faster and
  *   no leaner and is where the main-actor races came from.
- * - The plan is exactly two passes: the movie-export host and everything
- *   else. Since the render suites read screens through `RenderedScreen`
- *   (2026-09-03) the whole remainder fits one host, and every extra pass
- *   costs the job ~2 minutes of host launch for no memory it needs; a third
- *   pass reappearing here is a regression to measure, not a default.
+ * - The plan is exactly three passes: the movie-export host, the host for
+ *   the suites that draw the RealityKit Mountain (a render-thread assertion
+ *   killed the shared host once on 2026-09-30), and everything else. Since
+ *   the render suites read screens through `RenderedScreen` (2026-09-03) the
+ *   whole remainder fits one host, and every extra pass costs the job ~2
+ *   minutes of host launch; a fourth pass appearing here is a regression to
+ *   measure, not a default.
  * - The complement pass skips exactly the suites every other pass names, so a
  *   suite that exists nowhere in the plan still runs, and no suite runs twice.
  * - The executed-test floor stays under the measured baseline and above the
@@ -56,13 +58,18 @@ function isSerial(pass) {
   return index >= 0 && pass.arguments[index + 1] === "NO";
 }
 
-test("every suite is named exactly once, and the movie-export suite keeps its own host", () => {
+test("every suite is named exactly once, and the movie-export and Mountain suites keep their own hosts", () => {
   const suites = namedSuites();
 
   assert.equal(new Set(suites).size, suites.length, "a suite is named in more than one pass");
   // The movie suite keeps its own host: three of its five tests each export a
   // real movie, and that cost is the assertion.
-  assert.deepEqual(ISOLATED_PASSES, [["ShareComposerBackgroundFillEvidenceTests"]]);
+  // The Mountain suites share one host so a RealityKit render-thread
+  // assertion cannot kill the remainder pass.
+  assert.deepEqual(ISOLATED_PASSES, [
+    ["ShareComposerBackgroundFillEvidenceTests"],
+    ["AscendMountainSessionEvidenceTests", "SentryMaskingEvidenceTests", "SentryMaskInteractionTests"],
+  ]);
   for (const suite of suites) {
     assert.doesNotMatch(suite, /\//, `${suite} must be a bare suite name; the planner adds the target`);
   }
@@ -105,11 +112,14 @@ test("the last pass is the complement: it skips exactly what every other pass ru
   );
 });
 
-test("the plan is two passes: the movie host and one host for everything else", () => {
+test("the plan is three passes: the movie host, the Mountain host and one host for everything else", () => {
   const passes = planTestPasses();
 
-  assert.equal(passes.length, 2, "every extra pass costs ~2 minutes of host launch; measure before adding one");
-  assert.deepEqual(selectors(passes[1], "-skip-testing"), [
+  assert.equal(passes.length, 3, "every extra pass costs ~2 minutes of host launch; measure before adding one");
+  assert.deepEqual(selectors(passes[2], "-skip-testing"), [
+    "AscendAppTests/AscendMountainSessionEvidenceTests",
+    "AscendAppTests/SentryMaskInteractionTests",
+    "AscendAppTests/SentryMaskingEvidenceTests",
     "AscendAppTests/ShareComposerBackgroundFillEvidenceTests",
   ]);
 });
@@ -145,8 +155,8 @@ test("the CLI writes one argument-per-line file per pass, in run order", () => {
 test("a suite named twice refuses to plan", () => {
   const source = readFileSync(scriptPath, "utf8");
   const duplicated = source.replace(
-    'export const ISOLATED_PASSES = [["ShareComposerBackgroundFillEvidenceTests"]];',
-    'export const ISOLATED_PASSES = [["ShareComposerBackgroundFillEvidenceTests"], ["ShareComposerBackgroundFillEvidenceTests"]];'
+    '    ["ShareComposerBackgroundFillEvidenceTests"],\n',
+    '    ["ShareComposerBackgroundFillEvidenceTests"],\n    ["ShareComposerBackgroundFillEvidenceTests"],\n'
   );
   assert.notEqual(duplicated, source);
 

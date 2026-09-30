@@ -329,6 +329,14 @@ jobs:
       - name: Build web app
         run: npm --prefix web run build
 
+      # The same secret guard production runs, so a secret version nobody
+      # pinned, or a RevenueCat allowlist that drops a product a live grant
+      # holds, stops staging first. docs/functions-secret-versions.md.
+      - name: Verify Functions secrets before any backend change
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/verify-functions-secrets.mjs preflight --project ascend-staging-fa7d5 --snapshot "$RUNNER_TEMP/functions-secret-snapshot.json"
+
       # The entitlement functions and their expiry index must exist before the
       # paid rules can close access. A missing RevenueCat secret now stops this
       # job before rules deploy instead of shipping a backend-wide lockout.
@@ -365,6 +373,11 @@ jobs:
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: node scripts/verify-deployed-functions.mjs --project ascend-staging-fa7d5
+
+      - name: Verify the Functions deploy kept every paid-access grant
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/verify-functions-secrets.mjs verify-deploy --project ascend-staging-fa7d5 --snapshot "$RUNNER_TEMP/functions-secret-snapshot.json"
 
       - name: Deploy Firestore rules
         env:

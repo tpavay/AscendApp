@@ -17,6 +17,7 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "real_time",
         "daily_climbs",
         "gender",
+        "athlete",
         "age",
         "weight",
         "location",

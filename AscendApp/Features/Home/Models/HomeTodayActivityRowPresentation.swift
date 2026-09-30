@@ -8,6 +8,10 @@ import Foundation
 /// climber's own and stays private, so that row reads as a routine and opens nothing.
 /// A Live Climb the device's catalog cannot name has no Climb Detail to open either,
 /// so its row is not a door: a chevron that leads nowhere is worse than none.
+///
+/// A session that stopped short of its target says how far it got against that target
+/// - "2,342 of 3,398 steps", "07:00 of 20:00" - the way a Just Climb goal always has, so
+/// no partial row reads as a finish.
 struct HomeTodayActivityRowPresentation: Equatable {
     /// Where a tap on the row leads.
     enum Destination: Equatable {
@@ -38,8 +42,13 @@ struct HomeTodayActivityRowPresentation: Equatable {
         switch row.kind {
         case .liveClimb:
             title = climbName ?? "Live Climb"
-            detail = [time, steps, elapsed].joined(separator: " · ")
-            if climbName != nil, let climbId = row.climbId {
+            if row.isPartial, let targetSteps = row.targetSteps {
+                let progress = "\(row.steps.formatted()) of \(targetSteps.formatted()) steps"
+                detail = [progress, time, elapsed].joined(separator: " · ")
+            } else {
+                detail = [time, steps, elapsed].joined(separator: " · ")
+            }
+            if climbName != nil, let climbId = row.landmarkClimbId {
                 destination = .climbDetail(climbId: climbId)
             } else {
                 destination = .none
@@ -62,13 +71,25 @@ struct HomeTodayActivityRowPresentation: Equatable {
             destination = .justClimb(goal)
         case .routineTemplate:
             title = routineTemplateName ?? "Routine"
-            detail = [time, steps, elapsed].joined(separator: " · ")
+            detail = [Self.routineTimeText(row: row, time: time), steps, elapsed].joined(separator: " · ")
             destination = row.routineTemplateId.map { .routineTemplate(templateId: $0) } ?? .none
         case .routine:
             title = "Routine"
-            detail = [time, steps, elapsed].joined(separator: " · ")
+            detail = [Self.routineTimeText(row: row, time: time), steps, elapsed].joined(separator: " · ")
             destination = .none
         }
+    }
+
+    /// A routine stopped early reads its time against the plan. A skipped routine can
+    /// run the whole clock without finishing, so a plan it did not fall short of in
+    /// time is not restated as "20:00 of 20:00", which would read as a finish.
+    private static func routineTimeText(row: ModeratedHomeTodayActivityRow, time: String) -> String {
+        guard row.isPartial,
+              let target = row.targetDurationSeconds,
+              row.durationSeconds < target else {
+            return time
+        }
+        return "\(time) of \(DurationFormatter.format(duration: target))"
     }
 
     /// "just now", "4 min ago", "2 h ago", "3 d ago": coarse on purpose, because a

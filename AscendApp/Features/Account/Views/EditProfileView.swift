@@ -108,41 +108,19 @@ struct EditProfileView: View {
     }
 
     private var profileImageView: some View {
-        AsyncImage(url: authVM.displayPhotoURL) { phase in
-            switch phase {
-            case .empty:
-                placeholderImage
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 120, height: 120)
-                    .clipShape(Circle())
-                    .overlay {
-                        Circle()
-                            .stroke(.white.opacity(0.2), lineWidth: 2)
-                    }
-            case .failure:
-                placeholderImage
-            @unknown default:
-                placeholderImage
-            }
-        }
-        .frame(width: 120, height: 120)
+        ClimberAvatar(
+            userId: authVM.user?.uid,
+            photoURL: authVM.displayPhotoURL,
+            placeholder: .glyph(
+                systemName: "person.fill",
+                fill: Color.jetLighter.opacity(0.3),
+                foreground: .white.opacity(0.7),
+                glyphSize: 50
+            ),
+            size: 120,
+            border: .init(color: .white.opacity(0.2), width: 2, onlyOverPhoto: true)
+        )
         .accessibilityLabel("Profile photo")
-    }
-
-    private var placeholderImage: some View {
-        ZStack {
-            Circle()
-                .fill(.jetLighter.opacity(0.3))
-
-            Image(systemName: "person.fill")
-                .font(.system(size: 50))
-                .foregroundStyle(.white.opacity(0.7))
-                .accessibilityHidden(true)
-        }
-        .frame(width: 120, height: 120)
     }
 
     private var profileSection: some View {

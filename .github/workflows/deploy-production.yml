@@ -331,6 +331,22 @@ jobs:
       - name: Build web app
         run: npm --prefix web run build
 
+      # A Functions deploy binds every function to the LATEST version of each
+      # secret, so a secret version created weeks earlier ships with whatever
+      # merge deploys next. That is how the 1.1 deploy (run 36179234290) put
+      # REVENUECAT_SERVER_CONFIG version 3 - built from a stale local copy,
+      # missing rc_promo_app_access_lifetime, deliberately left undeployed -
+      # live on 2026-09-25, and reconciliation deleted comped climbers'
+      # paid-access grants. This refuses to touch the backend unless every
+      # secret's latest version is the one functions/secret-versions.json pins
+      # at this commit and the RevenueCat allowlist keeps every product that
+      # grants access, then records every live grant for the check after the
+      # Functions deploy. Read-only. docs/functions-secret-versions.md.
+      - name: Verify Functions secrets before any backend change
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/verify-functions-secrets.mjs preflight --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --snapshot "$RUNNER_TEMP/functions-secret-snapshot.json"
+
       # This runs before the first deploy step, not just before Hosting, so a
       # catalogue with missing artwork stops the release without production
       # having been touched at all.
@@ -433,6 +449,19 @@ jobs:
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: node scripts/verify-deployed-functions.mjs --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}"
+
+      # A grant is deleted only when that climber's next webhook delivery or
+      # reconcileAppAccess call runs - 32 and 64 minutes after the 1.1 deploy
+      # for the two climbers who lost theirs - so a grant that still exists
+      # proves nothing on its own. This fails unless every function is bound to
+      # the pinned versions and every grant the preflight recorded still exists
+      # AND is allowlisted by the version the functions now run, and failing
+      # here stops the job before rules, Storage, Hosting and the TestFlight
+      # upload. Read-only.
+      - name: Verify the Functions deploy kept every paid-access grant
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/verify-functions-secrets.mjs verify-deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --snapshot "$RUNNER_TEMP/functions-secret-snapshot.json"
 
       - name: Deploy Firestore rules
         env:

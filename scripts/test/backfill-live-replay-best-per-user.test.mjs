@@ -9,6 +9,7 @@ import {
   applyEntryWrites,
   backfillRaceBests,
   bestAttemptWorkoutId,
+  boardGridCurve,
   curveFromData,
   entryUpdatePhases,
   entryWritePlan,
@@ -503,3 +504,50 @@ test("a climber whose later commit is refused keeps bucket zero untouched, so th
   assert.deepEqual(again.skippedClimbers, []);
   assert.equal(again.boards[0].entryWritesApplied, 360, "the whole climber is rewritten, not just bucket zero");
 });
+
+test("an attempt past the hour sweeps every bucket it published, uncapped", () => {
+  const attempt = userAttemptEntry(
+    {completionDurationSeconds: 9002.35, finalSteps: 16645, splitBucketCount: 901, userId: "u", workoutId: "w"},
+    "w",
+    "just_climb"
+  );
+  assert.equal(attempt.splitBucketCount, 901);
+  // An entry predating the stored span still sweeps the pre-fix range.
+  assert.equal(
+    userAttemptEntry({finalSteps: 10, userId: "u", workoutId: "w"}, "w", "just_climb").splitBucketCount,
+    360
+  );
+});
+
+test("a curve clamped at 60:00 is re-derived before it can win a goal", () => {
+  // Eight hours and 20,000 steps, stored with the finish at 60:00.
+  const clamped = {
+    workoutId: "eight-hours",
+    finalSteps: 20000,
+    finalDurationSeconds: 28800,
+    splitIntervalSeconds: 10,
+    splitSteps: Array.from({length: 360}, (_, index) =>
+      index < 359 ? Math.round((index + 1) * 10 * 20000 / 28800) : 20000
+    ),
+  };
+  const oneHour = {
+    workoutId: "one-hour",
+    finalSteps: 5000,
+    finalDurationSeconds: 3600,
+    splitIntervalSeconds: 10,
+    splitSteps: Array.from({length: 361}, (_, index) => Math.min(5000, Math.round((index + 1) * 10 * 5000 / 3600))),
+  };
+
+  const repaired = boardGridCurve(clamped);
+  assert.equal(repaired.splitSteps.length, 2881);
+  assert.ok(repaired.splitSteps[359] < 2600);
+  // A curve that was never clamped comes back untouched.
+  assert.equal(boardGridCurve(oneHour), oneHour);
+
+  const bent = raceGoalKeysByWorkoutId([clamped, oneHour]);
+  const honest = raceGoalKeysByWorkoutId([repaired, oneHour]);
+  assert.ok(bent.get("eight-hours").includes("duration:3600"), "the clamp crowned it");
+  assert.equal(honest.get("eight-hours").includes("duration:3600"), false);
+  assert.ok(honest.get("one-hour").includes("duration:3600"));
+});
+

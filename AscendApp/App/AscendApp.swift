@@ -101,6 +101,19 @@ struct AscendApp: App {
 
     @ViewBuilder
     private var launchContent: some View {
+#if DEBUG
+        if AscendMountainSandboxView.isRequestedAtLaunch {
+            AscendMountainSandboxView()
+        } else {
+            appContent
+        }
+#else
+        appContent
+#endif
+    }
+
+    @ViewBuilder
+    private var appContent: some View {
         if let launchFailure {
             AppLaunchFailureView(failure: launchFailure)
         } else if let authVM, let modelContainer {
@@ -110,6 +123,7 @@ struct AscendApp: App {
                 .environment(MonetizationManager.shared)
                 .environment(MediaUploadManager.shared)
                 .environment(ModerationStore.shared)
+                .environment(ChampionRegistry.shared)
                 .modelContainer(modelContainer)
         } else {
             AppLaunchFailureView(failure: .startupUnavailable)

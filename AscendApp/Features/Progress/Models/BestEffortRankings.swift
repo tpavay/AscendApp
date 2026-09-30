@@ -720,12 +720,15 @@ enum BestEffortRankingBuilder {
         metric: BestEffortMetric
     ) -> BestEffortPerformance? {
         let windowSeconds = minutes * 60
-        guard Int(workout.duration.rounded(.down)) >= windowSeconds,
-              let points = timelinePoints(for: workout) else {
+        // The recorded timeline, not the workout's duration, bounds the window: a clamped curve's
+        // straight-line tail is its average drawn out, never a stretch a record may be claimed in.
+        guard let points = timelinePoints(for: workout),
+              let recordedSeconds = points.last?.elapsedSeconds,
+              recordedSeconds >= windowSeconds else {
             return nil
         }
 
-        let maxStart = max(Int(workout.duration.rounded(.down)) - windowSeconds, 0)
+        let maxStart = max(recordedSeconds - windowSeconds, 0)
         let candidates = candidateWindowStartTimes(points: points, windowSeconds: windowSeconds, maxStart: maxStart)
 
         var bestSteps = 0
@@ -816,7 +819,7 @@ enum BestEffortRankingBuilder {
         }
 
         let targetSteps = max(metadata.targetStepCount ?? workout.steps, workout.steps)
-        let points = LiveClimbWorkoutSummaryData.progressPoints(for: workout, targetSteps: targetSteps)
+        let points = LiveClimbWorkoutSummaryData.recordedProgressPoints(for: workout, targetSteps: targetSteps)
 
         guard points.count > 2 else { return nil }
         return points

@@ -1,9 +1,13 @@
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
+import * as logger from "firebase-functions/logger";
 import {
-  MAX_REPLAY_SPLIT_CHECKPOINTS,
-  normalizeReplaySplitSteps,
+  PRE_FIX_SAMPLER_CHECKPOINTS,
+  REPLAY_BOARD_INTERVAL_SECONDS,
+  isPreFixSamplerClamp,
+  replayBoardSplitSteps,
 } from "./liveReplaySplitNormalization.js";
+import {MAX_WORKOUT_DURATION_SECONDS} from "./leaderboardStats.js";
 import {
   RaceAttemptCurve,
   raceGoalKeysByWorkoutId,
@@ -44,10 +48,13 @@ const BULK_WRITER_MAX_ATTEMPTS = 3;
 const ATTEMPT_CURVES_COLLECTION = "attemptCurves";
 const FINISHERS_COLLECTION = "finishers";
 /**
- * The split interval every producer has ever published at, assumed for an
- * entry written before the interval was stored on it.
+ * How many bucket entries one publish commit writes. Each entry fans out into
+ * every index over the `entries` collection, and Firestore refuses a commit
+ * whose fan-out is too large (`Transaction too big`) on every retry, so an
+ * attempt longer than an hour publishes across several commits. 360 is the
+ * size every publish committed before attempts could run past the hour.
  */
-const DEFAULT_SPLIT_INTERVAL_SECONDS = 10;
+const REPLAY_ENTRY_COMMIT_SIZE = 360;
 
 /**
  * What produced the completions a replay summary counts.
@@ -285,6 +292,9 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
   {
     document: "users/{userId}/workouts/{workoutId}",
     retry: true,
+    // A multi-hour attempt publishes a commit per hour of entries and then
+    // re-flags every one of them, which a one-minute default cannot hold.
+    timeoutSeconds: 540,
   },
   async (event) => {
     const beforeData = event.data?.before.data() as
@@ -608,8 +618,7 @@ function parseReplayPayloadParts(
   const splitIntervalSeconds = positiveIntegerValue(
     metadata.splitIntervalSeconds
   );
-  const splitSteps = integerArrayValue(metadata.splitSteps)
-    ?.slice(0, MAX_REPLAY_SPLIT_CHECKPOINTS);
+  const splitSteps = integerArrayValue(metadata.splitSteps);
   const finalDurationSeconds = nonNegativeNumberValue(data.durationSeconds);
   const finalSteps = nonNegativeIntegerValue(data.steps);
   const targetStepCount = positiveIntegerValue(
@@ -626,6 +635,13 @@ function parseReplayPayloadParts(
     finalDurationSeconds === null ||
     finalSteps === null
   ) {
+    return null;
+  }
+
+  // An attempt publishes one entry per ten seconds it ran, so the envelope a
+  // standing is derived under also bounds what one workout write can fan out
+  // into. Nothing longer is a climb anybody races.
+  if (finalDurationSeconds > MAX_WORKOUT_DURATION_SECONDS) {
     return null;
   }
 
@@ -743,7 +759,7 @@ function replayPayload(
   contextId: string,
   options: {targetStepCount?: number | null; firstAscentEligible?: boolean} = {}
 ): LiveReplayIndexPayload {
-  const splitSteps = normalizeReplaySplitSteps({
+  const splitSteps = replayBoardSplitSteps({
     splitIntervalSeconds: parsed.splitIntervalSeconds,
     splitSteps: parsed.splitSteps,
     finalDurationSeconds: parsed.finalDurationSeconds,
@@ -754,7 +770,7 @@ function replayPayload(
     contextKey: contextKey(contextType, contextId),
     contextType,
     contextId,
-    splitIntervalSeconds: parsed.splitIntervalSeconds,
+    splitIntervalSeconds: REPLAY_BOARD_INTERVAL_SECONDS,
     splitSteps,
     finalDurationSeconds: parsed.finalDurationSeconds,
     finalSteps: parsed.finalSteps,
@@ -1125,21 +1141,19 @@ function flagUpdateFields(
  * Bucket span to sweep when re-flagging a published attempt.
  * Entries written before best-per-user collapse carry no stored span, and
  * normalizeReplaySplitSteps sized the curve on the raw sample count as well as
- * the duration, so duration alone can undercount the real span. Legacy attempts
- * therefore sweep the whole checkpoint range: flags are written with update(),
- * so buckets an attempt never published into fail NOT_FOUND and are skipped,
- * whereas undercounting would strand the final bucket of a promoted climber.
+ * the duration, so duration alone can undercount the real span. Those attempts
+ * were all published before a curve could run past the pre-fix sampler's 360
+ * checkpoints, so they sweep that whole range: flags are written with
+ * update(), so buckets an attempt never published into fail NOT_FOUND and are
+ * skipped, whereas undercounting would strand the final bucket of a promoted
+ * climber. A stored span is exact and is never capped - an attempt past the
+ * hour publishes one entry for every ten seconds it ran.
  * @param {Record<string, unknown>} data Bucket-zero entry data.
  * @return {number} Number of buckets to sweep for the attempt.
  */
 function attemptSplitBucketCount(data: Record<string, unknown>): number {
-  const storedCount = positiveIntegerValue(data.splitBucketCount);
-
-  if (storedCount === null) {
-    return MAX_REPLAY_SPLIT_CHECKPOINTS;
-  }
-
-  return Math.min(storedCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
+  return positiveIntegerValue(data.splitBucketCount) ??
+    PRE_FIX_SAMPLER_CHECKPOINTS;
 }
 
 /**
@@ -1178,7 +1192,7 @@ function userAttemptEntry(
     finalSteps: finalSteps ?? 0,
     completionDurationSeconds: completionDurationSeconds ?? 0,
     splitIntervalSeconds: positiveIntegerValue(data.splitIntervalSeconds) ??
-      DEFAULT_SPLIT_INTERVAL_SECONDS,
+      REPLAY_BOARD_INTERVAL_SECONDS,
     splitBucketCount: attemptSplitBucketCount(data),
     isBestForUser: data.isBestForUser === true,
     bestForGoals: goalKeyListValue(data.bestForGoals),
@@ -1333,12 +1347,15 @@ async function readAttemptCurves(
     const attempt = attempts[index];
     const stored = attemptCurveFromData(attempt, snapshots[index].data());
 
-    if (stored !== null) {
+    if (stored !== null && !isPreFixSamplerClampCurve(stored)) {
       curves.push(stored);
       continue;
     }
 
-    const rebuilt = await rebuildAttemptCurve(context, attempt);
+    const candidate = stored ?? await rebuildAttemptCurve(context, attempt);
+    const rebuilt = isPreFixSamplerClampCurve(candidate) ?
+      boardGridAttemptCurve(candidate) :
+      candidate;
     curves.push(rebuilt);
     writer.set(
       attemptCurveReference(context, attempt.workoutId),
@@ -1355,6 +1372,41 @@ async function readAttemptCurves(
 
   await writer.close();
   return curves;
+}
+
+/**
+ * Whether a stored or rebuilt attempt curve still carries the pre-fix
+ * sampler's clamp: published before attempts could run past the hour, its
+ * last bucket holds the finish at 60:00, which let an eight-hour session win
+ * the fastest-to-20,000-steps goal on a number it reached hours later.
+ * @param {RaceAttemptCurve} curve Attempt curve.
+ * @return {boolean} True when the curve must be re-derived before use.
+ */
+function isPreFixSamplerClampCurve(curve: RaceAttemptCurve): boolean {
+  return isPreFixSamplerClamp(
+    curve.splitSteps.length,
+    curve.splitIntervalSeconds,
+    curve.finalDurationSeconds
+  );
+}
+
+/**
+ * A clamped attempt curve re-derived onto the board grid the way a publish
+ * derives it now.
+ * @param {RaceAttemptCurve} curve Clamped attempt curve.
+ * @return {RaceAttemptCurve} The curve the race-best rules may read.
+ */
+function boardGridAttemptCurve(curve: RaceAttemptCurve): RaceAttemptCurve {
+  return {
+    ...curve,
+    splitIntervalSeconds: REPLAY_BOARD_INTERVAL_SECONDS,
+    splitSteps: replayBoardSplitSteps({
+      splitIntervalSeconds: curve.splitIntervalSeconds,
+      splitSteps: curve.splitSteps,
+      finalDurationSeconds: curve.finalDurationSeconds,
+      finalSteps: curve.finalSteps,
+    }),
+  };
 }
 
 /**
@@ -1547,161 +1599,289 @@ async function publishReplayEntries(
     await readUserAttempts(payload, userId)
   );
   const racesGoals = contextRacesGoals(payload.contextType);
-
-  await runIdentityProtectedTransaction(
-    firestoreIdentityTransactionPort(db),
+  const entryWrites = {
+    payload,
     userId,
-    async (transaction, publicUser) => {
-      const completionField = await readCompletionField(
-        transaction,
-        payload,
-        entryId,
-        userId
-      );
-      const leaderboardSnapshot = await transaction.get(leaderboardRef);
-      const finisherSnapshot = await transaction.get(finisherRef);
-      const completionSnapshot = await transaction.get(completionSnapshotRef);
-      const leaderboardData = leaderboardSnapshot.data();
-      const existingFinisherData = finisherSnapshot.data();
-      const existingOrder = positiveIntegerValue(
-        existingFinisherData?.globalCompletionOrder
-      );
-      const isNewFinisher = existingOrder === null;
-      const previousCompletedCount = nonNegativeIntegerValue(
-        leaderboardData?.completedCount
-      ) ?? 0;
-      const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
-      const canClaimFirstAscent = payload.firstAscentEligible &&
-      !hasFirstAscent &&
-      previousCompletedCount === 0;
-      const globalCompletionOrder = nextGlobalCompletionOrder({
-        existingOrder,
-        previousCompletedCount,
-      });
-      const completedCount = isNewFinisher ?
-        Math.max(previousCompletedCount + 1, globalCompletionOrder) :
-        Math.max(previousCompletedCount, globalCompletionOrder);
-      // Resolved only where a write consumes it. `completionSnapshots` is
-      // write-once, so a republish of an already-frozen attempt discards the
-      // standing entirely - and resolving one anyway let a discarded number
-      // abort a trigger that had already committed another context's publish,
-      // reporting "couldn't sync" for a climb that did sync.
-      //
-      // This narrows WHEN the guard runs and nothing else. Where a standing is
-      // resolved, an impossible rank/population pairing still throws: the
-      // deleted Math.min clamp is not back under another name, there is no
-      // fallback number, and nothing swallows the error.
-      const freezesCompletionSnapshot = !completionSnapshot.exists;
-      const publishesLiveClimbStatus =
-        payload.contextType === LIVE_CLIMB_CONTEXT_TYPE;
-      const standing = freezesCompletionSnapshot || publishesLiveClimbStatus ?
-        frozenCompletionStanding({
-          reading: completionField,
-          completedCount,
-          contextKey: payload.contextKey,
-        }) :
-        null;
-      const summaryWrite = replaySummaryWrite({
-        payload,
-        completedCount,
-      });
-      summaryWrite.updatedAt = now;
+    entryId,
+    isBestForUser,
+    bestForGoals: racesGoals ? [] : null,
+    updatedAt: now,
+  };
 
-      if (canClaimFirstAscent) {
-        Object.assign(
-          summaryWrite,
-          firstAscentWrite({
+  // Buckets past the first commit land first, each commit in its own
+  // identity-protected transaction. Bucket zero is the row every reader
+  // indexes an attempt by, and it states the attempt's whole span, so it is
+  // written last and never claims a bucket that is not there yet. A publish
+  // that fails takes its tail back out, because a live race past the hour
+  // reads those buckets directly and would race an attempt nobody published.
+  try {
+    for (
+      let start = REPLAY_ENTRY_COMMIT_SIZE;
+      start < payload.splitSteps.length;
+      start += REPLAY_ENTRY_COMMIT_SIZE
+    ) {
+      await runIdentityProtectedTransaction(
+        firestoreIdentityTransactionPort(db),
+        userId,
+        async (transaction, publicUser) => {
+          setReplayEntries(transaction, {
+            ...entryWrites,
+            publicUser,
+            fromBucket: start,
+            toBucket: start + REPLAY_ENTRY_COMMIT_SIZE,
+          });
+        }
+      );
+    }
+
+    await runIdentityProtectedTransaction(
+      firestoreIdentityTransactionPort(db),
+      userId,
+      async (transaction, publicUser) => {
+        const completionField = await readCompletionField(
+          transaction,
+          payload,
+          entryId,
+          userId
+        );
+        const leaderboardSnapshot = await transaction.get(leaderboardRef);
+        const finisherSnapshot = await transaction.get(finisherRef);
+        const completionSnapshot = await transaction.get(completionSnapshotRef);
+        const leaderboardData = leaderboardSnapshot.data();
+        const existingFinisherData = finisherSnapshot.data();
+        const existingOrder = positiveIntegerValue(
+          existingFinisherData?.globalCompletionOrder
+        );
+        const isNewFinisher = existingOrder === null;
+        const previousCompletedCount = nonNegativeIntegerValue(
+          leaderboardData?.completedCount
+        ) ?? 0;
+        const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
+        const canClaimFirstAscent = payload.firstAscentEligible &&
+        !hasFirstAscent &&
+        previousCompletedCount === 0;
+        const globalCompletionOrder = nextGlobalCompletionOrder({
+          existingOrder,
+          previousCompletedCount,
+        });
+        const completedCount = isNewFinisher ?
+          Math.max(previousCompletedCount + 1, globalCompletionOrder) :
+          Math.max(previousCompletedCount, globalCompletionOrder);
+        // Resolved only where a write consumes it. `completionSnapshots` is
+        // write-once, so a republish of an already-frozen attempt discards the
+        // standing entirely - and resolving one anyway let a discarded
+        // number abort a trigger that had already committed another
+        // context's publish, reporting "couldn't sync" for a climb that did
+        // sync.
+        //
+        // This narrows WHEN the guard runs and nothing else. Where a standing
+        // is resolved, an impossible rank/population pairing still throws:
+        // the deleted Math.min clamp is not back under another name, there is
+        // no fallback number, and nothing swallows the error.
+        const freezesCompletionSnapshot = !completionSnapshot.exists;
+        const publishesLiveClimbStatus =
+          payload.contextType === LIVE_CLIMB_CONTEXT_TYPE;
+        const standing = freezesCompletionSnapshot || publishesLiveClimbStatus ?
+          frozenCompletionStanding({
+            reading: completionField,
+            completedCount,
+            contextKey: payload.contextKey,
+          }) :
+          null;
+        const summaryWrite = replaySummaryWrite({
+          payload,
+          completedCount,
+        });
+        summaryWrite.updatedAt = now;
+
+        if (canClaimFirstAscent) {
+          Object.assign(
+            summaryWrite,
+            firstAscentWrite({
+              userId,
+              entryId,
+              publicUser,
+              claimedAt: now,
+            })
+          );
+        }
+
+        transaction.set(leaderboardRef, summaryWrite, {merge: true});
+        transaction.set(
+          finisherRef,
+          finisherStatusWrite({
+            payload,
             userId,
             entryId,
             publicUser,
-            claimedAt: now,
-          })
-        );
-      }
-
-      transaction.set(leaderboardRef, summaryWrite, {merge: true});
-      transaction.set(
-        finisherRef,
-        finisherStatusWrite({
-          payload,
-          userId,
-          entryId,
-          publicUser,
-          globalCompletionOrder,
-          existingData: existingFinisherData,
-          completedAt: now,
-        }),
-        {merge: true}
-      );
-
-      if (standing !== null && freezesCompletionSnapshot) {
-        transaction.set(
-          completionSnapshotRef,
-          completionRankSnapshotWrite({
-            payload,
-            userId,
-            entryId,
-            rank: standing.rank,
-            completedCount: standing.population,
-            rankedAt: now,
-          })
-        );
-      }
-
-      if (standing !== null && publishesLiveClimbStatus) {
-        transaction.set(
-          publishStatusRef,
-          liveClimbPublishStatusPublishedWrite({
-            payload,
-            userId,
-            entryId,
-            updatedAt: now,
-            rankAtCompletion: standing.rank,
-            completedCountAtCompletion: standing.population,
-            finisherOrder: globalCompletionOrder,
+            globalCompletionOrder,
+            existingData: existingFinisherData,
+            completedAt: now,
           }),
           {merge: true}
         );
+
+        if (standing !== null && freezesCompletionSnapshot) {
+          transaction.set(
+            completionSnapshotRef,
+            completionRankSnapshotWrite({
+              payload,
+              userId,
+              entryId,
+              rank: standing.rank,
+              completedCount: standing.population,
+              rankedAt: now,
+            })
+          );
+        }
+
+        if (standing !== null && publishesLiveClimbStatus) {
+          transaction.set(
+            publishStatusRef,
+            liveClimbPublishStatusPublishedWrite({
+              payload,
+              userId,
+              entryId,
+              updatedAt: now,
+              rankAtCompletion: standing.rank,
+              completedCountAtCompletion: standing.population,
+              finisherOrder: globalCompletionOrder,
+            }),
+            {merge: true}
+          );
+        }
+
+        // The goal keys are seeded empty and filled by the reconciliation that
+        // follows in this same trigger: they depend on every other attempt's
+        // curve, which is the reconciliation's read, and a climber who has just
+        // finished is seconds away from racing nobody.
+        setReplayEntries(transaction, {
+          ...entryWrites,
+          publicUser,
+          fromBucket: 0,
+          toBucket: REPLAY_ENTRY_COMMIT_SIZE,
+        });
+
+        if (racesGoals) {
+          transaction.set(
+            attemptCurveReference(payload, entryId),
+            attemptCurveWrite(
+              userId,
+              {
+                workoutId: entryId,
+                finalSteps: payload.finalSteps,
+                finalDurationSeconds: payload.finalDurationSeconds,
+                splitIntervalSeconds: payload.splitIntervalSeconds,
+                splitSteps: payload.splitSteps,
+              },
+              now
+            )
+          );
+        }
+      }
+    );
+  } catch (error) {
+    await deleteReplayTailEntries(payload, entryId);
+    throw error;
+  }
+}
+
+/**
+ * Best-effort removal of the bucket entries a failed publish committed past
+ * the first commit. It never throws: the publish's own error is the one the
+ * trigger has to surface and retry on.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} entryId Public row document ID.
+ */
+async function deleteReplayTailEntries(
+  payload: LiveReplayIndexPayload,
+  entryId: string
+): Promise<void> {
+  if (payload.splitSteps.length <= REPLAY_ENTRY_COMMIT_SIZE) {
+    return;
+  }
+
+  try {
+    const writer = admin.firestore().bulkWriter();
+    writer.onWriteError((error) => {
+      if (error.code === FIRESTORE_NOT_FOUND_CODE) {
+        return false;
       }
 
-      // The goal keys are seeded empty and filled by the reconciliation that
-      // follows in this same trigger: they depend on every other attempt's
-      // curve, which is the reconciliation's read, and a climber who has just
-      // finished is seconds away from racing nobody.
-      for (let index = 0; index < payload.splitSteps.length; index += 1) {
-        transaction.set(
-          entryReference(payload, index, entryId),
-          replayEntryWrite({
-            payload,
-            userId,
-            entryId,
-            publicUser,
-            stepsAtBucket: payload.splitSteps[index],
-            isBestForUser,
-            bestForGoals: racesGoals ? [] : null,
-            updatedAt: now,
-          })
-        );
-      }
-
-      if (racesGoals) {
-        transaction.set(
-          attemptCurveReference(payload, entryId),
-          attemptCurveWrite(
-            userId,
-            {
-              workoutId: entryId,
-              finalSteps: payload.finalSteps,
-              finalDurationSeconds: payload.finalDurationSeconds,
-              splitIntervalSeconds: payload.splitIntervalSeconds,
-              splitSteps: payload.splitSteps,
-            },
-            now
-          )
-        );
-      }
+      return error.failedAttempts < BULK_WRITER_MAX_ATTEMPTS;
+    });
+    let failedDeletes = 0;
+    for (
+      let index = REPLAY_ENTRY_COMMIT_SIZE;
+      index < payload.splitSteps.length;
+      index += 1
+    ) {
+      writer
+        .delete(entryReference(payload, index, entryId))
+        .catch((error) => {
+          if (!isNotFoundWriteError(error)) {
+            failedDeletes += 1;
+          }
+        });
     }
-  );
+    await writer.close();
+    if (failedDeletes > 0) {
+      logger.error("liveReplay.publish.tailCleanupFailed", {
+        contextKey: payload.contextKey,
+        entryId,
+        failedDeletes,
+      });
+    }
+  } catch (cleanupError) {
+    logger.error("liveReplay.publish.tailCleanupFailed", {
+      contextKey: payload.contextKey,
+      entryId,
+      error: String(cleanupError),
+    });
+  }
+}
+
+/** One contiguous run of an attempt's bucket entries, written together. */
+interface ReplayEntryRangeWrite {
+  payload: LiveReplayIndexPayload;
+  userId: string;
+  entryId: string;
+  publicUser: PublicUserSnapshot;
+  isBestForUser: boolean | null;
+  bestForGoals: string[] | null;
+  updatedAt: unknown;
+  /** First bucket written. */
+  fromBucket: number;
+  /** One past the last bucket written, clipped to the attempt's span. */
+  toBucket: number;
+}
+
+/**
+ * Queues an attempt's bucket entries from `fromBucket` up to `toBucket` on a
+ * transaction.
+ * @param {FirebaseFirestore.Transaction} transaction Open transaction.
+ * @param {ReplayEntryRangeWrite} input Range and entry fields.
+ */
+function setReplayEntries(
+  transaction: FirebaseFirestore.Transaction,
+  input: ReplayEntryRangeWrite
+): void {
+  const end = Math.min(input.toBucket, input.payload.splitSteps.length);
+  for (let index = input.fromBucket; index < end; index += 1) {
+    transaction.set(
+      entryReference(input.payload, index, input.entryId),
+      replayEntryWrite({
+        payload: input.payload,
+        userId: input.userId,
+        entryId: input.entryId,
+        publicUser: input.publicUser,
+        stepsAtBucket: input.payload.splitSteps[index],
+        isBestForUser: input.isBestForUser,
+        bestForGoals: input.bestForGoals,
+        updatedAt: input.updatedAt,
+      })
+    );
+  }
 }
 
 /**

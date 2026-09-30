@@ -72,7 +72,7 @@ Ascend carries health data and account identity, so masking is a gate on shippin
 
 - `maskAllText` and `maskAllImages` are set **explicitly** on the screenshot options, so a future SDK default flip cannot quietly start shipping a climber's heart rate, name, or account identifier.
 - The SDK's own masking covers UIKit and SwiftUI text, images and SF Symbols, `WKWebView`, `PDFView`, and `AVPlayerView`. It does **not** cover anything an app draws itself.
-- Ascend does draw its own: Swift Charts renders marks *and axis labels* through drawing layers the SDK does not recognise, and `AVPlayerLayer`-backed video is neither text nor a `UIImageView`. Before this was fixed, a masked screenshot of Workout Detail still showed the whole heart-rate trace with real BPM values on the axis.
+- Ascend does draw its own: Swift Charts renders marks *and axis labels* through drawing layers the SDK does not recognise, `AVPlayerLayer`-backed video is neither text nor a `UIImageView`, and Ascend Mountain's `RealityView` draws other climbers' names, summit plaques and the climber's own best into a Metal layer. Before this was fixed, a masked screenshot of Workout Detail still showed the whole heart-rate trace with real BPM values on the axis.
 - `View.sentryMasked()` overlays `SentryMaskedRegionView`, which is registered in the screenshot options' `maskedViewClasses`. Apply it to any surface that renders health data, identity, or user media in a way the SDK cannot see.
 - **The overlay reaches four points past the surface it covers, deliberately.** A layout frame is not a drawing bound: Swift Charts strokes its marks with a round cap, so the first and last point of a trend line paint about a point outside the chart's own frame. A mask sized exactly to that frame left one column of the climber's trace showing at each edge of `AscendTrendChart` - enough to read the first and last plotted value off a masked screenshot. The evidence suite is what caught it. Covering a hair more costs nothing, because the marker refuses every touch whatever its size.
 - The view hierarchy attachment carries no rendered content - class name, frame, alpha, visibility, view-controller class, and `accessibilityIdentifier`, which Ascend only ever sets to static literals.
@@ -85,9 +85,9 @@ The video cases render a real movie through a real `AVPlayer`, every frame of it
 
 The masked surfaces are interactive - chart scrubbing, video transport controls, the share composer's pan and pinch - so the marker covers a region without owning it: `SentryMaskedRegionView` reports a real frame and refuses every touch that lands on it.
 `AscendAppTests/SentryMaskInteractionTests.swift` holds that, asserting the refusal and the non-empty frame together so a mask cannot pass the touch test by shrinking.
-Read its suite comment before treating a green run as proof a chart still scrubs: the three video surfaces are covered end to end **for touch**, the four charts structurally only.
-That end-to-end claim is about touch reaching the video, and has never been about masking - the masking evidence for those surfaces is the paragraph above.
-Add every new masked surface to both suites. All seven are in both today.
+Read its suite comment before treating a green run as proof a chart still scrubs: the three video surfaces are covered end to end **for touch**, the four charts structurally only, and the Mountain end to end for the swipe from the climber's read-out to the leaderboard page that sits over it.
+That end-to-end claim is about touch reaching the video or the pager, and has never been about masking - the masking evidence for those surfaces is the evidence suite above.
+Add every new masked surface to both suites. All eight are in both today.
 
 ## Flood guard
 

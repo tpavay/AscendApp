@@ -116,6 +116,8 @@ struct OwnProfileView: View {
     private func overviewContent(_ snapshot: ProfileSnapshot) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                AthleteProfileCard()
+
                 ProfileLifetimeStatsRow(
                     climbs: workouts.count,
                     steps: snapshot.stats.lifetimeTotalSteps,

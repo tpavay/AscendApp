@@ -28,6 +28,7 @@ struct AccountView: View {
             VStack(spacing: 24) {
                 // Profile Header
                 ProfileHeaderView(
+                    userId: authVM.user?.uid,
                     photoURL: authVM.displayPhotoURL,
                     displayName: authVM.displayName,
                     email: authVM.user?.email,
@@ -250,6 +251,11 @@ struct AccountView: View {
 
     private var privacyOptions: [SettingsOption] {
         [
+            SettingsOption(
+                icon: .settingsHeartRateVisibility,
+                title: "Heart rate",
+                destination: HeartRateVisibilityView()
+            ),
             SettingsOption(
                 icon: .settingsBlockedClimbers,
                 title: "Blocked climbers",

@@ -1,7 +1,8 @@
 #!/bin/bash
 #
-# Builds the staging test bundle once, then runs the suite as two host
-# processes instead of one: the movie-export suite alone, then everything else.
+# Builds the staging test bundle once, then runs the suite as three host
+# processes instead of one: the movie-export suite alone, the suites that host
+# the RealityKit Mountain together, then everything else.
 #
 # WHY, measured 2026-09-01 against `iOS Verify (Staging)`: one process could not
 # hold this suite. Run whole it peaked at 4,228 MB RSS on a `macos-15` runner
@@ -45,6 +46,24 @@
 # 1080x2340 story frame, and that cost is the assertion. See `ISOLATED_PASSES`
 # in `plan-test-passes.mjs`, which is why this script runs however many pass
 # files the planner wrote rather than a fixed number.
+#
+# The suites that host the RealityKit Mountain - `AscendMountainSessionEvidenceTests`
+# and the two Sentry mask proofs, `SentryMaskingEvidenceTests` and
+# `SentryMaskInteractionTests` - share a host of their own, for a crash rather
+# than memory. On 2026-09-30 (job 109735737306) a RealityKit render-thread
+# assertion (`re::MaterialParameterTableLayers::getTechniqueAtIndex` in
+# `RenderGraphMeshNodeBase::sortMeshParts`) killed the shared host once while
+# the Mountain was hosted; after the restart every test passed, and the same
+# code had passed the run before. In the remainder pass that one kill failed the
+# pass holding ~2,300 unrelated tests and dropped the tests in flight; in its own pass
+# it is contained to the three suites that draw the Mountain.
+#
+# It recurred in 2 of the next 3 runs and never in about 20 on Apple Silicon:
+# the runner is a virtual Mac and its paravirtualized GPU trips the assertion
+# (#629). The tests that host the Mountain therefore skip themselves when
+# `TestHost.isVirtualMachine`, with a reason naming #629, and run everywhere
+# else. Every suite in the group still executes its other tests here, so the
+# named-suite and executed-test-floor checks below see all three.
 #
 # What the one-host runs exposed was never memory. A hosted screen carrying a
 # `@Query` keeps observing SwiftData after its window is gone, and a container
@@ -163,8 +182,25 @@ test_timeouts=(
     -maximum-test-execution-time-allowance 600
 )
 
+# Every `xcodebuild` resolves the package graph before it does anything else, and
+# resolving means fetching each of the ~28 remotes to look for updates: 10-66 s
+# per invocation on the runner (job 108132522008: 58 s before the build, 66 s
+# before pass 1, 12 s before pass 2), for a graph that `Package.resolved` pins
+# and that cannot change inside one job. `-skipPackageUpdates` still clones a
+# missing checkout - verified against an empty DerivedData - but it does not
+# move an existing one, so it is only safe once this job has resolved the graph
+# for real: a cache restored from an older `Package.resolved` holds older
+# checkouts. The build is the first resolve here unless the caller says one
+# already ran (CI's Mixpanel step does, and sets `ASCEND_PACKAGE_GRAPH_RESOLVED`);
+# every pass after the build skips it.
+skip_package_updates=(-skipPackageUpdates)
+build_package_resolution=()
+if [ "${ASCEND_PACKAGE_GRAPH_RESOLVED:-}" = "1" ]; then
+    build_package_resolution=("${skip_package_updates[@]}")
+fi
+
 echo "--- Building for testing ---" | tee -a "$log"
-xcodebuild "${common[@]}" build-for-testing 2>&1 | tee -a "$log"
+xcodebuild "${common[@]}" ${build_package_resolution[@]+"${build_package_resolution[@]}"} build-for-testing 2>&1 | tee -a "$log"
 
 echo "--- Planning test passes ---" | tee -a "$log"
 rm -f "$log_dir"/test-pass-*.txt
@@ -236,7 +272,7 @@ node '$scripts_dir/unfinished-tests.mjs' '$log' '$pass_first_line'"
         --log "$log" \
         --on-stall "$on_stall" \
         --progress-pattern "$progress_pattern" \
-        -- xcodebuild "${common[@]}" "${test_timeouts[@]}" \
+        -- xcodebuild "${common[@]}" "${skip_package_updates[@]}" "${test_timeouts[@]}" \
         -resultBundlePath "$result_bundle" \
         "${args[@]}" \
         test-without-building; then

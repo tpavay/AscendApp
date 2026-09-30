@@ -32,7 +32,10 @@ protocol LiveClimbStepSampleProducing: AnyObject {
 struct LiveClimbStepTimelineRecorder: Equatable, Sendable {
     private var splitSampler: LiveReplaySplitSampler
 
-    init(intervalSeconds: Int = 10, maxCheckpoints: Int = 360) {
+    init(
+        intervalSeconds: Int = LiveReplaySplitSampler.defaultIntervalSeconds,
+        maxCheckpoints: Int = LiveReplaySplitSampler.defaultMaxCheckpoints
+    ) {
         self.splitSampler = LiveReplaySplitSampler(
             intervalSeconds: intervalSeconds,
             maxCheckpoints: maxCheckpoints
@@ -47,19 +50,15 @@ struct LiveClimbStepTimelineRecorder: Equatable, Sendable {
         splitSampler.reset()
     }
 
-    /// Re-seeds the sampler from a persisted curve. Replaying bucket `i` at
-    /// `i * intervalSeconds` lands inside bucket `i` again, so indices round-trip unchanged;
-    /// see `LiveReplaySplitCurve` for the end-anchored bucket contract this must preserve.
+    /// Re-seeds the sampler from a persisted curve at the interval it was recorded at, so a curve
+    /// that had already compacted past an hour resumes compacted rather than being re-bucketed at
+    /// 10 seconds; see `LiveReplaySplitCurve` for the end-anchored bucket contract this preserves.
     mutating func restore(curve: LiveReplaySplitCurve) {
-        splitSampler.reset()
-
-        for (bucketIndex, steps) in curve.steps.enumerated() {
-            record(
-                elapsedSeconds: bucketIndex * curve.intervalSeconds,
-                cumulativeSteps: steps,
-                source: .unknown
-            )
-        }
+        splitSampler = LiveReplaySplitSampler(
+            restoring: curve,
+            baseIntervalSeconds: splitSampler.baseIntervalSeconds,
+            maxCheckpoints: splitSampler.maxCheckpoints
+        )
     }
 
     @discardableResult
@@ -141,18 +140,17 @@ struct LiveClimbStepTimelineRecorder: Equatable, Sendable {
         }
 
         let ratio = Double(correction.correctedSteps) / Double(correction.detectedSteps)
-        splitSampler.reset()
-
-        for (bucket, steps) in existingSteps.enumerated() {
-            let scaledSteps = min(
+        let scaledSteps = existingSteps.map { steps in
+            min(
                 correction.correctedSteps,
                 max(Int((Double(steps) * ratio).rounded()), 0)
             )
-            record(
-                elapsedSeconds: bucket * splitSampler.intervalSeconds,
-                cumulativeSteps: scaledSteps,
-                source: .manualCorrection
-            )
         }
+        restore(
+            curve: LiveReplaySplitCurve(
+                intervalSeconds: splitSampler.intervalSeconds,
+                steps: scaledSteps
+            )
+        )
     }
 }

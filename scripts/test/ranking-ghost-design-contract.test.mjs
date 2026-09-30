@@ -94,38 +94,13 @@ test("the marker states a position and never a step count or a time", () => {
   );
   assert.deepEqual(
     renderedText,
-    ["String(letter.element)"],
-    "the marker renders text other than its own vertical BEST label",
+    ['"BEST"', "String(letter.element)"],
+    "the marker renders text other than its own BEST label - the flag and " +
+      "the vertical letters",
   );
   assert.ok(
     marker.includes('"BEST"'),
     "the marker no longer labels itself BEST",
-  );
-});
-
-test("the marker is a single line, not a two-sided box", () => {
-  const marker = read(MARKER_SURFACES[0]);
-  const rectangles = [...marker.matchAll(/Rectangle\(\)/g)].length;
-
-  assert.equal(
-    rectangles,
-    1,
-    "the marker draws more than one rule. It is one vertical line to the " +
-      "LEFT of the word, so the progress fill passes one edge cleanly " +
-      "instead of straddling a box through a half-passed state.",
-  );
-});
-
-test("the marker's line never fades and never restyles once passed", () => {
-  const marker = read(MARKER_SURFACES[0]);
-
-  assert.ok(
-    /verticalLabel\s*\n\s*\.opacity\(/.test(marker),
-    "the fade is no longer applied to the label",
-  );
-  assert.ok(
-    !/Rectangle\(\)\s*\n\s*\.fill\(lineColor\)\s*\n\s*\.opacity\(/.test(marker),
-    "the line itself fades. It is the thing being raced: only the word fades.",
   );
 });
 

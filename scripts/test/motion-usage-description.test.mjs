@@ -16,10 +16,13 @@ const infoPlistPath = join(repositoryRoot, "AscendApp/Info.plist");
 const MAXIMUM_USAGE_DESCRIPTION_LENGTH = 140;
 
 // The audited Core Motion surface: one CMHeadphoneMotionManager feed, its sample
-// type, and the readiness probe. Any other file reaching for Core Motion means a
+// type, the manager seam behind it, the pre-countdown access gate, and the
+// readiness probe. Any other file reaching for Core Motion means a
 // second sensor consumer exists and the usage string no longer describes it.
 const CORE_MOTION_SOURCE_PATHS = [
   "AscendApp/Features/Climbs/Services/HeadphoneMotionReadinessService.swift",
+  "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionAccessGate.swift",
+  "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionManaging.swift",
   "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionSample.swift",
   "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionSessionService.swift"
 ];

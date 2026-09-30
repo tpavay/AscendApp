@@ -319,9 +319,24 @@ struct HostedScreen {
     /// or clipped to nothing inside a button still publishes the button's frame - so without this
     /// an unpainted label would read as present. With it, `copy()` reads what OCR read: text that
     /// is actually on the screen.
+    ///
+    /// A read whose `isReady` never holds within the budget is recorded as an issue too. The
+    /// budget is a timeout, and spending it is never what a caller asked for: a predicate that can
+    /// no longer match - a stat cell published as `"1:00, ELAPSED"` where the predicate looked for
+    /// `"ELAPSED"` - used to spend all 250 reads on every call and still pass, which was eight
+    /// minutes of one CI job. `text(containing:)`, whose contract allows the text to be absent, is
+    /// the one read that opts out.
     func texts(
         reading budget: Int = 250,
         until isReady: ([OnScreenText]) -> Bool = { $0.isEmpty == false }
+    ) async throws -> [OnScreenText] {
+        try await texts(reading: budget, requiringReadiness: true, until: isReady)
+    }
+
+    private func texts(
+        reading budget: Int,
+        requiringReadiness: Bool,
+        until isReady: ([OnScreenText]) -> Bool
     ) async throws -> [OnScreenText] {
         // The tree and the pixels arrive on different schedules: a label is published the
         // moment SwiftUI commits it and painted a beat later, and under a busy main actor that
@@ -335,7 +350,9 @@ struct HostedScreen {
         // the whole budget.
         var remainingReads = max(1, budget)
         var stableReads = 0
+        var stableSince = ContinuousClock.now
         var lastPainted: [String] = []
+        var ready = false
         var elements: [NSObject] = []
         var published: [OnScreenText] = []
         var painted: [OnScreenText] = []
@@ -347,12 +364,21 @@ struct HostedScreen {
             remainingReads -= 1
 
             let names = painted.map(\.text)
-            stableReads = names == lastPainted ? stableReads + 1 : 0
+            if names == lastPainted {
+                stableReads += 1
+            } else {
+                stableReads = 0
+                stableSince = .now
+            }
             lastPainted = names
 
-            let ready = isReady(painted)
+            ready = isReady(painted)
             if ready, painted.count == published.count { break }
-            if ready, stableReads >= Self.stableReadsBeforeAcceptingUnpainted { break }
+            if ready,
+               stableReads >= Self.stableReadsBeforeAcceptingUnpainted,
+               ContinuousClock.now - stableSince >= Self.stableTimeBeforeAcceptingUnpainted {
+                break
+            }
             if remainingReads == 0 { break }
 
             window.setNeedsLayout()
@@ -376,7 +402,7 @@ struct HostedScreen {
                 print("RenderedScreen: capture written to \(url.path())")
             }
         }
-        if painted.isEmpty, !isReady(painted) {
+        if painted.isEmpty, !ready {
             Issue.record(
                 """
                 The hosted screen published no on-screen text within \(budget) reads and the read \
@@ -384,15 +410,31 @@ struct HostedScreen {
                 nothing, so this is a failure, not an empty result. Elements found: \(elements.count).
                 """
             )
+        } else if requiringReadiness, !ready {
+            Issue.record(
+                """
+                The read's readiness condition never held within \(budget) reads, so it spent its \
+                whole budget and handed back a screen it had not agreed was ready. Either the \
+                screen never reached the state the test waits for, or the condition no longer \
+                matches how the screen publishes it. On screen: \(painted.map(\.text))
+                """
+            )
         }
         return painted
     }
 
-    /// How many consecutive reads the painted set must hold still before a read that is
-    /// otherwise ready stops waiting for the texts the tree publishes but the screen has not
-    /// painted. Twenty-five reads is over half a second on a quiet host - longer than a SwiftUI
-    /// default animation - and a good deal more under contention, which is when it matters.
-    private static let stableReadsBeforeAcceptingUnpainted = 25
+    /// How long, and over how many consecutive reads, the painted set must hold still before a
+    /// read that is otherwise ready stops waiting for the texts the tree publishes but the screen
+    /// has not painted - a map pin with no glyph ink, a disabled button's dimmed title.
+    ///
+    /// Both, because a read costs what the screen costs: a quiet screen reads in ~20 ms and a
+    /// MapKit screen in ~250 ms. Counted in reads alone (it was twenty-five), the wait was half a
+    /// second on the first and six and a half on the second, per read, for labels that were never
+    /// going to paint - most of Home's globe suite. A second of stillness is three times a SwiftUI
+    /// default animation, so a label still fading in has painted, and changed the set, by then;
+    /// the read floor keeps a burst of reads inside one frame from counting as stillness.
+    private static let stableReadsBeforeAcceptingUnpainted = 5
+    private static let stableTimeBeforeAcceptingUnpainted: Duration = .seconds(1)
 
     /// The screen's copy the way OCR used to hand it back: every on-screen label and value,
     /// lowercased, joined with spaces. `copy().contains("...")` is the presence proof;
@@ -408,7 +450,7 @@ struct HostedScreen {
     /// The first on-screen text containing `fragment`, case-insensitively, waiting for it to
     /// arrive. Nil when the budget is spent without it.
     func text(containing fragment: String, reading budget: Int = 250) async throws -> OnScreenText? {
-        let texts = try await texts(reading: budget) { texts in
+        let texts = try await texts(reading: budget, requiringReadiness: false) { texts in
             texts.contains { $0.text.localizedCaseInsensitiveContains(fragment) }
         }
         return texts.first { $0.text.localizedCaseInsensitiveContains(fragment) }

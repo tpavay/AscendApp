@@ -140,6 +140,25 @@ final class PushNotificationService: NSObject, MessagingDelegate {
         await registerDevice(token: token, authorizationStatus: authorizationStatus)
     }
 
+    /// Records the signed-in climber's crown-alert opt-out on the server, which is where the
+    /// champion push reads it (`pushChampionCrownEnabled`). Throws so the switch can go back
+    /// when the answer did not land.
+    func setChampionPushEnabled(_ isEnabled: Bool) async throws {
+        do {
+            try await callFunction(
+                "updatePushNotificationPreferences",
+                data: ["championPushEnabled": isEnabled]
+            )
+        } catch {
+            TelemetryManager.shared.recordError(
+                error,
+                context: .network,
+                code: "push_champion_preference_sync_failed"
+            )
+            throw error
+        }
+    }
+
     private func updateBackendPreference() async {
         do {
             try await callFunction(

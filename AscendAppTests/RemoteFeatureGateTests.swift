@@ -341,17 +341,26 @@ struct RemoteFeatureGateTests {
         try modelContext.save()
 
         let store = RemoteFeatureFlagStore()
-        let manager = MediaUploadManager(photoRepo: FakeGatedPhotoRepository(), featureFlags: store)
-
-        let processing = Task { await manager.processPendingUploads(modelContext: modelContext) }
-        #expect(await firstUploadStarted(in: modelContext))
-
-        store.apply(
-            RemoteFeatureFlagSnapshot.resolving(
-                remoteValues: [RemoteFeatureFlag.workoutMediaUploads.key: false]
-            )
+        let backoffs = BackoffRecorder()
+        // The switch is thrown from inside the first item's retry backoff: the batch is running
+        // and that item is between attempts, which is exactly the moment the kill has to hold at.
+        // Throwing it from a test-side poll instead raced a real three-second backoff.
+        let manager = MediaUploadManager(
+            photoRepo: FakeGatedPhotoRepository(),
+            featureFlags: store,
+            backoff: { delay in
+                if await backoffs.record(delay) == 1 {
+                    store.apply(
+                        RemoteFeatureFlagSnapshot.resolving(
+                            remoteValues: [RemoteFeatureFlag.workoutMediaUploads.key: false]
+                        )
+                    )
+                }
+            }
         )
-        await processing.value
+
+        await manager.processPendingUploads(modelContext: modelContext)
+        #expect(await backoffs.count > 0, "the switch was thrown mid-batch, not before it started")
 
         let stored = try modelContext.fetch(
             FetchDescriptor<PendingMediaUpload>(
@@ -365,21 +374,6 @@ struct RemoteFeatureGateTests {
             #expect(untouched.retryCount == 0)
             #expect(untouched.lastError == nil)
         }
-    }
-
-    /// `processUpload` stamps the row it is working on before its first attempt, which is the only
-    /// signal that the loop has entered an item rather than merely been asked to start.
-    private func firstUploadStarted(in modelContext: ModelContext) async -> Bool {
-        for _ in 0..<200 {
-            let rows = try? modelContext.fetch(
-                FetchDescriptor<PendingMediaUpload>(
-                    sortBy: [SortDescriptor(\PendingMediaUpload.orderIndex)]
-                )
-            )
-            if rows?.first?.status == PendingUploadStatus.uploading.rawValue { return true }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return false
     }
 
     /// A held queue must not claim to be uploading. The rows stay queued either way, so the only
@@ -445,7 +439,8 @@ struct RemoteFeatureGateTests {
 
         let manager = MediaUploadManager(
             photoRepo: FakeGatedPhotoRepository(),
-            featureFlags: RemoteFeatureFlagStore()
+            featureFlags: RemoteFeatureFlagStore(),
+            backoff: { _ in }
         )
 
         await manager.retryFailedUploads(for: workoutId, modelContext: modelContext)

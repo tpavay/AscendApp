@@ -74,14 +74,20 @@ final class MediaUploadManager: AuthenticatedSessionWorker {
     /// queue from starting an item the drain never agreed to wait for.
     private let sessionWorkGate: AuthenticatedBootstrapCoordinator
 
+    /// Waits out one retry backoff. Injected so a test can walk the whole retry schedule without
+    /// spending its seconds on the clock; cancellation is read at the top of the next attempt.
+    private let backoff: @Sendable (Duration) async -> Void
+
     init(
         photoRepo: any PhotoRepositoryProtocol = FirebasePhotoRepository(),
         featureFlags: RemoteFeatureFlagStore = .shared,
-        sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared
+        sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared,
+        backoff: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
     ) {
         self.photoRepo = photoRepo
         self.featureFlags = featureFlags
         self.sessionWorkGate = sessionWorkGate
+        self.backoff = backoff
     }
 
     // MARK: - Public API
@@ -467,7 +473,7 @@ final class MediaUploadManager: AuthenticatedSessionWorker {
 
                 // Wait before retry (unless last attempt)
                 if attempt < maxRetries - 1 {
-                    try? await Task.sleep(for: .seconds(currentDelay))
+                    await backoff(.seconds(currentDelay))
                     currentDelay *= backoffMultiplier
                 }
             }

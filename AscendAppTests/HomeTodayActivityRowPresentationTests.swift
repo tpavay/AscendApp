@@ -92,6 +92,127 @@ struct HomeTodayActivityRowPresentationTests {
         #expect(!presentation.isTappable)
     }
 
+    @Test
+    func aLiveClimbThatStoppedShortStatesHowFarItGotAndStillOpensTheClimb() {
+        // The shape of the production climb that reported this: Shanghai Tower, stopped
+        // and saved at 2,342 of 3,398 steps.
+        let presentation = HomeTodayActivityRowPresentation(
+            row: moderated(
+                kind: .liveClimb,
+                attemptClimbId: "shanghai-tower",
+                steps: 2_342,
+                duration: 1_580,
+                isPartial: true,
+                targetSteps: 3_398,
+                publishedAt: now.addingTimeInterval(-120)
+            ),
+            climbName: "Shanghai Tower",
+            routineTemplateName: nil,
+            now: now
+        )
+
+        #expect(presentation.title == "Shanghai Tower")
+        #expect(presentation.detail == "2,342 of 3,398 steps · 26:20 · 2 min ago")
+        #expect(presentation.destination == .climbDetail(climbId: "shanghai-tower"))
+    }
+
+    @Test
+    func aPartialLiveClimbWithNoRecordedTargetMakesNoFinishClaim() {
+        let presentation = HomeTodayActivityRowPresentation(
+            row: moderated(
+                kind: .liveClimb,
+                attemptClimbId: "burj-khalifa",
+                steps: 900,
+                duration: 600,
+                isPartial: true,
+                publishedAt: now
+            ),
+            climbName: "Burj Khalifa",
+            routineTemplateName: nil,
+            now: now
+        )
+
+        #expect(presentation.detail == "10:00 · 900 steps · just now")
+        #expect(presentation.destination == .climbDetail(climbId: "burj-khalifa"))
+    }
+
+    @Test
+    func aPartialLiveClimbReadsAsAPlainLiveClimbToTheShipped11Client() {
+        // 1.1 reads only the fields that predate partial sessions, so to it this row is a
+        // Live Climb with no `climbId`: the title resolver has nothing to name and the
+        // row names no landmark and opens nothing. Built from exactly those fields, it
+        // must never read as a finish of the climb it stopped short on.
+        let presentation = HomeTodayActivityRowPresentation(
+            row: moderated(kind: .liveClimb, steps: 2_342, duration: 1_580, publishedAt: now),
+            climbName: nil,
+            routineTemplateName: nil,
+            now: now
+        )
+
+        #expect(presentation.title == "Live Climb")
+        #expect(presentation.detail == "26:20 · 2,342 steps · just now")
+        #expect(presentation.destination == .none)
+    }
+
+    @Test
+    func aRoutineStoppedEarlyReadsItsTimeAgainstThePlan() {
+        let template = HomeTodayActivityRowPresentation(
+            row: moderated(
+                kind: .routineTemplate,
+                routineTemplateId: "pyramid_climb",
+                steps: 480,
+                duration: 420,
+                isPartial: true,
+                targetDuration: 1_200,
+                publishedAt: now
+            ),
+            climbName: nil,
+            routineTemplateName: "Pyramid Climb",
+            now: now
+        )
+        #expect(template.detail == "07:00 of 20:00 · 480 steps · just now")
+        #expect(template.destination == .routineTemplate(templateId: "pyramid_climb"))
+
+        let personal = HomeTodayActivityRowPresentation(
+            row: moderated(kind: .routine, steps: 480, duration: 420, isPartial: true, targetDuration: 900, publishedAt: now),
+            climbName: nil,
+            routineTemplateName: nil,
+            now: now
+        )
+        #expect(personal.detail == "07:00 of 15:00 · 480 steps · just now")
+        #expect(personal.destination == .none)
+    }
+
+    @Test
+    func aSkippedRoutineThatRanTheClockDoesNotRestateThePlan() {
+        let presentation = HomeTodayActivityRowPresentation(
+            row: moderated(
+                kind: .routineTemplate,
+                routineTemplateId: "pyramid_climb",
+                steps: 700,
+                duration: 1_200,
+                isPartial: true,
+                targetDuration: 1_200,
+                publishedAt: now
+            ),
+            climbName: nil,
+            routineTemplateName: "Pyramid Climb",
+            now: now
+        )
+        #expect(presentation.detail == "20:00 · 700 steps · just now")
+    }
+
+    @Test
+    func aJustClimbStoppedBeforeItsGoalStatesTheGoalItMissed() {
+        let presentation = HomeTodayActivityRowPresentation(
+            row: moderated(kind: .justClimb, steps: 900, duration: 600, goalKind: .steps, goalValue: 1_500, isPartial: true, publishedAt: now),
+            climbName: nil,
+            routineTemplateName: nil,
+            now: now
+        )
+        #expect(presentation.detail == "900 of 1,500 steps · 10:00 · just now")
+    }
+
     // MARK: - Fixtures
 
     /// The goal a Just Climb row re-opens. `JustClimbGoal` carries a fresh id, so the
@@ -106,11 +227,15 @@ struct HomeTodayActivityRowPresentationTests {
     private func moderated(
         kind: HomeTodayActivityKind,
         climbId: String? = nil,
+        attemptClimbId: String? = nil,
         routineTemplateId: String? = nil,
         steps: Int,
         duration: TimeInterval,
         goalKind: HomeTodayJustClimbGoalKind? = nil,
         goalValue: Int? = nil,
+        isPartial: Bool = false,
+        targetSteps: Int? = nil,
+        targetDuration: TimeInterval? = nil,
         publishedAt: Date
     ) -> ModeratedHomeTodayActivityRow {
         let row = HomeTodayActivityRow(
@@ -118,6 +243,7 @@ struct HomeTodayActivityRowPresentationTests {
             userId: "user-a",
             kind: kind,
             climbId: climbId,
+            attemptClimbId: attemptClimbId,
             routineTemplateId: routineTemplateId,
             steps: steps,
             durationSeconds: duration,
@@ -125,6 +251,9 @@ struct HomeTodayActivityRowPresentationTests {
             publishedAt: publishedAt,
             justClimbGoalKind: goalKind,
             justClimbGoalValue: goalValue,
+            isPartial: isPartial,
+            targetSteps: targetSteps,
+            targetDurationSeconds: targetDuration,
             displayName: "Ada",
             photoURL: nil,
             avatarToken: "AE7",

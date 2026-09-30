@@ -135,6 +135,9 @@
 
         <!--
           Health - HealthKit reads plus user-entered body metrics (height, weight).
+          App Functionality also covers the average and max heart rate across a
+          climber's climbs, published to their public profile for the comparison
+          unless they switch off "Show my heart rate on my profile".
           Analytics is declared because banded body values reach Firebase Analytics
           and Mixpanel: `profile_weight_group` as a user property, and
           `profile_height_group` and the leaderboard `body_weight_filter` as event
@@ -217,7 +220,7 @@
             </array>
         </dict>
 
-        <!-- User ID - Firebase Auth UID used for app records, analytics, community records, personal block lists, and moderation reports -->
+        <!-- User ID - Firebase Auth UID used for app records, analytics, community records, personal block lists, the climbers chosen to race on Ascend Mountain, and moderation reports -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeUserID</string>
@@ -267,7 +270,7 @@
             </array>
         </dict>
 
-        <!-- Other User Content - workout notes, feedback submissions, and profile moderation report reasons -->
+        <!-- Other User Content - workout notes, feedback submissions, profile moderation report reasons, and the preset look chosen for the climber's Ascend Mountain athlete -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherUserContent</string>

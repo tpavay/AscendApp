@@ -108,11 +108,11 @@ final class ProfileScreenViewModel {
             let bundle = try await remoteBundle
             let standings = await loadedStandings
             let firstAscents = await firstAscentSummaries
-            // Records first: only they name the exact finishing rank. The banded counters are
-            // the fallback, and a ladder built from them proves no #2 or #3.
-            let achievements = bundle.achievements.isEmpty
-                ? ProfileAchievementLadder(bandedCounters: bundle.stats?.achievementCounts ?? .zero)
-                : ProfileAchievementLadder(records: bundle.achievements)
+            // Another climber's titles come only from their achievement records, which only the
+            // finalizer writes. The banded `profile_stats` counters are owner-writable, so falling
+            // back to them let anyone show other climbers a CHAMPION count they never earned;
+            // no records read back is a measured zero.
+            let achievements = ProfileAchievementLadder(records: bundle.achievements)
             let fallbackStats = fallbackStatsSnapshot(
                 summaries: bundle.workoutSummaries,
                 firstAscentCount: firstAscents.held.count,

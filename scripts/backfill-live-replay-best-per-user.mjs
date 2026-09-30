@@ -77,6 +77,12 @@ import {
   raceBestOnSteps,
   raceGoalKeysByWorkoutId,
 } from "./lib/live-replay-race-best.mjs";
+import {
+  PRE_FIX_SAMPLER_CHECKPOINTS,
+  REPLAY_BOARD_INTERVAL_SECONDS,
+  isPreFixSamplerClamp,
+  replayBoardSplitSteps,
+} from "./lib/live-replay-split-normalization.mjs";
 
 export const PRODUCTION_PROJECT_ID = "ascend-prod-9c8f2";
 export const ENVIRONMENTS = Object.freeze({
@@ -90,8 +96,6 @@ const SPLIT_BUCKETS_COLLECTION = "splitBuckets";
 const ENTRIES_COLLECTION = "entries";
 const ATTEMPT_CURVES_COLLECTION = "attemptCurves";
 const BUCKET_ZERO_DOC_ID = "0";
-export const MAX_REPLAY_SPLIT_CHECKPOINTS = 360;
-const DEFAULT_SPLIT_INTERVAL_SECONDS = 10;
 
 if (isEntrypoint(import.meta.url)) {
   await main();
@@ -473,7 +477,9 @@ export async function applyEntryWrites(db, phases, {progress = null, onCommitted
  * The split curves behind a climber's attempts on a goal-racing board, read
  * from `attemptCurves` and rebuilt from the attempt's own bucket entries where
  * the curve was never stored - which is every attempt published before the
- * rule. A rebuilt curve is stored in a write run so the trigger's next
+ * rule. A curve that still carries the pre-fix sampler's clamp at 60:00 is
+ * re-derived onto the board grid first (`boardGridCurve`). A rebuilt or
+ * re-derived curve is stored in a write run so the trigger's next
  * reconciliation finds it, the same way the Cloud Function heals one.
  * @param {FirebaseFirestore.Firestore} db Firestore instance.
  * @param {FirebaseFirestore.DocumentReference} boardRef Board document.
@@ -496,12 +502,12 @@ async function attemptCurves(db, boardRef, attempts, options, board, progress) {
   for (let index = 0; index < attempts.length; index += 1) {
     const attempt = attempts[index];
     const stored = curveFromData(attempt, snapshots[index].data());
-    if (stored !== null) {
+    if (stored !== null && !isPreFixSamplerClampCurve(stored)) {
       curves.set(attempt.workoutId, stored);
       continue;
     }
 
-    const rebuilt = await rebuildCurve(db, boardRef, attempt, progress);
+    const rebuilt = boardGridCurve(stored ?? await rebuildCurve(db, boardRef, attempt, progress));
     board.curvesRebuilt += 1;
     curves.set(attempt.workoutId, rebuilt);
     if (!options.dryRun) {
@@ -519,6 +525,43 @@ async function attemptCurves(db, boardRef, attempts, options, board, progress) {
   }
 
   return curves;
+}
+
+/**
+ * Whether a curve still carries the pre-fix sampler's clamp - published before
+ * attempts could run past the hour, its last point holds the finish at 60:00.
+ * @param {object} curve Attempt curve.
+ * @return {boolean} True when it must be re-derived before the rule reads it.
+ */
+export function isPreFixSamplerClampCurve(curve) {
+  return isPreFixSamplerClamp(
+    curve.splitSteps.length,
+    curve.splitIntervalSeconds,
+    curve.finalDurationSeconds
+  );
+}
+
+/**
+ * A clamped curve re-derived onto the board grid exactly as the trigger now
+ * publishes it (`boardGridAttemptCurve` in the Cloud Function). Any other
+ * curve comes back unchanged.
+ * @param {object} curve Attempt curve.
+ * @return {object} The curve the race-best rule may read.
+ */
+export function boardGridCurve(curve) {
+  if (!isPreFixSamplerClampCurve(curve)) {
+    return curve;
+  }
+  return {
+    ...curve,
+    splitIntervalSeconds: REPLAY_BOARD_INTERVAL_SECONDS,
+    splitSteps: replayBoardSplitSteps({
+      splitIntervalSeconds: curve.splitIntervalSeconds,
+      splitSteps: curve.splitSteps,
+      finalDurationSeconds: curve.finalDurationSeconds,
+      finalSteps: curve.finalSteps,
+    }),
+  };
 }
 
 async function rebuildCurve(db, boardRef, attempt, progress) {
@@ -722,10 +765,13 @@ export function userAttemptEntry(data, documentId, contextType) {
     finalSteps: finalSteps ?? 0,
     completionDurationSeconds: completionDurationSeconds ?? 0,
     splitIntervalSeconds: positiveIntegerValue(data.splitIntervalSeconds) ??
-      DEFAULT_SPLIT_INTERVAL_SECONDS,
-    // Entries written before the span was stored sweep the whole checkpoint
-    // range; absent buckets are skipped by the write plan, never written.
-    splitBucketCount: Math.min(storedSpan ?? MAX_REPLAY_SPLIT_CHECKPOINTS, MAX_REPLAY_SPLIT_CHECKPOINTS),
+      REPLAY_BOARD_INTERVAL_SECONDS,
+    // Entries written before the span was stored all predate attempts past
+    // the hour, so they sweep the pre-fix checkpoint range; absent buckets are
+    // skipped by the write plan, never written. A stored span is exact and
+    // never capped - an attempt past the hour publishes a bucket per ten
+    // seconds it ran.
+    splitBucketCount: storedSpan ?? PRE_FIX_SAMPLER_CHECKPOINTS,
     isBestForUser: data.isBestForUser === true,
     bestForGoals: Array.isArray(data.bestForGoals) ?
       data.bestForGoals.filter((key) => typeof key === "string").sort() :

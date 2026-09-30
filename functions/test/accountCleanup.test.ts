@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import * as admin from "firebase-admin";
 import {
   ANONYMIZED_FIRST_ASCENT_NAME,
+  anonymizeLeaderboardPlacings,
   cleanupDeletedUser,
+  deleteChampionPushDeliveries,
   DeletedUserCleanupPort,
   makeAdminPort,
 } from "../src/accountCleanup.js";
@@ -16,12 +18,16 @@ interface FakePortOptions {
   replayEntries?: number;
   replayFinisherStatuses?: number;
   firstAscents?: number;
+  leaderboardPlacings?: number;
+  championPushDeliveries?: number;
   feedbackDocuments?: number;
   moderationReports?: number;
   incomingBlockDocuments?: number;
+  incomingRaceFilterDocuments?: number;
   lifecycleEmailJobs?: number;
   revenueCatAnalyticsOutbox?: number;
   homeTodayActivityRows?: number;
+  stravaRecords?: number;
   failOn?: string[];
   failListing?: boolean;
 }
@@ -101,6 +107,22 @@ function makeFakePort(options: FakePortOptions = {}): {
       return options.firstAscents ?? 0;
     },
 
+    async anonymizeLeaderboardPlacings() {
+      if (failOn.has("leaderboard_placings")) {
+        throw new Error("cannot anonymize leaderboard_placings");
+      }
+      deleted.push("leaderboard_placings");
+      return options.leaderboardPlacings ?? 0;
+    },
+
+    async deleteChampionPushDeliveries() {
+      if (failOn.has("champion_push_deliveries")) {
+        throw new Error("cannot delete champion_push_deliveries");
+      }
+      deleted.push("champion_push_deliveries");
+      return options.championPushDeliveries ?? 0;
+    },
+
     async deleteFeedbackDocuments() {
       if (failOn.has("feedback")) {
         throw new Error("cannot delete feedback");
@@ -123,6 +145,14 @@ function makeFakePort(options: FakePortOptions = {}): {
       }
       deleted.push("incoming_blocks");
       return options.incomingBlockDocuments ?? 0;
+    },
+
+    async deleteIncomingRaceFilterDocuments() {
+      if (failOn.has("incoming_race_filters")) {
+        throw new Error("cannot delete incoming_race_filters");
+      }
+      deleted.push("incoming_race_filters");
+      return options.incomingRaceFilterDocuments ?? 0;
     },
 
     async deleteLifecycleEmailJobs() {
@@ -154,6 +184,14 @@ function makeFakePort(options: FakePortOptions = {}): {
         throw new Error("cannot delete userRateLimits");
       }
       deleted.push("userRateLimits");
+    },
+
+    async disconnectStrava() {
+      if (failOn.has("strava")) {
+        throw new Error("cannot disconnect strava");
+      }
+      deleted.push("strava");
+      return options.stravaRecords ?? 0;
     },
   };
 
@@ -369,7 +407,8 @@ function makeFirstAscentFirestore(holderId: string): {
  * @return {object} Firestore stand-in and the deleted values.
  */
 function makeIncomingBlocksFirestore(
-  blockedUserIds: string[]
+  blockedUserIds: string[],
+  expected: {collection: string; field: string} = {collection: "blocked", field: "blockedUid"}
 ): {
   firestore: admin.firestore.Firestore;
   deletedUserIds: string[];
@@ -377,10 +416,10 @@ function makeIncomingBlocksFirestore(
   const deletedUserIds: string[] = [];
   const firestore = {
     collectionGroup(collectionId: string) {
-      assert.equal(collectionId, "blocked");
+      assert.equal(collectionId, expected.collection);
       return {
         where(field: string, operation: string, value: string) {
-          assert.equal(field, "blockedUid");
+          assert.equal(field, expected.field);
           assert.equal(operation, "==");
           const matches = blockedUserIds.filter((userId) => userId === value);
           return {
@@ -479,7 +518,13 @@ test("removes all external identity propagation checkpoints", async () => {
 
 test("Admin cleanup deletes each persisted propagation kind", async () => {
   const deletedKinds: string[] = [];
-  const kinds = ["leaderboard", "replayEntry", "replayFinisher", "firstAscent"];
+  const kinds = [
+    "leaderboard",
+    "replayEntry",
+    "replayFinisher",
+    "firstAscent",
+    "champion",
+  ];
   const firestore = {
     collection(collectionId: string) {
       assert.equal(collectionId, "_public_identity_propagation_jobs");
@@ -513,7 +558,7 @@ test("Admin cleanup deletes each persisted propagation kind", async () => {
   const count = await makeAdminPort(firestore)
     .deleteIdentityPropagationJobs("user-a");
 
-  assert.equal(count, 4);
+  assert.equal(count, 5);
   assert.deepEqual(deletedKinds, kinds);
 });
 
@@ -772,6 +817,398 @@ test("a failing First Ascent sweep is reported for retry", async () => {
   assert.ok(deleted.includes("userRateLimits"));
 });
 
+/**
+ * Builds a collection-group stand-in for closed-board placings that honours
+ * the document-path ordering, the path cursor and the page limit, and records
+ * every commit so a test can see the sweep was paged.
+ * @return {object} Firestore stand-in, the placings, and what was observed.
+ */
+function makePlacingsFirestore() {
+  const placings = [
+    {path: "leaderboard_results/weekly_2026-W38/placings/user-a", rank: 1},
+    {path: "leaderboard_results/monthly_2026-M09/placings/user-a", rank: 4},
+    {path: "leaderboard_results/weekly_2026-W37/placings/user-a", rank: 2},
+    {path: "leaderboard_results/weekly_2026-W38/placings/user-b", rank: 2},
+  ].map(({path, rank}) => ({
+    path,
+    record: {
+      displayName: path.endsWith("user-a") ? "Maya Chen" : "Other",
+      identityChangedAt: {seconds: 100, nanoseconds: 0},
+      identityPolicyVersion: 1,
+      identityState: "published",
+      isSynthetic: false,
+      periodKey: path.split("/")[1].split("_")[1],
+      photoURL: "https://example.com/photo.jpg",
+      rank,
+      totalSteps: 10_000 - rank,
+      totalWorkouts: 5,
+      userId: path.split("/").pop() as string,
+    } as Record<string, unknown>,
+  }));
+  const observed = {
+    collectionGroup: null as string | null,
+    commits: [] as number[],
+    cursors: [] as (string | null)[],
+    field: null as string | null,
+    orderedByDocumentId: false,
+  };
+
+  const makeQuery = (
+    userId: string,
+    limit: number,
+    cursor: string | null
+  ) => ({
+    startAfter(next: string) {
+      return makeQuery(userId, limit, next);
+    },
+    async get() {
+      observed.cursors.push(cursor);
+      const docs = placings
+        .filter((placing) => placing.record.userId === userId)
+        .sort((lhs, rhs) => lhs.path.localeCompare(rhs.path))
+        .filter((placing) => cursor === null || placing.path > cursor)
+        .slice(0, limit)
+        .map((placing) => ({ref: placing}));
+      return {docs, empty: docs.length === 0, size: docs.length};
+    },
+  });
+
+  const firestore = {
+    batch() {
+      const pending: [{record: Record<string, unknown>}, object][] = [];
+      return {
+        update(ref: {record: Record<string, unknown>}, fields: object) {
+          pending.push([ref, fields]);
+        },
+        async commit() {
+          observed.commits.push(pending.length);
+          for (const [ref, fields] of pending) {
+            Object.assign(ref.record, fields);
+          }
+        },
+      };
+    },
+    collectionGroup(collectionGroup: string) {
+      observed.collectionGroup = collectionGroup;
+      return {
+        where(field: string, _operator: string, userId: string) {
+          observed.field = field;
+          return {
+            orderBy(fieldPath: unknown) {
+              observed.orderedByDocumentId = fieldPath instanceof
+                admin.firestore.FieldPath &&
+                fieldPath.isEqual(admin.firestore.FieldPath.documentId());
+              return {
+                limit(limit: number) {
+                  return makeQuery(userId, limit, null);
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    firestore: firestore as unknown as admin.firestore.Firestore,
+    observed,
+    placings,
+  };
+}
+
+test("de-identifies the placings a deleted climber holds", async () => {
+  const {deleted, port} = makeFakePort({leaderboardPlacings: 3});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  // A placing lives under leaderboard_results, outside users/{uid}, so
+  // subcollection discovery can never reach it.
+  assert.equal(summary.anonymizedLeaderboardPlacings, 3);
+  assert.ok(deleted.includes("leaderboard_placings"));
+});
+
+test("Admin placing cleanup pages every placing and keeps the standing",
+  async () => {
+    const store = makePlacingsFirestore();
+
+    const count = await anonymizeLeaderboardPlacings(
+      store.firestore,
+      "user-a",
+      2
+    );
+
+    assert.equal(count, 3);
+    assert.equal(store.observed.collectionGroup, "placings");
+    assert.equal(store.observed.field, "userId");
+    assert.equal(store.observed.orderedByDocumentId, true);
+    // Two bounded commits, the second resumed from the first page's last
+    // document path - a bare id means nothing in a collection-group ordering.
+    assert.deepEqual(store.observed.commits, [2, 1]);
+    assert.deepEqual(store.observed.cursors, [
+      null,
+      "leaderboard_results/weekly_2026-W37/placings/user-a",
+    ]);
+
+    for (const placing of store.placings.slice(0, 3)) {
+      assert.equal(placing.record.displayName, ANONYMIZED_FIRST_ASCENT_NAME);
+      assert.equal(placing.record.photoURL, "");
+      assert.equal(placing.record.identityState, "deleted");
+      assert.equal(placing.record.isSynthetic, false);
+      // The frozen board never re-ranks: the uid, rank and totals stay.
+      assert.equal(placing.record.userId, "user-a");
+      assert.equal(placing.record.totalSteps, 10_000 - Number(
+        placing.record.rank
+      ));
+      assert.equal(placing.record.totalWorkouts, 5);
+    }
+    assert.deepEqual(
+      store.placings.slice(0, 3).map((placing) => placing.record.rank),
+      [1, 4, 2]
+    );
+    assert.equal(store.placings[3].record.displayName, "Other");
+    assert.equal(
+      store.placings[3].record.photoURL,
+      "https://example.com/photo.jpg"
+    );
+  });
+
+test("an exactly full last page ends on an empty read", async () => {
+  const store = makePlacingsFirestore();
+
+  const count = await anonymizeLeaderboardPlacings(
+    store.firestore,
+    "user-a",
+    3
+  );
+
+  assert.equal(count, 3);
+  assert.deepEqual(store.observed.commits, [3]);
+  assert.equal(store.observed.cursors.length, 2);
+});
+
+test("a climber with no placings commits nothing", async () => {
+  const store = makePlacingsFirestore();
+
+  assert.equal(
+    await anonymizeLeaderboardPlacings(store.firestore, "user-z"),
+    0
+  );
+  assert.deepEqual(store.observed.commits, []);
+});
+
+test("a failing placing sweep is reported without abandoning cleanup",
+  async () => {
+    const {deleted, port} = makeFakePort({
+      failOn: ["leaderboard_placings"],
+    });
+
+    const summary = await cleanupDeletedUser("user-a", port);
+
+    assert.equal(summary.anonymizedLeaderboardPlacings, 0);
+    assert.match(
+      summary.failures.join(" "),
+      /leaderboard_placings: cannot anonymize leaderboard_placings/
+    );
+    assert.ok(deleted.includes("feedback"));
+    assert.ok(deleted.includes("userRateLimits"));
+  });
+
+/**
+ * Builds a top-level collection stand-in for champion push delivery markers
+ * that honours the document-id ordering, the id cursor and the page limit,
+ * and records every commit so a test can see the sweep was paged.
+ * @param {number} failingCommits Number of batch commits to reject.
+ * @return {object} Firestore stand-in, the markers, and what was observed.
+ */
+function makeChampionPushDeliveriesFirestore(failingCommits = 0) {
+  // The shape championPush.ts creates before each crown alert.
+  const markers = new Map<string, Record<string, unknown>>(
+    [
+      ["weekly_2026-W38", "user-a"],
+      ["monthly_2026-M08", "user-a"],
+      ["weekly_2026-W37", "user-a"],
+      ["weekly_2026-W38", "user-b"],
+    ].map(([resultId, userId]) => [`${resultId}_${userId}`, {
+      resultId,
+      sentCount: 1,
+      status: "sent",
+      userId,
+    }])
+  );
+  const observed = {
+    collection: null as string | null,
+    commits: [] as number[],
+    cursors: [] as (string | null)[],
+    field: null as string | null,
+    orderedByDocumentId: false,
+  };
+
+  const makeQuery = (
+    userId: string,
+    limit: number,
+    cursor: string | null
+  ) => ({
+    startAfter(next: string) {
+      // The Admin SDK throws on a path cursor for a plain collection query.
+      assert.ok(!next.includes("/"), `cursor ${next} is not a bare id`);
+      return makeQuery(userId, limit, next);
+    },
+    async get() {
+      observed.cursors.push(cursor);
+      const docs = [...markers.entries()]
+        .filter(([, marker]) => marker.userId === userId)
+        .map(([id]) => id)
+        .sort()
+        .filter((id) => cursor === null || id > cursor)
+        .slice(0, limit)
+        .map((id) => ({id, ref: {id}}));
+      return {docs, empty: docs.length === 0, size: docs.length};
+    },
+  });
+
+  let commitCount = 0;
+  const firestore = {
+    batch() {
+      const pending: string[] = [];
+      return {
+        delete(ref: {id: string}) {
+          pending.push(ref.id);
+        },
+        async commit() {
+          commitCount += 1;
+          if (commitCount <= failingCommits) {
+            throw new Error("7 PERMISSION_DENIED");
+          }
+          observed.commits.push(pending.length);
+          for (const id of pending) {
+            markers.delete(id);
+          }
+        },
+      };
+    },
+    collection(collectionId: string) {
+      observed.collection = collectionId;
+      return {
+        where(field: string, _operator: string, userId: string) {
+          observed.field = field;
+          return {
+            orderBy(fieldPath: unknown) {
+              observed.orderedByDocumentId = fieldPath instanceof
+                admin.firestore.FieldPath &&
+                fieldPath.isEqual(admin.firestore.FieldPath.documentId());
+              return {
+                limit(limit: number) {
+                  return makeQuery(userId, limit, null);
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    firestore: firestore as unknown as admin.firestore.Firestore,
+    markers,
+    observed,
+  };
+}
+
+test("removes the champion push delivery markers a deleted climber holds",
+  async () => {
+    const {deleted, port} = makeFakePort({championPushDeliveries: 2});
+
+    const summary = await cleanupDeletedUser("user-a", port);
+
+    // `_champion_push_deliveries/{resultId}_{uid}` is top-level, so
+    // subcollection discovery under users/{uid} can never reach it.
+    assert.equal(summary.deletedChampionPushDeliveries, 2);
+    assert.ok(deleted.includes("champion_push_deliveries"));
+  });
+
+test("Admin delivery cleanup pages every marker by bare document id",
+  async () => {
+    const store = makeChampionPushDeliveriesFirestore();
+
+    const count = await deleteChampionPushDeliveries(
+      store.firestore,
+      "user-a",
+      2
+    );
+
+    assert.equal(count, 3);
+    assert.equal(store.observed.collection, "_champion_push_deliveries");
+    assert.equal(store.observed.field, "userId");
+    assert.equal(store.observed.orderedByDocumentId, true);
+    // Two bounded commits, the second resumed after the first page's last id.
+    assert.deepEqual(store.observed.commits, [2, 1]);
+    assert.deepEqual(store.observed.cursors, [
+      null,
+      "weekly_2026-W37_user-a",
+    ]);
+    assert.deepEqual([...store.markers.keys()], ["weekly_2026-W38_user-b"]);
+  });
+
+test("an exactly full last page of markers ends on an empty read", async () => {
+  const store = makeChampionPushDeliveriesFirestore();
+
+  const count = await deleteChampionPushDeliveries(
+    store.firestore,
+    "user-a",
+    3
+  );
+
+  assert.equal(count, 3);
+  assert.deepEqual(store.observed.commits, [3]);
+  assert.equal(store.observed.cursors.length, 2);
+});
+
+test("a climber with no delivery markers commits nothing", async () => {
+  const store = makeChampionPushDeliveriesFirestore();
+
+  assert.equal(
+    await makeAdminPort(store.firestore).deleteChampionPushDeliveries("user-z"),
+    0
+  );
+  assert.deepEqual(store.observed.commits, []);
+  assert.equal(store.markers.size, 4);
+});
+
+test("a failing delivery marker sweep is reported without abandoning cleanup",
+  async () => {
+    const {deleted, port} = makeFakePort({
+      failOn: ["champion_push_deliveries"],
+    });
+
+    const summary = await cleanupDeletedUser("user-a", port);
+
+    assert.equal(summary.deletedChampionPushDeliveries, 0);
+    assert.match(
+      summary.failures.join(" "),
+      /champion_push_deliveries: cannot delete champion_push_deliveries/
+    );
+    assert.ok(deleted.includes("feedback"));
+    assert.ok(deleted.includes("userRateLimits"));
+  });
+
+test("a failed delivery marker commit lands in failures", async () => {
+  const {port} = makeFakePort();
+  const store = makeChampionPushDeliveriesFirestore(1);
+  port.deleteChampionPushDeliveries =
+    makeAdminPort(store.firestore).deleteChampionPushDeliveries;
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedChampionPushDeliveries, 0);
+  assert.match(
+    summary.failures.join(" "),
+    /champion_push_deliveries: 7 PERMISSION_DENIED/
+  );
+  assert.equal(store.markers.size, 4);
+});
+
 test("removes feedback carrying the user's email and message", async () => {
   const {deleted, port} = makeFakePort({feedbackDocuments: 2});
 
@@ -812,6 +1249,47 @@ test(
 
     assert.equal(summary.deletedIncomingBlockDocuments, 3);
     assert.ok(deleted.includes("incoming_blocks"));
+  }
+);
+
+test(
+  "removes the deleted climber from other climbers' race filters",
+  async () => {
+    const {deleted, port} = makeFakePort({incomingRaceFilterDocuments: 2});
+
+    const summary = await cleanupDeletedUser("user-a", port);
+
+    assert.equal(summary.deletedIncomingRaceFilterDocuments, 2);
+    assert.ok(deleted.includes("incoming_race_filters"));
+  }
+);
+
+test(
+  "a failing race filter sweep is reported without abandoning cleanup",
+  async () => {
+    const {deleted, port} = makeFakePort({failOn: ["incoming_race_filters"]});
+
+    const summary = await cleanupDeletedUser("user-a", port);
+
+    assert.equal(summary.deletedIncomingRaceFilterDocuments, 0);
+    assert.ok(summary.failures.some((failure) => failure.startsWith("incoming_race_filters:")));
+    assert.ok(deleted.includes("incoming_blocks"));
+  }
+);
+
+test(
+  "Admin cleanup finds incoming race filters with a collection-group query",
+  async () => {
+    const {deletedUserIds, firestore} = makeIncomingBlocksFirestore(
+      ["user-a", "user-b", "user-a"],
+      {collection: "race_filter", field: "climberUid"}
+    );
+
+    const count = await makeAdminPort(firestore)
+      .deleteIncomingRaceFilterDocuments("user-a");
+
+    assert.equal(count, 2);
+    assert.deepEqual(deletedUserIds, ["user-a", "user-a"]);
   }
 );
 
@@ -871,6 +1349,25 @@ test("a failed today-feed rewrite is reported and does not stop the sweep", asyn
 
   assert.equal(summary.removedHomeTodayActivityRows, 0);
   assert.ok(summary.failures.some((failure) => failure.startsWith("home_today_activity:")));
+  assert.ok(deleted.includes("userRateLimits"));
+});
+
+test("disconnects the deleted climber's Strava", async () => {
+  const {deleted, port} = makeFakePort({stravaRecords: 3});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedStravaRecords, 3);
+  assert.ok(deleted.includes("strava"));
+});
+
+test("a failed Strava disconnect is reported so the sweep retries", async () => {
+  const {deleted, port} = makeFakePort({failOn: ["strava"]});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedStravaRecords, 0);
+  assert.ok(summary.failures.some((failure) => failure.startsWith("strava:")));
   assert.ok(deleted.includes("userRateLimits"));
 });
 

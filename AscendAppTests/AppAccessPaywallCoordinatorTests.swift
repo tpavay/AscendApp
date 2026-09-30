@@ -553,24 +553,31 @@ private final class CoordinatorNativeProvider: NativeSubscriptionProviding {
 private final class CoordinatorControlledSleep: @unchecked Sendable {
     private let lock = NSLock()
     private var nextCall = 0
+    private var reachableCallCount = 0
     private var continuations: [Int: CheckedContinuation<Void, any Error>] = [:]
     private var observers: [CheckedContinuation<Void, Never>] = []
 
     func sleep(for duration: Duration) async throws {
         let call = lock.withLock { () -> Int in
             nextCall += 1
-            let call = nextCall
-            observers.forEach { $0.resume() }
-            observers = []
-            return call
+            return nextCall
         }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation {
                 (continuation: CheckedContinuation<Void, any Error>) in
-                if Task.isCancelled {
+                // A sleep is announced to `waitUntilCallCount` only once `fire`
+                // and `onCancel` can reach it. Announcing it earlier let a test
+                // fire an unstored sleep, which then waited forever (a CI hang).
+                let isCancelled = lock.withLock { () -> Bool in
+                    let isCancelled = Task.isCancelled
+                    if !isCancelled { continuations[call] = continuation }
+                    reachableCallCount += 1
+                    observers.forEach { $0.resume() }
+                    observers = []
+                    return isCancelled
+                }
+                if isCancelled {
                     continuation.resume(throwing: CancellationError())
-                } else {
-                    lock.withLock { continuations[call] = continuation }
                 }
             }
         } onCancel: {
@@ -584,10 +591,10 @@ private final class CoordinatorControlledSleep: @unchecked Sendable {
     }
 
     func waitUntilCallCount(_ expected: Int) async {
-        if lock.withLock({ nextCall >= expected }) { return }
+        if lock.withLock({ reachableCallCount >= expected }) { return }
         await withCheckedContinuation { continuation in
             let ready = lock.withLock { () -> Bool in
-                if nextCall >= expected { return true }
+                if reachableCallCount >= expected { return true }
                 observers.append(continuation)
                 return false
             }

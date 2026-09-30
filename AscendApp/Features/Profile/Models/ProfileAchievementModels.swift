@@ -115,6 +115,24 @@ struct ProfileAchievementRecord: Identifiable, Equatable {
         guard let rankBand else { return false }
         return rankBand.threshold <= band.threshold
     }
+
+    /// The finalized window this finish was ranked over, when the record names one.
+    var period: LeaderboardPeriod? {
+        guard let timeFrame, let periodKey, let periodStartAt else { return nil }
+        return LeaderboardPeriod(
+            timeFrame: timeFrame,
+            key: periodKey,
+            startAt: periodStartAt,
+            endAt: periodEndAt
+        )
+    }
+
+    /// Labelled through `LeaderboardPeriod`, never on the viewer's clock: every boundary
+    /// is UTC midnight, which west of UTC is still the previous evening, so a US climber
+    /// holding the August title would otherwise read "July 2026".
+    var periodLabel: String? {
+        period?.datedWindowLabel
+    }
 }
 
 struct ProfileAchievementCounts: Equatable {

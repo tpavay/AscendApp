@@ -99,48 +99,27 @@ struct OtherUserProfileView: View {
         )
 
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ProfileComparisonHeader(
-                    viewerIdentity: viewModel.resolvedOwnIdentity(
-                        using: moderationStore,
-                        userId: authVM.user?.uid ?? "viewer",
-                        displayName: viewerDisplayName,
-                        photoURL: authVM.displayPhotoURL,
-                        joinedAt: authVM.user?.metadata.creationDate
-                    ),
-                    otherIdentity: viewModel.resolvedOtherIdentity(
-                        using: moderationStore,
-                        fallback: initialIdentity
-                    ),
-                    isViewerLoading: isInitialViewerIdentityLoad,
-                    isOtherLoading: isInitialRemoteLoad
-                )
-
-                ProfileComparisonTabPicker(selection: $selectedTab)
-                    .padding(.top, 20)
-
-                Group {
-                    switch selectedTab {
-                    case .bio:
-                        ProfileComparisonBioTab(
-                            viewer: viewer,
-                            otherUser: other,
-                            measurementSystem: settingsManager.measurementSystem,
-                            isViewerLoading: isInitialViewerIdentityLoad,
-                            isOtherLoading: isInitialRemoteLoad
-                        )
-                    case .headToHead:
-                        ProfileComparisonHeadToHeadTab(
-                            comparison: comparison,
-                            results: headToHeadResults,
-                            isLoading: isInitialRemoteLoad
-                        )
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 26)
-                .padding(.bottom, 118)
-            }
+            ProfileComparisonContent(
+                viewerIdentity: viewModel.resolvedOwnIdentity(
+                    using: moderationStore,
+                    userId: authVM.user?.uid ?? "viewer",
+                    displayName: viewerDisplayName,
+                    photoURL: authVM.displayPhotoURL,
+                    joinedAt: authVM.user?.metadata.creationDate
+                ),
+                otherIdentity: viewModel.resolvedOtherIdentity(
+                    using: moderationStore,
+                    fallback: initialIdentity
+                ),
+                viewer: viewer,
+                otherUser: other,
+                comparison: comparison,
+                headToHeadResults: headToHeadResults,
+                measurementSystem: settingsManager.measurementSystem,
+                isViewerLoading: isInitialViewerIdentityLoad,
+                isOtherLoading: isInitialRemoteLoad,
+                selectedTab: $selectedTab
+            )
         }
         .scrollIndicators(.hidden)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -183,7 +162,59 @@ struct OtherUserProfileView: View {
 
 }
 
-private enum ProfileComparisonTab: String, CaseIterable, Identifiable {
+/// Everything the comparison scrolls: both climbers, the tab picker, and the selected tab.
+/// Split from `OtherUserProfileView` so it renders from two snapshots alone, with no account,
+/// store, or network behind it - which is how the evidence suite photographs the real layout.
+struct ProfileComparisonContent: View {
+    let viewerIdentity: ResolvedUserIdentity
+    let otherIdentity: ResolvedUserIdentity
+    let viewer: ProfileSnapshot
+    let otherUser: ProfileSnapshot
+    let comparison: ProfileComparisonSummary
+    let headToHeadResults: [ProfileHeadToHeadClimbResult]
+    let measurementSystem: MeasurementSystem
+    let isViewerLoading: Bool
+    let isOtherLoading: Bool
+    @Binding var selectedTab: ProfileComparisonTab
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ProfileComparisonHeader(
+                viewerIdentity: viewerIdentity,
+                otherIdentity: otherIdentity,
+                isViewerLoading: isViewerLoading,
+                isOtherLoading: isOtherLoading
+            )
+
+            ProfileComparisonTabPicker(selection: $selectedTab)
+                .padding(.top, 20)
+
+            Group {
+                switch selectedTab {
+                case .bio:
+                    ProfileComparisonBioTab(
+                        viewer: viewer,
+                        otherUser: otherUser,
+                        measurementSystem: measurementSystem,
+                        isViewerLoading: isViewerLoading,
+                        isOtherLoading: isOtherLoading
+                    )
+                case .headToHead:
+                    ProfileComparisonHeadToHeadTab(
+                        comparison: comparison,
+                        results: headToHeadResults,
+                        isLoading: isOtherLoading
+                    )
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 26)
+            .padding(.bottom, 118)
+        }
+    }
+}
+
+enum ProfileComparisonTab: String, CaseIterable, Identifiable {
     case bio = "Bio"
     case headToHead = "Head-to-head"
 
@@ -235,14 +266,18 @@ private struct ProfileComparisonTopBar: View {
     }
 }
 
-private struct ProfileComparisonHeader: View {
+struct ProfileComparisonHeader: View {
+    @Environment(ChampionRegistry.self) private var championRegistry: ChampionRegistry?
+
     let viewerIdentity: ResolvedUserIdentity
     let otherIdentity: ResolvedUserIdentity
     let isViewerLoading: Bool
     let isOtherLoading: Bool
 
     var body: some View {
-        HStack(alignment: .center, spacing: 18) {
+        // Top-aligned so a title line under one name never lifts that side's picture off
+        // the other's; VS sits at the pictures' centre.
+        HStack(alignment: .top, spacing: 18) {
             competitor(
                 identity: viewerIdentity,
                 tint: Color.ascendAccent,
@@ -253,7 +288,7 @@ private struct ProfileComparisonHeader: View {
             Text("VS")
                 .font(.montserratBold(size: 18))
                 .foregroundStyle(ProfileVisualStyle.tertiaryText)
-                .frame(width: 46)
+                .frame(width: 46, height: 76)
 
             competitor(
                 identity: otherIdentity,
@@ -276,21 +311,49 @@ private struct ProfileComparisonHeader: View {
             if isLoading {
                 AscendSkeletonCircle(size: 76, tint: tint)
             } else {
-                ProfileAvatarImageView(photoURL: identity.photoURL, size: 76)
-                    .overlay(Circle().stroke(tint, lineWidth: 2))
+                ClimberAvatar(
+                    userId: identity.userId,
+                    photoURL: identity.photoURL,
+                    placeholder: .profileDefault,
+                    size: 76,
+                    border: .init(color: tint, width: 2)
+                )
+                .accessibilityHidden(true)
             }
 
             if isLoading {
                 AscendSkeletonText(width: 78, height: 18)
             } else {
-                Text(resolvedName(identity.displayName, fallback: fallbackName))
-                    .font(.montserratBold(size: 18))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                VStack(spacing: 6) {
+                    Text(resolvedName(identity.displayName, fallback: fallbackName))
+                        .font(.montserratBold(size: 18))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
+                    if let titleLine = titleLine(for: identity) {
+                        Text(titleLine.text)
+                            .font(.montserratBold(size: 10))
+                            .tracking(1.4)
+                            .foregroundStyle(titleLine.leadingTitle.tint)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// The comparison names a champion's title under their name; the crown is on the picture.
+    private func titleLine(for identity: ResolvedUserIdentity) -> ChampionTitleLine? {
+        guard let championRegistry else { return nil }
+        return ChampionTitleLine.make(
+            titles: championRegistry.titles(for: identity.userId),
+            reigns: championRegistry.reigns
+        )
     }
 
     private func resolvedName(_ name: String, fallback: String) -> String {
@@ -342,10 +405,26 @@ private struct ProfileComparisonBioTab: View {
     let isViewerLoading: Bool
     let isOtherLoading: Bool
 
+    private var heartRateComparison: ProfileHeartRateComparison {
+        ProfileHeartRateComparison(
+            viewer: viewer.stats.heartRate,
+            other: otherUser.stats.heartRate,
+            isOtherLoading: isOtherLoading
+        )
+    }
+
     var body: some View {
+        let heartRate = heartRateComparison
         VStack(alignment: .leading, spacing: 30) {
             ProfileComparisonSection(title: "PROFILE") {
                 VStack(spacing: 0) {
+                    comparisonInfoRow(
+                        label: "Joined",
+                        viewerValue: valueOrDash(ProfileIdentityFormatter.joinedMonthText(for: viewer.demographics.joinedAt)),
+                        otherValue: valueOrDash(ProfileIdentityFormatter.joinedMonthText(for: otherUser.demographics.joinedAt)),
+                        isViewerLoading: isViewerLoading,
+                        isOtherLoading: isOtherLoading
+                    )
                     comparisonInfoRow(
                         label: "Age",
                         viewerValue: valueOrDash(viewer.demographics.age.map { "\($0)" }),
@@ -405,6 +484,22 @@ private struct ProfileComparisonBioTab: View {
                         isOtherLoading: isOtherLoading
                     )
                     ProfileComparisonStatRow(
+                        label: "Avg steps/climb",
+                        viewerValueText: formatAverageSteps(viewer.stats.averageStepsPerClimb),
+                        otherValueText: formatAverageSteps(otherUser.stats.averageStepsPerClimb),
+                        viewerValue: viewer.stats.averageStepsPerClimb ?? 0,
+                        otherValue: otherUser.stats.averageStepsPerClimb ?? 0,
+                        isOtherLoading: isOtherLoading
+                    )
+                    ProfileComparisonStatRow(
+                        label: "Avg climb time",
+                        viewerValueText: formatAverageDuration(viewer.stats.averageClimbDurationSeconds),
+                        otherValueText: formatAverageDuration(otherUser.stats.averageClimbDurationSeconds),
+                        viewerValue: viewer.stats.averageClimbDurationSeconds ?? 0,
+                        otherValue: otherUser.stats.averageClimbDurationSeconds ?? 0,
+                        isOtherLoading: isOtherLoading
+                    )
+                    ProfileComparisonStatRow(
                         label: "Avg steps/min",
                         viewerValueText: formatSPM(viewer.stats.averageStepsPerMinute),
                         otherValueText: formatSPM(otherUser.stats.averageStepsPerMinute),
@@ -416,8 +511,27 @@ private struct ProfileComparisonBioTab: View {
                 }
             }
 
-            // Last on purpose: ACHIEVEMENTS is the only section here whose height and existence
-            // vary with the data, so putting it last keeps PROFILE and ALL-TIME from moving.
+            // HEART RATE and ACHIEVEMENTS are the two sections whose height and existence vary
+            // with the data, so they come last and PROFILE and ALL-TIME never move.
+            if !heartRate.isEmpty {
+                ProfileComparisonSection(title: "HEART RATE") {
+                    VStack(spacing: 0) {
+                        ForEach(heartRate.rows) { row in
+                            // No bar: a higher heart rate is not a win, and a proportional bar
+                            // would crown whoever's heart worked hardest.
+                            comparisonInfoRow(
+                                label: row.kind.label,
+                                viewerValue: ProfileHeartRateComparison.text(for: row.viewerBpm),
+                                otherValue: ProfileHeartRateComparison.text(for: row.otherBpm),
+                                isViewerLoading: false,
+                                isOtherLoading: isOtherLoading,
+                                showDivider: row.id != heartRate.rows.last?.id
+                            )
+                        }
+                    }
+                }
+            }
+
             PublicProfileAchievementsSection(
                 viewer: ProfileAchievementTally(
                     ladder: viewer.achievements,
@@ -503,6 +617,16 @@ private struct ProfileComparisonBioTab: View {
 
     private func formatStreak(_ weeks: Int) -> String {
         weeks > 0 ? "\(weeks) wk" : "-"
+    }
+
+    private func formatAverageSteps(_ value: Double?) -> String {
+        guard let value else { return "-" }
+        return Int(value.rounded()).formatted(.number.grouping(.automatic))
+    }
+
+    private func formatAverageDuration(_ value: TimeInterval?) -> String {
+        guard let value else { return "-" }
+        return ProfileDateFormatters.durationClock(value)
     }
 
     private func formatSPM(_ value: Double) -> String {
@@ -701,13 +825,44 @@ private struct ProfileHeadToHeadLoadingRow: View {
 private struct ProfileHeadToHeadClimbRow: View {
     let result: ProfileHeadToHeadClimbResult
 
+    private var viewerValueText: String {
+        switch result.measure {
+        case let .completionTime(viewerSeconds, _):
+            return ProfileDateFormatters.durationClock(viewerSeconds)
+        case let .mostSteps(viewerSteps, _):
+            return viewerSteps.formatted(.number.grouping(.automatic))
+        }
+    }
+
+    private var otherValueText: String {
+        switch result.measure {
+        case let .completionTime(_, otherUserSeconds):
+            return ProfileDateFormatters.durationClock(otherUserSeconds)
+        case let .mostSteps(_, otherUserSteps):
+            return otherUserSteps.formatted(.number.grouping(.automatic))
+        }
+    }
+
+    /// Names what the two numbers are, since a landmark's are times and the Just Climb's steps.
+    private var detailText: String {
+        switch result.measure {
+        case .completionTime:
+            let steps = result.stepCount.map { $0.formatted(.number.grouping(.automatic)) }
+            return steps.map { "\($0) steps" } ?? "Fastest time"
+        case .mostSteps:
+            return "Most steps"
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
-                Text(ProfileDateFormatters.durationClock(result.viewerDurationSeconds))
+                Text(viewerValueText)
                     .font(.montserratBold(size: 15))
                     .foregroundStyle(result.winner == .viewer ? Color.ascendAccent : ProfileVisualStyle.tertiaryText)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
                     .frame(width: 72, alignment: .leading)
 
                 VStack(spacing: 3) {
@@ -717,17 +872,19 @@ private struct ProfileHeadToHeadClimbRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
 
-                    Text("\(result.stepCount.formatted(.number.grouping(.automatic))) steps")
+                    Text(detailText)
                         .font(.montserratMedium(size: 11))
                         .foregroundStyle(ProfileVisualStyle.tertiaryText)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity)
 
-                Text(ProfileDateFormatters.durationClock(result.otherUserDurationSeconds))
+                Text(otherValueText)
                     .font(.montserratBold(size: 15))
                     .foregroundStyle(result.winner == .otherUser ? ProfileVisualStyle.opponentBlue : ProfileVisualStyle.tertiaryText)
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
                     .frame(width: 72, alignment: .trailing)
             }
             .padding(.vertical, 16)

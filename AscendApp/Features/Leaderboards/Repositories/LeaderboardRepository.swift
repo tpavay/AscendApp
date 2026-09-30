@@ -92,6 +92,15 @@ final class LeaderboardRepository: Sendable {
         return stats
     }
 
+    /// The steps on a climber's own standing for the current period of `timeFrame`, or 0 before
+    /// the derivation has written one.
+    func fetchOwnTotalSteps(userId: String, timeFrame: LeaderboardTimeFrame) async throws -> Int {
+        let document = try await db.collection("leaderboard_stats")
+            .document(currentDocumentID(userId: userId, timeFrame: timeFrame))
+            .getDocument()
+        return document.data().flatMap { intValue(for: "totalSteps", in: $0) } ?? 0
+    }
+
     func getUserRank(
         userId: String,
         metric: LeaderboardMetric,

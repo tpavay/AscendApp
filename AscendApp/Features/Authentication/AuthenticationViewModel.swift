@@ -222,6 +222,7 @@ class AuthenticationViewModel {
                     // held by a process-wide singleton that a store wipe never
                     // reaches, so this is where it goes.
                     FirestoreLiveReplayLeaderboardRepository.shared.clearAccountScopedCaches()
+                    AthleteLookStore.shared.clearAccountScopedState()
 
                     self.displayName = ""
                     self.customProfilePictureURL = nil

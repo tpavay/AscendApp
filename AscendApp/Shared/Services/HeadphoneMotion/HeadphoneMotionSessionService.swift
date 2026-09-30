@@ -85,6 +85,12 @@ final class HeadphoneMotionSessionService {
     private(set) var currentAcceleration: HeadphoneMotionVector = .zero
     private(set) var targetReached = false
     private(set) var trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified
+    /// Motion & Fitness is off, so the stream is refused rather than interrupted.
+    ///
+    /// The session keeps its place instead of failing: it resumes the moment the climber turns
+    /// access back on, and the climber is told to go to Settings rather than to reconnect
+    /// headphones that were never the problem.
+    private(set) var isMotionAccessDenied = false
     private(set) var lastResolvedTrackingGap: HeadphoneMotionResolvedTrackingGap?
     private var onStepSample: ((LiveClimbStepSample) -> Void)?
 
@@ -92,7 +98,15 @@ final class HeadphoneMotionSessionService {
         stepCorrections
     }
 
-    init(motionManager: CMHeadphoneMotionManager = CMHeadphoneMotionManager()) {
+    private let motionAccess: @Sendable () -> HeadphoneMotionAuthorizationState
+
+    init(
+        motionManager: any HeadphoneMotionManaging = CMHeadphoneMotionManager(),
+        motionAccess: @escaping @Sendable () -> HeadphoneMotionAuthorizationState = {
+            HeadphoneMotionAuthorizationState.current()
+        }
+    ) {
+        self.motionAccess = motionAccess
         self.runner = HeadphoneMotionSessionRunner(
             motionManager: motionManager,
             onConnectionChange: { [weak self] connected in
@@ -109,7 +123,13 @@ final class HeadphoneMotionSessionService {
                 Task { @MainActor in
                     self?.handleSessionError(message)
                 }
-            }
+            },
+            onMotionAccessDenied: { [weak self] in
+                Task { @MainActor in
+                    self?.handleMotionAccessDenied()
+                }
+            },
+            motionAccess: motionAccess
         )
         refreshAvailability()
     }
@@ -160,6 +180,7 @@ final class HeadphoneMotionSessionService {
         currentAcceleration = .zero
         targetReached = targetStepCount.map { initialSteps >= $0 } ?? false
         lastResolvedTrackingGap = nil
+        isMotionAccessDenied = false
 
         let startedAt = Date()
         recordingStartedAt = startedAt
@@ -281,6 +302,7 @@ final class HeadphoneMotionSessionService {
             lastMotionRecoveryAttemptAt = nil
             trackingUnavailableStartedAt = nil
             lastResolvedTrackingGap = nil
+            isMotionAccessDenied = false
             status = .finished
             return result
         } catch {
@@ -343,6 +365,7 @@ final class HeadphoneMotionSessionService {
 
         let now = Date()
         isConnected = true
+        isMotionAccessDenied = false
         if status == .waitingForMotion {
             status = .recording
         }
@@ -376,23 +399,50 @@ final class HeadphoneMotionSessionService {
         markTrackingUnavailable(at: Date())
     }
 
+    func handleMotionAccessDenied(at now: Date = Date()) {
+        guard status.isRecording else { return }
+
+        isMotionAccessDenied = true
+        isConnected = false
+        if status == .recording {
+            status = .waitingForMotion
+        }
+        lastMotionUpdateAt = nil
+        markTrackingUnavailable(at: now)
+    }
+
     private func startDurationTimer() {
         durationTimer?.invalidate()
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.status.isRecording else { return }
-                let now = Date()
-                self.duration = self.activeDuration(at: now)
-                self.refreshTrackingIntegrity(at: now)
-                self.restartStalledMotionIfNeeded(at: now)
+                self?.handleRecordingTick(at: Date())
             }
         }
+    }
+
+    /// One pass of the recording clock. Driven by the duration timer; internal so the recovery
+    /// paths can be stepped deterministically.
+    func handleRecordingTick(at now: Date) {
+        guard status.isRecording else { return }
+        duration = activeDuration(at: now)
+        refreshTrackingIntegrity(at: now)
+        restartStalledMotionIfNeeded(at: now)
     }
 
     private func restartStalledMotionIfNeeded(at now: Date) {
         guard status.isRecording,
               !status.isPaused,
               let recordingStartedAt else {
+            return
+        }
+
+        if isMotionAccessDenied {
+            // Restarting a refused stream only earns the same refusal, so wait for the answer to
+            // change - then restart at once rather than on the stall clock.
+            guard !motionAccess().blocksStepCounting else { return }
+            isMotionAccessDenied = false
+            lastMotionRecoveryAttemptAt = now
+            runner?.restartDeviceMotionUpdatesIfNeeded()
             return
         }
 
@@ -508,7 +558,7 @@ final class HeadphoneMotionSessionService {
 }
 
 private final class HeadphoneMotionSessionRunner: @unchecked Sendable {
-    private let motionManager: CMHeadphoneMotionManager
+    private let motionManager: any HeadphoneMotionManaging
     private let motionQueue: OperationQueue
     private let processor = HeadphoneMotionSessionProcessor()
     private var motionDelegate: HeadphoneMotionConnectionDelegate?
@@ -516,6 +566,8 @@ private final class HeadphoneMotionSessionRunner: @unchecked Sendable {
     private let onConnectionChange: (Bool) -> Void
     private let onUpdate: (HeadphoneMotionSessionUpdate) -> Void
     private let onError: (String) -> Void
+    private let onMotionAccessDenied: () -> Void
+    private let motionAccess: @Sendable () -> HeadphoneMotionAuthorizationState
     private var isRecording = false
     private var isPausedByUser = false
     private var restartWorkItem: DispatchWorkItem?
@@ -526,10 +578,12 @@ private final class HeadphoneMotionSessionRunner: @unchecked Sendable {
     }
 
     init(
-        motionManager: CMHeadphoneMotionManager = CMHeadphoneMotionManager(),
+        motionManager: any HeadphoneMotionManaging,
         onConnectionChange: @escaping (Bool) -> Void,
         onUpdate: @escaping (HeadphoneMotionSessionUpdate) -> Void,
-        onError: @escaping (String) -> Void
+        onError: @escaping (String) -> Void,
+        onMotionAccessDenied: @escaping () -> Void,
+        motionAccess: @escaping @Sendable () -> HeadphoneMotionAuthorizationState
     ) {
         self.motionManager = motionManager
         self.motionQueue = OperationQueue()
@@ -539,6 +593,8 @@ private final class HeadphoneMotionSessionRunner: @unchecked Sendable {
         self.onConnectionChange = onConnectionChange
         self.onUpdate = onUpdate
         self.onError = onError
+        self.onMotionAccessDenied = onMotionAccessDenied
+        self.motionAccess = motionAccess
 
         let delegate = HeadphoneMotionConnectionDelegate { [weak self] connected in
             self?.onConnectionChange(connected)
@@ -644,13 +700,17 @@ private final class HeadphoneMotionSessionRunner: @unchecked Sendable {
     }
 
     private func handleDeviceMotionError(_ error: Error) {
-        guard isRecoverableMotionError(error) else {
+        switch HeadphoneMotionErrorDisposition(error: error, motionAccess: motionAccess()) {
+        case .fatal:
             onError(error.localizedDescription)
-            return
+        case .awaitMotionAccess:
+            // The session restarts updates itself once access comes back; restarting now would
+            // only collect the same refusal.
+            onMotionAccessDenied()
+        case .restart:
+            onConnectionChange(false)
+            scheduleDeviceMotionRestart(delay: 0.75)
         }
-
-        onConnectionChange(false)
-        scheduleDeviceMotionRestart(delay: 0.75)
     }
 
     private func scheduleDeviceMotionRestart(delay: TimeInterval) {
@@ -675,21 +735,41 @@ private final class HeadphoneMotionSessionRunner: @unchecked Sendable {
             execute: workItem
         )
     }
+}
 
-    private func isRecoverableMotionError(_ error: Error) -> Bool {
+/// What a motion-stream error means for the session that received it.
+enum HeadphoneMotionErrorDisposition: Equatable {
+    /// A transient interruption: restart the stream.
+    case restart
+    /// Motion & Fitness is off. Hold the session and resume once the climber turns it back on.
+    case awaitMotionAccess
+    /// This device or build can never deliver headphone motion.
+    case fatal
+
+    /// A refused-authorization error is only as final as the answer behind it.
+    ///
+    /// The error once ended the whole attempt, so a refusal that could still change - an alert not
+    /// yet answered, or access turned back on in Settings mid-climb - left the climb counting
+    /// nothing behind a "reconnect your headphones" banner. So the error is read against the
+    /// current answer: a real refusal waits for the climber, anything else is retried.
+    init(error: Error, motionAccess: HeadphoneMotionAuthorizationState) {
         let nsError = error as NSError
-        guard nsError.domain == CMErrorDomain else { return true }
+        guard nsError.domain == CMErrorDomain else {
+            self = .restart
+            return
+        }
 
         switch CMError(rawValue: UInt32(nsError.code)) {
         case CMErrorNotAuthorized,
-             CMErrorNotEntitled,
+             CMErrorMotionActivityNotAuthorized:
+            self = motionAccess.blocksStepCounting ? .awaitMotionAccess : .restart
+        case CMErrorNotEntitled,
              CMErrorNotAvailable,
-             CMErrorMotionActivityNotAuthorized,
              CMErrorMotionActivityNotEntitled,
              CMErrorMotionActivityNotAvailable:
-            return false
+            self = .fatal
         default:
-            return true
+            self = .restart
         }
     }
 }

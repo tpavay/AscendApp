@@ -41,6 +41,27 @@ struct LeaderboardPeriod: Equatable, Hashable, Sendable {
         }
     }
 
+    /// `windowLabel` qualified with its year, e.g. `Jul 27 - Aug 2, 2026` or
+    /// `August 2026`, for a closed window read long after the fact - an achievement
+    /// history row cannot lean on "the current one" to supply the year.
+    ///
+    /// Pinned to the same canonical zone and calendar as `windowLabel`, for the same reason.
+    var datedWindowLabel: String {
+        switch timeFrame {
+        case .daily:
+            return Self.datedDayStyle.format(startAt)
+        case .weekly:
+            guard let lastDay = inclusiveEndDate else { return Self.datedDayStyle.format(startAt) }
+            return "\(Self.dayStyle.format(startAt)) - \(Self.datedDayStyle.format(lastDay))"
+        case .monthly:
+            return Self.datedMonthStyle.format(startAt)
+        case .yearly:
+            return Self.yearStyle.format(startAt)
+        case .allTime:
+            return "All time"
+        }
+    }
+
     /// The window as the subject of a sentence, for copy that states the condition
     /// before it commands - "August is empty. Take the first spot."
     ///
@@ -57,6 +78,18 @@ struct LeaderboardPeriod: Equatable, Hashable, Sendable {
         case .allTime:
             return "This board"
         }
+    }
+
+    /// The window immediately before this one, or nil for all-time, which never closes.
+    var previous: LeaderboardPeriod? {
+        guard timeFrame != .allTime else { return nil }
+        return timeFrame.currentPeriod(referenceDate: startAt.addingTimeInterval(-1))
+    }
+
+    /// The window immediately after this one, or nil for all-time.
+    var next: LeaderboardPeriod? {
+        guard let endAt else { return nil }
+        return timeFrame.currentPeriod(referenceDate: endAt)
     }
 
     /// Last day the window includes. `endAt` is exclusive, so the label would otherwise
@@ -95,4 +128,8 @@ struct LeaderboardPeriod: Equatable, Hashable, Sendable {
         timeZone: LeaderboardTimeFrame.canonicalTimeZone
     )
     .year()
+
+    static let datedDayStyle = dayStyle.year()
+
+    static let datedMonthStyle = monthStyle.year()
 }

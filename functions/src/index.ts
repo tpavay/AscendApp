@@ -10,6 +10,7 @@ import * as admin from "firebase-admin";
 admin.initializeApp();
 
 export {cleanupDeletedUserData} from "./accountCleanup";
+export {onLeaderboardResultCreatedChampionPush} from "./championPush";
 export {announceClimbDrops} from "./climbDropNotifications";
 export {onWorkoutWritten} from "./climbCompletions";
 export {processEmailJobs} from "./email/processor";
@@ -45,5 +46,20 @@ export {reconcileAppAccess} from "./revenueCat/reconciliation";
 export {
   expireRevenueCatEntitlements,
 } from "./revenueCat/expiration";
+export {
+  composeMonthlyRecaps,
+  composeWeeklyRecaps,
+  monthlyRecapEmails,
+  weeklyRecapEmails,
+} from "./recapEmails";
+export {
+  onWorkoutWrittenStravaUpload,
+  processStravaUploads,
+  stravaBeginConnect,
+  stravaCompleteConnect,
+  stravaDisconnect,
+  stravaGetStatus,
+  stravaWebhook,
+} from "./strava/functions";
 
 setGlobalOptions({maxInstances: 10});

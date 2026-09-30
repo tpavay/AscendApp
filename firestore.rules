@@ -463,6 +463,9 @@ service cloud.firestore {
           "pr_most_steps",
           "pr_longest_climb_seconds",
           "pr_highest_spm",
+          "average_heart_rate_bpm",
+          "max_heart_rate_bpm",
+          "heart_rate_public",
           "lastUpdated"
         ]) &&
         request.resource.data.keys().hasAll([
@@ -514,7 +517,29 @@ service cloud.firestore {
         request.resource.data.pr_longest_climb_seconds is int &&
         request.resource.data.pr_longest_climb_seconds >= 0 &&
         isNonNegativeNumber(request.resource.data.pr_highest_spm) &&
+        // Optional and additive: earlier clients never write them. Aggregates only - no
+        // sample and no per-climb heart rate ever reaches this cross-account document - bounded
+        // to ProfileHeartRateSummary.plausibleBpm.
+        isOptionalProfileHeartRate(request.resource.data, "average_heart_rate_bpm") &&
+        isOptionalProfileHeartRate(request.resource.data, "max_heart_rate_bpm") &&
+        isProfileHeartRateVisibilityHonoured(request.resource.data) &&
         request.resource.data.lastUpdated is timestamp;
+    }
+
+    // "Show my heart rate on my profile" is the climber's own choice, stored beside the numbers
+    // it governs (absent = shown). A document that says hidden and still carries either
+    // aggregate is refused whoever writes it, so switching it off cannot be undone by another
+    // device that has not heard yet.
+    function isProfileHeartRateVisibilityHonoured(data) {
+      return !data.keys().hasAny(["heart_rate_public"]) ||
+        (data.heart_rate_public is bool &&
+          (data.heart_rate_public ||
+            !data.keys().hasAny(["average_heart_rate_bpm", "max_heart_rate_bpm"])));
+    }
+
+    function isOptionalProfileHeartRate(data, key) {
+      return !data.keys().hasAny([key]) ||
+        (data[key] is int && data[key] >= 25 && data[key] <= 250);
     }
 
     function isValidProfileWorkoutSummary() {
@@ -1293,6 +1318,69 @@ service cloud.firestore {
         request.resource.data.createdAt == request.time;
     }
 
+    // One climber the owner filters Ascend Mountain's race down to, keyed by that climber's uid.
+    // Nothing but the owner reads it: nobody is told they were chosen.
+    function isValidRaceFilterDocument(climberUserId) {
+      return request.resource.data.keys().hasOnly([
+          "climberUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "climberUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.climberUid is string &&
+        request.resource.data.climberUid == climberUserId &&
+        request.resource.data.climberUid != request.auth.uid &&
+        request.resource.data.climberUid.size() > 0 &&
+        request.resource.data.climberUid.size() <= 128 &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.createdAt == request.time;
+    }
+
+    // How the owner looks on Ascend Mountain: preset choices only, so there is no text or image
+    // to moderate. Every field is one of the editor's options (`AthleteLook` in the app).
+    function isValidAthleteLookDocument() {
+      return request.resource.data.keys().hasOnly([
+          "schemaVersion",
+          "body",
+          "skinTone",
+          "hairStyle",
+          "hairColor",
+          "top",
+          "bottom",
+          "shoes",
+          "size",
+          "muscle",
+          "updatedAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "schemaVersion",
+          "body",
+          "skinTone",
+          "hairStyle",
+          "hairColor",
+          "top",
+          "bottom",
+          "shoes",
+          "size",
+          "muscle",
+          "updatedAt"
+        ]) &&
+        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
+        request.resource.data.body in ["a", "b"] &&
+        request.resource.data.skinTone in ["tone1", "tone2", "tone3", "tone4", "tone5", "tone6"] &&
+        request.resource.data.hairStyle in ["parted", "long", "buns", "buzzed", "short"] &&
+        request.resource.data.hairColor in ["black", "dark_brown", "brown", "blond", "red", "grey"] &&
+        request.resource.data.top in ["lime", "white", "blue", "pink", "orange", "black"] &&
+        request.resource.data.bottom in ["lime", "white", "blue", "pink", "orange", "black"] &&
+        request.resource.data.shoes in ["lime", "white", "blue", "pink", "orange", "black"] &&
+        request.resource.data.size in ["slim", "regular", "solid", "big"] &&
+        request.resource.data.muscle in ["smooth", "some", "defined"] &&
+        request.resource.data.updatedAt is timestamp &&
+        request.resource.data.updatedAt == request.time;
+    }
+
     function isValidModerationReportDocument() {
       return request.resource.data.keys().hasOnly([
           "reportedUserId",
@@ -1501,12 +1589,54 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Period recaps are composed by the server (docs/champion-recognition.md)
+      // and the recap email sends from the same stored payload, so a client
+      // may never author one. The owner reads their own - owner-gated rather
+      // than paid-gated, like every owner-private collection, so a lapsed
+      // subscription never hides an account's own data from it - and may
+      // record, once, that one of their devices showed it. `seenAt` is the
+      // only client-writable field, it can only move from unseen to the
+      // server's clock, and nothing can un-see a recap once seen.
+      match /recaps/{recapId} {
+        allow read: if isOwner(userId);
+        allow create, delete: if false;
+        allow update: if isOwner(userId) &&
+          resource.data.get('seenAt', null) == null &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['seenAt']) &&
+          request.resource.data.seenAt == request.time;
+      }
+
       // A block is private to its owner. It never changes leaderboard data or
       // exposes one user's safety choices to another user.
       match /blocked/{blockedUserId} {
         allow read: if isOwner(userId);
         allow create: if isOwner(userId) &&
           isValidBlockedClimberDocument(blockedUserId);
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
+
+      // How the owner's athlete looks on Ascend Mountain, the one document "current". Their
+      // athlete runs on other climbers' stairs, so paid climbers read it. Publishing it is
+      // identity, like public_profile, so it is the owner's alone and works before purchase:
+      // onboarding asks for it right after the gender question, ahead of the paywall.
+      match /athlete_look/{docId} {
+        allow read: if isOwner(userId) || hasPaidAppAccess();
+        allow create, update: if isOwner(userId) &&
+          docId == "current" &&
+          isValidAthleteLookDocument();
+        allow delete: if isOwner(userId);
+      }
+
+      // The climbers the owner filters Ascend Mountain's race down to, one document each, kept
+      // for every climb. Private like the block list. Choosing is the paid product, so a create
+      // needs access; reading and deleting stay the owner's alone, so account deletion can
+      // always sweep the list.
+      match /race_filter/{climberUserId} {
+        allow read: if isOwner(userId);
+        allow create: if isPaidOwner(userId) &&
+          isValidRaceFilterDocument(climberUserId);
         allow update: if false;
         allow delete: if isOwner(userId);
       }
@@ -1526,6 +1656,21 @@ service cloud.firestore {
 
     match /leaderboard_periods/{docId} {
       allow read, write: if false;
+    }
+
+    // The frozen final board of a closed weekly, monthly or yearly Steps
+    // period. finalizeLeaderboardAchievements writes it with the Admin SDK in
+    // the same commit as the period's awards, and a champion is crowned from
+    // it, so no client may author or alter one. Paid readers only, on the same
+    // terms as the live boards (docs/champion-recognition.md).
+    match /leaderboard_results/{resultId} {
+      allow read: if hasPaidAppAccess();
+      allow write: if false;
+
+      match /placings/{userId} {
+        allow read: if hasPaidAppAccess();
+        allow write: if false;
+      }
     }
 
     // Remote routine templates are content-managed and server-owned.
@@ -1659,6 +1804,34 @@ service cloud.firestore {
     }
 
     match /_revenuecat_analytics_outbox/{eventId} {
+      allow read, write: if false;
+    }
+
+    // Strava (functions/src/strava). Tokens, pending authorizations, the
+    // upload queue and the access switch are all reachable only through the
+    // Admin SDK: a client that could read a connection would hold a live
+    // Strava token, and one that could write the access document could
+    // connect past the allowlist that keeps the Strava app under capacity.
+    match /_strava_access/{docId} {
+      allow read, write: if false;
+    }
+
+    match /_strava_connections/{userId} {
+      allow read, write: if false;
+    }
+
+    match /_strava_oauth_states/{stateId} {
+      allow read, write: if false;
+    }
+
+    match /_strava_upload_jobs/{jobId} {
+      allow read, write: if false;
+    }
+
+    // One marker per champion push, created before the send so a retried
+    // trigger can never crown the same climber twice. Server-only evidence of
+    // what has already been sent.
+    match /_champion_push_deliveries/{deliveryId} {
       allow read, write: if false;
     }
 

@@ -137,13 +137,17 @@ export const registerPushDevice = onCall(async (request) => {
 
 /**
  * Updates the signed-in user's push notification preferences.
+ *
+ * Each preference is optional so a client can change one without knowing the
+ * other, but a request must carry at least one. `climbDropPushEnabled` keeps
+ * its original behavior exactly - the stored preference plus the per-device
+ * mirror the climb-drop audience query filters on - so a build that only
+ * ever sends that field is unaffected by the champion preference existing.
  */
 export const updatePushNotificationPreferences = onCall(async (request) => {
   const uid = requireUid(request.auth?.uid);
-  const climbDropPushEnabled = requiredBoolean(
-    asPlainObject(request.data).climbDropPushEnabled,
-    "climbDropPushEnabled"
-  );
+  const {climbDropPushEnabled, championPushEnabled} =
+    normalizePushPreferencesPayload(request.data);
   const now = admin.firestore.Timestamp.now();
   const firestore = admin.firestore();
   const preferencesRef = firestore
@@ -158,13 +162,20 @@ export const updatePushNotificationPreferences = onCall(async (request) => {
     transaction.set(preferencesRef, {
       ...existing,
       createdAt: existing.createdAt ?? now,
-      pushClimbDropsEnabled: climbDropPushEnabled,
+      ...(climbDropPushEnabled === null ?
+        {} :
+        {pushClimbDropsEnabled: climbDropPushEnabled}),
+      ...(championPushEnabled === null ?
+        {} :
+        {pushChampionCrownEnabled: championPushEnabled}),
       schemaVersion: 1,
       updatedAt: now,
     });
   });
 
-  await updateActiveDevicePreference(uid, climbDropPushEnabled, now);
+  if (climbDropPushEnabled !== null) {
+    await updateActiveDevicePreference(uid, climbDropPushEnabled, now);
+  }
 
   return {ok: true};
 });
@@ -291,6 +302,34 @@ function normalizeRegisterPushDevicePayload(data: unknown) {
     platform,
     timeZone: optionalString(payload.timeZone, "timeZone", 80) ?? "",
   };
+}
+
+/**
+ * Normalizes the update-preferences callable payload.
+ *
+ * `null` means the request left that preference alone.
+ * @param {unknown} data Raw callable payload.
+ * @return {object} The preferences the request changes.
+ */
+function normalizePushPreferencesPayload(data: unknown): {
+  championPushEnabled: boolean | null;
+  climbDropPushEnabled: boolean | null;
+} {
+  const payload = asPlainObject(data);
+  const climbDropPushEnabled = optionalBoolean(
+    payload.climbDropPushEnabled,
+    "climbDropPushEnabled"
+  );
+  const championPushEnabled = optionalBoolean(
+    payload.championPushEnabled,
+    "championPushEnabled"
+  );
+  if (climbDropPushEnabled === null && championPushEnabled === null) {
+    throw invalidArgument(
+      "climbDropPushEnabled or championPushEnabled is required."
+    );
+  }
+  return {championPushEnabled, climbDropPushEnabled};
 }
 
 /**
@@ -435,10 +474,13 @@ function selectDeliverableClimbDropDevices(
 
 /**
  * Whether iOS will currently show a user-visible push on a device.
+ *
+ * Exported so the champion push answers "can this device be alerted" with
+ * the same set the climb-drop audience uses.
  * @param {unknown} authorizationStatus Stored authorization status.
  * @return {boolean} True when the system delivers alerts to the device.
  */
-function isDeliverableAuthorizationStatus(
+export function isDeliverableAuthorizationStatus(
   authorizationStatus: unknown
 ): boolean {
   return typeof authorizationStatus === "string" &&
@@ -829,6 +871,7 @@ export const pushNotificationTestHooks = {
   isDeliverableClimbDropRegistration,
   deactivateToken,
   hashToken,
+  normalizePushPreferencesPayload,
   normalizeRegisterPushDevicePayload,
   normalizeSendClimbDropPayload,
   selectDeliverableClimbDropDevices,

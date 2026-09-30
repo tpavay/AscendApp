@@ -47,6 +47,7 @@ struct HomeView: View {
     @State private var selectedDetailClimb: Climb?
     @State private var selectedDetailEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     @State private var activeJustClimbGoal: JustClimbGoal?
+    @State private var activeJustClimbExperience: JustClimbExperience = .classic
     @State private var showingTodayActivityList = false
     @State private var sheetDetent: BrowseSheetDetent
     @State private var selectedStepTier: ClimbTier?
@@ -178,6 +179,7 @@ struct HomeView: View {
         .navigationDestination(item: $activeJustClimbGoal) { goal in
             LiveClimbSessionView(
                 justClimbGoal: goal,
+                experience: activeJustClimbExperience,
                 analyticsEntryPoint: .homeDaily
             )
         }
@@ -202,10 +204,11 @@ struct HomeView: View {
         .sheet(isPresented: $showingJustClimbSetup, onDismiss: {
             pendingJustClimbGoal = nil
         }) {
-            JustClimbSetupSheet(initialGoal: pendingJustClimbGoal) { goal in
+            JustClimbSetupSheet(initialGoal: pendingJustClimbGoal) { goal, experience in
+                activeJustClimbExperience = experience
                 activeJustClimbGoal = goal
             }
-            .presentationDetents([.height(360), .medium])
+            .presentationDetents([.height(JustClimbSetupSheet.preferredHeight), .medium])
             .presentationDragIndicator(.visible)
             .presentationBackground(Color.black)
         }
@@ -425,7 +428,7 @@ struct HomeView: View {
                     HomeRankStreakSection(
                         weeklyRankSummary: homeDashboard.weeklyRankSummary,
                         isRankLoading: homeDashboard.isRankLoading,
-                        currentStreakWeeks: homeDashboard.currentStreakWeeks,
+                        streak: homeDashboard.weeklyStreak,
                         onRankTapped: { tabRouter.select(.leaderboard, reason: .homeRankCard) },
                         onStreakTapped: { tabRouter.select(.profile, reason: .appRouting) }
                     )

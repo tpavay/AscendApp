@@ -40,6 +40,11 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case leaderboard
     case profile
 
+    // MARK: - Champions
+
+    case pastChampions = "past_champions"
+    case periodRecap = "period_recap"
+
     // MARK: - Climbs
 
     case climbBrowse = "climb_browse"
@@ -49,6 +54,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case liveClimbSummary = "live_climb_summary"
     case climbBrowseHelp = "climb_browse_help"
     case compatibleHeadphonesHelp = "compatible_headphones_help"
+    case mountainRace = "mountain_race"
+    case mountainRaceFilter = "mountain_race_filter"
     case climbsCollection = "climbs_collection"
 
     // MARK: - Home
@@ -81,6 +88,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     // MARK: - Profile and moderation
 
     case otherUserProfile = "other_user_profile"
+    case athleteEditor = "athlete_editor"
     case achievementHistory = "achievement_history"
     case reportProfile = "report_profile"
     case postBlockReport = "post_block_report"
@@ -97,6 +105,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case bodyMetricsEditor = "body_metrics_editor"
     case notificationSettings = "notification_settings"
     case emailPreferences = "email_preferences"
+    case heartRateVisibility = "heart_rate_visibility"
     case measurementSystemSettings = "measurement_system_settings"
     case integrations
     case contactUs = "contact_us"
@@ -104,6 +113,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case deleteAccountConfirmation = "delete_account_confirmation"
     case appleHealthManage = "apple_health_manage"
     case heartRateMonitorManage = "heart_rate_monitor_manage"
+    case stravaManage = "strava_manage"
 
     // MARK: - Sharing
 
@@ -132,6 +142,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .routines: "RoutinesView"
         case .leaderboard: "LeaderboardView"
         case .profile: "ProfileView"
+        case .pastChampions: "PastChampionsView"
+        case .periodRecap: "PeriodRecapView"
         case .climbBrowse: "ClimbBrowseView"
         case .climbDetail: "ClimbDetailView"
         case .climbFlyover: "ClimbFlyoverScreen"
@@ -139,6 +151,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .liveClimbSummary: "LiveClimbCompletionSummaryView"
         case .climbBrowseHelp: "ClimbBrowseHelpSheet"
         case .compatibleHeadphonesHelp: "CompatibleHeadphonesHelpSheet"
+        case .mountainRace: "AscendMountainRaceSheet"
+        case .mountainRaceFilter: "AscendMountainFilterSheet"
         case .climbsCollection: "ClimbsCollectionView"
         case .homeSheetExpanded: "HomeView"
         case .homeTodayActivityList: "HomeTodayActivityListView"
@@ -156,6 +170,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .routineEditor: "RoutineEditorView"
         case .activeRoutine: "ActiveRoutineView"
         case .otherUserProfile: "OtherUserProfileView"
+        case .athleteEditor: "AthleteEditorView"
         case .achievementHistory: "AchievementHistorySheet"
         case .reportProfile: "ReportProfileSheet"
         case .postBlockReport: "PostBlockReportSheet"
@@ -169,6 +184,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .bodyMetricsEditor: "BodyMetricsEditorView"
         case .notificationSettings: "NotificationSettingsView"
         case .emailPreferences: "EmailPreferencesView"
+        case .heartRateVisibility: "HeartRateVisibilityView"
         case .measurementSystemSettings: "MeasurementSystemSelectionView"
         case .integrations: "IntegrationsView"
         case .contactUs: "ContactUsView"
@@ -176,6 +192,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .deleteAccountConfirmation: "DeleteAccountConfirmationView"
         case .appleHealthManage: "AppleHealthManageSheet"
         case .heartRateMonitorManage: "HeartRateMonitorManageSheet"
+        case .stravaManage: "StravaManageSheet"
         case .shareComposer: "ShareComposerView"
         case .appUpdateNudge: "AppUpdateSheet"
         }

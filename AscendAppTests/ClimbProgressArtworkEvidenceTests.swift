@@ -49,8 +49,11 @@ struct ClimbProgressArtworkEvidenceTests {
         for percent in Self.percents {
             let steps = climb.referenceStepCount * percent / 100
             try await Self.hostSession(climb: climb, steps: steps, size: size) { screen, _ in
+                // Each stat cell is one element ("1:00, ELAPSED"), so the readiness check matches
+                // the caption inside it. An exact "ELAPSED" never matched, and every read burned
+                // the whole 250-read budget - eight minutes of the CI job.
                 let texts = try await screen.texts { texts in
-                    texts.contains { $0.text == "ELAPSED" } && texts.contains { $0.text == "End attempt" }
+                    texts.contains { $0.text.hasSuffix(", ELAPSED") } && texts.contains { $0.text == "End attempt" }
                 }
                 let text = texts.map(\.text).joined(separator: " ").lowercased()
                 #expect(text.contains("climb progress"), "the progress cut-out is on screen: \(text)")

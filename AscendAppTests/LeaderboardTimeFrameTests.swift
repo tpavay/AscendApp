@@ -174,6 +174,33 @@ struct LeaderboardTimeFrameTests {
         )
     }
 
+    /// A closed window has no "current" to supply its year, so the dated label carries one.
+    @Test
+    func datedWindowLabelsNameTheWindowAndItsYear() {
+        let firstOfMonth = utcDate(year: 2026, month: 8, day: 1, hour: 16, minute: 33)
+
+        #expect(
+            LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: firstOfMonth).datedWindowLabel
+                == "Jul 27 - Aug 2, 2026"
+        )
+        #expect(
+            LeaderboardTimeFrame.monthly.currentPeriod(referenceDate: firstOfMonth).datedWindowLabel
+                == "August 2026"
+        )
+        #expect(
+            LeaderboardTimeFrame.yearly.currentPeriod(referenceDate: firstOfMonth).datedWindowLabel
+                == "2026"
+        )
+        #expect(
+            LeaderboardTimeFrame.daily.currentPeriod(referenceDate: firstOfMonth).datedWindowLabel
+                == "Aug 1, 2026"
+        )
+        #expect(
+            LeaderboardTimeFrame.allTime.currentPeriod(referenceDate: firstOfMonth).datedWindowLabel
+                == "All time"
+        )
+    }
+
     /// The window is Gregorian by construction and stored under a Gregorian key, so its
     /// label has to be Gregorian too. Left on `Calendar.autoupdatingCurrent`, a device set
     /// to a Buddhist or Islamic calendar renders the board keyed `2026-M08` as "2569 BE"
@@ -183,7 +210,9 @@ struct LeaderboardTimeFrameTests {
         let styles = [
             LeaderboardPeriod.dayStyle,
             LeaderboardPeriod.monthStyle,
-            LeaderboardPeriod.yearStyle
+            LeaderboardPeriod.yearStyle,
+            LeaderboardPeriod.datedDayStyle,
+            LeaderboardPeriod.datedMonthStyle
         ]
 
         for style in styles {

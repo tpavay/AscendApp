@@ -1,10 +1,14 @@
 import {createRequire} from "node:module";
 import {join} from "node:path";
 
+import {
+  PINNED_FIREBASE_TOOLS_VERSION,
+  loadPinnedFirebaseToolsAuth,
+} from "./pinned-firebase-tools.mjs";
+
 // This reader loads private firebase-tools modules, so it is only correct for
-// the exact pinned version. Keep in sync with docs/dependency-security.md and
-// every `firebase-tools@` pin it lists.
-export const PINNED_FIREBASE_TOOLS_VERSION = "15.22.1";
+// the exact pinned version, which `pinned-firebase-tools.mjs` owns.
+export {PINNED_FIREBASE_TOOLS_VERSION};
 
 export function createFirestoreIndexStateReader({
   firebaseToolsRoot,
@@ -12,9 +16,9 @@ export function createFirestoreIndexStateReader({
   projectId,
   databaseId = "(default)",
 }) {
+  const {auth, refreshToken: resolvedRefreshToken} =
+    loadPinnedFirebaseToolsAuth({firebaseToolsRoot, refreshToken});
   const require = createRequire(import.meta.url);
-  assertPinnedFirebaseTools(require, firebaseToolsRoot);
-  const auth = require(join(firebaseToolsRoot, "lib/auth.js"));
   const {FirestoreApi} = require(
     join(firebaseToolsRoot, "lib/firestore/api.js")
   );
@@ -24,17 +28,6 @@ export function createFirestoreIndexStateReader({
   }
   if (typeof FirestoreApi !== "function") {
     throw new Error("Pinned firebase-tools Firestore API is unavailable");
-  }
-
-  const resolvedRefreshToken = refreshToken ??
-    auth.getGlobalDefaultAccount?.()?.tokens?.refresh_token;
-  if (
-    typeof resolvedRefreshToken !== "string" ||
-    resolvedRefreshToken.length === 0
-  ) {
-    throw new Error(
-      "FIREBASE_TOKEN or an authenticated Firebase CLI session is required"
-    );
   }
 
   // firebase-tools 15.22.1's firestore:operations:list command omits the
@@ -54,31 +47,6 @@ export function createFirestoreIndexStateReader({
       fieldOverrides: fields.map(normalizeFieldOverride),
     };
   };
-}
-
-function assertPinnedFirebaseTools(require, firebaseToolsRoot) {
-  let manifest;
-  try {
-    manifest = require(join(firebaseToolsRoot, "package.json"));
-  } catch {
-    throw new Error(
-      `FIREBASE_TOOLS_ROOT does not hold a package: ${firebaseToolsRoot}`
-    );
-  }
-
-  if (manifest.name !== "firebase-tools") {
-    throw new Error(
-      `FIREBASE_TOOLS_ROOT resolved ${manifest.name}, not firebase-tools: ` +
-        firebaseToolsRoot
-    );
-  }
-  if (manifest.version !== PINNED_FIREBASE_TOOLS_VERSION) {
-    throw new Error(
-      `This reader uses private firebase-tools ` +
-        `${PINNED_FIREBASE_TOOLS_VERSION} internals, but ` +
-        `${firebaseToolsRoot} resolved ${manifest.version}`
-    );
-  }
 }
 
 // firebase-tools throws FirebaseError with a default status of 500 even for

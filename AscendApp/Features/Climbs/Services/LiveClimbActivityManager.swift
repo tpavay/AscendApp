@@ -254,12 +254,13 @@ final class LiveClimbActivityManager {
         status: LiveClimbActivityStatus,
         photoURLString: String?
     ) -> LiveClimbActivityAttributes.ContentState {
-        LiveClimbActivityAttributes.ContentState(
+        let standingText = LiveClimbStandingText(rank: rank, rankTotal: rankTotal, standing: standing)
+        return LiveClimbActivityAttributes.ContentState(
             steps: max(steps, 0),
-            rank: standing.showsLeaderboardRank ? rank : nil,
-            rankTotal: max(rankTotal, 0),
-            ownClimbs: standing.ownClimbs.map { .init(placing: $0.placing, total: $0.total) },
-            board: standing.showsLeaderboardRank ? .racing : .alone,
+            rank: standingText.rank,
+            rankTotal: standingText.rankTotal,
+            ownClimbs: standingText.ownClimbs,
+            board: standingText.board,
             durationSeconds: max(Int(duration.rounded(.down)), 0),
             progress: min(max(progress, 0), 1),
             status: status,
@@ -303,5 +304,19 @@ private struct LiveClimbActivityPhotoRequest: Sendable {
             "\(climbID)/hero.heic",
             "\(climbID)/thumb.heic"
         ]
+    }
+}
+
+extension LiveClimbStandingText {
+    /// The standing a live session settled, as every live surface words it: a leaderboard
+    /// placing only where there is a field to place against, and the climber's own climbs
+    /// alongside it.
+    init(rank: Int?, rankTotal: Int, standing: LiveReplayLiveStanding) {
+        self.init(
+            rank: standing.showsLeaderboardRank ? rank : nil,
+            rankTotal: max(rankTotal, 0),
+            ownClimbs: standing.ownClimbs.map { .init(placing: $0.placing, total: $0.total) },
+            board: standing.showsLeaderboardRank ? .racing : .alone
+        )
     }
 }

@@ -80,6 +80,18 @@ struct DebugToolsView: View {
             // Navigation Links
             VStack(spacing: 12) {
                 NavigationLink {
+                    ChampionPreviewDebugView()
+                } label: {
+                    inspectionRow(
+                        title: "Champions & Recap",
+                        description: "Crown yourself on this device and play every recap variant",
+                        icon: "crown.fill",
+                        iconColor: .yellow
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     HapticsTestView()
                 } label: {
                     inspectionRow(
@@ -159,6 +171,18 @@ struct DebugToolsView: View {
                         description: "Test ordered climb circuits and MapKit route lines",
                         icon: "point.topleft.down.curvedto.point.bottomright.up.fill",
                         iconColor: .orange
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    AscendMountainSandboxView()
+                } label: {
+                    inspectionRow(
+                        title: "Ascend Mountain Sandbox",
+                        description: "Drive the Mountain scene from a simulated cadence",
+                        icon: "mountain.2.fill",
+                        iconColor: .accent
                     )
                 }
                 .buttonStyle(.plain)

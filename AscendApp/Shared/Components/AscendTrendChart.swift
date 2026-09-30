@@ -30,6 +30,8 @@ struct AscendTrendChart: View {
     }
 
     var body: some View {
+        let bounds = self.bounds
+
         Chart {
             if let average, average > 0 {
                 RuleMark(y: .value("Average", average))
@@ -43,9 +45,14 @@ struct AscendTrendChart: View {
             }
 
             ForEach(points) { point in
+                // The area starts at the y-domain's floor, not at zero: the domain is padded around
+                // the values and rarely reaches zero, and an area filled down to zero paints past
+                // the bottom of the plot - under whatever sits below the chart - and stretches the
+                // gradient over a height nobody sees.
                 AreaMark(
                     x: .value("Index", point.index),
-                    y: .value("Value", point.value)
+                    yStart: .value("Floor", bounds.min),
+                    yEnd: .value("Value", point.value)
                 )
                 .interpolationMethod(.monotone)
                 .foregroundStyle(

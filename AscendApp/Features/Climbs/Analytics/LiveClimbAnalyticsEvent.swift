@@ -302,6 +302,7 @@ extension LiveClimbAnalyticsEvent {
 
     enum BlockedReason: String {
         case headphonesUnavailable = "headphones_unavailable"
+        case motionAccessDenied = "motion_access_denied"
     }
 
     enum HeadphoneHelpSurface: String {

@@ -161,6 +161,8 @@ enum LiveClimbSessionMode: Equatable {
 @Observable
 final class LiveClimbSessionViewModel {
     let mode: LiveClimbSessionMode
+    /// How the live screen draws this session, kept here so every way back into it draws the same.
+    let experience: JustClimbExperience
     let motionSession: any HeadphoneMotionSessionServicing
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
     let liveActivitySessionID: String
@@ -178,7 +180,9 @@ final class LiveClimbSessionViewModel {
     private let settingsManager: SettingsManager
     private let leaderboardService: LiveReplayLeaderboardServicing
     private let liveActivityManager: LiveClimbActivityManager
-    private let backgroundSessionService: LiveClimbBackgroundSessionService
+    private let backgroundSessionService: any LiveClimbBackgroundSessionControlling
+    /// Whether the countdown started the workout session, so an abandoned countdown stops it.
+    private var didPrepareBackgroundSession = false
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let heartRateRecorder: LiveHeartRateRecorder
     private let rawCaptureRepository: any StepAccuracyRawCaptureStorageRepositoryProtocol
@@ -263,7 +267,7 @@ final class LiveClimbSessionViewModel {
         settingsManager: SettingsManager = .shared,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
         liveActivityManager: LiveClimbActivityManager = .shared,
-        backgroundSessionService: LiveClimbBackgroundSessionService = .shared,
+        backgroundSessionService: any LiveClimbBackgroundSessionControlling = LiveClimbBackgroundSessionService.shared,
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         heartRateMonitor: HeartRateMonitorService = .shared,
@@ -277,6 +281,7 @@ final class LiveClimbSessionViewModel {
         now: @escaping () -> Date = Date.init
     ) {
         self.mode = .liveClimb(climb)
+        self.experience = .classic
         self.progressArtwork = nil
         self.pendingProgressArtwork = climb.progressArtwork.flatMap { $0.isUsable(forClimbID: climb.id) ? $0 : nil }
         self.progressImageRepository = progressImageRepository
@@ -305,13 +310,14 @@ final class LiveClimbSessionViewModel {
 
     init(
         justClimbGoal: JustClimbGoal,
+        experience: JustClimbExperience = .classic,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
         motionSession: any HeadphoneMotionSessionServicing = HeadphoneMotionSessionService(),
         climbService: ClimbService = .shared,
         settingsManager: SettingsManager = .shared,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
         liveActivityManager: LiveClimbActivityManager = .shared,
-        backgroundSessionService: LiveClimbBackgroundSessionService = .shared,
+        backgroundSessionService: any LiveClimbBackgroundSessionControlling = LiveClimbBackgroundSessionService.shared,
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         heartRateMonitor: HeartRateMonitorService = .shared,
@@ -324,6 +330,7 @@ final class LiveClimbSessionViewModel {
         now: @escaping () -> Date = Date.init
     ) {
         self.mode = .justClimb(justClimbGoal)
+        self.experience = experience
         self.progressArtwork = nil
         self.pendingProgressArtwork = nil
         self.progressImageRepository = StorageClimbProgressImageRepository.shared
@@ -562,6 +569,15 @@ final class LiveClimbSessionViewModel {
         )
     }
 
+    /// Where this climber stands, worded exactly as the Lock Screen words it.
+    var leaderboardStandingText: LiveClimbStandingText {
+        LiveClimbStandingText(
+            rank: currentLeaderboardRank,
+            rankTotal: leaderboardTotalClimbers,
+            standing: leaderboardStanding
+        )
+    }
+
     var leaderboardUpdatedElapsedSeconds: Int? {
         leaderboardWindow?.bucketElapsedSeconds
     }
@@ -627,6 +643,30 @@ final class LiveClimbSessionViewModel {
         phase == .recording && motionSession.trackingIntegrity.shouldShowRecoveryStatus
     }
 
+    /// Steps stopped because Motion & Fitness is off, not because the headphones dropped out.
+    var shouldShowMotionAccessStatus: Bool {
+        phase == .recording && motionSession.isMotionAccessDenied
+    }
+
+    /// Starts the workout session with the countdown rather than at GO.
+    ///
+    /// The first workout session an install ever starts raises Apple's one-time "Health and
+    /// Fitness Data" notice; started here it lands while the climber is still watching the
+    /// countdown instead of after they have turned to the machine. A phone locked during the
+    /// countdown also keeps running, so recording still starts on time.
+    func prepareBackgroundSessionForCountdown() {
+        guard phase == .idle, !backgroundSessionService.isRunning else { return }
+        backgroundSessionService.start(at: now())
+        didPrepareBackgroundSession = true
+    }
+
+    /// Stops a workout session the countdown started when the countdown never reaches GO.
+    func cancelPreparedBackgroundSession() {
+        guard phase == .idle, didPrepareBackgroundSession else { return }
+        didPrepareBackgroundSession = false
+        backgroundSessionService.stop(at: now())
+    }
+
     var isBusy: Bool {
         phase == .saving
     }
@@ -684,7 +724,10 @@ final class LiveClimbSessionViewModel {
                 targetStepCount: targetRemainingSteps,
                 resumeState: draft?.resumeState
             )
-            backgroundSessionService.start(at: draft?.startedAt ?? Date())
+            if !backgroundSessionService.isRunning {
+                backgroundSessionService.start(at: draft?.startedAt ?? Date())
+            }
+            didPrepareBackgroundSession = false
             phase = .recording
             headphoneRouteAtStart = HeadphoneAudioRouteInspector.currentSnapshot()
             HeadphoneMotionReadinessService.shared.refresh()
@@ -729,6 +772,7 @@ final class LiveClimbSessionViewModel {
                 try? draftStore.delete(activeDraft, in: modelContext)
                 self.activeDraft = nil
             }
+            cancelPreparedBackgroundSession()
             phase = .failed(error.localizedDescription)
             AppDiagnosticsRecorder.shared.record(
                 "headphone_session_start_failed",

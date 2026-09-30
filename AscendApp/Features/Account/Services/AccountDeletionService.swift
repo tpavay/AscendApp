@@ -164,9 +164,11 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 5: Delete the user's personal block list.
+        // Step 5: Delete the user's private lists - the climbers they blocked and the climbers
+        // they race on Ascend Mountain.
         updateProgress("Deleting blocked climbers...")
         try await deleteBlockedClimbers(userId: userId)
+        try await deleteRaceFilter(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
@@ -329,6 +331,12 @@ final class AccountDeletionService {
     private func deleteBlockedClimbers(userId: String) async throws {
         try await runFirestoreDeletion {
             try await gateway.deleteBlockedClimbers(userId: userId)
+        }
+    }
+
+    private func deleteRaceFilter(userId: String) async throws {
+        try await runFirestoreDeletion {
+            try await gateway.deleteRaceFilter(userId: userId)
         }
     }
 
