@@ -12,7 +12,10 @@ import Observation
 @Observable
 final class AscendMountainRace {
     var selection = MountainRaceSelection() {
-        didSet { rebuildGhosts() }
+        didSet {
+            if selection.chosen != oldValue.chosen { chosenWithoutBest = [] }
+            rebuildGhosts()
+        }
     }
 
     private(set) var field = MountainRaceField()
@@ -32,6 +35,10 @@ final class AscendMountainRace {
     @ObservationIgnored private var chosenBests: [String: MountainRaceBest] = [:]
     /// The last bucket each chosen climber was asked about, so a read happens once a bucket.
     @ObservationIgnored private var chosenReadBucket: [String: Int] = [:]
+    /// Chosen climbers the board answered have no best, so they are not asked again this climb.
+    @ObservationIgnored private var chosenWithoutBest: Set<String> = []
+    /// The board `chosenWithoutBest` was answered for.
+    @ObservationIgnored private var chosenBoardContext: LiveReplayLeaderboardContext?
     @ObservationIgnored private var isRefreshingChosen = false
     @ObservationIgnored private let looks: AthleteLookRepository?
     /// Each rival's own look, once read; a rival without one wears a stand-in.
@@ -149,7 +156,8 @@ final class AscendMountainRace {
 
     /// Reads what is new about the chosen climbers at this bucket: each one's best the first time,
     /// then where it stood at the end of the bucket while it was still climbing. At most one read
-    /// per chosen climber per bucket; one that fails is asked again next bucket.
+    /// per chosen climber per bucket; one that fails is asked again next bucket, and one the board
+    /// answers has no best is not asked again until the choice or the board changes.
     func refreshChosen(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
@@ -160,11 +168,24 @@ final class AscendMountainRace {
         isRefreshingChosen = true
         defer { isRefreshingChosen = false }
 
+        if chosenBoardContext != context {
+            chosenBoardContext = context
+            chosenWithoutBest = []
+        }
         let interval = context.bucketIntervalSeconds
-        for userId in selection.chosen where chosenReadBucket[userId] != bucketIndex {
+        for userId in selection.chosen where chosenReadBucket[userId] != bucketIndex && !chosenWithoutBest.contains(userId) {
             chosenReadBucket[userId] = bucketIndex
             if chosenBests[userId] == nil {
-                guard let best = try? await board.raceBest(context: context, userId: userId) else { continue }
+                let answer: MountainRaceBest?
+                do {
+                    answer = try await board.raceBest(context: context, userId: userId)
+                } catch {
+                    continue
+                }
+                guard let best = answer else {
+                    chosenWithoutBest.insert(userId)
+                    continue
+                }
                 chosenBests[userId] = best
                 field.learnChosen(userId: userId, best: best.row, bucketIntervalSeconds: interval)
                 for row in moderate([best.row]) {

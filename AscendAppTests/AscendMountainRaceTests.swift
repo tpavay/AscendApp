@@ -446,6 +446,24 @@ struct AscendMountainChosenClimbersTests {
     }
 
     @Test
+    func aChosenClimberWithNoBestIsAskedOnceAndAFailedReadIsAskedAgain() async {
+        let board = FakeMountainRaceBoard()
+        board.failingBestReads = ["climber-flaky"]
+        let race = AscendMountainRace(board: board)
+        race.choose(["climber-none", "climber-flaky"])
+
+        await race.refreshChosen(context: context, bucketIndex: 1, moderate: moderated)
+        await race.refreshChosen(context: context, bucketIndex: 2, moderate: moderated)
+        await race.refreshChosen(context: context, bucketIndex: 3, moderate: moderated)
+
+        #expect(board.bestReads == ["climber-none", "climber-flaky", "climber-flaky", "climber-flaky"])
+
+        race.choose(["climber-none"])
+        await race.refreshChosen(context: context, bucketIndex: 4, moderate: moderated)
+        #expect(board.bestReads.last == "climber-none", "a new choice asks again")
+    }
+
+    @Test
     func theChoiceIsKeptForTheNextClimbAndCappedAtFifty() async {
         let store = FakeMountainRaceFilterStore(stored: (1...60).map { "climber-\($0)" })
         let race = AscendMountainRace(filterStore: store, userId: "me")
@@ -615,11 +633,15 @@ private final class FakeMountainRaceBoard: MountainRaceBoard, @unchecked Sendabl
     var stepsByBucket: [String: [Int: Int]] = [:]
     var near: [LiveReplayLeaderboardRow] = []
     var pages: [MountainRaceBoardPage] = []
+    var failingBestReads: Set<String> = []
     private(set) var bestReads: [String] = []
     private(set) var bucketReads: [String] = []
 
+    struct ReadFailed: Error {}
+
     func raceBest(context: LiveReplayLeaderboardContext, userId: String) async throws -> MountainRaceBest? {
         bestReads.append(userId)
+        if failingBestReads.contains(userId) { throw ReadFailed() }
         return bests[userId]
     }
 
