@@ -31,16 +31,24 @@ struct MountainRaceField: Equatable, Sendable {
         let checkpointSeconds = Double((window.bucketIndex + 1) * window.context.bucketIntervalSeconds)
 
         for row in window.rows where !row.isLiveAttempt && !row.isCurrentUser {
-            var climber = climbers[row.id] ?? Climber(
-                id: row.id,
-                userId: row.userId,
-                curve: MountainRivalCurve(finalSteps: Double(row.finalSteps), finishSeconds: row.completionDurationSeconds)
-            )
-            if let now, climbers[row.id] != nil {
-                climber.curve.pin(atSeconds: now)
+            let key = row.userId ?? row.id
+            let known = climbers[key]
+            var climber: Climber
+            if let known, known.id == row.id {
+                climber = known
+                if let now { climber.curve.pin(atSeconds: now) }
+            } else {
+                climber = Climber(
+                    id: row.id,
+                    userId: row.userId,
+                    curve: MountainRivalCurve(finalSteps: Double(row.finalSteps), finishSeconds: row.completionDurationSeconds)
+                )
+                if let now, let known {
+                    climber.curve.record(steps: known.curve.steps(at: now), atSeconds: now)
+                }
             }
             Self.record(row, at: checkpointSeconds, into: &climber.curve)
-            climbers[row.id] = climber
+            climbers[key] = climber
         }
 
         if let best = window.ownPreviousCompletionRow {

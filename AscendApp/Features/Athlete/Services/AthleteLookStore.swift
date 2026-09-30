@@ -56,9 +56,11 @@ final class AthleteLookStore {
             loading?.cancel()
             loading = nil
             hasAnswered = false
+            if self.userId != nil {
+                starting = .starting(for: nil)
+            }
             self.userId = userId
             saved = cachedLook(for: userId)
-            starting = .starting(for: nil)
         }
         guard !hasAnswered else { return }
         if let loading {

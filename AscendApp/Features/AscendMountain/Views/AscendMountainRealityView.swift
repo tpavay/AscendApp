@@ -52,6 +52,7 @@ struct AscendMountainRealityView: View {
         } placeholder: {
             Color.black
         }
+        .sentryMasked()
         .onDisappear {
             controller.stop()
         }

@@ -49,6 +49,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case liveClimbSummary = "live_climb_summary"
     case climbBrowseHelp = "climb_browse_help"
     case compatibleHeadphonesHelp = "compatible_headphones_help"
+    case mountainRace = "mountain_race"
+    case mountainRaceFilter = "mountain_race_filter"
     case climbsCollection = "climbs_collection"
 
     // MARK: - Home
@@ -142,6 +144,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .liveClimbSummary: "LiveClimbCompletionSummaryView"
         case .climbBrowseHelp: "ClimbBrowseHelpSheet"
         case .compatibleHeadphonesHelp: "CompatibleHeadphonesHelpSheet"
+        case .mountainRace: "AscendMountainRaceSheet"
+        case .mountainRaceFilter: "AscendMountainFilterSheet"
         case .climbsCollection: "ClimbsCollectionView"
         case .homeSheetExpanded: "HomeView"
         case .homeTodayActivityList: "HomeTodayActivityListView"

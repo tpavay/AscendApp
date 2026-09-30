@@ -76,6 +76,7 @@ struct AscendMountainRaceSheet<FilterScreen: View>: View {
         .sheet(isPresented: $showingFilter) {
             filterScreen()
         }
+        .trackOnce(screen: .mountainRace)
     }
 
     private var everyoneSubtitle: String {

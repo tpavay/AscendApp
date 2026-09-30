@@ -68,8 +68,26 @@ struct AscendMountainRaceFieldTests {
         var field = MountainRaceField()
         field.ingest(window(bucket: 2, rows: [rival("maya", steps: 45, final: 900, duration: 600)]))
 
-        let curve = try #require(field.climbers["maya"]?.curve)
+        let curve = try #require(field.climbers["climber-maya"]?.curve)
         #expect(curve.checkpoints == [.init(seconds: 30, steps: 45)])
+    }
+
+    @Test
+    func aNewBestPostedMidClimbTakesOverTheClimbersPathWithoutAJump() throws {
+        var field = MountainRaceField()
+        field.ingest(window(bucket: 2, rows: [rival("maya", steps: 45, final: 900, duration: 600)]))
+        let before = try #require(field.climbers["climber-maya"]?.curve).steps(at: 35)
+
+        let newBest = row(id: "maya-new-best", userId: "climber-maya", steps: 70, final: 1_400, duration: 700)
+        field.ingest(window(bucket: 3, rows: [newBest]), now: 35)
+
+        #expect(field.climbers.count == 1, "one climber is one ghost")
+        let climber = try #require(field.climbers["climber-maya"])
+        #expect(climber.id == "maya-new-best")
+        #expect(climber.curve.finalSteps == 1_400)
+        #expect(climber.curve.steps(at: 35) == before)
+        #expect(climber.curve.steps(at: 40) == 70)
+        #expect(AscendMountainRace.ghosts(field: field, labels: [:], selection: MountainRaceSelection()).map(\.id) == ["climber-maya"])
     }
 
     @Test
@@ -77,7 +95,7 @@ struct AscendMountainRaceFieldTests {
         var field = MountainRaceField()
         field.ingest(window(bucket: 40, rows: [rival("sam", steps: 300, final: 300, duration: 200)]))
 
-        let curve = try #require(field.climbers["sam"]?.curve)
+        let curve = try #require(field.climbers["climber-sam"]?.curve)
         #expect(curve.checkpoints.isEmpty)
         #expect(curve.steps(at: 410) == 300)
     }

@@ -107,6 +107,27 @@ struct AthleteLookStoreTests {
     }
 
     @Test
+    func theGenderAnswerOnboardingJustGaveSurvivesTheFirstLoad() async {
+        let (store, _) = store(FakeAthleteLookRepository(looks: [:], failing: ["me"]), gender: nil)
+        store.start(with: .woman)
+
+        await store.load(userId: "me")
+
+        #expect(store.current == .starting(for: .woman))
+    }
+
+    @Test
+    func anotherSignedInAccountStartsAfreshFromItsOwnAnswer() async {
+        let (store, _) = store(FakeAthleteLookRepository(looks: [:]), gender: nil)
+        store.start(with: .woman)
+        await store.load(userId: "me")
+
+        await store.load(userId: "someone-else")
+
+        #expect(store.current == .starting(for: nil))
+    }
+
+    @Test
     func aSavedLookIsWornAndKeptOnTheDeviceForAnOfflineStart() async {
         var look = AthleteLook.starting(for: .man)
         look.top = .orange

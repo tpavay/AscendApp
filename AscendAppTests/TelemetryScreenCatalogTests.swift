@@ -33,6 +33,8 @@ struct TelemetryScreenCatalogTests {
         "live_climb_summary": "LiveClimbCompletionSummaryView",
         "climb_browse_help": "ClimbBrowseHelpSheet",
         "compatible_headphones_help": "CompatibleHeadphonesHelpSheet",
+        "mountain_race": "AscendMountainRaceSheet",
+        "mountain_race_filter": "AscendMountainFilterSheet",
         "climbs_collection": "ClimbsCollectionView",
         "home_sheet_expanded": "HomeView",
         "home_today_activity_list": "HomeTodayActivityListView",

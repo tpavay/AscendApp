@@ -62,6 +62,7 @@ struct AscendMountainFilterSheet: View {
         .preferredColorScheme(.dark)
         .task { await directory.load(nearSteps: nearSteps) }
         .task(id: searchReadKey) { await readOnForSearch() }
+        .trackOnce(screen: .mountainRaceFilter)
     }
 
     // MARK: - Rows
