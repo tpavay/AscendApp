@@ -161,6 +161,8 @@ enum LiveClimbSessionMode: Equatable {
 @Observable
 final class LiveClimbSessionViewModel {
     let mode: LiveClimbSessionMode
+    /// How the live screen draws this session, kept here so every way back into it draws the same.
+    let experience: JustClimbExperience
     let motionSession: any HeadphoneMotionSessionServicing
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
     let liveActivitySessionID: String
@@ -279,6 +281,7 @@ final class LiveClimbSessionViewModel {
         now: @escaping () -> Date = Date.init
     ) {
         self.mode = .liveClimb(climb)
+        self.experience = .classic
         self.progressArtwork = nil
         self.pendingProgressArtwork = climb.progressArtwork.flatMap { $0.isUsable(forClimbID: climb.id) ? $0 : nil }
         self.progressImageRepository = progressImageRepository
@@ -307,6 +310,7 @@ final class LiveClimbSessionViewModel {
 
     init(
         justClimbGoal: JustClimbGoal,
+        experience: JustClimbExperience = .classic,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
         motionSession: any HeadphoneMotionSessionServicing = HeadphoneMotionSessionService(),
         climbService: ClimbService = .shared,
@@ -326,6 +330,7 @@ final class LiveClimbSessionViewModel {
         now: @escaping () -> Date = Date.init
     ) {
         self.mode = .justClimb(justClimbGoal)
+        self.experience = experience
         self.progressArtwork = nil
         self.pendingProgressArtwork = nil
         self.progressImageRepository = StorageClimbProgressImageRepository.shared

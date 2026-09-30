@@ -12,6 +12,11 @@ enum JustClimbExperience: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    /// The climber's last choice on the setup sheet, Mountain until they have made one.
+    static func remembered(in defaults: UserDefaults = .standard) -> JustClimbExperience {
+        defaults.string(forKey: JustClimbSetupSheet.experienceKey).flatMap(Self.init(rawValue:)) ?? .mountain
+    }
+
     var title: String {
         switch self {
         case .classic:

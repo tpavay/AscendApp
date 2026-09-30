@@ -21,7 +21,7 @@ struct AscendMountainSessionEvidenceTests {
         motionSession.duration = 504 // 8:24
 
         try await RenderedScreen.host(
-            LiveClimbSessionView(viewModel: viewModel, experience: .mountain)
+            LiveClimbSessionView(viewModel: viewModel)
                 .environment(ModerationStore.shared)
                 .modelContainer(container)
         ) { screen in
@@ -55,7 +55,7 @@ struct AscendMountainSessionEvidenceTests {
         motionSession.duration = 600
 
         try await RenderedScreen.host(
-            LiveClimbSessionView(viewModel: viewModel, experience: .mountain)
+            LiveClimbSessionView(viewModel: viewModel)
                 .environment(ModerationStore.shared)
                 .modelContainer(container)
         ) { screen in
@@ -71,7 +71,11 @@ struct AscendMountainSessionEvidenceTests {
     @Test("Classic is untouched: the same session without Mountain keeps its tabs")
     func classicKeepsItsTabs() async throws {
         let container = try Self.makeContainer()
-        let (viewModel, motionSession) = Self.recordingSession(goal: JustClimbGoal(kind: .open), container: container)
+        let (viewModel, motionSession) = Self.recordingSession(
+            goal: JustClimbGoal(kind: .open),
+            experience: .classic,
+            container: container
+        )
         motionSession.stepCount = 40
         motionSession.duration = 30
 
@@ -102,7 +106,7 @@ struct AscendMountainSessionEvidenceTests {
         motionSession.duration = 7_199
 
         try await RenderedScreen.host(
-            LiveClimbSessionView(viewModel: viewModel, experience: .mountain)
+            LiveClimbSessionView(viewModel: viewModel)
                 .environment(ModerationStore.shared)
                 .modelContainer(container),
             size: size
@@ -156,6 +160,38 @@ struct AscendMountainSessionEvidenceTests {
         }
     }
 
+    @Test("A Mountain climb reopened from the Live Activity is still the Mountain")
+    func liveActivityReentryKeepsTheMountain() async throws {
+        let container = try Self.makeContainer()
+        let (started, motionSession) = Self.recordingSession(goal: JustClimbGoal(kind: .open), container: container)
+        motionSession.stepCount = 1_842
+        let reopened = try #require(
+            LiveClimbSessionCoordinator.shared.activeViewModel(sessionID: started.liveActivitySessionID),
+            "the Live Activity reopens the session it started"
+        )
+
+        try await RenderedScreen.host(
+            LiveClimbSessionView(viewModel: reopened)
+                .environment(ModerationStore.shared)
+                .modelContainer(container)
+        ) { screen in
+            let text = try await screen.copy()
+
+            #expect(text.contains("1,842"), "\(text)")
+            #expect(!text.contains("just me"), "reopened as Classic: \(text)")
+            #expect(!text.contains("leaderboard"), "reopened as Classic: \(text)")
+        }
+    }
+
+    @Test("A recovered Just Climb opens as the climber last chose, Mountain until they have chosen")
+    func recoveredJustClimbUsesTheRememberedChoice() throws {
+        let fresh = try #require(UserDefaults(suiteName: "just-climb-recovery-\(UUID().uuidString)"))
+        #expect(JustClimbExperience.remembered(in: fresh) == .mountain)
+
+        fresh.set(JustClimbExperience.classic.rawValue, forKey: JustClimbSetupSheet.experienceKey)
+        #expect(JustClimbExperience.remembered(in: fresh) == .classic)
+    }
+
     @Test("A climber who never chose opens Just Climb on the Mountain; a chosen Classic stays Classic")
     func setupSheetStartsOnTheMountainUntilAClimberChooses() async throws {
         let fresh = try #require(UserDefaults(suiteName: "just-climb-setup-\(UUID().uuidString)"))
@@ -185,11 +221,13 @@ struct AscendMountainSessionEvidenceTests {
 
     private static func recordingSession(
         goal: JustClimbGoal,
+        experience: JustClimbExperience = .mountain,
         container: ModelContainer
     ) -> (LiveClimbSessionViewModel, FakeHeadphoneMotionSession) {
         let motionSession = FakeHeadphoneMotionSession()
         let viewModel = LiveClimbSessionViewModel(
             justClimbGoal: goal,
+            experience: experience,
             motionSession: motionSession,
             climbService: ClimbService(catalogRepository: StubClimbCatalogRepository(climbs: [])),
             leaderboardService: StubLiveReplayLeaderboardService()

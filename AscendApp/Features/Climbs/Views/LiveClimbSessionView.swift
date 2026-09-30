@@ -72,23 +72,22 @@ struct LiveClimbSessionView: View {
         self.init(
             viewModel: LiveClimbSessionViewModel(
                 justClimbGoal: justClimbGoal,
+                experience: experience,
                 analyticsEntryPoint: analyticsEntryPoint
-            ),
-            experience: experience
+            )
         )
     }
 
     /// Ascend Mountain only ever presents a Just Climb; a landmark climb always runs Classic.
     init(
         viewModel: LiveClimbSessionViewModel,
-        experience: JustClimbExperience = .classic,
         mountainBoard: MountainRaceBoard = FirestoreLiveReplayLeaderboardRepository.shared,
         mountainFilterStore: MountainRaceFilterRepository = FirestoreMountainRaceFilterRepository.shared,
         athleteLooks: AthleteLookRepository = FirestoreAthleteLookRepository.shared
     ) {
         _viewModel = State(initialValue: viewModel)
         self.mountainBoard = mountainBoard
-        let isMountain = !viewModel.mode.isLandmarkClimb && experience == .mountain
+        let isMountain = !viewModel.mode.isLandmarkClimb && viewModel.experience == .mountain
         _mountainRace = State(initialValue: isMountain
             ? AscendMountainRace(
                 goal: viewModel.mode.justClimbGoal,
@@ -98,7 +97,7 @@ struct LiveClimbSessionView: View {
                 userId: Auth.auth().currentUser?.uid
             )
             : AscendMountainRace())
-        self.experience = viewModel.mode.isLandmarkClimb ? .classic : experience
+        self.experience = isMountain ? .mountain : .classic
 #if DEBUG
         if self.experience == .mountain {
             _mountainDebugState = State(initialValue: MountainDebugState())

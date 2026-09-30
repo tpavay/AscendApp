@@ -197,12 +197,13 @@ struct SentryMaskInteractionTests {
         )
         let viewModel = LiveClimbSessionViewModel(
             justClimbGoal: JustClimbGoal(kind: .open),
+            experience: .mountain,
             motionSession: FakeHeadphoneMotionSession(),
             climbService: ClimbService(catalogRepository: StubClimbCatalogRepository(climbs: [])),
             leaderboardService: StubLiveReplayLeaderboardService()
         )
         viewModel.start(modelContext: container.mainContext)
-        let session = LiveClimbSessionView(viewModel: viewModel, experience: .mountain)
+        let session = LiveClimbSessionView(viewModel: viewModel)
             .environment(ModerationStore.shared)
             .modelContainer(container)
 

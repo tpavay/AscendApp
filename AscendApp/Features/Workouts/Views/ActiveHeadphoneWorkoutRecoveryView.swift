@@ -231,6 +231,7 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
             )
             resumedLiveClimbViewModel = LiveClimbSessionViewModel(
                 justClimbGoal: goal,
+                experience: .remembered(),
                 liveActivitySessionID: draft.sessionID,
                 recoveredDraft: draft
             )
