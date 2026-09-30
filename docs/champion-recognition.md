@@ -143,4 +143,4 @@ A marker create that timed out but may have committed is treated as claimed and 
 - **Reigning champions:** for each of weekly, monthly and yearly, the result for the period immediately before the current one, and its rank-1 placings - at most three document reads and three small queries per session, refreshed on foreground and when a period rolls.
   Until the finalizer has written that result (the first 15 minutes after a period closes) nobody reigns, rather than guessing.
 - **Past boards:** a result and its placings ordered by rank.
-- **Recap:** unseen recaps ordered by `periodEndAt`, newest first, at most six, plus the results they name.
+- **Recap:** unseen recaps ordered by `periodEndAt`, newest first, at most ten (enough for four weeks and two months), plus the results they name.
