@@ -101,7 +101,7 @@ function productionFunctions({revenueCat = 4} = {}) {
     functionResource("reconcileAppAccess", {[REVENUECAT_SECRET]: revenueCat}),
     functionResource("processRevenueCatAnalyticsOutbox", {MIXPANEL_SERVER_CONFIG: 2}),
     functionResource("processEmailJobs", {TRANSACTIONAL_EMAIL_CONFIG: 1}),
-    functionResource("processStravaUploads", {STRAVA_SERVER_CONFIG: 1}),
+    functionResource("processStravaUploads", {STRAVA_SERVER_CONFIG: 2}),
     functionResource("onWorkoutWritten", {}),
   ];
 }
@@ -123,7 +123,7 @@ function fakeBackend({
     [REVENUECAT_SECRET]: {version: "4", state: "ENABLED"},
     MIXPANEL_SERVER_CONFIG: {version: "2", state: "ENABLED"},
     TRANSACTIONAL_EMAIL_CONFIG: {version: "1", state: "ENABLED"},
-    STRAVA_SERVER_CONFIG: {version: "1", state: "ENABLED"},
+    STRAVA_SERVER_CONFIG: {version: "2", state: "ENABLED"},
   },
   payloads = {
     [`${REVENUECAT_SECRET}@2`]: V2,
@@ -490,7 +490,7 @@ test("bindings are grouped by secret from the Cloud Functions resources", () => 
       {functionId: "revenueCatWebhook", version: "3"},
     ],
     MIXPANEL_SERVER_CONFIG: [{functionId: "processRevenueCatAnalyticsOutbox", version: "2"}],
-    STRAVA_SERVER_CONFIG: [{functionId: "processStravaUploads", version: "1"}],
+    STRAVA_SERVER_CONFIG: [{functionId: "processStravaUploads", version: "2"}],
     TRANSACTIONAL_EMAIL_CONFIG: [{functionId: "processEmailJobs", version: "1"}],
   });
 });
@@ -715,7 +715,7 @@ test("replaying the incident: the preflight refuses version 3 before anything de
       [REVENUECAT_SECRET]: {version: "3", state: "ENABLED"},
       MIXPANEL_SERVER_CONFIG: {version: "2", state: "ENABLED"},
       TRANSACTIONAL_EMAIL_CONFIG: {version: "1", state: "ENABLED"},
-      STRAVA_SERVER_CONFIG: {version: "1", state: "ENABLED"},
+      STRAVA_SERVER_CONFIG: {version: "2", state: "ENABLED"},
     },
     functions: productionFunctions({revenueCat: 2}),
   });
@@ -752,7 +752,7 @@ test("pinning a version does not excuse an allowlist that drops a live product",
         [REVENUECAT_SECRET]: {version: "3", state: "ENABLED"},
         MIXPANEL_SERVER_CONFIG: {version: "2", state: "ENABLED"},
         TRANSACTIONAL_EMAIL_CONFIG: {version: "1", state: "ENABLED"},
-        STRAVA_SERVER_CONFIG: {version: "1", state: "ENABLED"},
+        STRAVA_SERVER_CONFIG: {version: "2", state: "ENABLED"},
       },
       functions: productionFunctions({revenueCat: 2}),
     }),
@@ -788,7 +788,7 @@ function supersetPreflight({acknowledgement, payloads} = {}) {
         [REVENUECAT_SECRET]: {version: "5", state: "ENABLED"},
         MIXPANEL_SERVER_CONFIG: {version: "2", state: "ENABLED"},
         TRANSACTIONAL_EMAIL_CONFIG: {version: "1", state: "ENABLED"},
-        STRAVA_SERVER_CONFIG: {version: "1", state: "ENABLED"},
+        STRAVA_SERVER_CONFIG: {version: "2", state: "ENABLED"},
       },
       payloads: payloads ?? {[`${REVENUECAT_SECRET}@4`]: V4, [`${REVENUECAT_SECRET}@5`]: V5},
     }),
