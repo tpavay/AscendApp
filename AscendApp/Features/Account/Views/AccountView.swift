@@ -251,6 +251,11 @@ struct AccountView: View {
     private var privacyOptions: [SettingsOption] {
         [
             SettingsOption(
+                icon: .settingsHeartRateVisibility,
+                title: "Heart rate",
+                destination: HeartRateVisibilityView()
+            ),
+            SettingsOption(
                 icon: .settingsBlockedClimbers,
                 title: "Blocked climbers",
                 destination: BlockedClimbersView()

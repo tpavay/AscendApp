@@ -159,6 +159,33 @@ Seeded rows have no workout behind them and are skipped; the seed's own Just Cli
 Measured on production (`ascend-prod-9c8f2`) on 2026-09-26, before the script existed: 29 bucket-zero entries across 10 boards, 4 of them an hour or longer, all on `just_climb__global` (74, 90, 101 and 150 minutes), each with `splitBucketCount` 360 and its final steps in bucket 359.
 The same day staging (`ascend-staging-fa7d5`) planned no writes: its 78 long rows across 62 boards are all seeded.
 
+### Profile heart-rate aggregates
+
+The profile comparison's heart-rate rows read two optional `profile_stats` fields, `average_heart_rate_bpm` and `max_heart_rate_bpm`, which the app derives and publishes itself (`ProfileHeartRateSummary`) and which carry only those two aggregates - never a sample or a per-climb heart rate.
+A climber can hide them with "Show my heart rate on my profile" (Settings -> Privacy), stored as `heart_rate_public` on the same document; the rules refuse a hidden document that carries either aggregate, and the backfill never writes heart rate for a hidden climber.
+The change is additive: builds that predate the fields keep writing `profile_stats` without them and keep passing the rules.
+The ordering is still load-bearing, because a build that publishes the fields writes them into the same merge as every other stat, and `hasOnly` rejects the whole document on an environment whose rules do not list them yet - that climber's entire public profile would stop updating, and publication failures are only logged.
+So the rules deploy before the binary that writes the fields, on every environment:
+
+1. Deploy `firestore:rules` (the deploy pipelines already do this before the archive).
+2. Only after step 1 has landed on that environment, run the backfill on staging, dry run first; a second run must report `Profiles to update: 0`.
+   The order matters in both directions: a field the backfill writes onto an environment whose rules do not list it yet makes every later publication from that climber fail `hasOnly`, including publications from builds that never heard of the field.
+
+```sh
+node scripts/backfill-profile-heart-rate.mjs --env staging
+node scripts/backfill-profile-heart-rate.mjs --env staging --apply
+```
+
+3. Run it on production the same way only when the captain decides to, dry run first, reading the dry run's `gaining heart rate` count as the measurement of how many published profiles it fills:
+
+```sh
+node scripts/backfill-profile-heart-rate.mjs --env prod --confirm-production ascend-prod-9c8f2
+node scripts/backfill-profile-heart-rate.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
+```
+
+The backfill is not a prerequisite for the binary: without it, a climber's heart rate appears the next time their own updated app republishes their profile, and the rows stay hidden until then.
+What it adds is coverage of climbers who have not updated or not opened the app, derived from their synced workouts; a later publication from a build that predates the fields leaves the backfilled numbers in place without refreshing them.
+
 ### Public identity backfill
 
 Deploy the moderation rules, identity policy rules, required indexes, `onPublicProfileIdentityWritten`, and `onPublicIdentityPropagationJobWritten` before the binary that publishes identity, so a published profile is validated and propagated by the server from the start.

@@ -5,11 +5,15 @@ import FirebaseFirestore
 /// the public mirror.
 enum ProfilePublicationError: LocalizedError {
     case requiresConnection
+    /// The public-profile kill switch is thrown, so nothing was published.
+    case publishingPaused
 
     var errorDescription: String? {
         switch self {
         case .requiresConnection:
             return "Get back online to save this. Your name and photo publish to the leaderboard together."
+        case .publishingPaused:
+            return "Profile updates are paused right now. Try again later."
         }
     }
 

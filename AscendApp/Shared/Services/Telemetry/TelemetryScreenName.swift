@@ -97,6 +97,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case bodyMetricsEditor = "body_metrics_editor"
     case notificationSettings = "notification_settings"
     case emailPreferences = "email_preferences"
+    case heartRateVisibility = "heart_rate_visibility"
     case measurementSystemSettings = "measurement_system_settings"
     case integrations
     case contactUs = "contact_us"
@@ -170,6 +171,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .bodyMetricsEditor: "BodyMetricsEditorView"
         case .notificationSettings: "NotificationSettingsView"
         case .emailPreferences: "EmailPreferencesView"
+        case .heartRateVisibility: "HeartRateVisibilityView"
         case .measurementSystemSettings: "MeasurementSystemSelectionView"
         case .integrations: "IntegrationsView"
         case .contactUs: "ContactUsView"
