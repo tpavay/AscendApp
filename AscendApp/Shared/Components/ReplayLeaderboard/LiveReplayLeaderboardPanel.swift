@@ -483,34 +483,27 @@ private struct LiveReplayLeaderboardRowView: View {
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: rowProgress)
     }
 
-    @ViewBuilder
     private var avatarView: some View {
-        if let photoURL = resolvedPhotoURL {
-            AsyncImage(
-                url: photoURL,
-                transaction: Transaction(animation: .easeInOut(duration: 0.2))
-            ) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .failure, .empty:
-                    avatarTokenView
-                @unknown default:
-                    avatarTokenView
-                }
-            }
-            .frame(width: 44, height: 44)
-            .clipShape(Circle())
-            .overlay(
-                Circle()
-                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.12) : .black.opacity(0.10), lineWidth: 1)
+        ClimberAvatar(
+            userId: row.userId,
+            isCurrentUser: row.isCurrentUser,
+            photoURL: resolvedPhotoURL,
+            placeholder: .initials(
+                row.identity.avatarToken,
+                fill: row.isCurrentUser ? tint : ClimberAvatarPalette.color(
+                    in: ClimberAvatarPalette.earth,
+                    for: row.userId ?? row.id
+                ),
+                foreground: row.isCurrentUser ? .black : .white,
+                fontSize: 13
+            ),
+            size: 44,
+            border: .init(
+                color: effectiveColorScheme == .dark ? .white.opacity(0.12) : .black.opacity(0.10),
+                width: 1,
+                onlyOverPhoto: true
             )
-            .id(photoURL)
-        } else {
-            avatarTokenView
-        }
+        )
     }
 
     private var resolvedPhotoURL: URL? {
@@ -519,38 +512,11 @@ private struct LiveReplayLeaderboardRowView: View {
             row.identity.photoURL
     }
 
-    @ViewBuilder
-    private var avatarTokenView: some View {
-        Group {
-            if row.identity.avatarToken.isEmpty {
-                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
-                    .font(.system(size: 17, weight: .semibold))
-                    .accessibilityHidden(true)
-            } else {
-                Text(row.identity.avatarToken)
-                    .font(.montserratBold(size: 13))
-            }
-        }
-            .foregroundStyle(row.isCurrentUser ? .black : .white)
-            .frame(width: 44, height: 44)
-            .background(Circle().fill(row.isCurrentUser ? tint : avatarColor))
-    }
-
     private var primaryColor: Color {
         effectiveColorScheme == .dark ? .white : .black
     }
 
     private var secondaryColor: Color {
         effectiveColorScheme == .dark ? .white.opacity(0.34) : .black.opacity(0.34)
-    }
-
-    private var avatarColor: Color {
-        let colors: [Color] = [
-            Color(hex: "8C5A36"),
-            Color(hex: "C69475"),
-            Color(hex: "6E4E33"),
-            Color(hex: "A36A42")
-        ]
-        return colors[StableAvatarPalette.index(for: row.id, count: colors.count)]
     }
 }

@@ -14,6 +14,7 @@ struct LeaderboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(NetworkConnectivityService.self) private var connectivityService
     @Environment(ModerationStore.self) private var moderationStore
+    @Environment(ChampionRegistry.self) private var championRegistry: ChampionRegistry?
 
     @State private var viewModel: LeaderboardViewModel
     @State private var scrollResetTrigger = 0
@@ -62,6 +63,17 @@ struct LeaderboardView: View {
                             .padding(.top, 18)
                             .padding(.bottom, 16)
 
+                        if let reign = displayedReign {
+                            NavigationLink {
+                                PastChampionsView(timeFrame: viewModel.selectedTimeFrame)
+                            } label: {
+                                ChampionStripView(reign: reign, currentUserId: authVM.user?.uid)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 16)
+                        }
+
                         if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
                             StatusBannerView(
                                 message: error,
@@ -103,6 +115,9 @@ struct LeaderboardView: View {
         .task {
             resetScrollPosition()
             await setupAndLoad()
+        }
+        .task {
+            await championRegistry?.refreshIfStale()
         }
         .onChange(of: viewModel.selectedMetric) { _, _ in
             resetScrollPosition()
@@ -243,12 +258,42 @@ struct LeaderboardView: View {
     /// so on the 1st a populated weekly board and an empty monthly board are both correct.
     /// Unlabelled, that pair reads as data loss. Labelled, it reads as a calendar.
     private var periodWindowLabel: some View {
-        Text(viewModel.selectedPeriod.windowLabel.uppercased())
-            .font(.montserratSemiBold(size: 10))
-            .foregroundStyle(primaryTextColor.opacity(0.52))
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .accessibilityLabel("Showing \(viewModel.selectedPeriod.windowLabel)")
+        HStack(spacing: 5) {
+            Text(viewModel.selectedPeriod.windowLabel.uppercased())
+                .font(.montserratSemiBold(size: 10))
+                .foregroundStyle(primaryTextColor.opacity(0.52))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityLabel("Showing \(viewModel.selectedPeriod.windowLabel)")
+
+            if viewModel.selectedTimeFrame != .allTime {
+                Text("·")
+                    .font(.montserratSemiBold(size: 10))
+                    .foregroundStyle(primaryTextColor.opacity(0.52))
+                    .accessibilityHidden(true)
+
+                LeaderboardCountdownLabel(currentPeriodOf: viewModel.selectedTimeFrame)
+            }
+        }
+    }
+
+    /// The title this board awards: only the unfiltered Steps board crowns a champion.
+    private var awardedTitle: ChampionTitle? {
+        guard isUnfilteredStepsBoard,
+              championRegistry?.isEnabled ?? false else { return nil }
+        return ChampionTitle(timeFrame: viewModel.selectedTimeFrame)
+    }
+
+    /// Last period's champion leads the Steps board all period, the Monday reset included.
+    /// All-time has no strip: its champion is whoever stands first on its podium right now.
+    private var displayedReign: ChampionReign? {
+        guard isUnfilteredStepsBoard,
+              viewModel.selectedTimeFrame != .allTime else { return nil }
+        return championRegistry?.reign(for: viewModel.selectedTimeFrame)
+    }
+
+    private var isUnfilteredStepsBoard: Bool {
+        viewModel.selectedMetric == .climb && !viewModel.hasActiveDemographicFilters
     }
 
     private var demographicFilters: some View {
@@ -446,7 +491,8 @@ struct LeaderboardView: View {
                 LeaderboardPodiumView(
                     entries: state.podiumEntries,
                     metric: viewModel.selectedMetric,
-                    usesContainerBackground: false
+                    usesContainerBackground: false,
+                    awardedTitle: awardedTitle
                 )
                 .padding(.horizontal, 20)
             }
@@ -463,13 +509,15 @@ struct LeaderboardView: View {
                         value: userEntry.value,
                         userId: userEntry.userId,
                         podiumEntries: state.podiumEntries
-                    )
+                    ),
+                    countdownTimeFrame: viewModel.selectedTimeFrame
                 )
                 .padding(.top, 2)
 
             case .unranked(let value, let formattedValue):
                 LeaderboardUserRowView(
                     unrankedFormattedValue: formattedValue,
+                    userId: authVM.user?.uid,
                     displayName: currentUserDisplayName,
                     photoURL: authVM.displayPhotoURL,
                     metric: viewModel.selectedMetric,
@@ -477,7 +525,8 @@ struct LeaderboardView: View {
                         value: value,
                         userId: nil,
                         podiumEntries: state.podiumEntries
-                    )
+                    ),
+                    countdownTimeFrame: viewModel.selectedTimeFrame
                 )
                 .padding(.top, 2)
             }
@@ -653,7 +702,8 @@ struct LeaderboardView: View {
     private var emptyStateView: some View {
         LeaderboardEmptyBoardView(
             period: viewModel.selectedPeriod,
-            metric: viewModel.selectedMetric
+            metric: viewModel.selectedMetric,
+            awardedTitle: awardedTitle
         )
     }
 

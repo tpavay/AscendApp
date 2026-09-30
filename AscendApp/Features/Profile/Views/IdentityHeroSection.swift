@@ -83,7 +83,13 @@ struct IdentityHeroSection: View {
     }
 
     private var avatarImage: some View {
-        ProfileAvatarImageView(photoURL: identity.photoURL, size: 88)
+        ClimberAvatar(
+            userId: identity.userId,
+            photoURL: identity.photoURL,
+            placeholder: .profileDefault,
+            size: 88,
+            border: .init(color: Color.ascendAccent.opacity(0.86), width: 2)
+        )
             .overlay(alignment: .bottomTrailing) {
                 Circle()
                     .fill(Color.black.opacity(0.82))

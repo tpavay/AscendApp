@@ -8,6 +8,7 @@ import {
   removeHomeTodayActivityRows,
 } from "./homeTodayActivity";
 import {PUBLIC_IDENTITY_STATE_DELETED} from "./publicIdentity";
+import {CHAMPION_PUSH_DELIVERIES_COLLECTION} from "./championPush";
 import {
   ANALYTICS_OUTBOX_COLLECTION,
 } from "./revenueCat/analyticsFirestoreOutbox";
@@ -16,6 +17,12 @@ import {getStravaServerConfig, stravaServerConfig} from "./strava/config";
 import {StravaConnectionStore} from "./strava/connections";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
+const LEADERBOARD_PLACINGS_COLLECTION = "placings";
+/** Placings de-identified per commit; one climber holds a few per year. */
+export const PLACING_CLEANUP_PAGE_SIZE = 200;
+/** Written by championPush.ts, one per crowned climber per closed board. */
+/** Delivery markers deleted per commit; one climber earns a few per year. */
+export const CHAMPION_PUSH_DELIVERY_CLEANUP_PAGE_SIZE = 200;
 
 /**
  * Display name a First Ascent slot falls back to once its holder deletes their
@@ -38,6 +45,8 @@ export interface DeletedUserCleanupPort {
   anonymizeReplayEntries(userId: string): Promise<number>;
   deleteReplayFinisherStatuses(userId: string): Promise<number>;
   anonymizeFirstAscents(userId: string): Promise<number>;
+  anonymizeLeaderboardPlacings(userId: string): Promise<number>;
+  deleteChampionPushDeliveries(userId: string): Promise<number>;
   deleteFeedbackDocuments(userId: string): Promise<number>;
   deleteModerationReports(userId: string): Promise<number>;
   deleteIncomingBlockDocuments(userId: string): Promise<number>;
@@ -57,6 +66,8 @@ export interface CleanupSummary {
   anonymizedReplayEntries: number;
   deletedReplayFinisherStatuses: number;
   anonymizedFirstAscents: number;
+  anonymizedLeaderboardPlacings: number;
+  deletedChampionPushDeliveries: number;
   deletedFeedbackDocuments: number;
   deletedModerationReports: number;
   deletedIncomingBlockDocuments: number;
@@ -84,13 +95,17 @@ export interface CleanupSummary {
  * PII that lives *outside* the users/{uid} subtree cannot be discovered that
  * way, so each such record needs its own step here: notification_devices,
  * leaderboard_stats, identity propagation checkpoints, replay entries,
- * userRateLimits, the replay finisher statuses, feedback, moderation_reports,
- * incoming block documents, the other climbers' Ascend Mountain race filters
- * that name the deleted climber, the uid-keyed email_jobs, the RevenueCat
- * analytics outbox rows that carry the uid as Mixpanel distinct_id, the
- * rows the deleted climber holds in Home's `home_today_activity` feed, and
- * their Strava connection - which is also revoked at Strava, so a deleted
- * account stops counting against the Strava app's athlete capacity.
+ * userRateLimits, the replay finisher statuses, the First Ascents they hold,
+ * their placings on closed boards (`leaderboard_results/{id}/placings`),
+ * the champion push delivery markers that carry their uid
+ * (`_champion_push_deliveries/{resultId}_{uid}`),
+ * feedback, moderation_reports, incoming block documents, the other climbers'
+ * Ascend Mountain race filters that name the deleted climber, the uid-keyed
+ * email_jobs, the RevenueCat analytics outbox rows that carry the uid as
+ * Mixpanel distinct_id, the rows the deleted climber holds in Home's
+ * `home_today_activity` feed, and their Strava connection - which is also
+ * revoked at Strava, so a deleted account stops counting against the Strava
+ * app's athlete capacity.
  * Feedback and moderation reports are
  * hard-deleted rather than anonymized because their free-text or safety context
  * can identify the user after their account is gone.
@@ -101,6 +116,12 @@ export interface CleanupSummary {
  * token that identify a person are stripped. The uid is kept deliberately: it
  * no longer resolves to anyone once users/{uid} and the auth user are gone, and
  * the client still reads it to decide whether the viewer holds the slot.
+ *
+ * A placing on a closed board is de-identified for the same reason. A past
+ * board is frozen: a champion who deletes their account stays champion as
+ * `Anonymous Climber` rather than promoting the runner-up, so the uid, rank
+ * and totals stay, the result's `championUserIds` and `podiumUserIds` are
+ * untouched, and only the name and photo go (docs/champion-recognition.md).
  *
  * Each step is isolated: one failure must not abandon the rest of the PII.
  * @param {string} userId The uid of the deleted user.
@@ -175,6 +196,22 @@ export async function cleanupDeletedUser(
     failures.push(`live_replay_first_ascents: ${errorMessage(error)}`);
   }
 
+  let anonymizedLeaderboardPlacings = 0;
+  try {
+    anonymizedLeaderboardPlacings =
+      await port.anonymizeLeaderboardPlacings(userId);
+  } catch (error) {
+    failures.push(`leaderboard_placings: ${errorMessage(error)}`);
+  }
+
+  let deletedChampionPushDeliveries = 0;
+  try {
+    deletedChampionPushDeliveries =
+      await port.deleteChampionPushDeliveries(userId);
+  } catch (error) {
+    failures.push(`champion_push_deliveries: ${errorMessage(error)}`);
+  }
+
   let deletedFeedbackDocuments = 0;
   try {
     deletedFeedbackDocuments = await port.deleteFeedbackDocuments(userId);
@@ -243,7 +280,9 @@ export async function cleanupDeletedUser(
 
   return {
     anonymizedFirstAscents,
+    anonymizedLeaderboardPlacings,
     anonymizedReplayEntries,
+    deletedChampionPushDeliveries,
     deletedFeedbackDocuments,
     deletedModerationReports,
     deletedIncomingBlockDocuments,
@@ -435,6 +474,14 @@ export function makeAdminPort(
       return snapshot.size;
     },
 
+    async anonymizeLeaderboardPlacings(userId) {
+      return anonymizeLeaderboardPlacings(firestore, userId);
+    },
+
+    async deleteChampionPushDeliveries(userId) {
+      return deleteChampionPushDeliveries(firestore, userId);
+    },
+
     async deleteFeedbackDocuments(userId) {
       const snapshot = await firestore
         .collection("feedback")
@@ -558,6 +605,116 @@ export function makeAdminPort(
 }
 
 /**
+ * De-identifies every closed-board placing a deleted climber holds.
+ *
+ * Paged by document path through the `placings` collection-group index, one
+ * bounded commit per page, so a climber with years of placings never needs one
+ * unbounded read or write. The uid stays on the placing - the page cursor and
+ * the frozen rank both depend on it - so a retried sweep simply rewrites the
+ * same anonymous fields.
+ * @param {admin.firestore.Firestore} firestore Handle to sweep through.
+ * @param {string} userId The deleted climber.
+ * @param {number} pageSize Placings per page and per commit.
+ * @return {Promise<number>} Placings de-identified.
+ */
+export async function anonymizeLeaderboardPlacings(
+  firestore: admin.firestore.Firestore,
+  userId: string,
+  pageSize = PLACING_CLEANUP_PAGE_SIZE
+): Promise<number> {
+  const fields = {
+    displayName: ANONYMIZED_FIRST_ASCENT_NAME,
+    identityState: PUBLIC_IDENTITY_STATE_DELETED,
+    isSynthetic: false,
+    photoURL: "",
+  };
+  const query = firestore
+    .collectionGroup(LEADERBOARD_PLACINGS_COLLECTION)
+    .where("userId", "==", userId)
+    .orderBy(admin.firestore.FieldPath.documentId())
+    .limit(pageSize);
+
+  let anonymized = 0;
+  let cursor: string | null = null;
+  for (;;) {
+    const snapshot: admin.firestore.QuerySnapshot = await (
+      cursor === null ? query : query.startAfter(cursor)
+    ).get();
+    if (snapshot.empty) {
+      break;
+    }
+
+    const batch = firestore.batch();
+    for (const document of snapshot.docs) {
+      batch.update(document.ref, fields);
+    }
+    await batch.commit();
+    anonymized += snapshot.size;
+
+    if (snapshot.size < pageSize) {
+      break;
+    }
+    cursor = snapshot.docs[snapshot.docs.length - 1].ref.path;
+  }
+
+  return anonymized;
+}
+
+/**
+ * Deletes every champion push delivery marker a deleted climber holds.
+ *
+ * championPush.ts creates `_champion_push_deliveries/{resultId}_{uid}` with
+ * the uid in `userId` before each crown alert, so the marker lives outside
+ * users/{uid}. Removing one cannot re-arm a push: the alert only reaches the
+ * climber's registered devices, which the earlier steps sweep, and a result
+ * stops pushing 48 hours after its period closes.
+ *
+ * Paged by document id with one bounded commit per page, like the placing
+ * sweep. This is a top-level collection, so the cursor is the bare document
+ * id - the SDK rejects a path here, unlike in a collection-group query.
+ * @param {admin.firestore.Firestore} firestore Handle to sweep through.
+ * @param {string} userId The deleted climber.
+ * @param {number} pageSize Markers per page and per commit.
+ * @return {Promise<number>} Markers deleted.
+ */
+export async function deleteChampionPushDeliveries(
+  firestore: admin.firestore.Firestore,
+  userId: string,
+  pageSize = CHAMPION_PUSH_DELIVERY_CLEANUP_PAGE_SIZE
+): Promise<number> {
+  const query = firestore
+    .collection(CHAMPION_PUSH_DELIVERIES_COLLECTION)
+    .where("userId", "==", userId)
+    .orderBy(admin.firestore.FieldPath.documentId())
+    .limit(pageSize);
+
+  let deleted = 0;
+  let cursor: string | null = null;
+  for (;;) {
+    const snapshot: admin.firestore.QuerySnapshot = await (
+      cursor === null ? query : query.startAfter(cursor)
+    ).get();
+    if (snapshot.empty) {
+      break;
+    }
+
+    const batch = firestore.batch();
+    for (const document of snapshot.docs) {
+      batch.delete(document.ref);
+    }
+    await batch.commit();
+    deleted += snapshot.size;
+
+    if (snapshot.size < pageSize) {
+      break;
+    }
+    cursor = snapshot.docs[snapshot.docs.length - 1].id;
+  }
+
+  return deleted;
+}
+
+/**
  * Extracts a loggable message from an unknown thrown value.
  * @param {unknown} error Thrown value.
  * @return {string} Message.
@@ -586,7 +743,9 @@ export const cleanupDeletedUserData = onDocumentDeleted(
 
     logger.info("Swept deleted user data", {
       anonymizedFirstAscents: summary.anonymizedFirstAscents,
+      anonymizedLeaderboardPlacings: summary.anonymizedLeaderboardPlacings,
       anonymizedReplayEntries: summary.anonymizedReplayEntries,
+      deletedChampionPushDeliveries: summary.deletedChampionPushDeliveries,
       deletedFeedbackDocuments: summary.deletedFeedbackDocuments,
       deletedModerationReports: summary.deletedModerationReports,
       deletedIncomingBlockDocuments:

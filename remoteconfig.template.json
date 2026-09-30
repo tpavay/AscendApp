@@ -104,6 +104,20 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops publishing the public profile mirror, stats, and workout summaries."
+    },
+    "champion_recognition_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off hides champion crowns, the champion strip, and past boards. Display only; nothing is written or deleted."
+    },
+    "period_recap_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops presenting the period recap and writing its seenAt; unseen recaps wait on the server."
     }
   },
   "parameterGroups": {},

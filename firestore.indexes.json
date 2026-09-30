@@ -399,62 +399,6 @@
       ]
     },
     {
-      "collectionGroup": "entries",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "isBestForUser",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "finalSteps",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "entries",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "isBestForUser",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "finalSteps",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "entries",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "bestForGoals",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "finalSteps",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "entries",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "bestForGoals",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "finalSteps",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "_strava_upload_jobs",
       "queryScope": "COLLECTION",
       "fields": [
@@ -479,6 +423,90 @@
         {
           "fieldPath": "processingStartedAt",
           "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "recaps",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "seenAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodEndAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "recaps",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "cadence",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodKey",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isBestForUser",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isBestForUser",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bestForGoals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bestForGoals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "DESCENDING"
         }
       ]
     }
@@ -524,6 +552,16 @@
     },
     {
       "collectionGroup": "finishers",
+      "fieldPath": "userId",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "placings",
       "fieldPath": "userId",
       "indexes": [
         {

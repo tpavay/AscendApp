@@ -80,6 +80,18 @@ struct DebugToolsView: View {
             // Navigation Links
             VStack(spacing: 12) {
                 NavigationLink {
+                    ChampionPreviewDebugView()
+                } label: {
+                    inspectionRow(
+                        title: "Champions & Recap",
+                        description: "Crown yourself on this device and play every recap variant",
+                        icon: "crown.fill",
+                        iconColor: .yellow
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     HapticsTestView()
                 } label: {
                     inspectionRow(

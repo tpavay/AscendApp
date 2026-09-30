@@ -8,6 +8,7 @@ struct LeaderboardEmptyBoardView: View {
 
     let period: LeaderboardPeriod
     let metric: LeaderboardMetric
+    var awardedTitle: ChampionTitle? = nil
 
     var body: some View {
         VStack(spacing: 18) {
@@ -26,7 +27,7 @@ struct LeaderboardEmptyBoardView: View {
                     .multilineTextAlignment(.center)
             }
 
-            LeaderboardPodiumView(entries: [], metric: metric)
+            LeaderboardPodiumView(entries: [], metric: metric, awardedTitle: awardedTitle)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)

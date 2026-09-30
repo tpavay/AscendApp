@@ -16,7 +16,8 @@ export type IdentityProjectionKind =
   "leaderboard" |
   "replayEntry" |
   "replayFinisher" |
-  "firstAscent";
+  "firstAscent" |
+  "champion";
 
 export const IDENTITY_PROPAGATION_PAGE_SIZE = 40;
 const IDENTITY_PROPAGATION_JOB_COLLECTION =
@@ -26,6 +27,7 @@ export const IDENTITY_PROJECTION_KINDS: IdentityProjectionKind[] = [
   "replayEntry",
   "replayFinisher",
   "firstAscent",
+  "champion",
 ];
 
 export interface IdentityProjectionReference {
@@ -178,7 +180,7 @@ function comparableIdentitySourceValue(value: unknown): string {
  *
  * Each kind owns an independent checkpoint document. Updating its checkpoint
  * schedules the next page, so an account with many replay rows cannot starve
- * global rows, finishers, or First Ascents.
+ * global rows, finishers, First Ascents, or closed-board placings.
  */
 export const onPublicIdentityPropagationJobWritten = onDocumentWritten(
   {
@@ -428,7 +430,9 @@ export function desiredIdentityFields(
   identity: CurrentPublicIdentity
 ): Record<string, unknown> {
   const photoURL = identity.photoURL ?? "";
-  if (kind === "leaderboard") {
+  // A placing on a closed board (`champion`) carries exactly the identity a
+  // leaderboard_stats row carries, because it is frozen from one.
+  if (kind === "leaderboard" || kind === "champion") {
     return {
       displayName: identity.displayName,
       identityChangedAt: identity.identityChangedAt,
@@ -732,11 +736,18 @@ function identityProjectionQuery(
     return firestore
       .collection("live_replay_leaderboards")
       .where("firstAscentUserId", "==", job.userId);
+  case "champion":
+    return firestore
+      .collectionGroup("placings")
+      .where("userId", "==", job.userId);
   }
 }
 
 /**
  * Returns the persisted cursor accepted by a document-ID ordered query.
+ *
+ * A collection-group query orders by full document path, so its cursor has to
+ * be the path; a bare id would name no document in that ordering.
  * @param {IdentityProjectionKind} kind Projection shape.
  * @param {FirebaseFirestore.QueryDocumentSnapshot} document Last document.
  * @return {string} Next-page cursor.
@@ -745,7 +756,9 @@ function identityProjectionCursor(
   kind: IdentityProjectionKind,
   document: FirebaseFirestore.QueryDocumentSnapshot
 ): string {
-  return kind === "replayEntry" || kind === "replayFinisher" ?
+  return kind === "replayEntry" ||
+    kind === "replayFinisher" ||
+    kind === "champion" ?
     document.ref.path :
     document.id;
 }
@@ -955,3 +968,9 @@ function publicProfileReference(
     .collection("public_profile")
     .doc("current");
 }
+
+export const publicIdentityPropagationTestHooks = {
+  firestoreIdentityPropagationJobPort,
+  identityProjectionCursor,
+  identityProjectionQuery,
+};

@@ -10,17 +10,20 @@ import SwiftUI
 struct ProfileHeaderView: View {
     @Environment(\.colorScheme) private var colorScheme
     
+    let userId: String?
     let photoURL: URL?
     let displayName: String
     let email: String?
     let onEditTap: (() -> Void)?
     
     init(
+        userId: String?,
         photoURL: URL?,
         displayName: String,
         email: String? = nil,
         onEditTap: (() -> Void)? = nil
     ) {
+        self.userId = userId
         self.photoURL = photoURL
         self.displayName = displayName
         self.email = email
@@ -31,7 +34,18 @@ struct ProfileHeaderView: View {
         VStack(spacing: 16) {
             // Profile Picture with Edit Button
             ZStack(alignment: .bottomTrailing) {
-                ProfileImageView(photoURL: photoURL)
+                ClimberAvatar(
+                    userId: userId,
+                    photoURL: photoURL,
+                    placeholder: .glyph(
+                        systemName: "person.fill",
+                        fill: Color.jetLighter.opacity(0.3),
+                        foreground: .white.opacity(0.7),
+                        glyphSize: 50
+                    ),
+                    size: 120,
+                    border: .init(color: .white.opacity(0.2), width: 2, onlyOverPhoto: true)
+                )
                 
                 if let onEditTap = onEditTap {
                     Button(action: onEditTap) {
@@ -70,50 +84,9 @@ struct ProfileHeaderView: View {
     }
 }
 
-// MARK: - Profile Image View
-
-private struct ProfileImageView: View {
-    let photoURL: URL?
-    
-    var body: some View {
-        AsyncImage(url: photoURL) { phase in
-            switch phase {
-            case .empty:
-                placeholderImage
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 120, height: 120)
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(.white.opacity(0.2), lineWidth: 2)
-                    )
-            case .failure:
-                placeholderImage
-            @unknown default:
-                placeholderImage
-            }
-        }
-        .frame(width: 120, height: 120)
-    }
-    
-    private var placeholderImage: some View {
-        ZStack {
-            Circle()
-                .fill(.jetLighter.opacity(0.3))
-                .frame(width: 120, height: 120)
-            
-            Image(systemName: "person.fill")
-                .font(.system(size: 50))
-                .foregroundStyle(.white.opacity(0.7))
-        }
-    }
-}
-
 #Preview {
     ProfileHeaderView(
+        userId: nil,
         photoURL: nil,
         displayName: "Tyler Pavay"
     )
