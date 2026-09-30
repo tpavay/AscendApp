@@ -1003,6 +1003,53 @@ test(
 );
 
 test(
+  "a failed compose at send still sends the stored recaps and still spares a late-synced climber",
+  async () => {
+    await seedUser("stored-active", "storedactive@example.com");
+    await seedWeeklyStats("stored-active", closedWeek, {
+      totalFloors: 10,
+      totalSteps: 500,
+      totalWorkouts: 1,
+    });
+    await seedUser("late-guarded", "lateguarded@example.com");
+    await seedAllTimeStats("late-guarded");
+    await seedCompletedLandmarkWorkout("late-guarded", "eiffel", addDays(now, -28));
+
+    await runRecapCompose("weekly", composeNow);
+    assert.equal((await readRecap("late-guarded")).variant, "inactive");
+    await seedCompletedLandmarkWorkout(
+      "late-guarded",
+      "short-climb",
+      new Date(closedWeek.endAt.getTime() - 60 * 60 * 1000)
+    );
+
+    const send = await runRecapSend(
+      "weekly",
+      now,
+      undefined,
+      undefined,
+      async () => {
+        throw new Error("14 UNAVAILABLE");
+      }
+    );
+
+    assert.equal(send.composedAtSend, 0);
+    assert.equal(send.recapsMissing, false);
+    assert.equal(send.queued, 1);
+    assert.ok(send.suppressed >= 1);
+    const activeJob = await db.collection(EMAIL_JOBS).doc(buildEmailJobId(
+      buildRecapDedupeKey("weekly", closedWeek.key, "stored-active")
+    )).get();
+    assert.equal(activeJob.exists, true);
+    const lateJob = await db.collection(EMAIL_JOBS).doc(buildEmailJobId(
+      buildRecapDedupeKey("weekly", closedWeek.key, "late-guarded")
+    )).get();
+    assert.equal(lateJob.exists, false);
+    assert.equal((await readRecap("late-guarded")).variant, "inactive");
+  }
+);
+
+test(
   "an older climb that synced late corrects the stored gap before the email",
   async () => {
     await seedUser("old-sync", "oldsync@example.com");

@@ -95,6 +95,7 @@ Account deletion de-identifies placings (`Anonymous Climber`, no photo, `identit
 Composed by the server at 00:30 UTC after a week (Monday) or month (the 1st) closes, for every climber who ever climbed and, with the `never_climbed` variant, for every entitled account that has not.
 The 13:00 UTC recap email sends from this stored payload, so the app and the email can never disagree.
 The send first re-runs compose, create-only, so a period whose 00:30 compose never ran still gets its recaps; that pass also recomposes a stored `inactive` or `never_climbed` recap as `active`, keeping `seenAt`, when a climb inside the period synced after 00:30.
+That pass is best effort: if it fails, `recapEmails.composeAtSendDegraded` names the period and the recaps already stored still send, each behind its own per-climber checks.
 No zero-activity email is sent to a climber whose latest workout started at or after the period's start, and one whose late-synced older climb is newer than the stored `lastClimbAt` has its gap rewritten before the email.
 The owner may read it and may set `seenAt` once, to `request.time`; nothing else is client-writable.
 

@@ -2172,31 +2172,45 @@ function recordOutcome(
  * It first runs compose itself - create-only, so a stored recap and its
  * `seenAt` are never replaced - which makes the send self-sufficient when
  * the 00:30 compose never ran (a first deploy after it), and recomposes an
- * inactive recap a late-synced climb in the period made active.
+ * inactive recap a late-synced climb in the period made active. That pass
+ * is best effort: if it fails, the failure is logged and the recaps already
+ * stored still send, each still behind its own per-climber checks.
  * @param {RecapCadence} cadence - Weekly or monthly
  * @param {Date} now - The sweep's clock, injectable for tests
  * @param {CohortScanBound} recapScanBound - Stored-recap scan page bound,
  *   injectable for tests
  * @param {CohortScanBound} cohortScanBound - The compose pass's cohort scan
  *   page bound, injectable for tests
+ * @param {Function} compose - The compose pass, injectable for tests
  * @return {Promise<RecapSendSummary>} What the sweep did
  */
 export async function runRecapSend(
   cadence: RecapCadence,
   now: Date,
   recapScanBound: CohortScanBound = DEFAULT_RECAP_SCAN_BOUND,
-  cohortScanBound: CohortScanBound = DEFAULT_COHORT_SCAN_BOUND
+  cohortScanBound: CohortScanBound = DEFAULT_COHORT_SCAN_BOUND,
+  compose: typeof runRecapCompose = runRecapCompose
 ): Promise<RecapSendSummary> {
   const firestore = admin.firestore();
   const period = previousPeriod(cadence, now);
   const recapId = buildRecapDocumentId(cadence, period.key);
-  const compose = await runRecapCompose(cadence, now, cohortScanBound);
-  if (compose.errors > 0 || compose.outcome !== "composed") {
-    logger.error("recapEmails.composeAtSendDegraded", compose);
+  let composedAtSend = 0;
+  try {
+    const composed = await compose(cadence, now, cohortScanBound);
+    composedAtSend = composed.composed;
+    if (composed.errors > 0 || composed.outcome !== "composed") {
+      logger.error("recapEmails.composeAtSendDegraded", composed);
+    }
+  } catch (error) {
+    logger.error("recapEmails.composeAtSendDegraded", {
+      cadence,
+      errorMessage: error instanceof Error ? error.message : "unknown_error",
+      periodKey: period.key,
+    });
   }
   const summary: RecapSendSummary = {
     alreadyQueued: 0,
-    composedAtSend: compose.composed,
+    composedAtSend,
     errors: 0,
     periodKey: period.key,
     queued: 0,
