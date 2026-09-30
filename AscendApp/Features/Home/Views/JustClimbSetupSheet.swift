@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct JustClimbSetupSheet: View {
+    static let experienceKey = "justClimb.lastExperience"
+
     /// The sheet's resting height, with room for the experience picker above the goal.
     static let preferredHeight: CGFloat = 432
 
@@ -12,7 +14,8 @@ struct JustClimbSetupSheet: View {
     @State private var durationMinutes: Int
     @State private var stepCount: Int
     /// Remembered between climbs, so a climber who chose one way to climb opens straight on it.
-    @AppStorage("justClimb.lastExperience") private var selectedExperience: JustClimbExperience = .classic
+    /// Someone who never chose starts on the Mountain, the release's headline.
+    @AppStorage(Self.experienceKey) private var selectedExperience: JustClimbExperience = .mountain
     @State private var isEditingAthlete = false
 
     /// `initialGoal` pre-fills the sheet, which is how a today row re-opens the same

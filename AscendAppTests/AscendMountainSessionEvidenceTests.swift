@@ -156,6 +156,22 @@ struct AscendMountainSessionEvidenceTests {
         }
     }
 
+    @Test("A climber who never chose opens Just Climb on the Mountain; a chosen Classic stays Classic")
+    func setupSheetStartsOnTheMountainUntilAClimberChooses() async throws {
+        let fresh = try #require(UserDefaults(suiteName: "just-climb-setup-\(UUID().uuidString)"))
+        try await RenderedScreen.host(JustClimbSetupSheet { _, _ in }.defaultAppStorage(fresh)) { screen in
+            let text = try await screen.copy()
+            #expect(text.contains("your athlete"), "the Mountain's athlete chip shows only with Mountain picked: \(text)")
+        }
+
+        let chose = try #require(UserDefaults(suiteName: "just-climb-setup-\(UUID().uuidString)"))
+        chose.set(JustClimbExperience.classic.rawValue, forKey: JustClimbSetupSheet.experienceKey)
+        try await RenderedScreen.host(JustClimbSetupSheet { _, _ in }.defaultAppStorage(chose)) { screen in
+            let text = try await screen.copy()
+            #expect(!text.contains("your athlete"), "\(text)")
+        }
+    }
+
     @Test("Every build's setup sheet offers the Mountain beside Classic")
     func setupSheetOffersTheMountainInEveryBuild() async throws {
         try await RenderedScreen.host(JustClimbSetupSheet { _, _ in }) { screen in
