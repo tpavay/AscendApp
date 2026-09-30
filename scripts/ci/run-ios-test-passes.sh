@@ -58,6 +58,13 @@
 # pass holding ~2,300 unrelated tests and dropped the tests in flight; in its own pass
 # it is contained to the three suites that draw the Mountain.
 #
+# It recurred in 2 of the next 3 runs and never in about 20 on Apple Silicon:
+# the runner is a virtual Mac and its paravirtualized GPU trips the assertion
+# (#629). The tests that host the Mountain therefore skip themselves when
+# `TestHost.isVirtualMachine`, with a reason naming #629, and run everywhere
+# else. Every suite in the group still executes its other tests here, so the
+# named-suite and executed-test-floor checks below see all three.
+#
 # What the one-host runs exposed was never memory. A hosted screen carrying a
 # `@Query` keeps observing SwiftData after its window is gone, and a container
 # that died with its test leaves that observer dangling, so the next

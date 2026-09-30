@@ -189,7 +189,7 @@ struct SentryMaskInteractionTests {
     /// The Mountain is masked whole and sits behind the session, whose pages swipe from the
     /// climber's read-out to the leaderboard. That swipe is a UIKit paging scroll view over the
     /// mask, so it is observable end to end: every probe across the pager has to land inside it.
-    @Test
+    @Test(.disabled(if: TestHost.isVirtualMachine, TestHost.realityKitVirtualGPUReason))
     func theMountainStillSwipesToTheLeaderboard() async throws {
         let container = try RetainedModelContainer.inMemory(
             for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self,

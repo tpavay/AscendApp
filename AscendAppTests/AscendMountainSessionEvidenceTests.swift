@@ -13,7 +13,10 @@ import UIKit
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct AscendMountainSessionEvidenceTests {
-    @Test("Mountain reads the session's own steps, pace and time in place of the Just Me and Leaderboard tabs")
+    @Test(
+        "Mountain reads the session's own steps, pace and time in place of the Just Me and Leaderboard tabs",
+        .disabled(if: TestHost.isVirtualMachine, TestHost.realityKitVirtualGPUReason)
+    )
     func mountainShowsTheSessionsNumbersWithoutTheTabs() async throws {
         let container = try Self.makeContainer()
         let (viewModel, motionSession) = Self.recordingSession(goal: JustClimbGoal(kind: .open), container: container)
@@ -44,7 +47,7 @@ struct AscendMountainSessionEvidenceTests {
         }
     }
 
-    @Test("A step goal on Mountain states what is left to climb")
+    @Test("A step goal on Mountain states what is left to climb", .disabled(if: TestHost.isVirtualMachine, TestHost.realityKitVirtualGPUReason))
     func mountainStepGoalShowsStepsToGo() async throws {
         let container = try Self.makeContainer()
         let (viewModel, motionSession) = Self.recordingSession(
@@ -94,6 +97,7 @@ struct AscendMountainSessionEvidenceTests {
 
     @Test(
         "The Mountain read-out stays inside the screen at iPhone SE and standard widths",
+        .disabled(if: TestHost.isVirtualMachine, TestHost.realityKitVirtualGPUReason),
         arguments: LiveClimbJustMePhotoBackgroundWidthTests.phoneSizes
     )
     func mountainReadOutStaysInsideTheScreen(size: CGSize) async throws {
@@ -160,7 +164,7 @@ struct AscendMountainSessionEvidenceTests {
         }
     }
 
-    @Test("A Mountain climb reopened from the Live Activity is still the Mountain")
+    @Test("A Mountain climb reopened from the Live Activity is still the Mountain", .disabled(if: TestHost.isVirtualMachine, TestHost.realityKitVirtualGPUReason))
     func liveActivityReentryKeepsTheMountain() async throws {
         let container = try Self.makeContainer()
         let (started, motionSession) = Self.recordingSession(goal: JustClimbGoal(kind: .open), container: container)

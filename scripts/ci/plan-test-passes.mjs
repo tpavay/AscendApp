@@ -73,6 +73,16 @@ const TEST_TARGET = "AscendAppTests";
  * the two Sentry mask proofs, which host it to prove the mask - shares one
  * host that nothing else rides in.
  *
+ * It killed a host again in 2 of the next 3 runs, and never in about 20 runs
+ * on Apple Silicon: the runner is a virtual Mac, and its paravirtualized GPU
+ * is what trips the assertion (#629). So the tests that host the Mountain
+ * skip themselves under a hypervisor (`TestHost.isVirtualMachine`, reason
+ * naming #629) and run everywhere else. The group keeps its own host anyway:
+ * each of its three suites still executes its other tests on CI - the
+ * Classic session, the crowd counts, the setup sheet, recovery, and every
+ * non-Mountain mask proof - so the named-suite check stays honest, and on a
+ * machine that does draw the Mountain a kill stays contained to them.
+ *
  * Add a suite only with a measurement, and remove it the moment it stops
  * needing a host of its own. A name that no longer matches a real suite is
  * fatal on purpose, through the post-pass `.xcresult` check: a silently

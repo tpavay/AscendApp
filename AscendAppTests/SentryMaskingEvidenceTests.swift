@@ -206,7 +206,7 @@ struct SentryMaskingEvidenceTests {
     // the whole world mirrored from outside the view, which keeps its average colour while moving
     // every name and number.
 
-    @Test
+    @Test(.disabled(if: TestHost.isVirtualMachine, TestHost.realityKitVirtualGPUReason))
     func theMountainRendersIdenticallyWhateverItShows() async throws {
         try await Self.expectSensitiveContentMasked(
             FreshMountain(),
