@@ -21,6 +21,12 @@ struct PeriodRecapEvidenceTests {
 
     private let fixtures = ChampionRecapFixtures(viewerId: "viewer", viewerName: "Tyler Pavay", now: Self.now)
 
+    /// The page counts days against the real clock, while the fixture places the last climb
+    /// 12 days before the pinned `now`, so the expected count grows with the calendar.
+    private static var daysSinceFixtureLastClimb: Int {
+        max(Int(Date.now.timeIntervalSince(now.addingTimeInterval(-12 * 86_400)) / 86_400), 1)
+    }
+
     @Test
     func theWeekIsEveryoneThenYoursThenTheCrown() async throws {
         try await photographEveryPage(of: .week, expecting: [
@@ -69,7 +75,7 @@ struct PeriodRecapEvidenceTests {
     @Test
     func aWeekWithoutClimbsIsOneShortPage() async throws {
         try await photographEveryPage(of: .noClimbs, expecting: [
-            ["no climbs last week.", "last climb: 12 days ago.", "everyone climbed", "week 38 champion", "start a climb"]
+            ["no climbs last week.", "last climb: \(Self.daysSinceFixtureLastClimb) days ago.", "everyone climbed", "week 38 champion", "start a climb"]
         ])
     }
 

@@ -285,7 +285,10 @@ struct PeriodRecapStoryBuilderTests {
         let utc = TimeZone(secondsFromGMT: 0)!
         let locale = Locale(identifier: "en_US")
         let month = fixtures.periods().month
-        let monthLine = PeriodRecapCopy.reignLine(endsAt: month.next?.endAt, now: Self.now, timeZone: utc, locale: locale)
+        // August's recap opens on the first open after September 1, a whole month before
+        // the reign it announces ends on October 1.
+        let monthRecapOpensAt = month.next!.startAt.addingTimeInterval(86_400)
+        let monthLine = PeriodRecapCopy.reignLine(endsAt: month.next?.endAt, now: monthRecapOpensAt, timeZone: utc, locale: locale)
         #expect(monthLine?.contains("October 1") == true, "\(monthLine ?? "")")
         let week = fixtures.periods().week
         let weekLine = PeriodRecapCopy.reignLine(endsAt: week.next?.endAt, now: Self.now, timeZone: utc, locale: locale)

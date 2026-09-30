@@ -121,8 +121,9 @@ struct ChampionRegistryTests {
         await registry.refresh(now: Self.now)
         #expect(registry.titles(for: "me") == ChampionTitles([.weekly]))
 
-        // Monday 00:00 UTC passes with no refresh: week 38's champion is no longer last week's.
-        now = Self.now.addingTimeInterval(7 * 86_400)
+        // Monday 00:00 UTC passes with no refresh: week 38's champion is no longer last week's,
+        // while August's champion reigns until October 1.
+        now = Self.now.addingTimeInterval(86_400)
         #expect(registry.titles(for: "me") == .none)
         #expect(registry.reign(for: .weekly) == nil)
         #expect(registry.titles(for: "fixture-ezra") == ChampionTitles([.monthly]))
