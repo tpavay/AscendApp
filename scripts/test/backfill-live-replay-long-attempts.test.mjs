@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 import {dirname, join} from "node:path";
+import {MAX_GOAL_KEYS_PER_COMMIT} from "../lib/race-goal-commit-budget.mjs";
 import {
   applyRepublishes,
   backfillGoalKeys,
@@ -167,6 +168,32 @@ test("a write run republishes the attempt, bucket zero last, and a second run pl
   const again = await planBackfill(db, {contextKey: null});
   assert.equal(again.republishes.length, 0);
   assert.equal(again.upToDate, 1);
+});
+
+test("updates of a row carrying many goal keys are budgeted by the keys the row already holds", async () => {
+  // Production's longest attempt held 123 goal keys a row; its 339 updates,
+  // weighed as zero, shared one commit that Firestore refused as too big.
+  const manyGoals = Array.from({length: 123}, (_, index) => `steps:${1000 + index}`);
+  const documents = {
+    [BOARD]: {contextType: "just_climb"},
+    [`users/${CAPTAIN}/workouts/${WORKOUT}`]: captainWorkout,
+  };
+  captain.splitSteps.forEach((steps, index) => {
+    documents[entryPath(index)] = preFixEntry(steps, {bestForGoals: manyGoals});
+  });
+  const db = memoryFirestore(documents);
+
+  const plan = await planBackfill(db, {contextKey: null});
+  await applyRepublishes(db, plan.republishes);
+
+  for (const commit of db.commits) {
+    const entryWrites = commit.filter((operation) => operation.path.includes("/entries/")).length;
+    assert.ok(
+      entryWrites * manyGoals.length <= MAX_GOAL_KEYS_PER_COMMIT,
+      `a commit rewrites ${entryWrites} rows of ${manyGoals.length} goal keys`
+    );
+  }
+  assert.equal(db.store.get(entryPath(0)).splitBucketCount, 541);
 });
 
 test("one run takes a goal back from the clamped curve that won it", async () => {

@@ -78,7 +78,7 @@ import {
 } from "./lib/migration-discipline.mjs";
 import {createBatchWriter, withRetry} from "./lib/firestore-bulk.mjs";
 import {isEntrypoint} from "./lib/is-entrypoint.mjs";
-import {GOAL_KEY_COMMIT_BUDGET} from "./lib/race-goal-commit-budget.mjs";
+import {GOAL_KEY_COMMIT_BUDGET, goalKeysInOperation} from "./lib/race-goal-commit-budget.mjs";
 import {contextRacesGoals} from "./lib/live-replay-race-best.mjs";
 import {
   backfillRaceBests,
@@ -395,20 +395,35 @@ export function planAttemptRepublish({entry, boardSteps, workout}) {
  * @return {Promise<number>} Writes committed.
  */
 export async function applyRepublishes(db, republishes) {
-  const writer = createBatchWriter(db, {...GOAL_KEY_COMMIT_BUDGET, batchSize: ENTRY_COMMIT_SIZE});
+  // An update writes no `bestForGoals`, but moving `stepsAtBucket` and
+  // `splitBucketCount` rewrites the row's existing keys in every composite
+  // index over them, so it costs what the row already carries. Weighed as
+  // zero, 339 such updates of a 123-key row rode one commit and production
+  // refused it as too big (2026-09-30).
+  const existingGoalKeys = new Map();
+  const writer = createBatchWriter(db, {
+    ...GOAL_KEY_COMMIT_BUDGET,
+    batchSize: ENTRY_COMMIT_SIZE,
+    weigh: (operation) =>
+      goalKeysInOperation(operation) + (existingGoalKeys.get(operation.ref.path) ?? 0),
+  });
   const updatedAt = FieldValue.serverTimestamp();
+  const rowGoalKeys = (plan) => goalKeysInOperation({data: plan.entry});
 
   for (const plan of republishes) {
     for (const operation of republishOperations(plan, updatedAt)) {
       if (operation.kind === "set") writer.set(operation.ref, operation.data);
-      else if (operation.kind === "update") writer.update(operation.ref, operation.data);
-      else writer.delete(operation.ref);
+      else if (operation.kind === "update") {
+        existingGoalKeys.set(operation.ref.path, rowGoalKeys(plan));
+        writer.update(operation.ref, operation.data);
+      } else writer.delete(operation.ref);
     }
   }
   await writer.flush();
 
   for (const plan of republishes) {
     const zero = bucketZeroOperation(plan, updatedAt);
+    existingGoalKeys.set(zero.ref.path, rowGoalKeys(plan));
     writer.update(zero.ref, zero.data);
   }
   return writer.drain();
