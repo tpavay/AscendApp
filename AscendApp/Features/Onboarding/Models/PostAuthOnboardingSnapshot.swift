@@ -50,10 +50,7 @@ struct PostAuthOnboardingSnapshot: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         let storedCurrentStage = try container.decode(String.self, forKey: .currentStage)
-        // A stage this build knows but does not run - the athlete step outside a build that offers
-        // Ascend Mountain - is as unreachable as an unknown one.
-        currentStage = PostAuthOnboardingStage(rawValue: storedCurrentStage)
-            .flatMap { PostAuthOnboardingStage.allCases.contains($0) ? $0 : nil } ?? .first
+        currentStage = PostAuthOnboardingStage(rawValue: storedCurrentStage) ?? .first
 
         let storedCompletedStages = try container.decode(Set<String>.self, forKey: .completedStages)
         completedStages = Set(storedCompletedStages.compactMap(PostAuthOnboardingStage.init(rawValue:)))
