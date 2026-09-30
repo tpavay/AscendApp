@@ -199,6 +199,32 @@ struct SentryMaskingEvidenceTests {
         )
     }
 
+    // MARK: - Ascend Mountain
+
+    // RealityKit draws other climbers' names, their summit plaques and the climber's own best
+    // straight into a Metal layer the SDK reads as neither text nor an image. The permutation is
+    // the whole world mirrored from outside the view, which keeps its average colour while moving
+    // every name and number.
+
+    @Test(.disabled(if: TestHost.isVirtualMachine, TestHost.realityKitVirtualGPUReason))
+    func theMountainRendersIdenticallyWhateverItShows() async throws {
+        try await Self.expectSensitiveContentMasked(
+            FreshMountain(),
+            FreshMountain().scaleEffect(x: -1, y: 1),
+            named: "ascend-mountain",
+            settledWhen: Self.sceneIsDrawn
+        )
+    }
+
+    /// Builds its world inside `body`, so every hosting gets a scene controller of its own. One
+    /// `AscendMountainRealityView` value hosted twice shares its `@State` controller, which the
+    /// first hosting's `onDisappear` has already stopped, and the second window stays black.
+    private struct FreshMountain: View {
+        var body: some View {
+            AscendMountainRealityView(seed: MountainCourse.ascendMountainSeed, stepSource: { 1_200 })
+        }
+    }
+
     // MARK: - Identity
 
     @Test
@@ -236,15 +262,16 @@ struct SentryMaskingEvidenceTests {
         _ first: some View,
         _ second: some View,
         named name: String,
-        showingFootage: Bool = false
+        showingFootage: Bool = false,
+        settledWhen isSettled: @escaping @MainActor (UIView) -> Bool = { _ in true }
     ) async throws {
         let rawDifference = try await difference(
-            render(first, masked: false, savedAs: "\(name)-unmasked-a", showingFootage: showingFootage),
-            render(second, masked: false, savedAs: "\(name)-unmasked-b", showingFootage: showingFootage)
+            render(first, masked: false, savedAs: "\(name)-unmasked-a", showingFootage: showingFootage, settledWhen: isSettled),
+            render(second, masked: false, savedAs: "\(name)-unmasked-b", showingFootage: showingFootage, settledWhen: isSettled)
         )
         let maskedDifference = try await difference(
-            render(first, masked: true, savedAs: "\(name)-masked-a", showingFootage: showingFootage),
-            render(second, masked: true, savedAs: "\(name)-masked-b", showingFootage: showingFootage)
+            render(first, masked: true, savedAs: "\(name)-masked-a", showingFootage: showingFootage, settledWhen: isSettled),
+            render(second, masked: true, savedAs: "\(name)-masked-b", showingFootage: showingFootage, settledWhen: isSettled)
         )
 
         // Control: the two renders really do differ before masking, so an
@@ -301,10 +328,11 @@ struct SentryMaskingEvidenceTests {
         _ view: some View,
         masked: Bool,
         savedAs name: String? = nil,
-        showingFootage: Bool = false
+        showingFootage: Bool = false,
+        settledWhen isSettled: @escaping @MainActor (UIView) -> Bool = { _ in true }
     ) async throws -> Bitmap {
         try await SentryMaskTestHost.hosting(view, size: screenSize, interfaceStyle: .dark) { _, root in
-            try await settle(root, showingFootage ? playerIsShowingItsFootage : { _ in true })
+            try await settle(root, showingFootage ? playerIsShowingItsFootage : isSettled)
 
             func capture() -> UIImage {
                 guard masked else { return HierarchyRenderer().render(view: root) }
@@ -408,6 +436,19 @@ struct SentryMaskingEvidenceTests {
         else { return false }
 
         return view.layer.playerLayers.contains(where: \.isReadyForDisplay)
+    }
+
+    /// Ready when the mask marker is in the tree with a real frame and the world has replaced its
+    /// black placeholder, so the comparison is between two drawn mountains rather than two empty
+    /// screens.
+    @MainActor
+    private static func sceneIsDrawn(_ view: UIView) -> Bool {
+        guard let marker = view.firstDescendant(of: SentryMaskedRegionView.self),
+              !marker.bounds.isEmpty,
+              let bitmap = try? Bitmap(HierarchyRenderer().render(view: view))
+        else { return false }
+
+        return bitmap.fractionLit(in: view.bounds, of: view.bounds.size, above: 96) >= 0.2
     }
 
     /// Renders a view the same way `SentryDefaultViewRenderer` does, which is the

@@ -218,6 +218,7 @@ Firestore requires an active grant for:
 - Private workouts, user routines, and routine folders on create and update.
 - Live Climb publish status and completed-landmark projections.
 - Profile statistics, achievements, and another climber's public workout summaries.
+- Another climber's Ascend Mountain athlete look, and a new climber chosen for the owner's Ascend Mountain race filter.
 - Global leaderboards, published routine templates, Live Replay indexes, and global Live Climb community statistics.
 - The remote share-card template manifest.
 
@@ -238,6 +239,7 @@ Splitting `get` from `list` would buy nothing on the Firestore side, because a l
 Create and update stay paid throughout, so a lapsed account can enumerate and remove what it already has without being able to add more.
 Account documents, authentication routing, public identity publication, profile-picture management, lifecycle state, communication preferences, notification devices, blocks, reports, feedback, and rate-limit records stay ungated because onboarding, restore, account management, support, and safety must work before purchase and after lapse.
 Public profile identity is moderated public identity rather than paid fitness data.
+An Ascend Mountain athlete look is identity too - how the climber appears on other climbers' stairs, preset options only - so its owner publishes, reads, and deletes it without a grant: onboarding asks for it right after the gender question, ahead of the paywall.
 
 The existing callable Functions are not paid compute choke points.
 Lifecycle and push calls support onboarding and account operation, while paid leaderboard and replay computation is triggered only after a rules-authorized paid data write.

@@ -50,6 +50,7 @@ export interface DeletedUserCleanupPort {
   deleteFeedbackDocuments(userId: string): Promise<number>;
   deleteModerationReports(userId: string): Promise<number>;
   deleteIncomingBlockDocuments(userId: string): Promise<number>;
+  deleteIncomingRaceFilterDocuments(userId: string): Promise<number>;
   deleteLifecycleEmailJobs(userId: string): Promise<number>;
   deleteRevenueCatAnalyticsOutbox(userId: string): Promise<number>;
   removeHomeTodayActivityRows(userId: string): Promise<number>;
@@ -70,6 +71,7 @@ export interface CleanupSummary {
   deletedFeedbackDocuments: number;
   deletedModerationReports: number;
   deletedIncomingBlockDocuments: number;
+  deletedIncomingRaceFilterDocuments: number;
   deletedLifecycleEmailJobs: number;
   deletedRevenueCatAnalyticsOutbox: number;
   removedHomeTodayActivityRows: number;
@@ -97,7 +99,8 @@ export interface CleanupSummary {
  * their placings on closed boards (`leaderboard_results/{id}/placings`),
  * the champion push delivery markers that carry their uid
  * (`_champion_push_deliveries/{resultId}_{uid}`),
- * feedback, moderation_reports, incoming block documents, the uid-keyed
+ * feedback, moderation_reports, incoming block documents, the other climbers'
+ * Ascend Mountain race filters that name the deleted climber, the uid-keyed
  * email_jobs, the RevenueCat analytics outbox rows that carry the uid as
  * Mixpanel distinct_id, the rows the deleted climber holds in Home's
  * `home_today_activity` feed, and their Strava connection - which is also
@@ -231,6 +234,14 @@ export async function cleanupDeletedUser(
     failures.push(`incoming_blocks: ${errorMessage(error)}`);
   }
 
+  let deletedIncomingRaceFilterDocuments = 0;
+  try {
+    deletedIncomingRaceFilterDocuments =
+      await port.deleteIncomingRaceFilterDocuments(userId);
+  } catch (error) {
+    failures.push(`incoming_race_filters: ${errorMessage(error)}`);
+  }
+
   let deletedLifecycleEmailJobs = 0;
   try {
     deletedLifecycleEmailJobs = await port.deleteLifecycleEmailJobs(userId);
@@ -275,6 +286,7 @@ export async function cleanupDeletedUser(
     deletedFeedbackDocuments,
     deletedModerationReports,
     deletedIncomingBlockDocuments,
+    deletedIncomingRaceFilterDocuments,
     deletedIdentityPropagationJobs,
     deletedLeaderboardEntries,
     deletedLifecycleEmailJobs,
@@ -522,6 +534,19 @@ export function makeAdminPort(
       return snapshot.size;
     },
 
+    async deleteIncomingRaceFilterDocuments(userId) {
+      const snapshot = await firestore
+        .collectionGroup("race_filter")
+        .where("climberUid", "==", userId)
+        .get();
+
+      for (const document of snapshot.docs) {
+        await document.ref.delete();
+      }
+
+      return snapshot.size;
+    },
+
     async deleteLifecycleEmailJobs(userId) {
       // Job ids are the hash of a dedupe key, so only uid-keyed emails are
       // reachable from a uid. Add the key here when a new one is introduced.
@@ -725,6 +750,8 @@ export const cleanupDeletedUserData = onDocumentDeleted(
       deletedModerationReports: summary.deletedModerationReports,
       deletedIncomingBlockDocuments:
         summary.deletedIncomingBlockDocuments,
+      deletedIncomingRaceFilterDocuments:
+        summary.deletedIncomingRaceFilterDocuments,
       deletedIdentityPropagationJobs:
         summary.deletedIdentityPropagationJobs,
       deletedLeaderboardEntries: summary.deletedLeaderboardEntries,

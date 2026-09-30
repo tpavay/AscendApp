@@ -1318,6 +1318,69 @@ service cloud.firestore {
         request.resource.data.createdAt == request.time;
     }
 
+    // One climber the owner filters Ascend Mountain's race down to, keyed by that climber's uid.
+    // Nothing but the owner reads it: nobody is told they were chosen.
+    function isValidRaceFilterDocument(climberUserId) {
+      return request.resource.data.keys().hasOnly([
+          "climberUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "climberUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.climberUid is string &&
+        request.resource.data.climberUid == climberUserId &&
+        request.resource.data.climberUid != request.auth.uid &&
+        request.resource.data.climberUid.size() > 0 &&
+        request.resource.data.climberUid.size() <= 128 &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.createdAt == request.time;
+    }
+
+    // How the owner looks on Ascend Mountain: preset choices only, so there is no text or image
+    // to moderate. Every field is one of the editor's options (`AthleteLook` in the app).
+    function isValidAthleteLookDocument() {
+      return request.resource.data.keys().hasOnly([
+          "schemaVersion",
+          "body",
+          "skinTone",
+          "hairStyle",
+          "hairColor",
+          "top",
+          "bottom",
+          "shoes",
+          "size",
+          "muscle",
+          "updatedAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "schemaVersion",
+          "body",
+          "skinTone",
+          "hairStyle",
+          "hairColor",
+          "top",
+          "bottom",
+          "shoes",
+          "size",
+          "muscle",
+          "updatedAt"
+        ]) &&
+        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
+        request.resource.data.body in ["a", "b"] &&
+        request.resource.data.skinTone in ["tone1", "tone2", "tone3", "tone4", "tone5", "tone6"] &&
+        request.resource.data.hairStyle in ["parted", "long", "buns", "buzzed", "short"] &&
+        request.resource.data.hairColor in ["black", "dark_brown", "brown", "blond", "red", "grey"] &&
+        request.resource.data.top in ["lime", "white", "blue", "pink", "orange", "black"] &&
+        request.resource.data.bottom in ["lime", "white", "blue", "pink", "orange", "black"] &&
+        request.resource.data.shoes in ["lime", "white", "blue", "pink", "orange", "black"] &&
+        request.resource.data.size in ["slim", "regular", "solid", "big"] &&
+        request.resource.data.muscle in ["smooth", "some", "defined"] &&
+        request.resource.data.updatedAt is timestamp &&
+        request.resource.data.updatedAt == request.time;
+    }
+
     function isValidModerationReportDocument() {
       return request.resource.data.keys().hasOnly([
           "reportedUserId",
@@ -1550,6 +1613,30 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if isOwner(userId) &&
           isValidBlockedClimberDocument(blockedUserId);
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
+
+      // How the owner's athlete looks on Ascend Mountain, the one document "current". Their
+      // athlete runs on other climbers' stairs, so paid climbers read it. Publishing it is
+      // identity, like public_profile, so it is the owner's alone and works before purchase:
+      // onboarding asks for it right after the gender question, ahead of the paywall.
+      match /athlete_look/{docId} {
+        allow read: if isOwner(userId) || hasPaidAppAccess();
+        allow create, update: if isOwner(userId) &&
+          docId == "current" &&
+          isValidAthleteLookDocument();
+        allow delete: if isOwner(userId);
+      }
+
+      // The climbers the owner filters Ascend Mountain's race down to, one document each, kept
+      // for every climb. Private like the block list. Choosing is the paid product, so a create
+      // needs access; reading and deleting stay the owner's alone, so account deletion can
+      // always sweep the list.
+      match /race_filter/{climberUserId} {
+        allow read: if isOwner(userId);
+        allow create: if isPaidOwner(userId) &&
+          isValidRaceFilterDocument(climberUserId);
         allow update: if false;
         allow delete: if isOwner(userId);
       }

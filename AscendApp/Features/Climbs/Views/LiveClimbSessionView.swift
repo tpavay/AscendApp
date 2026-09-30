@@ -36,7 +36,19 @@ struct LiveClimbSessionView: View {
     /// to the calibration sheet, the summary must not remount underneath it.
     @State private var didHandOffToStepAccuracyCalibration = false
     @State private var didSubmitStepAccuracyCalibration = false
+    /// Ascend Mountain's developer read-out; only a Dev build running Mountain creates one.
+    @State private var mountainDebugState: MountainDebugState?
+    /// Who races on the Mountain, and the ghosts that puts on the stairs.
+    @State private var mountainRace: AscendMountainRace
+    /// Where on the Mountain this climb begins: the climber's steps across every climb before it.
+    @State private var mountainJourney = MountainJourney()
+    @State private var showingMountainRaceSheet = false
+    /// The climber's own athlete on the Mountain.
+    private let athleteLookStore = AthleteLookStore.shared
 
+    private let experience: JustClimbExperience
+    /// Where Ascend Mountain reads the climbers someone can filter the race to.
+    private let mountainBoard: MountainRaceBoard
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(
@@ -47,20 +59,50 @@ struct LiveClimbSessionView: View {
             climb: climb,
             analyticsEntryPoint: analyticsEntryPoint
         ))
+        _mountainRace = State(initialValue: AscendMountainRace())
+        experience = .classic
+        mountainBoard = FirestoreLiveReplayLeaderboardRepository.shared
     }
 
     init(
         justClimbGoal: JustClimbGoal,
+        experience: JustClimbExperience = .classic,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     ) {
-        _viewModel = State(initialValue: LiveClimbSessionViewModel(
-            justClimbGoal: justClimbGoal,
-            analyticsEntryPoint: analyticsEntryPoint
-        ))
+        self.init(
+            viewModel: LiveClimbSessionViewModel(
+                justClimbGoal: justClimbGoal,
+                experience: experience,
+                analyticsEntryPoint: analyticsEntryPoint
+            )
+        )
     }
 
-    init(viewModel: LiveClimbSessionViewModel) {
+    /// Ascend Mountain only ever presents a Just Climb; a landmark climb always runs Classic.
+    init(
+        viewModel: LiveClimbSessionViewModel,
+        mountainBoard: MountainRaceBoard = FirestoreLiveReplayLeaderboardRepository.shared,
+        mountainFilterStore: MountainRaceFilterRepository = FirestoreMountainRaceFilterRepository.shared,
+        athleteLooks: AthleteLookRepository = FirestoreAthleteLookRepository.shared
+    ) {
         _viewModel = State(initialValue: viewModel)
+        self.mountainBoard = mountainBoard
+        let isMountain = !viewModel.mode.isLandmarkClimb && viewModel.experience == .mountain
+        _mountainRace = State(initialValue: isMountain
+            ? AscendMountainRace(
+                goal: viewModel.mode.justClimbGoal,
+                board: mountainBoard,
+                filterStore: mountainFilterStore,
+                looks: athleteLooks,
+                userId: Auth.auth().currentUser?.uid
+            )
+            : AscendMountainRace())
+        self.experience = isMountain ? .mountain : .classic
+#if DEBUG
+        if self.experience == .mountain {
+            _mountainDebugState = State(initialValue: MountainDebugState())
+        }
+#endif
     }
 
     var body: some View {
@@ -118,6 +160,36 @@ struct LiveClimbSessionView: View {
         .sheet(isPresented: $showingCompatibleHeadphones) {
             CompatibleHeadphonesHelpSheet()
                 .appSheetStyle(.fitted())
+        }
+        .sheet(isPresented: $showingMountainRaceSheet) {
+            AscendMountainRaceSheet(race: mountainRace, isAloneOnBoard: !viewModel.leaderboardStanding.showsLeaderboardRank) {
+                AscendMountainFilterSheet(
+                    board: mountainBoard,
+                    context: viewModel.replayContext,
+                    chosen: mountainRace.selection.chosen,
+                    nearSteps: mountainFilterNearSteps,
+                    onDone: { mountainRace.choose($0) }
+                )
+                .appSheetStyle(.large)
+            }
+            .appSheetStyle(.fitted())
+        }
+        .task {
+            guard experience == .mountain else { return }
+            async let chosen: Void = mountainRace.loadChosen()
+            if let userId = Auth.auth().currentUser?.uid {
+                await athleteLookStore.load(userId: userId)
+            }
+            await chosen
+        }
+        .task {
+            guard experience == .mountain else { return }
+            await mountainJourney.load(userId: Auth.auth().currentUser?.uid)
+        }
+        .onChange(of: viewModel.leaderboardWindow) { _, window in
+            guard experience == .mountain, let window else { return }
+            mountainRace.ingest(window, identities: moderationStore.moderate(window.rows), now: viewModel.displayedDuration)
+            Task { await mountainRace.refreshLooks() }
         }
         .sheet(
             isPresented: $showingStepAccuracyCalibration,
@@ -225,6 +297,16 @@ struct LiveClimbSessionView: View {
             Task {
                 await viewModel.refreshReplayLeaderboardIfNeeded()
                 await viewModel.updateLiveActivity()
+                if experience == .mountain {
+                    let context = viewModel.replayContext
+                    await mountainRace.refreshChosen(
+                        context: context,
+                        bucketIndex: Int(viewModel.displayedDuration) / context.bucketIntervalSeconds,
+                        now: viewModel.displayedDuration,
+                        moderate: { moderationStore.moderate($0) }
+                    )
+                    await mountainRace.refreshLooks()
+                }
             }
         }
         .trackOnce(screen: .liveClimbSession)
@@ -302,7 +384,16 @@ struct LiveClimbSessionView: View {
         ZStack {
             Color.black
 
-            if showsClimbPhotoBackground, let climb = viewModel.mode.climb {
+            if showsMountain {
+                mountainBackdrop
+                    .overlay {
+                        // The leaderboard page reads over the world, not through it.
+                        Color.black
+                            .opacity(viewModel.isRecording && selectedTab == .leaderboard ? 0.95 : 0)
+                            .allowsHitTesting(false)
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: selectedTab)
+            } else if showsClimbPhotoBackground, let climb = viewModel.mode.climb {
                 ClimbArtworkView(climb: climb, variant: .hero)
                     .overlay(
                         LinearGradient(
@@ -319,6 +410,44 @@ struct LiveClimbSessionView: View {
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.25), value: showsClimbPhotoBackground)
+    }
+
+    /// Ascend Mountain draws the world behind the countdown and the climb, and gives way to the
+    /// completion summary like any other backdrop.
+    private var showsMountain: Bool {
+        experience == .mountain && viewModel.savedWorkout == nil
+    }
+
+    private var mountainBackdrop: some View {
+        let viewModel = viewModel
+        let race = mountainRace
+        let looks = athleteLookStore
+        let journey = mountainJourney
+        return AscendMountainRealityView(
+            seed: MountainCourse.ascendMountainSeed,
+            stepSource: { viewModel.totalRecordedSteps },
+            debugState: mountainDebugState,
+            ghostSource: { race.ghosts },
+            markerSource: { race.markers },
+            elapsedSource: { viewModel.displayedDuration },
+            athleteLook: { looks.current },
+            journeySource: { journey.startSteps },
+            packReport: { race.drawnPack = $0 }
+        )
+        .overlay {
+            // Legibility for the chrome above and the stat row and controls below.
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.55), location: 0),
+                    .init(color: .clear, location: 0.26),
+                    .init(color: .clear, location: 0.7),
+                    .init(color: .black.opacity(0.7), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+        }
     }
 
     /// Redundant against a full-bleed photo, so the small artwork thumbnail in
@@ -425,6 +554,13 @@ struct LiveClimbSessionView: View {
                     .padding(.leading, 10)
             }
 
+            if showsMountainRacePill {
+                AscendMountainRacePill(standing: viewModel.leaderboardStandingText) {
+                    showingMountainRaceSheet = true
+                }
+                .padding(.leading, 10)
+            }
+
             if !(viewModel.isRecording && selectedTab == .justMe) {
                 Text(viewModel.elapsedClock)
                     .font(.montserratBold(size: 13))
@@ -491,7 +627,54 @@ struct LiveClimbSessionView: View {
         }
     }
 
+    @ViewBuilder
     private var liveLeaderboardSection: some View {
+        if experience == .mountain {
+            mountainSection
+        } else {
+            classicLiveSection
+        }
+    }
+
+    /// Mountain keeps the world clear during the countdown, then swipes between its own read-out
+    /// and the leaderboard once the climb is recording. The Mountain's page stands where Just Me
+    /// does, so the top chrome treats the two pages exactly as it treats Classic's two tabs.
+    @ViewBuilder
+    private var mountainSection: some View {
+        if viewModel.isRecording {
+            VStack(spacing: 10) {
+                TabView(selection: $selectedTab) {
+                    AscendMountainSessionHUD(
+                        viewModel: viewModel,
+                        debugState: mountainDebugState,
+                        crowd: MountainCrowdCounts(standing: viewModel.leaderboardStandingText, drawn: mountainRace.drawnPack)
+                    )
+                        .tag(LiveClimbSessionTab.justMe)
+
+                    leaderboardPanel
+                        .tag(LiveClimbSessionTab.leaderboard)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+
+                AscendMountainPageDots(isOnLeaderboard: selectedTab == .leaderboard)
+            }
+        } else {
+            Color.clear
+        }
+    }
+
+    /// Where Filter measures "close to your best" from: the climber's best, or this climb's steps
+    /// before they have one.
+    private var mountainFilterNearSteps: Int {
+        mountainRace.field.yourBest.map { Int($0.finalSteps.rounded()) } ?? viewModel.totalRecordedSteps
+    }
+
+    /// The race pill lives on the Mountain's own page and nowhere else.
+    private var showsMountainRacePill: Bool {
+        experience == .mountain && viewModel.isRecording && selectedTab == .justMe
+    }
+
+    private var classicLiveSection: some View {
         VStack(spacing: 14) {
             if viewModel.isRecording {
                 LiveClimbSessionTabBar(selection: $selectedTab)

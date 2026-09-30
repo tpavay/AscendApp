@@ -114,19 +114,37 @@ struct AppAccessReconciliationServiceTests {
 
     @Test
     func overlappingForcedCallersJoinOneRequestAndClearTheInFlightMarker() async {
-        let invoker = ReconciliationInvokerSpy(outcomes: [.active, .active, .active])
+        let invoker = SuspendingReconciliationInvoker()
         let clock = TestClock()
-        let service = makeService(invoker: invoker, clock: clock)
+        let service = AppAccessReconciliationService(
+            invoker: invoker,
+            currentUserID: { "user-a" },
+            clock: { clock.now }
+        )
 
         async let first: Void = service.reconcileAppAccess(force: true)
-        async let second: Void = service.reconcileAppAccess(force: true)
-        _ = await (first, second)
+        await invoker.waitUntilCallCount(1)
+
+        // The second caller runs on the main actor straight into the join, so by the time this
+        // resumes it is waiting on the first request, which is still held open.
+        var second: Task<Void, Never>?
+        await withCheckedContinuation { (entered: CheckedContinuation<Void, Never>) in
+            second = Task { @MainActor in
+                entered.resume()
+                await service.reconcileAppAccess(force: true)
+            }
+        }
+        invoker.completeNext(with: .active)
+        _ = await (first, second?.value)
 
         await service.reconcileAppAccess(force: false)
         #expect(invoker.callCount == 1)
 
         clock.advance(by: 301)
-        await service.reconcileAppAccess(force: false)
+        async let third: Void = service.reconcileAppAccess(force: false)
+        await invoker.waitUntilCallCount(2)
+        invoker.completeNext(with: .active)
+        await third
         #expect(invoker.callCount == 2)
     }
 

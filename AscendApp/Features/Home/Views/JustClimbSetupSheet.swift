@@ -1,19 +1,28 @@
 import SwiftUI
 
 struct JustClimbSetupSheet: View {
+    static let experienceKey = "justClimb.lastExperience"
+
+    /// The sheet's resting height, with room for the experience picker above the goal.
+    static let preferredHeight: CGFloat = 432
+
     @Environment(\.dismiss) private var dismiss
 
-    let onStart: (JustClimbGoal) -> Void
+    let onStart: (JustClimbGoal, JustClimbExperience) -> Void
 
     @State private var selectedKind: JustClimbGoalKind
     @State private var durationMinutes: Int
     @State private var stepCount: Int
+    /// Remembered between climbs, so a climber who chose one way to climb opens straight on it.
+    /// Someone who never chose starts on the Mountain, the release's headline.
+    @AppStorage(Self.experienceKey) private var selectedExperience: JustClimbExperience = .mountain
+    @State private var isEditingAthlete = false
 
     /// `initialGoal` pre-fills the sheet, which is how a today row re-opens the same
     /// Just Climb another climber ran; without one the sheet opens on its defaults.
     init(
         initialGoal: JustClimbGoal? = nil,
-        onStart: @escaping (JustClimbGoal) -> Void
+        onStart: @escaping (JustClimbGoal, JustClimbExperience) -> Void
     ) {
         self.onStart = onStart
         let goal = initialGoal ?? JustClimbGoal()
@@ -25,6 +34,7 @@ struct JustClimbSetupSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             header
+            experiencePicker
             goalPicker
             goalControls
 
@@ -36,7 +46,8 @@ struct JustClimbSetupSheet: View {
                         kind: selectedKind,
                         durationMinutes: durationMinutes,
                         stepCount: stepCount
-                    )
+                    ),
+                    selectedExperience
                 )
                 dismiss()
             } label: {
@@ -62,35 +73,85 @@ struct JustClimbSetupSheet: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("JUST CLIMB")
-                .font(.montserratBold(size: 24))
-                .foregroundStyle(.white)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("JUST CLIMB")
+                    .font(.montserratBold(size: 24))
+                    .foregroundStyle(.white)
 
-            Text("Set a goal or climb open.")
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(.white.opacity(0.58))
+                Text("Set a goal or climb open.")
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+
+            Spacer(minLength: 0)
+
+            if selectedExperience == .mountain {
+                athleteButton
+            }
+        }
+        .sheet(isPresented: $isEditingAthlete) {
+            AthleteEditorView()
+                .appSheetStyle(.large)
         }
     }
 
+    /// The Mountain races the climber's athlete, so its setup is one tap from changing how they
+    /// look.
+    private var athleteButton: some View {
+        Button {
+            isEditingAthlete = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "figure.stairs")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.accent)
+                Text("YOUR ATHLETE")
+                    .font(.montserratBold(size: 11))
+                    .tracking(0.8)
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(.white.opacity(0.08), in: Capsule(style: .continuous))
+            .overlay(Capsule(style: .continuous).stroke(.white.opacity(0.14), lineWidth: 1))
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the athlete editor.")
+    }
+
+    private var experiencePicker: some View {
+        capsulePicker(options: JustClimbExperience.allCases, selection: $selectedExperience, title: \.title)
+    }
+
     private var goalPicker: some View {
+        capsulePicker(options: JustClimbGoalKind.allCases, selection: $selectedKind, title: \.title)
+    }
+
+    private func capsulePicker<Option: Identifiable & Equatable>(
+        options: [Option],
+        selection: Binding<Option>,
+        title: KeyPath<Option, String>
+    ) -> some View {
         HStack(spacing: 6) {
-            ForEach(JustClimbGoalKind.allCases) { kind in
+            ForEach(options) { option in
+                let isSelected = selection.wrappedValue == option
                 Button {
                     withAnimation(.smooth(duration: 0.18)) {
-                        selectedKind = kind
+                        selection.wrappedValue = option
                     }
                 } label: {
-                    Text(kind.title.uppercased())
+                    Text(option[keyPath: title].uppercased())
                         .font(.montserratBold(size: 11))
                         .tracking(0.9)
-                        .foregroundStyle(selectedKind == kind ? .black : .white.opacity(0.58))
+                        .foregroundStyle(isSelected ? .black : .white.opacity(0.58))
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                         .frame(maxWidth: .infinity)
                         .frame(height: 38)
                         .background {
-                            if selectedKind == kind {
+                            if isSelected {
                                 Capsule(style: .continuous)
                                     .fill(Color.accent)
                             }
@@ -230,5 +291,5 @@ struct JustClimbSetupSheet: View {
 }
 
 #Preview {
-    JustClimbSetupSheet { _ in }
+    JustClimbSetupSheet { _, _ in }
 }

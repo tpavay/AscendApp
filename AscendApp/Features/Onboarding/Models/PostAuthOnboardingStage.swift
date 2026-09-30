@@ -20,6 +20,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     case plan
     case features
     case gender
+    case athlete
     case age
     case weight
     case location
@@ -30,6 +31,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     static let segmentID = "post_auth_onboarding"
     static let plannedStepCount = allCases.count
 
+    /// The flow in order. The athlete step sits right after the gender answer that picks its body.
     static var allCases: [PostAuthOnboardingStage] {
         [
             .stairStepperBaseline,
@@ -39,6 +41,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             .plan,
             .features,
             .gender,
+            .athlete,
             .age,
             .weight,
             .location,
@@ -98,6 +101,8 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             return "multi_select"
         case .gender:
             return "single_select"
+        case .athlete:
+            return "button"
         case .age:
             return "date"
         case .weight:
@@ -121,7 +126,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             return "multi_select"
         case .gender, .notifications, .firstClimb:
             return "single_select"
-        case .features, .age, .weight, .location, .planLoading:
+        case .features, .athlete, .age, .weight, .location, .planLoading:
             return nil
         }
     }

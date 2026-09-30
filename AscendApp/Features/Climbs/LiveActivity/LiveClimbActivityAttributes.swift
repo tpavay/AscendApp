@@ -60,17 +60,17 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             case nobodyElse
         }
 
-        var standing: Standing {
-            if board != .alone, let rank {
-                return .rank(rank)
-            }
-
-            if let ownClimbs {
-                return .ownClimbs(ownClimbs)
-            }
-
-            return board == .alone ? .nobodyElse : .unresolved
+        /// Where the climber stands, in the one wording every live surface shares.
+        var standingText: LiveClimbStandingText {
+            LiveClimbStandingText(rank: rank, rankTotal: rankTotal, ownClimbs: ownClimbs, board: board)
         }
+
+        var standing: Standing { standingText.standing }
+        var standingValue: String? { standingText.value }
+        var standingCaption: String { standingText.caption }
+        var standingTitle: String { standingText.title }
+        var standingDetailLabel: String? { standingText.detailLabel }
+        var standingSecondaryLabel: String? { standingText.secondaryLabel }
 
         /// Present tense on purpose, unlike the finish card's frozen
         /// `NOBODY ELSE HAD FINISHED`: this is redrawn while the board is live
@@ -82,59 +82,6 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
 
         var clampedProgress: Double {
             min(max(progress, 0), 1)
-        }
-
-        /// The compact value, and the caption that names what it counted.
-        ///
-        /// The two travel together on purpose: an ordinal captioned `rank` names
-        /// no population, and a number with no population beside it is the whole
-        /// defect this pair exists to prevent. The compact slot holds one
-        /// number, so the leaderboard placing leads and the personal placing is
-        /// the one dropped - the finish card's own hierarchy.
-        ///
-        /// Nil where there is nothing to state: no ordinal, and no `--` either,
-        /// because that glyph means a rank that could not be resolved and this
-        /// one could not exist. The caption then carries the whole statement.
-        var standingValue: String? {
-            switch standing {
-            case .rank(let rank):
-                return "#\(rank)"
-            case .ownClimbs(let ownClimbs):
-                return Self.ordinalText(ownClimbs.placing)
-            case .unresolved:
-                return "--"
-            case .nobodyElse:
-                return nil
-            }
-        }
-
-        /// The noun alone, never the count: this renders in the Dynamic Island's
-        /// compact slot at 7pt in about 44 points of width, and `of 27 climbers`
-        /// only fits there by scaling to illegibility. The figure is already on
-        /// the value line directly above, so the caption naming the population
-        /// is what makes that ordinal a labelled number rather than a bare one.
-        var standingCaption: String {
-            switch standing {
-            case .rank:
-                return "climbers"
-            case .ownClimbs:
-                return "your climbs"
-            case .unresolved:
-                return "rank"
-            case .nobodyElse:
-                return Self.nobodyElseCaption
-            }
-        }
-
-        var standingTitle: String {
-            switch standing {
-            case .rank, .unresolved:
-                return "Rank"
-            case .ownClimbs:
-                return "Your climbs"
-            case .nobodyElse:
-                return Self.fieldTitle
-            }
         }
 
         var compactStepsLabel: String {
@@ -161,64 +108,6 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             }
 
             return "\(wholeThousands).\(tenths)k"
-        }
-
-        /// The Lock Screen and expanded-island value, or nil where there is
-        /// nothing to state and the secondary line carries the statement alone.
-        var standingDetailLabel: String? {
-            switch standing {
-            case .rank(let rank):
-                return "#\(rank) of \(Self.climberField(max(rankTotal, rank)))"
-            case .ownClimbs:
-                return ownClimbsDetailLabel
-            case .unresolved:
-                return "--"
-            case .nobodyElse:
-                return nil
-            }
-        }
-
-        /// The climber's own history, stated beneath the leaderboard placing
-        /// where there is room for both - the Lock Screen and the expanded
-        /// Dynamic Island - and nil where there is nothing measured to state.
-        ///
-        /// Where the climber is alone on the board this is the whole statement
-        /// and `standingDetailLabel` carries it instead, so the two never appear
-        /// twice on one surface. Where nobody else has finished and there is no
-        /// history to place this run in, the line names that condition and
-        /// nothing else.
-        var standingSecondaryLabel: String? {
-            switch standing {
-            case .rank:
-                return ownClimbsDetailLabel
-            case .ownClimbs, .unresolved:
-                return nil
-            case .nobodyElse:
-                return Self.nobodyElseDetail
-            }
-        }
-
-        private var ownClimbsDetailLabel: String? {
-            guard let ownClimbs else { return nil }
-
-            let total = max(ownClimbs.total, ownClimbs.placing)
-            return "\(Self.ordinalText(ownClimbs.placing)) of your \(Self.climbField(total))"
-        }
-
-        /// Spelled here rather than through the app's shared helper because the
-        /// widget extension compiles this file and not that one.
-        private static func ordinalText(_ value: Int) -> String {
-            let formatter = NumberFormatter()
-            formatter.numberStyle = .ordinal
-            return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
-        }
-
-        private static func climberField(_ count: Int) -> String {
-            "\(count) climber\(count == 1 ? "" : "s")"
-        }
-
-        private static func climbField(_ count: Int) -> String {
-            "\(count) climb\(count == 1 ? "" : "s")"
         }
 
         var durationLabel: String {
@@ -250,6 +139,143 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             URLQueryItem(name: "climbID", value: climbID)
         ]
         return components.url
+    }
+}
+
+/// What a live surface says about where the climber stands, in the Lock Screen's words.
+///
+/// The Live Activity and Ascend Mountain's race pill both read this, so the two can never state
+/// different things about one climb. It holds the standing and nothing else; the Live Activity's
+/// stored state keeps its own fields, unchanged on the wire, and builds one of these on demand.
+struct LiveClimbStandingText: Hashable, Sendable {
+    typealias ContentState = LiveClimbActivityAttributes.ContentState
+
+    var rank: Int?
+    var rankTotal: Int
+    var ownClimbs: ContentState.OwnClimbsPlacing?
+    var board: ContentState.Board?
+
+    var standing: ContentState.Standing {
+        if board != .alone, let rank {
+            return .rank(rank)
+        }
+
+        if let ownClimbs {
+            return .ownClimbs(ownClimbs)
+        }
+
+        return board == .alone ? .nobodyElse : .unresolved
+    }
+
+    /// The compact value, and the caption that names what it counted.
+    ///
+    /// The two travel together on purpose: an ordinal captioned `rank` names
+    /// no population, and a number with no population beside it is the whole
+    /// defect this pair exists to prevent. The compact slot holds one
+    /// number, so the leaderboard placing leads and the personal placing is
+    /// the one dropped - the finish card's own hierarchy.
+    ///
+    /// Nil where there is nothing to state: no ordinal, and no `--` either,
+    /// because that glyph means a rank that could not be resolved and this
+    /// one could not exist. The caption then carries the whole statement.
+    var value: String? {
+        switch standing {
+        case .rank(let rank):
+            return "#\(rank)"
+        case .ownClimbs(let ownClimbs):
+            return Self.ordinalText(ownClimbs.placing)
+        case .unresolved:
+            return "--"
+        case .nobodyElse:
+            return nil
+        }
+    }
+
+    /// The noun alone, never the count: this renders in the Dynamic Island's
+    /// compact slot at 7pt in about 44 points of width, and `of 27 climbers`
+    /// only fits there by scaling to illegibility. The figure is already on
+    /// the value line directly above, so the caption naming the population
+    /// is what makes that ordinal a labelled number rather than a bare one.
+    var caption: String {
+        switch standing {
+        case .rank:
+            return "climbers"
+        case .ownClimbs:
+            return "your climbs"
+        case .unresolved:
+            return "rank"
+        case .nobodyElse:
+            return ContentState.nobodyElseCaption
+        }
+    }
+
+    var title: String {
+        switch standing {
+        case .rank, .unresolved:
+            return "Rank"
+        case .ownClimbs:
+            return "Your climbs"
+        case .nobodyElse:
+            return ContentState.fieldTitle
+        }
+    }
+
+    /// The Lock Screen and expanded-island value, or nil where there is
+    /// nothing to state and the secondary line carries the statement alone.
+    var detailLabel: String? {
+        switch standing {
+        case .rank(let rank):
+            return "#\(rank) of \(Self.climberField(max(rankTotal, rank)))"
+        case .ownClimbs:
+            return ownClimbsDetailLabel
+        case .unresolved:
+            return "--"
+        case .nobodyElse:
+            return nil
+        }
+    }
+
+    /// The climber's own history, stated beneath the leaderboard placing
+    /// where there is room for both - the Lock Screen and the expanded
+    /// Dynamic Island - and nil where there is nothing measured to state.
+    ///
+    /// Where the climber is alone on the board this is the whole statement
+    /// and `detailLabel` carries it instead, so the two never appear
+    /// twice on one surface. Where nobody else has finished and there is no
+    /// history to place this run in, the line names that condition and
+    /// nothing else.
+    var secondaryLabel: String? {
+        switch standing {
+        case .rank:
+            return ownClimbsDetailLabel
+        case .ownClimbs, .unresolved:
+            return nil
+        case .nobodyElse:
+            return ContentState.nobodyElseDetail
+        }
+    }
+
+    private var ownClimbsDetailLabel: String? {
+        guard let ownClimbs else { return nil }
+
+        let total = max(ownClimbs.total, ownClimbs.placing)
+        return "\(Self.ordinalText(ownClimbs.placing)) of your \(Self.climbField(total))"
+    }
+
+    /// Spelled here rather than through the app's shared helper because the
+    /// widget extension compiles this file and not that one.
+    private static func ordinalText(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .ordinal
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    private static func climberField(_ count: Int) -> String {
+        "\(count) climber\(count == 1 ? "" : "s")"
+    }
+
+    private static func climbField(_ count: Int) -> String {
+        "\(count) climb\(count == 1 ? "" : "s")"
     }
 }
 

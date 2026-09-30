@@ -220,7 +220,7 @@
             </array>
         </dict>
 
-        <!-- User ID - Firebase Auth UID used for app records, analytics, community records, personal block lists, and moderation reports -->
+        <!-- User ID - Firebase Auth UID used for app records, analytics, community records, personal block lists, the climbers chosen to race on Ascend Mountain, and moderation reports -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeUserID</string>
@@ -270,7 +270,7 @@
             </array>
         </dict>
 
-        <!-- Other User Content - workout notes, feedback submissions, and profile moderation report reasons -->
+        <!-- Other User Content - workout notes, feedback submissions, profile moderation report reasons, and the preset look chosen for the climber's Ascend Mountain athlete -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherUserContent</string>

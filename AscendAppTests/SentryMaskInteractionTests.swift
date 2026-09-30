@@ -186,6 +186,59 @@ struct SentryMaskInteractionTests {
         )
     }
 
+    /// The Mountain is masked whole and sits behind the session, whose pages swipe from the
+    /// climber's read-out to the leaderboard. That swipe is a UIKit paging scroll view over the
+    /// mask, so it is observable end to end: every probe across the pager has to land inside it.
+    @Test(.disabled(if: TestHost.isVirtualMachine, TestHost.realityKitVirtualGPUReason))
+    func theMountainStillSwipesToTheLeaderboard() async throws {
+        let container = try RetainedModelContainer.inMemory(
+            for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self,
+            ClimbAttempt.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self
+        )
+        let viewModel = LiveClimbSessionViewModel(
+            justClimbGoal: JustClimbGoal(kind: .open),
+            experience: .mountain,
+            motionSession: FakeHeadphoneMotionSession(),
+            climbService: ClimbService(catalogRepository: StubClimbCatalogRepository(climbs: [])),
+            leaderboardService: StubLiveReplayLeaderboardService()
+        )
+        viewModel.start(modelContext: container.mainContext)
+        let session = LiveClimbSessionView(viewModel: viewModel)
+            .environment(ModerationStore.shared)
+            .modelContainer(container)
+
+        try await Self.expectNoTouchSwallowed(by: session, named: "AscendMountainRealityView")
+
+        try await SentryMaskTestHost.hosting(session, size: Self.surfaceSize) { window, root in
+            var pager: UIScrollView?
+            for _ in 0..<40 {
+                root.layoutIfNeeded()
+                pager = root.descendants(of: UIScrollView.self).first { $0.isPagingEnabled && !$0.bounds.isEmpty }
+                if pager != nil { break }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            let pages = try #require(pager, "the Mountain session never put up its paging view")
+            let mask = try #require(
+                root.descendants(of: SentryMaskedRegionView.self).first,
+                "the Mountain is not masked, so this test is not covering the mask it claims to"
+            )
+            #expect(
+                mask.convert(mask.bounds, to: window).contains(pages.convert(pages.bounds, to: window)),
+                "the pager is not over the masked Mountain, so this proves nothing about the mask"
+            )
+
+            let points = Self.probePoints(in: pages, within: window)
+            try #require(!points.isEmpty)
+            for point in points {
+                let hit = window.hitTest(point, with: nil)
+                #expect(
+                    hit.map { $0 === pages || $0.isDescendant(of: pages) } == true,
+                    "a swipe at \(point) lands on \(hit.map { "\(type(of: $0))" } ?? "nothing"), not the Mountain's pages"
+                )
+            }
+        }
+    }
+
     // MARK: - The assertion
 
     /// Hosts `view` and sweeps every masked region it renders, asserting no probe

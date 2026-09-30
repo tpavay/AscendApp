@@ -54,6 +54,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case liveClimbSummary = "live_climb_summary"
     case climbBrowseHelp = "climb_browse_help"
     case compatibleHeadphonesHelp = "compatible_headphones_help"
+    case mountainRace = "mountain_race"
+    case mountainRaceFilter = "mountain_race_filter"
     case climbsCollection = "climbs_collection"
 
     // MARK: - Home
@@ -86,6 +88,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     // MARK: - Profile and moderation
 
     case otherUserProfile = "other_user_profile"
+    case athleteEditor = "athlete_editor"
     case achievementHistory = "achievement_history"
     case reportProfile = "report_profile"
     case postBlockReport = "post_block_report"
@@ -148,6 +151,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .liveClimbSummary: "LiveClimbCompletionSummaryView"
         case .climbBrowseHelp: "ClimbBrowseHelpSheet"
         case .compatibleHeadphonesHelp: "CompatibleHeadphonesHelpSheet"
+        case .mountainRace: "AscendMountainRaceSheet"
+        case .mountainRaceFilter: "AscendMountainFilterSheet"
         case .climbsCollection: "ClimbsCollectionView"
         case .homeSheetExpanded: "HomeView"
         case .homeTodayActivityList: "HomeTodayActivityListView"
@@ -165,6 +170,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .routineEditor: "RoutineEditorView"
         case .activeRoutine: "ActiveRoutineView"
         case .otherUserProfile: "OtherUserProfileView"
+        case .athleteEditor: "AthleteEditorView"
         case .achievementHistory: "AchievementHistorySheet"
         case .reportProfile: "ReportProfileSheet"
         case .postBlockReport: "PostBlockReportSheet"

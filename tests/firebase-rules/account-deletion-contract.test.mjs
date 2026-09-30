@@ -24,6 +24,7 @@ const emptyUnentitledOwnerId = 'empty-unentitled-owner-789';
 const entitledIntruderId = 'entitled-intruder-012';
 const unentitledIntruderId = 'unentitled-intruder-345';
 const blockedClimberId = 'blocked-climber-678';
+const filteredClimberId = 'filtered-climber-912';
 
 const workoutId = '550E8400-E29B-41D4-A716-446655440000';
 const secondWorkoutId = '660E8400-E29B-41D4-A716-446655440000';
@@ -75,6 +76,15 @@ const sweptCollections = [
     crossAccountReadable: false,
   },
   {
+    // Choosing is paid, but a choice is never updated, only created or deleted, so the
+    // create gate is pinned in race-filter-contract.test.mjs rather than by the update probe here.
+    name: 'race_filter',
+    documentId: filteredClimberId,
+    makeDocument: makeRaceFilterDocument,
+    paidWrites: false,
+    crossAccountReadable: false,
+  },
+  {
     // The one public projection the sweep enumerates: any entitled climber may
     // read another's, so the owner is added to that gate rather than replacing it.
     name: 'profile_workouts',
@@ -90,6 +100,7 @@ const sweptCollections = [
 const sweptDocuments = [
   { path: (ownerId) => `users/${ownerId}/public_profile/current`, makeDocument: makePublicProfileDocument },
   { path: (ownerId) => `users/${ownerId}/profile_stats/current`, makeDocument: makeProfileStatsDocument },
+  { path: (ownerId) => `users/${ownerId}/athlete_look/current`, makeDocument: makeAthleteLookDocument },
   { path: (ownerId) => `users/${ownerId}`, makeDocument: makeUserDocument },
 ];
 
@@ -315,6 +326,13 @@ function makeBlockedClimberDocument() {
   };
 }
 
+function makeRaceFilterDocument() {
+  return {
+    climberUid: filteredClimberId,
+    createdAt: new Date('2026-09-29T07:00:00.000Z'),
+  };
+}
+
 function makeProfileWorkoutSummary() {
   return {
     name: 'Morning Stair Session',
@@ -323,6 +341,22 @@ function makeProfileWorkoutSummary() {
     steps: 1200,
     source: 'apple_health',
     lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
+  };
+}
+
+function makeAthleteLookDocument() {
+  return {
+    schemaVersion: 1,
+    body: 'a',
+    skinTone: 'tone3',
+    hairStyle: 'parted',
+    hairColor: 'dark_brown',
+    top: 'lime',
+    bottom: 'black',
+    shoes: 'white',
+    size: 'regular',
+    muscle: 'some',
+    updatedAt: new Date('2026-09-29T07:00:00.000Z'),
   };
 }
 

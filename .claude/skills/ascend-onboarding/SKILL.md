@@ -27,6 +27,10 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
   The name is resolved without asking - see the `Name - Resolved, Never Asked` section of `docs/onboarding-design-guide.md`, which owns that contract.
   `ascend-profile` owns the full demographics contract - the stored birthday, the derived age and its bounds, and the gender raw values.
 
+## Your athlete
+- The `athlete` stage follows `gender`: "This is you on the Mountain", the athlete the gender answer starts the climber with (`AthleteLook.starting(for:)`), MAKE IT MINE into the editor or LOOKS GOOD. Both save the look, so other climbers see this athlete rather than a stand-in; a save that fails never holds onboarding up.
+- It sits ahead of the paywall, so `users/{uid}/athlete_look/current` is owner-written without a grant, like public identity (`docs/revenuecat-server-entitlement-enforcement.md`).
+
 ## Routing & resolver
 - Sign-in is a routing transition, not a sheet dismissal - auth screens should not dismiss themselves after provider sign-in; the auth surface is replaced by the authenticated root.
 - The post-auth resolver distinguishes three user states: **first-time** (run full post-auth flow), **returning-complete** (skip to home), **interrupted-returning** (resume at the step where they left off, not restart from the beginning).

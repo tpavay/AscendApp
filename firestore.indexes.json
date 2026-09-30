@@ -453,12 +453,78 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isBestForUser",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isBestForUser",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bestForGoals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bestForGoals",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "finalSteps",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
     {
       "collectionGroup": "blocked",
       "fieldPath": "blockedUid",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "race_filter",
+      "fieldPath": "climberUid",
       "indexes": [
         {
           "order": "ASCENDING",

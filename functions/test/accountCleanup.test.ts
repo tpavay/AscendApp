@@ -23,6 +23,7 @@ interface FakePortOptions {
   feedbackDocuments?: number;
   moderationReports?: number;
   incomingBlockDocuments?: number;
+  incomingRaceFilterDocuments?: number;
   lifecycleEmailJobs?: number;
   revenueCatAnalyticsOutbox?: number;
   homeTodayActivityRows?: number;
@@ -144,6 +145,14 @@ function makeFakePort(options: FakePortOptions = {}): {
       }
       deleted.push("incoming_blocks");
       return options.incomingBlockDocuments ?? 0;
+    },
+
+    async deleteIncomingRaceFilterDocuments() {
+      if (failOn.has("incoming_race_filters")) {
+        throw new Error("cannot delete incoming_race_filters");
+      }
+      deleted.push("incoming_race_filters");
+      return options.incomingRaceFilterDocuments ?? 0;
     },
 
     async deleteLifecycleEmailJobs() {
@@ -398,7 +407,8 @@ function makeFirstAscentFirestore(holderId: string): {
  * @return {object} Firestore stand-in and the deleted values.
  */
 function makeIncomingBlocksFirestore(
-  blockedUserIds: string[]
+  blockedUserIds: string[],
+  expected: {collection: string; field: string} = {collection: "blocked", field: "blockedUid"}
 ): {
   firestore: admin.firestore.Firestore;
   deletedUserIds: string[];
@@ -406,10 +416,10 @@ function makeIncomingBlocksFirestore(
   const deletedUserIds: string[] = [];
   const firestore = {
     collectionGroup(collectionId: string) {
-      assert.equal(collectionId, "blocked");
+      assert.equal(collectionId, expected.collection);
       return {
         where(field: string, operation: string, value: string) {
-          assert.equal(field, "blockedUid");
+          assert.equal(field, expected.field);
           assert.equal(operation, "==");
           const matches = blockedUserIds.filter((userId) => userId === value);
           return {
@@ -1239,6 +1249,47 @@ test(
 
     assert.equal(summary.deletedIncomingBlockDocuments, 3);
     assert.ok(deleted.includes("incoming_blocks"));
+  }
+);
+
+test(
+  "removes the deleted climber from other climbers' race filters",
+  async () => {
+    const {deleted, port} = makeFakePort({incomingRaceFilterDocuments: 2});
+
+    const summary = await cleanupDeletedUser("user-a", port);
+
+    assert.equal(summary.deletedIncomingRaceFilterDocuments, 2);
+    assert.ok(deleted.includes("incoming_race_filters"));
+  }
+);
+
+test(
+  "a failing race filter sweep is reported without abandoning cleanup",
+  async () => {
+    const {deleted, port} = makeFakePort({failOn: ["incoming_race_filters"]});
+
+    const summary = await cleanupDeletedUser("user-a", port);
+
+    assert.equal(summary.deletedIncomingRaceFilterDocuments, 0);
+    assert.ok(summary.failures.some((failure) => failure.startsWith("incoming_race_filters:")));
+    assert.ok(deleted.includes("incoming_blocks"));
+  }
+);
+
+test(
+  "Admin cleanup finds incoming race filters with a collection-group query",
+  async () => {
+    const {deletedUserIds, firestore} = makeIncomingBlocksFirestore(
+      ["user-a", "user-b", "user-a"],
+      {collection: "race_filter", field: "climberUid"}
+    );
+
+    const count = await makeAdminPort(firestore)
+      .deleteIncomingRaceFilterDocuments("user-a");
+
+    assert.equal(count, 2);
+    assert.deepEqual(deletedUserIds, ["user-a", "user-a"]);
   }
 );
 
