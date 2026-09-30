@@ -21,6 +21,12 @@ enum ProfileIdentityFormatter {
         return "Member since \(monthDayYearFormatter.string(from: date))"
     }
 
+    /// The comparison's `Joined` cell: month and year, short enough for a half-width column.
+    static func joinedMonthText(for date: Date?) -> String? {
+        guard let date else { return nil }
+        return monthYearFormatter.string(from: date)
+    }
+
     private static func locationText(city: String?, countryCode: String?, regionCode: String?) -> String? {
         if let city = city?.trimmingCharacters(in: .whitespacesAndNewlines),
            !city.isEmpty {
@@ -52,6 +58,12 @@ enum ProfileIdentityFormatter {
 
         return countryCode.uppercased()
     }
+
+    private static let monthYearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM yyyy"
+        return formatter
+    }()
 
     private static let monthDayYearFormatter: DateFormatter = {
         let formatter = DateFormatter()

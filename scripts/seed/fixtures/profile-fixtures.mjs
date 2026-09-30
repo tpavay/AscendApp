@@ -20,17 +20,17 @@ export const LEADERBOARD_TIME_FRAMES = [
 ];
 
 export const PROFILE_SEED_PERSONAS = [
-  {id: "profile_veteran_champion", name: "Dominic Reyes", age: 32, gender: "man", weightLb: 178, country: "US", region: "IL", climbs: 47, firstAscents: 4, top1: 3, top3: 11, top10: 18, top100: 31, streak: 15, weeklySteps: 42000, climbIds: ["empire-state-building", "space-needle", "statue-of-liberty", "burj-khalifa", "eiffel-tower"]},
+  {id: "profile_veteran_champion", name: "Dominic Reyes", age: 32, gender: "man", weightLb: 178, country: "US", region: "IL", climbs: 47, firstAscents: 4, top1: 3, top3: 11, top10: 18, top100: 31, streak: 15, weeklySteps: 42000, heartRate: {averageBpm: 146, maxBpm: 184}, climbIds: ["empire-state-building", "space-needle", "statue-of-liberty", "burj-khalifa", "eiffel-tower"]},
   {id: "profile_newcomer", name: "Jonas Bergman", age: 27, gender: "man", weightLb: 165, country: "DE", region: "BE", climbs: 0, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 0, streak: 0, joinedOffsetDays: -1, climbIds: []},
   {id: "profile_active_recent", name: "Mara Sinclair", age: 41, gender: "woman", weightLb: 145, country: "AU", region: "NSW", climbs: 6, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 0, streak: 3, climbIds: ["sydney-tower", "space-needle", "statue-of-liberty"]},
   {id: "profile_fa_collector", name: "Ren Kobayashi", age: 28, gender: "non_binary", weightLb: 152, country: "JP", region: "13", climbs: 8, firstAscents: 5, top1: 0, top3: 0, top10: 0, top100: 0, streak: 4, climbIds: ["tokyo-tower", "taipei-101", "canton-tower", "oriental-pearl-tower"]},
-  {id: "profile_medal_heavy", name: "Naledi Mokoena", age: 55, gender: "woman", weightLb: 168, country: "ZA", region: "WC", climbs: 22, firstAscents: 0, top1: 1, top3: 6, top10: 14, top100: 22, streak: 8, climbIds: ["monserrate", "eiffel-tower", "cn-tower", "reunion-tower"]},
-  {id: "profile_peer_veteran", name: "Caleb Hollis", age: 27, gender: "man", weightLb: 175, country: "US", region: "TX", climbs: 5, firstAscents: 0, top1: 0, top3: 1, top10: 2, top100: 5, streak: 2, climbIds: ["empire-state-building", "space-needle", "statue-of-liberty"]},
+  {id: "profile_medal_heavy", name: "Naledi Mokoena", age: 55, gender: "woman", weightLb: 168, country: "ZA", region: "WC", climbs: 22, firstAscents: 0, top1: 1, top3: 6, top10: 14, top100: 22, streak: 8, heartRate: {averageBpm: 138, maxBpm: 171}, climbIds: ["monserrate", "eiffel-tower", "cn-tower", "reunion-tower"]},
+  {id: "profile_peer_veteran", name: "Caleb Hollis", age: 27, gender: "man", weightLb: 175, country: "US", region: "TX", climbs: 5, firstAscents: 0, top1: 0, top3: 1, top10: 2, top100: 5, streak: 2, heartRate: {averageBpm: 151, maxBpm: 188}, climbIds: ["empire-state-building", "space-needle", "statue-of-liberty"]},
   {id: "profile_no_overlap_peer", name: "Dayo Adeyemi", age: 27, gender: "man", weightLb: 180, country: "NG", region: "LA", climbs: 4, firstAscents: 0, top1: 0, top3: 0, top10: 1, top100: 4, streak: 1, climbIds: ["st-peters-basilica", "sacre-coeur", "berlin-tv-tower", "leaning-tower-of-pisa"]},
   {id: "profile_tied_gold", name: "Mateo Guzman", age: 30, gender: "man", weightLb: 170, country: "ES", region: "MD", climbs: 12, firstAscents: 1, top1: 1, top3: 2, top10: 6, top100: 12, streak: 5, weeklySteps: 42000, climbIds: ["elizabeth-tower", "empire-state-building", "eiffel-tower"]},
   {id: "profile_streak_heavy", name: "Hana Watanabe", age: 35, gender: "woman", weightLb: 138, country: "NZ", region: "AUK", climbs: 33, firstAscents: 1, top1: 0, top3: 4, top10: 9, top100: 20, streak: 28, climbIds: ["sky-tower-auckland", "sydney-tower", "space-needle"]},
   {id: "profile_privacy_edge", name: "Anika Patel", age: 19, gender: "woman", weightLb: 110, country: "IN", region: "MH", climbs: 3, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 1, streak: 1, climbIds: ["charminar", "statue-of-liberty"]},
-  {id: "profile_older_athlete", name: "Victor Pereira", age: 68, gender: "man", weightLb: 195, country: "US", region: "AZ", climbs: 18, firstAscents: 1, top1: 0, top3: 2, top10: 8, top100: 18, streak: 9, climbIds: ["willis-tower", "one-world-trade-center", "empire-state-building"]},
+  {id: "profile_older_athlete", name: "Victor Pereira", age: 68, gender: "man", weightLb: 195, country: "US", region: "AZ", climbs: 18, firstAscents: 1, top1: 0, top3: 2, top10: 8, top100: 18, streak: 9, heartRate: {averageBpm: 124, maxBpm: 158}, climbIds: ["willis-tower", "one-world-trade-center", "empire-state-building"]},
   {id: "profile_empty_achievements", name: "Linnea Strand", age: 24, gender: "non_binary", weightLb: 160, country: "SE", region: "AB", climbs: 2, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 0, streak: 1, climbIds: ["space-needle", "statue-of-liberty"]},
 ];
 
@@ -83,6 +83,9 @@ export const PROFILE_FIELD_SETS = {
     "pr_most_steps",
     "pr_longest_climb_seconds",
     "pr_highest_spm",
+    "average_heart_rate_bpm",
+    "max_heart_rate_bpm",
+    "heart_rate_public",
     "lastUpdated",
   ]),
   profileWorkout: new Set([
@@ -487,6 +490,11 @@ function statsFor(persona, workouts) {
     pr_most_steps: derived.pr_most_steps,
     pr_longest_climb_seconds: derived.pr_longest_climb_seconds,
     pr_highest_spm: derived.pr_highest_spm,
+    // Only some personas carry heart rate, so the comparison can be filmed both ways.
+    ...(persona.heartRate ? {
+      average_heart_rate_bpm: persona.heartRate.averageBpm,
+      max_heart_rate_bpm: persona.heartRate.maxBpm,
+    } : {}),
   };
 }
 
