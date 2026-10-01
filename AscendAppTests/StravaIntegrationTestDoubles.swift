@@ -5,7 +5,7 @@ import Foundation
 final class FakeStravaIntegrationClient: StravaIntegrationClient {
     static let request = StravaAuthorizationRequest(
         authorizeURL: URL(string: "https://www.strava.com/oauth/mobile/authorize?client_id=1")!,
-        callbackScheme: "ascendapp"
+        callbackScheme: AscendURLScheme.current
     )
 
     var status: StravaConnectionStatus

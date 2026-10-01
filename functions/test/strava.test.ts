@@ -24,7 +24,10 @@ import {
   type StravaClient,
   type StravaUploadStatus,
 } from "../src/strava/api.js";
-import {parseStravaServerConfig} from "../src/strava/config.js";
+import {
+  parseStravaServerConfig,
+  stravaCallbackScheme,
+} from "../src/strava/config.js";
 import {athleteDisplayName, needsRefresh} from "../src/strava/connections.js";
 import {
   buildStravaAuthorizeUrl,
@@ -92,6 +95,26 @@ test("a half-filled Strava config fails loudly", () => {
       webhookVerifyToken: "short",
     })),
     /webhookVerifyToken/
+  );
+});
+
+test("each build's redirect hands the code back to that build", () => {
+  for (const scheme of ["ascendapp", "ascendapp-stg", "ascendapp-dev"]) {
+    const redirectUri = `${scheme}://ascendstepper.com/strava`;
+    assert.deepEqual(
+      parseStravaServerConfig(JSON.stringify({...CONFIG, redirectUri})),
+      {...CONFIG, redirectUri}
+    );
+    assert.equal(stravaCallbackScheme(redirectUri), scheme);
+  }
+  assert.equal(stravaCallbackScheme("ascendapp-qa://ascendstepper.com/x"), null);
+  assert.equal(stravaCallbackScheme("ascendapp:///strava"), null);
+  assert.throws(
+    () => parseStravaServerConfig(JSON.stringify({
+      ...CONFIG,
+      redirectUri: "someoneelse://ascendstepper.com/strava",
+    })),
+    /redirectUri/
   );
 });
 

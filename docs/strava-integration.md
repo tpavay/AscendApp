@@ -23,7 +23,9 @@ The app only starts and ends a connection.
 1. **Status.** The Integrations screen calls `stravaGetStatus`.
    The Strava card appears only when the climber may connect or is already connected; for everyone else there is nothing on screen.
 2. **Connect.** `stravaBeginConnect` refuses anyone the access settings do not name, then stores a single-use state in `_strava_oauth_states` and returns Strava's mobile consent URL.
-   The app opens it in an `ASWebAuthenticationSession`, Strava redirects to `ascendapp://<callback domain>/...`, and the session hands the URL back to the app.
+   The app opens it in an `ASWebAuthenticationSession`, and Strava redirects to `<build scheme>://<callback domain>/...`.
+   Approved in the sheet, the session catches the redirect itself; approved in the Strava app, which takes over when it is installed, Strava opens the redirect like any link, so it reaches the app through `onOpenURL` and is handed to the waiting sheet (`WebStravaAuthorizationPresenter.receive`).
+   The app refuses to start a connect whose `callbackScheme` is not its own, because Strava hands the code to whichever installed build claims that scheme.
    `stravaCompleteConnect` consumes the state (it must belong to the caller and be under ten minutes old), re-checks access, exchanges the code with the client secret, requires `activity:write` among the granted scopes, and stores the tokens in `_strava_connections/{uid}`.
 3. **Queue.** `onWorkoutWrittenStravaUpload` watches `users/{uid}/workouts/{workoutId}`.
    A connected climber's climb is queued once in `_strava_upload_jobs` when it was recorded in Ascend (`source == headphone_motion`), has steps and a duration, started after the connection was made, and started within the last 48 hours.
@@ -87,13 +89,23 @@ The combined allowlists and connections of all three projects must stay within i
 {
   "clientId": "123456",
   "clientSecret": "<from the Strava API dashboard>",
-  "redirectUri": "ascendapp://ascendstepper.com/strava",
+  "redirectUri": "ascendapp-dev://ascendstepper.com/strava",
   "webhookVerifyToken": "<at least 16 random characters>"
 }
 ```
 
-The `redirectUri` host must equal the "Authorization Callback Domain" set on the Strava API app, or be a subdomain of it, and its scheme must be the app's registered `ascendapp` scheme.
-The Strava app's domain is `ascendstepper.com`, so every project uses `ascendapp://ascendstepper.com/strava`.
+The `redirectUri` host must equal the "Authorization Callback Domain" set on the Strava API app, or be a subdomain of it, and its scheme must be the URL scheme of the build that talks to that project.
+Each build registers only its own scheme (`ASCEND_URL_SCHEME`): every build used to share `ascendapp`, so on a phone with more than one Ascend build installed iOS handed a production connect to the staging build.
+The Strava app's domain is `ascendstepper.com`, so the redirects are:
+
+| Project | Build | `redirectUri` |
+|---|---|---|
+| dev `ascend-f2e4f` | Debug | `ascendapp-dev://ascendstepper.com/strava` |
+| staging `ascend-staging-fa7d5` | Staging | `ascendapp-stg://ascendstepper.com/strava` |
+| production `ascend-prod-9c8f2` | Release | `ascendapp://ascendstepper.com/strava` |
+
+Strava validates only the host, so it accepts all three schemes (measured 2026-10-01: each answers the authorize request with a redirect to sign-in).
+`STRAVA_REDIRECT_SCHEMES` in `functions/src/strava/config.ts` lists the schemes the functions accept, and `scripts/test/url-scheme-build-configuration.test.mjs` holds it equal to the build settings.
 With any other host Strava's authorize page answers `{"message":"Bad Request","errors":[{"resource":"Application","field":"redirect_uri","code":"invalid"}]}` before the climber ever sees a sign-in; a `localhost` host is always accepted, which is how to tell a domain mismatch from anything else.
 Strava grants `read` alongside `activity:write` whatever is requested; Ascend stores it and uses neither it nor anything it could read.
 A project that must stay inert holds `{"configured": false}`: every Strava surface then reports unavailable instead of failing.

@@ -16,14 +16,27 @@ export interface StravaServerConfig {
   /**
    * The OAuth redirect the app's authentication session listens for. Its
    * host must equal the "Authorization Callback Domain" on the Strava app,
-   * and its scheme must be the app's registered URL scheme.
+   * and its scheme must be the URL scheme of the build that talks to this
+   * project (`STRAVA_REDIRECT_SCHEMES`).
    */
   redirectUri: string;
   /** Echoed back by Strava when a webhook subscription is created. */
   webhookVerifyToken: string;
 }
 
-export const STRAVA_REDIRECT_SCHEME = "ascendapp";
+/**
+ * The URL scheme each Ascend build registers: the App Store build, staging,
+ * and dev. Every build used to share `ascendapp`, so with more than one
+ * installed iOS handed Strava's redirect to whichever it chose, and a
+ * production climber's connect landed in the staging build. Strava checks
+ * only the redirect's host against its callback domain, so each project
+ * names its own build's scheme and Strava accepts all three.
+ */
+export const STRAVA_REDIRECT_SCHEMES: readonly string[] = [
+  "ascendapp",
+  "ascendapp-stg",
+  "ascendapp-dev",
+];
 const MIN_VERIFY_TOKEN_LENGTH = 16;
 
 /**
@@ -62,10 +75,11 @@ export function parseStravaServerConfig(
       "STRAVA_SERVER_CONFIG needs a numeric clientId and a clientSecret"
     );
   }
-  if (!redirectUri || !isAppRedirectUri(redirectUri)) {
+  if (!redirectUri || stravaCallbackScheme(redirectUri) === null) {
     throw new Error(
-      `STRAVA_SERVER_CONFIG.redirectUri must use the ${STRAVA_REDIRECT_SCHEME}` +
-      " scheme and name the Strava app's callback domain as its host"
+      "STRAVA_SERVER_CONFIG.redirectUri must use one of the " +
+      `${STRAVA_REDIRECT_SCHEMES.join(", ")} schemes and name the Strava ` +
+      "app's callback domain as its host"
     );
   }
   if (!webhookVerifyToken ||
@@ -87,17 +101,19 @@ export function getStravaServerConfig(): StravaServerConfig | null {
 }
 
 /**
- * Whether a redirect URI is one the app's authentication session can catch.
- * @param {string} value Candidate redirect URI.
- * @return {boolean} True for `ascendapp://<host>/<path>`.
+ * The URL scheme the app's authentication session must listen on for a
+ * redirect URI, or null when no Ascend build could catch it.
+ * @param {string} redirectUri Candidate redirect URI.
+ * @return {string | null} The scheme, for `<scheme>://<host>/<path>`.
  */
-function isAppRedirectUri(value: string): boolean {
+export function stravaCallbackScheme(redirectUri: string): string | null {
   try {
-    const url = new URL(value);
-    return url.protocol === `${STRAVA_REDIRECT_SCHEME}:` &&
-      url.hostname.length > 0;
+    const url = new URL(redirectUri);
+    const scheme = url.protocol.replace(/:$/, "");
+    return STRAVA_REDIRECT_SCHEMES.includes(scheme) &&
+      url.hostname.length > 0 ? scheme : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
