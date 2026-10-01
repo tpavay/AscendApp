@@ -9,7 +9,7 @@ enum StravaAuthorizationCallback: Equatable {
     /// Anything else Strava sent back.
     case invalid
 
-    /// Parses `ascendapp://<callback domain>/...?state=...&code=...&scope=...`,
+    /// Parses `<build scheme>://<callback domain>/...?state=...&code=...&scope=...`,
     /// or `...?error=access_denied`.
     init(url: URL) {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
