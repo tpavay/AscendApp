@@ -1,7 +1,42 @@
 ---
+import { APP_STORE_URL } from '../appStore';
+
+const socialLinks = [
+  { label: 'Instagram @ascendstepper', href: 'https://www.instagram.com/ascendstepper/', icon: 'instagram' },
+  { label: 'Instagram @iamtylerpavay', href: 'https://www.instagram.com/iamtylerpavay/', icon: 'instagram' },
+  { label: 'TikTok @iamtylerpavay', href: 'https://www.tiktok.com/@iamtylerpavay', icon: 'tiktok' },
+  { label: 'YouTube @iamtylerpavay', href: 'https://www.youtube.com/@iamtylerpavay', icon: 'youtube' }
+];
 ---
 <footer>
-  <span class="copyright">&copy; Ascend 2026</span>
+  <div class="footer-main">
+    <span class="copyright">&copy; Ascend 2026</span>
+    <a class="footer-store" href={APP_STORE_URL}>Download on the App Store</a>
+  </div>
+  <div class="footer-social" aria-label="Ascend on social media">
+    {socialLinks.map((link) => (
+      <a href={link.href} aria-label={link.label} title={link.label}>
+        {link.icon === 'instagram' && (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="5" />
+            <circle cx="12" cy="12" r="4.2" />
+            <circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none" />
+          </svg>
+        )}
+        {link.icon === 'tiktok' && (
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M16.6 3c.4 2.3 1.9 3.9 4.2 4.1v3.2c-1.5.1-2.9-.4-4.2-1.2v6.3c0 3.5-2.6 5.9-5.9 5.9-3.2 0-5.8-2.5-5.8-5.8 0-3.5 3-6.1 6.6-5.7v3.3c-1.7-.4-3.3.8-3.3 2.5 0 1.4 1.1 2.5 2.5 2.5 1.6 0 2.6-1.1 2.6-2.9V3h3.3z" />
+          </svg>
+        )}
+        {link.icon === 'youtube' && (
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M22.5 7.2c-.3-1.1-1.1-1.9-2.2-2.2C18.4 4.5 12 4.5 12 4.5s-6.4 0-8.3.5c-1.1.3-1.9 1.1-2.2 2.2C1 9.1 1 12 1 12s0 2.9.5 4.8c.3 1.1 1.1 1.9 2.2 2.2 1.9.5 8.3.5 8.3.5s6.4 0 8.3-.5c1.1-.3 1.9-1.1 2.2-2.2.5-1.9.5-4.8.5-4.8s0-2.9-.5-4.8zM9.8 15.1V8.9l5.4 3.1-5.4 3.1z" />
+          </svg>
+        )}
+        <span class="footer-handle">{link.label.replace(/^\w+ /, '')}</span>
+      </a>
+    ))}
+  </div>
   <div class="footer-links">
     <a href="/support">Support</a>
     <a href="/terms">Terms</a>

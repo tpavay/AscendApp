@@ -159,9 +159,10 @@ test("the public website consistently presents Ascend as racing", async () => {
   const outwardCopy = publicSources.join("\n");
 
   assert.match(outwardCopy, /stair stepper racing app/i);
-  assert.match(outwardCopy, /Race real towers/);
-  assert.match(outwardCopy, /Tower running, without the tower\./);
-  assert.match(outwardCopy, /The first finisher claims it forever/);
+  // The homepage the captain approved on 2026-10-01 leads with competition on the
+  // machine itself, not with towers.
+  assert.match(outwardCopy, /Compete on <span class="accent">the stair stepper\.<\/span>/);
+  assert.match(outwardCopy, /Ascend turns every one of them into a race against other climbers/);
   assert.match(
     outwardCopy,
     /does not import workouts from Apple Health or any other app/i
@@ -173,7 +174,9 @@ test("the public website consistently presents Ascend as racing", async () => {
     "fitness tracking and competition app",
     "helps you track stair-stepper workouts",
     "log sessions",
-    "import supported workout data"
+    "import supported workout data",
+    // Read as "this is a running app" in the positioning review; the machine leads now.
+    "Tower running, without the tower"
   ]) {
     assert.doesNotMatch(outwardCopy, new RegExp(retiredCopy, "i"));
   }
