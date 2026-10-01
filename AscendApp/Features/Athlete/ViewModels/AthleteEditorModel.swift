@@ -23,28 +23,24 @@ final class AthleteEditorModel {
         case reading, read, failed
     }
 
-    /// Saving is only safe once this is `.read`: before then the editor holds this device's copy
-    /// or the default athlete, and saving it would replace the look the climber saved.
+    /// The editor is only editable, and savable, once this is `.read`: before then it holds this
+    /// device's copy or the default athlete, and a save would replace the look the climber saved.
     private(set) var savedLookRead: SavedLookRead = .reading
-    /// The look the editor last took from the store; the climber has edits when the draft
-    /// differs from it.
-    private var adoptedLook: AthleteLook
 
     init(look: AthleteLook) {
         draft = look
-        adoptedLook = look
     }
 
-    var hasEdits: Bool {
-        draft != adoptedLook
+    var isEditable: Bool {
+        savedLookRead == .read
     }
 
     var canSave: Bool {
-        !isSaving && savedLookRead == .read
+        !isSaving && isEditable
     }
 
-    /// Reads the climber's saved look and dresses the editor in it. A read the account never
-    /// answered leaves saving off until a retry succeeds.
+    /// Reads the climber's saved look and dresses the editor in it. Until the account answers,
+    /// with a look or with none, nothing can be changed or saved; a failed read waits for a retry.
     ///
     /// The editor cannot trust whoever opened it to have loaded the store first: the Just Climb
     /// chip opened it on an unread store after a relaunch, showed the default athlete, and a
@@ -55,16 +51,8 @@ final class AthleteEditorModel {
             savedLookRead = .failed
             return
         }
-        adopt(store.current)
+        draft = store.current
         savedLookRead = .read
-    }
-
-    /// Takes a look the store learned about, unless the climber has already changed something,
-    /// so a late answer never undoes a choice they tapped.
-    func adopt(_ look: AthleteLook) {
-        guard !hasEdits else { return }
-        draft = look
-        adoptedLook = look
     }
 
     /// Switching body keeps the rest of the look, and moves a hairstyle that was only the old

@@ -214,23 +214,24 @@ struct AthleteLookStoreTests {
         await model.loadSavedLook(userId: "me", from: relaunched)
 
         #expect(model.draft == look)
-        #expect(!model.hasEdits)
+        #expect(model.isEditable)
         #expect(model.canSave)
     }
 
-    @Test("A look the account answers with late never undoes a choice the climber tapped")
-    func aLateAnswerKeepsTheClimbersEdits() async {
+    @Test("Nothing can be changed until the account answers, and its answer replaces the draft")
+    func theEditorIsLockedUntilTheAccountAnswers() async {
         var saved = AthleteLook.starting(for: .man)
         saved.hairColor = .red
-        let (store, _) = store(FakeAthleteLookRepository(looks: ["me": saved]))
+        let (store, _) = store(FakeAthleteLookRepository(looks: ["me": saved]), gender: .man)
         let model = AthleteEditorModel(look: store.current)
+        #expect(!model.isEditable, "the default athlete is not the climber's to edit yet")
+        #expect(!model.canSave)
 
         model.draft.top = .orange
         await model.loadSavedLook(userId: "me", from: store)
 
-        #expect(model.draft.top == .orange)
-        #expect(model.draft.hairColor != .red)
-        #expect(model.hasEdits)
+        #expect(model.isEditable)
+        #expect(model.draft == saved, "the saved look, never the default with a tap on it")
     }
 
     @Test("An account that could not be read never lets the editor save over the saved look")
@@ -245,6 +246,7 @@ struct AthleteLookStoreTests {
         await model.loadSavedLook(userId: "me", from: store)
 
         #expect(model.savedLookRead == .failed)
+        #expect(!model.isEditable, "a failed read never hands over the default to edit")
         #expect(!model.canSave)
         #expect(await model.save(userId: "me", to: store) == false)
         #expect(repository.saves.isEmpty, "the default athlete never reached the account")
@@ -266,6 +268,7 @@ struct AthleteLookStoreTests {
 
         #expect(model.savedLookRead == .read)
         #expect(model.draft == .starting(for: .woman))
+        #expect(model.isEditable)
         #expect(model.canSave)
         #expect(await model.save(userId: "me", to: store))
     }

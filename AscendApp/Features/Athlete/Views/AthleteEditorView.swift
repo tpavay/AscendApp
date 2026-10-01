@@ -30,6 +30,13 @@ struct AthleteEditorView: View {
             AthletePreviewView(look: model.draft)
                 .frame(height: 290)
                 .frame(maxWidth: .infinity)
+                .opacity(model.isEditable ? 1 : 0.35)
+                .overlay {
+                    if model.savedLookRead == .reading {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                }
                 .background(stageGlow)
 
             ScrollView {
@@ -104,6 +111,8 @@ struct AthleteEditorView: View {
                 .padding(.bottom, 20)
             }
             .scrollIndicators(.hidden)
+            .disabled(!model.isEditable)
+            .opacity(model.isEditable ? 1 : 0.45)
 
             saveBar
         }
@@ -112,11 +121,6 @@ struct AthleteEditorView: View {
         .trackOnce(screen: .athleteEditor)
         .task(id: authVM.user?.uid) {
             await loadSavedLook()
-        }
-        // The store reads this device's copy before it asks the account, so the saved look
-        // arrives here a round trip before the load returns.
-        .onChange(of: store.current) { _, look in
-            model.adopt(look)
         }
     }
 
