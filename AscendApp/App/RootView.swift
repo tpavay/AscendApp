@@ -439,16 +439,14 @@ struct RootView: View {
                 return
             }
 
-            await monetizationManager.refreshEntitlements()
-            guard isCurrentAuthenticatedSession(expectedUserId) else { return }
-
-            await uploadManager.processPendingUploads(modelContext: modelContext)
-            guard isCurrentAuthenticatedSession(expectedUserId) else { return }
-
-            await bootstrapAuthenticatedLocalState(expectedUserId: expectedUserId)
-            guard isCurrentAuthenticatedSession(expectedUserId) else { return }
-
-            await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
+            await AuthenticatedSessionWorkChain(
+                hydrateBlockList: { await moderationStore.hydrate(for: expectedUserId) },
+                refreshEntitlements: { await monetizationManager.refreshEntitlements() },
+                processPendingUploads: { await uploadManager.processPendingUploads(modelContext: modelContext) },
+                bootstrapLocalState: { await bootstrapAuthenticatedLocalState(expectedUserId: expectedUserId) },
+                synchronizePushDevice: { await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded() },
+                isCurrentSession: { isCurrentAuthenticatedSession(expectedUserId) }
+            ).run()
         }
     }
 
@@ -461,9 +459,6 @@ struct RootView: View {
         }
 
         do {
-            await moderationStore.hydrate(for: currentUserId)
-            guard isCurrentAuthenticatedSession(currentUserId) else { return }
-
             // Crowns change hands on the first foreground after a board closes. Not awaited:
             // a few small reads must never hold up hydration and sync behind them.
             championRegistry.setCurrentUser(currentUserId)

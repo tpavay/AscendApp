@@ -194,11 +194,91 @@ struct AthleteLookStoreTests {
         #expect(repository.saves == [look])
     }
 
+    @Test("The editor opened on a store nothing has loaded yet still shows the saved look")
+    func theEditorOpenedBeforeAnyLoadShowsTheSavedLook() async {
+        var look = AthleteLook.starting(for: .man)
+        look.skinTone = .tone6
+        let (saving, defaults) = store(FakeAthleteLookRepository(looks: [:]))
+        try? await saving.save(look, userId: "me")
+
+        // A relaunch: a fresh store over the same device copy, opened from the Just Climb chip
+        // before Profile or a Mountain session has loaded it.
+        let relaunched = AthleteLookStore(
+            repository: FakeAthleteLookRepository(looks: ["me": look]),
+            genderSource: { _ in .man },
+            defaults: defaults
+        )
+        let model = AthleteEditorModel(look: relaunched.current)
+        #expect(model.draft != look, "the precondition: the unread store offers the default")
+
+        await model.loadSavedLook(userId: "me", from: relaunched)
+
+        #expect(model.draft == look)
+        #expect(model.isEditable)
+        #expect(model.canSave)
+    }
+
+    @Test("Nothing can be changed until the account answers, and its answer replaces the draft")
+    func theEditorIsLockedUntilTheAccountAnswers() async {
+        var saved = AthleteLook.starting(for: .man)
+        saved.hairColor = .red
+        let (store, _) = store(FakeAthleteLookRepository(looks: ["me": saved]), gender: .man)
+        let model = AthleteEditorModel(look: store.current)
+        #expect(!model.isEditable, "the default athlete is not the climber's to edit yet")
+        #expect(!model.canSave)
+
+        model.draft.top = .orange
+        await model.loadSavedLook(userId: "me", from: store)
+
+        #expect(model.isEditable)
+        #expect(model.draft == saved, "the saved look, never the default with a tap on it")
+    }
+
+    @Test("An account that could not be read never lets the editor save over the saved look")
+    func aFailedReadKeepsSaveOffUntilARetryAnswers() async {
+        var look = AthleteLook.starting(for: .man)
+        look.skinTone = .tone6
+        let repository = FakeAthleteLookRepository(looks: ["me": look], failing: ["me"])
+        let (store, _) = store(repository, gender: .man)
+        let model = AthleteEditorModel(look: store.current)
+        #expect(!model.canSave, "nothing has answered yet")
+
+        await model.loadSavedLook(userId: "me", from: store)
+
+        #expect(model.savedLookRead == .failed)
+        #expect(!model.isEditable, "a failed read never hands over the default to edit")
+        #expect(!model.canSave)
+        #expect(await model.save(userId: "me", to: store) == false)
+        #expect(repository.saves.isEmpty, "the default athlete never reached the account")
+
+        repository.failing = []
+        await model.loadSavedLook(userId: "me", from: store)
+
+        #expect(model.savedLookRead == .read)
+        #expect(model.draft == look)
+        #expect(model.canSave)
+    }
+
+    @Test("A climber the account answers with no saved look can still save one")
+    func anAnsweredEmptyAccountCanSave() async {
+        let (store, _) = store(FakeAthleteLookRepository(looks: [:]), gender: .woman)
+        let model = AthleteEditorModel(look: store.current)
+
+        await model.loadSavedLook(userId: "me", from: store)
+
+        #expect(model.savedLookRead == .read)
+        #expect(model.draft == .starting(for: .woman))
+        #expect(model.isEditable)
+        #expect(model.canSave)
+        #expect(await model.save(userId: "me", to: store))
+    }
+
     @Test
     func theEditorDressesOneGarmentAtATimeAndReportsAFailedSave() async {
         let repository = FakeAthleteLookRepository(looks: [:])
-        let (store, _) = store(repository)
+        let (store, _) = store(repository, gender: .man)
         let model = AthleteEditorModel(look: .starting(for: .man))
+        await model.loadSavedLook(userId: "me", from: store)
 
         model.garment = .shorts
         model.kitColor = .blue

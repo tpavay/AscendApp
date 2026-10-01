@@ -14,7 +14,7 @@ final class LiveClimbActivityRouter {
     private init() {}
 
     func route(from url: URL) -> Bool {
-        guard url.scheme == "ascendapp",
+        guard url.scheme?.lowercased() == AscendURLScheme.current,
               url.host == "live-climb",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let sessionID = components.queryItems?.first(where: { $0.name == "sessionID" })?.value,

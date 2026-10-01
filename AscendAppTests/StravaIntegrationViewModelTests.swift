@@ -44,6 +44,23 @@ struct StravaIntegrationViewModelTests {
 
     // MARK: - Connecting
 
+    @Test("A project configured for another build's scheme never opens Strava")
+    func mismatchedCallbackSchemeRefuses() async {
+        let client = FakeStravaIntegrationClient(
+            status: StravaConnectionStatus(isAvailable: true, isConnected: false, athleteName: nil)
+        )
+        let presenter = FakeStravaAuthorizationPresenter(
+            callback: URL(string: "ascendapp-stg://ascendstepper.com/strava?state=abc&code=xyz&scope=activity:write")
+        )
+        let viewModel = StravaIntegrationViewModel(client: client, presenter: presenter, appURLScheme: "ascendapp-stg-other")
+
+        await viewModel.connect()
+
+        #expect(presenter.presented.isEmpty, "Strava would hand the code to whichever build claims that scheme")
+        #expect(client.completions.isEmpty)
+        #expect(viewModel.errorMessage == "Couldn't connect Strava. Try again.")
+    }
+
     @Test("An approved redirect is completed on the server with its code and state")
     func approvedConnectCompletes() async {
         let client = FakeStravaIntegrationClient(

@@ -18,9 +18,41 @@ final class AthleteEditorModel {
     var garment: Garment = .tank
     private(set) var isSaving = false
     private(set) var saveFailed = false
+    /// Whether the climber's account has answered with their saved look, or with none.
+    enum SavedLookRead: Equatable {
+        case reading, read, failed
+    }
+
+    /// The editor is only editable, and savable, once this is `.read`: before then it holds this
+    /// device's copy or the default athlete, and a save would replace the look the climber saved.
+    private(set) var savedLookRead: SavedLookRead = .reading
 
     init(look: AthleteLook) {
         draft = look
+    }
+
+    var isEditable: Bool {
+        savedLookRead == .read
+    }
+
+    var canSave: Bool {
+        !isSaving && isEditable
+    }
+
+    /// Reads the climber's saved look and dresses the editor in it. Until the account answers,
+    /// with a look or with none, nothing can be changed or saved; a failed read waits for a retry.
+    ///
+    /// The editor cannot trust whoever opened it to have loaded the store first: the Just Climb
+    /// chip opened it on an unread store after a relaunch, showed the default athlete, and a
+    /// save there overwrote the look the climber had saved.
+    func loadSavedLook(userId: String, from store: AthleteLookStore) async {
+        savedLookRead = .reading
+        guard await store.load(userId: userId) else {
+            savedLookRead = .failed
+            return
+        }
+        draft = store.current
+        savedLookRead = .read
     }
 
     /// Switching body keeps the rest of the look, and moves a hairstyle that was only the old
@@ -50,7 +82,7 @@ final class AthleteEditorModel {
     /// Saves the look to the climber's account. Returns whether it saved; a failure stays on
     /// screen until the next try.
     func save(userId: String, to store: AthleteLookStore) async -> Bool {
-        guard !isSaving else { return false }
+        guard canSave else { return false }
         isSaving = true
         saveFailed = false
         defer { isSaving = false }
