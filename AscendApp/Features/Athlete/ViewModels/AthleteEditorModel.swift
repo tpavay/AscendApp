@@ -18,9 +18,44 @@ final class AthleteEditorModel {
     var garment: Garment = .tank
     private(set) var isSaving = false
     private(set) var saveFailed = false
+    /// True until the climber's saved look has been read for this editor. Saving before then
+    /// would replace the look they saved with whatever the editor happened to open on.
+    private(set) var isLoadingSavedLook = false
+    /// The look the editor last took from the store; the climber has edits when the draft
+    /// differs from it.
+    private var adoptedLook: AthleteLook
 
     init(look: AthleteLook) {
         draft = look
+        adoptedLook = look
+    }
+
+    var hasEdits: Bool {
+        draft != adoptedLook
+    }
+
+    var canSave: Bool {
+        !isSaving && !isLoadingSavedLook
+    }
+
+    /// Reads the climber's saved look and dresses the editor in it.
+    ///
+    /// The editor cannot trust whoever opened it to have loaded the store first: the Just Climb
+    /// chip opened it on an unread store after a relaunch, showed the default athlete, and a
+    /// save there overwrote the look the climber had saved.
+    func loadSavedLook(userId: String, from store: AthleteLookStore) async {
+        isLoadingSavedLook = true
+        defer { isLoadingSavedLook = false }
+        await store.load(userId: userId)
+        adopt(store.current)
+    }
+
+    /// Takes a look the store learned about, unless the climber has already changed something,
+    /// so a late answer never undoes a choice they tapped.
+    func adopt(_ look: AthleteLook) {
+        guard !hasEdits else { return }
+        draft = look
+        adoptedLook = look
     }
 
     /// Switching body keeps the rest of the look, and moves a hairstyle that was only the old
@@ -50,7 +85,7 @@ final class AthleteEditorModel {
     /// Saves the look to the climber's account. Returns whether it saved; a failure stays on
     /// screen until the next try.
     func save(userId: String, to store: AthleteLookStore) async -> Bool {
-        guard !isSaving else { return false }
+        guard canSave else { return false }
         isSaving = true
         saveFailed = false
         defer { isSaving = false }

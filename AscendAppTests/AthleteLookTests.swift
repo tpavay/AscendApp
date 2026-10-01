@@ -194,6 +194,45 @@ struct AthleteLookStoreTests {
         #expect(repository.saves == [look])
     }
 
+    @Test("The editor opened on a store nothing has loaded yet still shows the saved look")
+    func theEditorOpenedBeforeAnyLoadShowsTheSavedLook() async {
+        var look = AthleteLook.starting(for: .man)
+        look.skinTone = .tone6
+        let (saving, defaults) = store(FakeAthleteLookRepository(looks: [:]))
+        try? await saving.save(look, userId: "me")
+
+        // A relaunch: a fresh store over the same device copy, opened from the Just Climb chip
+        // before Profile or a Mountain session has loaded it.
+        let relaunched = AthleteLookStore(
+            repository: FakeAthleteLookRepository(looks: ["me": look]),
+            genderSource: { _ in .man },
+            defaults: defaults
+        )
+        let model = AthleteEditorModel(look: relaunched.current)
+        #expect(model.draft != look, "the precondition: the unread store offers the default")
+
+        await model.loadSavedLook(userId: "me", from: relaunched)
+
+        #expect(model.draft == look)
+        #expect(!model.hasEdits)
+        #expect(model.canSave)
+    }
+
+    @Test("A look the account answers with late never undoes a choice the climber tapped")
+    func aLateAnswerKeepsTheClimbersEdits() async {
+        var saved = AthleteLook.starting(for: .man)
+        saved.hairColor = .red
+        let (store, _) = store(FakeAthleteLookRepository(looks: ["me": saved]))
+        let model = AthleteEditorModel(look: store.current)
+
+        model.draft.top = .orange
+        await model.loadSavedLook(userId: "me", from: store)
+
+        #expect(model.draft.top == .orange)
+        #expect(model.draft.hairColor != .red)
+        #expect(model.hasEdits)
+    }
+
     @Test
     func theEditorDressesOneGarmentAtATimeAndReportsAFailedSave() async {
         let repository = FakeAthleteLookRepository(looks: [:])

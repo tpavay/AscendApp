@@ -110,6 +110,15 @@ struct AthleteEditorView: View {
         .background(Color.black)
         .preferredColorScheme(.dark)
         .trackOnce(screen: .athleteEditor)
+        .task(id: authVM.user?.uid) {
+            guard let userId = authVM.user?.uid else { return }
+            await model.loadSavedLook(userId: userId, from: store)
+        }
+        // The store reads this device's copy before it asks the account, so the saved look
+        // arrives here a round trip before the load returns.
+        .onChange(of: store.current) { _, look in
+            model.adopt(look)
+        }
     }
 
     private var header: some View {
@@ -171,11 +180,11 @@ struct AthleteEditorView: View {
                     .frame(height: 52)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.accent.opacity(model.isSaving ? 0.6 : 1))
+                            .fill(Color.accent.opacity(model.canSave ? 1 : 0.6))
                     )
             }
             .buttonStyle(.plain)
-            .disabled(model.isSaving || authVM.user == nil)
+            .disabled(!model.canSave || authVM.user == nil)
         }
         .padding(.horizontal, 22)
         .padding(.top, 12)
