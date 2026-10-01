@@ -598,7 +598,7 @@ final class FakeAthleteLookRepository: AthleteLookRepository, @unchecked Sendabl
 
     private let lock = NSLock()
     private var stored: [String: AthleteLook]
-    private let failing: Set<String>
+    var failing: Set<String>
     private var _reads: [String] = []
     private var _saves: [AthleteLook] = []
     var failsSaving = false

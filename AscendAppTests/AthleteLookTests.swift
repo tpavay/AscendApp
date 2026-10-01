@@ -233,11 +233,49 @@ struct AthleteLookStoreTests {
         #expect(model.hasEdits)
     }
 
+    @Test("An account that could not be read never lets the editor save over the saved look")
+    func aFailedReadKeepsSaveOffUntilARetryAnswers() async {
+        var look = AthleteLook.starting(for: .man)
+        look.skinTone = .tone6
+        let repository = FakeAthleteLookRepository(looks: ["me": look], failing: ["me"])
+        let (store, _) = store(repository, gender: .man)
+        let model = AthleteEditorModel(look: store.current)
+        #expect(!model.canSave, "nothing has answered yet")
+
+        await model.loadSavedLook(userId: "me", from: store)
+
+        #expect(model.savedLookRead == .failed)
+        #expect(!model.canSave)
+        #expect(await model.save(userId: "me", to: store) == false)
+        #expect(repository.saves.isEmpty, "the default athlete never reached the account")
+
+        repository.failing = []
+        await model.loadSavedLook(userId: "me", from: store)
+
+        #expect(model.savedLookRead == .read)
+        #expect(model.draft == look)
+        #expect(model.canSave)
+    }
+
+    @Test("A climber the account answers with no saved look can still save one")
+    func anAnsweredEmptyAccountCanSave() async {
+        let (store, _) = store(FakeAthleteLookRepository(looks: [:]), gender: .woman)
+        let model = AthleteEditorModel(look: store.current)
+
+        await model.loadSavedLook(userId: "me", from: store)
+
+        #expect(model.savedLookRead == .read)
+        #expect(model.draft == .starting(for: .woman))
+        #expect(model.canSave)
+        #expect(await model.save(userId: "me", to: store))
+    }
+
     @Test
     func theEditorDressesOneGarmentAtATimeAndReportsAFailedSave() async {
         let repository = FakeAthleteLookRepository(looks: [:])
-        let (store, _) = store(repository)
+        let (store, _) = store(repository, gender: .man)
         let model = AthleteEditorModel(look: .starting(for: .man))
+        await model.loadSavedLook(userId: "me", from: store)
 
         model.garment = .shorts
         model.kitColor = .blue

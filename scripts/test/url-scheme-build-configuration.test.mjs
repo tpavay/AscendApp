@@ -8,8 +8,9 @@ import { buildConfigurations, settingValue } from "../lib/monetization-build-set
 
 // Every build used to register `ascendapp`, so with more than one installed iOS handed a link
 // to whichever it chose: a production climber connecting Strava was sent back into the staging
-// build. Each configuration now claims exactly one scheme of its own, production keeps the one
-// its STRAVA_SERVER_CONFIG redirect already names, and the Cloud Functions accept exactly these.
+// build. Each configuration now claims exactly one scheme of its own, and production keeps the
+// one its STRAVA_SERVER_CONFIG redirect already names. functions/test/strava.test.ts holds the
+// Cloud Functions to accepting exactly these same three.
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const EXPECTED_SCHEMES = new Map([
   ["Debug", "ascendapp-dev"],
@@ -35,21 +36,66 @@ test("each build configuration names its own URL scheme, and production keeps as
   assert.equal(declared.length, EXPECTED_SCHEMES.size, "a target-level override would split the app from its widget");
 });
 
-test("the app registers only its configuration's scheme, and both bundles can read it", async () => {
-  const appInfo = await read("AscendApp/Info.plist");
-  const widgetInfo = await read("AscendLiveActivityWidgets/Info.plist");
+// The XML property-list subset Info.plist files use, read into plain values so the assertions
+// are about the keys Info.plist declares rather than how the file happens to be laid out.
+function parsePlist(xml) {
+  const tokens = [...xml.replace(/<!--[\s\S]*?-->/g, "").matchAll(/<(\/?)([a-z]+)[^>]*?(\/?)>([^<]*)/g)]
+    .map(([, closing, tag, selfClosing, text]) => ({closing: closing === "/", tag, selfClosing: selfClosing === "/", text}));
+  let index = tokens.findIndex(({tag, closing}) => tag === "plist" && !closing) + 1;
+  const unescape = (text) => text
+    .replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", "\"").replaceAll("&apos;", "'").replaceAll("&amp;", "&");
 
-  assert.match(appInfo, /<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>\$\(ASCEND_URL_SCHEME\)<\/string>\s*<\/array>/);
-  assert.doesNotMatch(appInfo, /<string>ascendapp(-[a-z]+)?<\/string>/, "a literal scheme is shared by every build");
-  for (const info of [appInfo, widgetInfo]) {
-    assert.match(info, /<key>AscendURLScheme<\/key>\s*<string>\$\(ASCEND_URL_SCHEME\)<\/string>/);
+  function value() {
+    const {tag, selfClosing, text} = tokens[index++];
+    switch (tag) {
+      case "true": case "false":
+        if (!selfClosing) index++;
+        return tag === "true";
+      case "string": case "date": case "data":
+        if (selfClosing) return "";
+        index++;
+        return unescape(text);
+      case "integer": case "real":
+        index++;
+        return Number(text);
+      case "array": {
+        const items = [];
+        if (selfClosing) return items;
+        while (!tokens[index].closing) items.push(value());
+        index++;
+        return items;
+      }
+      case "dict": {
+        const entries = {};
+        if (selfClosing) return entries;
+        while (!tokens[index].closing) {
+          assert.equal(tokens[index].tag, "key", "a dict alternates keys and values");
+          const key = unescape(tokens[index].text);
+          index += 2;
+          entries[key] = value();
+        }
+        index++;
+        return entries;
+      }
+      default:
+        throw new Error(`unsupported plist element <${tag}>`);
+    }
   }
-});
+  return value();
+}
 
-test("the Cloud Functions accept exactly the schemes the builds register", async () => {
-  const config = await read("functions/src/strava/config.ts");
-  const declared = config.match(/STRAVA_REDIRECT_SCHEMES: readonly string\[\] = \[([\s\S]*?)\];/);
-  assert.ok(declared, "STRAVA_REDIRECT_SCHEMES is declared as a literal list");
-  const schemes = [...declared[1].matchAll(/"([^"]+)"/g)].map(([, scheme]) => scheme).sort();
-  assert.deepEqual(schemes, [...EXPECTED_SCHEMES.values()].sort());
+test("the app registers only its configuration's scheme, and both bundles can read it", async () => {
+  const appInfo = parsePlist(await read("AscendApp/Info.plist"));
+  const widgetInfo = parsePlist(await read("AscendLiveActivityWidgets/Info.plist"));
+
+  const registered = appInfo.CFBundleURLTypes.flatMap((type) => type.CFBundleURLSchemes ?? []);
+  assert.equal(registered.filter((scheme) => scheme === "$(ASCEND_URL_SCHEME)").length, 1);
+  assert.deepEqual(
+    registered.filter((scheme) => scheme.startsWith("ascendapp")),
+    [],
+    "a literal scheme is shared by every build"
+  );
+  for (const info of [appInfo, widgetInfo]) {
+    assert.equal(info.AscendURLScheme, "$(ASCEND_URL_SCHEME)");
+  }
 });

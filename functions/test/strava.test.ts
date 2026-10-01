@@ -25,6 +25,7 @@ import {
   type StravaUploadStatus,
 } from "../src/strava/api.js";
 import {
+  STRAVA_REDIRECT_SCHEMES,
   parseStravaServerConfig,
   stravaCallbackScheme,
 } from "../src/strava/config.js";
@@ -99,7 +100,11 @@ test("a half-filled Strava config fails loudly", () => {
 });
 
 test("each build's redirect hands the code back to that build", () => {
-  for (const scheme of ["ascendapp", "ascendapp-stg", "ascendapp-dev"]) {
+  // The ASCEND_URL_SCHEME each build configuration registers, which
+  // scripts/test/url-scheme-build-configuration.test.mjs pins in the project.
+  const buildSchemes = ["ascendapp", "ascendapp-stg", "ascendapp-dev"];
+  assert.deepEqual([...STRAVA_REDIRECT_SCHEMES].sort(), buildSchemes.sort());
+  for (const scheme of buildSchemes) {
     const redirectUri = `${scheme}://ascendstepper.com/strava`;
     assert.deepEqual(
       parseStravaServerConfig(JSON.stringify({...CONFIG, redirectUri})),

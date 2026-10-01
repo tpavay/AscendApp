@@ -111,8 +111,7 @@ struct AthleteEditorView: View {
         .preferredColorScheme(.dark)
         .trackOnce(screen: .athleteEditor)
         .task(id: authVM.user?.uid) {
-            guard let userId = authVM.user?.uid else { return }
-            await model.loadSavedLook(userId: userId, from: store)
+            await loadSavedLook()
         }
         // The store reads this device's copy before it asks the account, so the saved look
         // arrives here a round trip before the load returns.
@@ -163,7 +162,21 @@ struct AthleteEditorView: View {
 
     private var saveBar: some View {
         VStack(spacing: 10) {
-            if model.saveFailed {
+            if model.savedLookRead == .failed {
+                HStack(spacing: 12) {
+                    Text("Couldn't load your athlete.")
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("TRY AGAIN") {
+                        Task { await loadSavedLook() }
+                    }
+                    .font(.montserratBold(size: 12))
+                    .tracking(1)
+                    .foregroundStyle(Color.accent)
+                    .buttonStyle(.plain)
+                }
+            } else if model.saveFailed {
                 Text("Couldn't save your athlete. Try again.")
                     .font(.montserratMedium(size: 13))
                     .foregroundStyle(.white.opacity(0.72))
@@ -197,6 +210,11 @@ struct AthleteEditorView: View {
                 .offset(y: -22)
                 .allowsHitTesting(false)
         }
+    }
+
+    private func loadSavedLook() async {
+        guard let userId = authVM.user?.uid else { return }
+        await model.loadSavedLook(userId: userId, from: store)
     }
 
     private func save() {

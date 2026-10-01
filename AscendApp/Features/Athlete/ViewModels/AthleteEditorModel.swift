@@ -18,9 +18,14 @@ final class AthleteEditorModel {
     var garment: Garment = .tank
     private(set) var isSaving = false
     private(set) var saveFailed = false
-    /// True until the climber's saved look has been read for this editor. Saving before then
-    /// would replace the look they saved with whatever the editor happened to open on.
-    private(set) var isLoadingSavedLook = false
+    /// Whether the climber's account has answered with their saved look, or with none.
+    enum SavedLookRead: Equatable {
+        case reading, read, failed
+    }
+
+    /// Saving is only safe once this is `.read`: before then the editor holds this device's copy
+    /// or the default athlete, and saving it would replace the look the climber saved.
+    private(set) var savedLookRead: SavedLookRead = .reading
     /// The look the editor last took from the store; the climber has edits when the draft
     /// differs from it.
     private var adoptedLook: AthleteLook
@@ -35,19 +40,23 @@ final class AthleteEditorModel {
     }
 
     var canSave: Bool {
-        !isSaving && !isLoadingSavedLook
+        !isSaving && savedLookRead == .read
     }
 
-    /// Reads the climber's saved look and dresses the editor in it.
+    /// Reads the climber's saved look and dresses the editor in it. A read the account never
+    /// answered leaves saving off until a retry succeeds.
     ///
     /// The editor cannot trust whoever opened it to have loaded the store first: the Just Climb
     /// chip opened it on an unread store after a relaunch, showed the default athlete, and a
     /// save there overwrote the look the climber had saved.
     func loadSavedLook(userId: String, from store: AthleteLookStore) async {
-        isLoadingSavedLook = true
-        defer { isLoadingSavedLook = false }
-        await store.load(userId: userId)
+        savedLookRead = .reading
+        guard await store.load(userId: userId) else {
+            savedLookRead = .failed
+            return
+        }
         adopt(store.current)
+        savedLookRead = .read
     }
 
     /// Takes a look the store learned about, unless the climber has already changed something,

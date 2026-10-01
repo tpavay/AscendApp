@@ -51,7 +51,11 @@ final class AthleteLookStore {
     /// Reads the climber's look, from this device at once and then from their account. Safe to
     /// call from every surface that shows it: once a read has answered, later calls for the same
     /// climber return at once; a read that failed is tried again by the next call.
-    func load(userId: String) async {
+    ///
+    /// Returns whether their account has answered, so a caller about to write knows the look it
+    /// holds is the saved one rather than this device's copy or the default.
+    @discardableResult
+    func load(userId: String) async -> Bool {
         if self.userId != userId {
             loading?.cancel()
             loading = nil
@@ -62,10 +66,10 @@ final class AthleteLookStore {
             self.userId = userId
             saved = cachedLook(for: userId)
         }
-        guard !hasAnswered else { return }
+        guard !hasAnswered else { return true }
         if let loading {
             await loading.value
-            return
+            return hasAnswered(for: userId)
         }
         let task = Task { [repository, genderSource] in
             async let stored = Self.read(userId, from: repository)
@@ -85,9 +89,14 @@ final class AthleteLookStore {
         }
         loading = task
         await task.value
+        return hasAnswered(for: userId)
     }
 
     @ObservationIgnored private var hasAnswered = false
+
+    private func hasAnswered(for userId: String) -> Bool {
+        self.userId == userId && hasAnswered
+    }
 
     private nonisolated static func read(_ userId: String, from repository: AthleteLookRepository) async -> Result<AthleteLook?, any Error> {
         do {

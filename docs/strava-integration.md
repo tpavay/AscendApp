@@ -105,7 +105,7 @@ The Strava app's domain is `ascendstepper.com`, so the redirects are:
 | production `ascend-prod-9c8f2` | Release | `ascendapp://ascendstepper.com/strava` |
 
 Strava validates only the host, so it accepts all three schemes (measured 2026-10-01: each answers the authorize request with a redirect to sign-in).
-`STRAVA_REDIRECT_SCHEMES` in `functions/src/strava/config.ts` lists the schemes the functions accept, and `scripts/test/url-scheme-build-configuration.test.mjs` holds it equal to the build settings.
+`STRAVA_REDIRECT_SCHEMES` in `functions/src/strava/config.ts` lists the schemes the functions accept, and `functions/test/strava.test.ts` holds it to the same three schemes `scripts/test/url-scheme-build-configuration.test.mjs` pins in the build settings.
 With any other host Strava's authorize page answers `{"message":"Bad Request","errors":[{"resource":"Application","field":"redirect_uri","code":"invalid"}]}` before the climber ever sees a sign-in; a `localhost` host is always accepted, which is how to tell a domain mismatch from anything else.
 Strava grants `read` alongside `activity:write` whatever is requested; Ascend stores it and uses neither it nor anything it could read.
 A project that must stay inert holds `{"configured": false}`: every Strava surface then reports unavailable instead of failing.
