@@ -5,8 +5,25 @@ import SwiftUI
 struct AthleteProfileCard: View {
     @Environment(AuthenticationViewModel.self) private var authVM
 
-    @State private var store = AthleteLookStore.shared
+    @State private var store: AthleteLookStore
+    @State private var unlocks: UnlockStore
     @State private var isEditing = false
+    private let userId: (() -> String?)?
+
+    init(store: AthleteLookStore = .shared, unlocks: UnlockStore = .shared, userId: (() -> String?)? = nil) {
+        _store = State(initialValue: store)
+        _unlocks = State(initialValue: unlocks)
+        self.userId = userId
+    }
+
+    private var signedInUser: String? {
+        userId?() ?? authVM.user?.uid
+    }
+
+    /// Earned items waiting to be looked at in the editor.
+    private var newCount: Int {
+        unlocks.isEnabled ? unlocks.newItems.count : 0
+    }
 
     var body: some View {
         Button {
@@ -46,19 +63,33 @@ struct AthleteProfileCard: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(ProfileVisualStyle.cardStroke, lineWidth: 1)
             )
+            .overlay(alignment: .topTrailing) {
+                if newCount > 0 {
+                    Text("\(newCount) NEW")
+                        .font(.montserratBold(size: 9.5))
+                        .tracking(0.8)
+                        .monospacedDigit()
+                        .foregroundStyle(UnlockStyle.limeInk)
+                        .padding(.horizontal, 8)
+                        .frame(height: 20)
+                        .background(Capsule(style: .continuous).fill(Color.accent))
+                        .padding(12)
+                }
+            }
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Your athlete")
-        .accessibilityValue(AthleteLookDescription.sentence(for: store.current))
+        .accessibilityValue(newCount > 0 ? "\(AthleteLookDescription.sentence(for: store.current)) \(newCount) new to wear." : AthleteLookDescription.sentence(for: store.current))
         .accessibilityHint("Opens the athlete editor.")
-        .task(id: authVM.user?.uid) {
-            guard let userId = authVM.user?.uid else { return }
+        .task(id: signedInUser) {
+            guard let userId = signedInUser else { return }
+            unlocks.load(userId: userId)
             await store.load(userId: userId)
         }
         .sheet(isPresented: $isEditing) {
-            AthleteEditorView(store: store)
+            AthleteEditorView(store: store, unlocks: unlocks, userId: userId)
                 .appSheetStyle(.large)
         }
     }

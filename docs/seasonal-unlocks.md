@@ -11,11 +11,24 @@ Each slot is stored under its own name on `users/{uid}/athlete_look/current`, an
 
 ## What a climber sees
 
-- The first open during an event shows `UnlockEventIntroView`: the item everybody gets for opening Ascend that month, revealed on the climber's own athlete (`UnlockRevealView`: the athlete faces you, the item bursts in, hovers, and lands where it is worn), and the ladder of what climbing earns.
+The design is the captain's round-20 approval of 2026-10-02; the build handoff with its reference prototype is kept with the firstmate design record.
+
+- Home carries a card for the running event right after Today's Climb (`HomeEventCard`): days left, "Halloween is on.", how much is earned ("4 of 15 earned. Climb for the rest."), and three of the event's items, never a photo of the athlete.
+  Which three is the event's `showcase` in the catalogue.
+  The card pushes the event's page.
+- The event page (`UnlockEventPage`) has the haunted stairwell art for a haunted event, a back button and the days left, "Halloween is on." over "Every climb and every step in October earns something new.", then one ladder per way of earning (`UnlockLadder`): climbs (the open-app item first), steps, and days.
+  Each ladder is a row of tiles showing the item itself, its name and its threshold as a bare count ("5 climbs", "10K steps", "7 days"), with a lime EARNED sash on earned tiles, an ON pill on what is worn, a dashed outline on the next item, and a small lock on the rest (`UnlockItemTile`).
+  It ends on a Your Athlete row and a pinned START CLIMBING, which opens Home's start sheet.
+- Tapping a tile opens the item (`UnlockItemView`): the climber's whole athlete, head to feet, wearing it where it really goes - a shoulder item on the shoulder, a giant pressed overhead - whether it is earned or not, with where it goes ("HELD OVER YOUR HEAD"), its rule ("50K steps in October"), and either "Earned in October" with EQUIP, or how far is left ("25,000 of 50,000 steps", "25,000 to go") with START CLIMBING.
+  EQUIP saves the look and says so: "<Item> equipped / Everyone on the stairs sees it."
+- Your Athlete (`AthleteEditorView`) is the one place a climber's gear lives: rows above the body choices for CARRIED, HEAD, KIT and FEET, each with an owned count, owned items first (`AthleteGearRows`).
+  Tapping an earned item puts it on the preview straight away and tapping the worn one takes it off; tapping a locked one opens a line under its row with its rule and progress.
+  Nothing is kept until SAVE ATHLETE, which reads SAVED.
+  There is no separate Locker and no item page from here.
+- An earned item reads NEW until the climber looks at it in Your Athlete or opens its page (`UnlockStore.seen`), and the Your Athlete card on Profile shows a lime "<n> NEW" pill while any are waiting.
+- The first open during an event still shows `UnlockEventIntroView`, in the page's words: the item everybody gets for opening Ascend that month, revealed on the climber's own athlete (`UnlockRevealView`), and the ladder of what climbing earns as bare counts.
   It is shown once per event per account, after the period recap and never over it (`MainTabView.presentUnlockIntroIfNeeded`).
 - Every climb saved during an event shows `UnlockFinishCard` on the summary: the item that climb earned, revealed the same way, with EQUIP ON YOUR ATHLETE, or how far the next item is.
-- The Locker (`LockerView`, opened from the athlete editor) holds every item of every event that has opened, by where it goes - carry, head, costume, kit, feet - earned ones ready to wear and the rest showing how far the climber is.
-  Tapping an earned card puts the item on or takes it off; tapping a locked card, or any card's info corner, turns it over to say what earns it and when it was earned.
 - What an athlete has on is drawn on the climber's athlete and on every rival wearing something (`MountainAthleteRig.wear`).
 - During Halloween the first steps of every climb are the haunted stretch (below).
 
@@ -31,15 +44,15 @@ Each item names the shape it is drawn as, its slot, a rarity, a status (`hidden`
 Every climb saved with progress counts toward `climbs`, `days`, `onDay` and `steps`, whether it reached the top or not: a live climb stopped short and saved, a routine stopped partway, a session recovered after the app closed.
 A climb with no steps is not progress and never counts (`UnlockClimbQuery`).
 Climbs saved before the climber had this build count too: progress is derived from every climb in the local store inside the event's days, never from a tally that starts at install, so a climber who updates mid-October gets every October climb already saved, on every ladder, the first time the new build opens.
-That first open recounts before the event intro shows, and the intro says what those climbs already earned ("Your October climbs already earned 4 more.") with those rungs marked earned, rather than leaving them to be found in the Locker.
+That first open recounts before the event intro shows, and the intro says what those climbs already earned ("Your October climbs already earned 4 more.") with those rungs marked earned, rather than leaving them to be found later.
 `days` counts different days with a saved climb, so a threshold of the event's length is "every day"; `onDay` is a climb on one day of the event, counted from 1, so 31 is Halloween itself.
-An event may also carry a `theme`, how it dresses the mountain.
+An event may also carry a `theme`, how it dresses the mountain, and a `showcase`, the ids of the three items its Home card shows (its first three items when absent).
 
 Without a build, the file can move an event's dates, change a threshold, or switch a shipped item live ("ship dark, drop live").
-Setting an item `retired` stops new earning only: the event ladder, the intro and the finish card drop it, while the Locker keeps it, earned and wearable, for every climber who already earned it (`UnlockCatalog.lockerItems`).
+Setting an item `retired` stops new earning only: the event page, the intro and the finish card drop it, while Your Athlete keeps it, earned and wearable, for every climber who already earned it (`UnlockCatalog.gearItems`).
 A retired item may carry a `retiredOn` day: a new phone earns it back from the climbs before that day and never from a climb on or after it (`UnlockCatalog.retiredItems`).
 A retired item with no `retiredOn` is never re-derived, so only the device that remembered it keeps it.
-An item the athlete is wearing always shows in the Locker as earned, so it can be taken off, and the editor's earned count reads the same set as the Locker cards.
+An item the athlete is wearing always shows in Your Athlete as owned, so it can be taken off.
 A new shape needs a build: `AthleteGear` and `MountainGearModel` draw it.
 An item whose shape, slot or way of earning a build does not know is skipped by that build, never fatal (`UnlockTests.anItemThisBuildCannotDrawIsSkippedNotFatal`).
 `firestore.rules` lists the items each slot accepts, so a new shape also needs a rules deploy before the build that offers it.
@@ -52,8 +65,7 @@ Opening Ascend during an event earns its `visits` item (`UnlockStore.recordVisit
 That visit is remembered only on this device for the signed-in account, so the open-app item is scoped to the device and the account session: after a sign-out or a reinstall it comes back only from a climb in the event, since any climb in the event also counts as a visit.
 A climber who opened Ascend during October but never climbed, then signs out or reinstalls after the event, loses the Pumpkin; keeping it would need the visit stored on the account, which `users/{uid}/athlete_look/current`'s key list does not allow without a rules change.
 What was earned is remembered on the device per account (`UnlockStore.earnedKey`) and cleared on sign-out, so an unlock outlives a later change to an event's dates.
-The date a Locker card shows is when the item was earned, not when this device first noticed it: a climbing item takes the date of the climb that crossed its threshold (`UnlockEventProgress.earnedDates`), so climbs saved before this build or restored on a new phone keep their own days, and the open-app item takes the day of the visit.
-A date already remembered on the device is never moved.
+No surface shows the day an item was earned: an earned item reads "Earned in October".
 
 This is a deliberate first step.
 The general unlock plan moves deciding who earned what to a server job that writes where only the server can, and checks ownership before publishing an outfit.
@@ -67,7 +79,7 @@ Changing the length, or dropping the theme, is a catalogue edit.
 
 ## Off switch
 
-`unlocks_enabled` (`RemoteFeatureFlag.unlocks`) hides every unlock surface: nothing worn is drawn, no intro, no finish card, no Locker, no haunted stretch.
+`unlocks_enabled` (`RemoteFeatureFlag.unlocks`) hides every unlock surface: nothing worn is drawn, no Home card, no event page, no intro, no finish card, no gear rows, no NEW pill, no haunted stretch.
 It writes and deletes nothing, and earned items come back with it (`docs/remote-config-kill-switches.md`).
 
 ## Cost on the mountain

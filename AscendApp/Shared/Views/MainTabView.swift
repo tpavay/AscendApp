@@ -153,6 +153,7 @@ struct MainTabView: View {
                 onCarry: { item in
                     introEvent = nil
                     guard let userId = authVM.user?.uid else { return }
+                    unlocks.markSeen([item], userId: userId)
                     Task {
                         do {
                             try await AthleteLookStore.shared.equip(item, userId: userId)

@@ -84,7 +84,7 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
         case .pumpkinLantern: "Jack-o'-Lantern"
         case .pumpkinHeirloom: "Heirloom Pumpkin"
         case .pumpkinMidnight: "Midnight Pumpkin"
-        case .pumpkinGiant: "Giant Pumpkin"
+        case .pumpkinGiant: "The Giant"
         case .pumpkinGiantLantern: "Giant Jack-o'-Lantern"
         case .witchHat: "Witch Hat"
         case .pumpkinHead: "Pumpkin Head"

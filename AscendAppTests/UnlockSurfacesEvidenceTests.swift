@@ -5,273 +5,384 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Evidence that the October unlock surfaces a climber meets read the way the catalogue says:
-/// the first-open intro gives the Pumpkin for opening Ascend and lists what climbing earns, the
-/// Locker shows a climb's earnings ready to wear and the rest locked with what earns them, a
-/// retired item stays only with those who earned it before it retired, and a reopened climb's
-/// summary reads as it did at the finish.
+/// Evidence that the October surfaces a climber meets read the way the catalogue and their own
+/// climbs say: the Home card, the October page and its ladders of the items themselves, an item
+/// on the whole athlete with EQUIP, the gear inside Your Athlete with try-on, the NEW pill on
+/// Profile, the first-open intro, retired items, and a reopened climb's summary.
 ///
-/// Both are the shipping views, fed the bundled catalogue. Photographs are written only when
+/// Every view is the shipping one, fed the bundled catalogue. Photographs are written only when
 /// `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 @Suite(.hostsAWindow)
 struct UnlockSurfacesEvidenceTests {
     private static let userId = "unlock-surfaces-evidence"
 
-    @Test
-    func theOctoberIntroGivesThePumpkinForOpeningAndListsWhatClimbingEarns() async throws {
-        let catalog = HostedUnlockCatalogRepository.bundledCatalog()
-        let event = try #require(catalog.events.first { $0.id == "halloween-2026" })
-        let items = catalog.items(earnedIn: event)
-        var carried: AthleteGear?
+    /// Three climbs in the first days of October, one a live climb stopped short: 3 climbs,
+    /// 25,000 steps, 3 days. That earns the Ghost Pumpkin, Witch Hat, Chocolate Bar and Midnight
+    /// Pumpkin, with the Heirloom Pumpkin, The Giant and Witching Hour Shorts next.
+    private static func threeEarlyOctoberClimbs() throws -> ModelContainer {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let stoppedShort = Workout(date: try october(1), duration: 900, steps: 4_000, floors: 200, source: .headphoneMotion)
+        stoppedShort.sourceMetadata = #"{"stopReason":"user_stopped","climbTargetStepCount":12000,"targetStepCount":12000}"#
+        for climb in [stoppedShort,
+                      Workout(date: try october(2), duration: 1_800, steps: 9_000, floors: 450, source: .headphoneMotion),
+                      Workout(date: try october(3), duration: 2_400, steps: 12_000, floors: 600, source: .headphoneMotion)] {
+            container.mainContext.insert(climb)
+        }
+        try container.mainContext.save()
+        return container
+    }
 
-        let size = CGSize(width: 402, height: 2_000)
+    // MARK: - Home
+
+    @Test
+    func theHomeCardSaysHalloweenIsOnAndHowMuchIsEarned() async throws {
+        let catalog = HostedUnlockCatalogRepository.bundledCatalog()
+        let event = try #require(catalog.event(id: "halloween-2026"))
+        var opened = false
+        let size = CGSize(width: 402, height: 200)
         try await RenderedScreen.host(
-            UnlockEventIntroView(
-                event: event,
-                items: items,
-                look: .starting(for: .man),
-                earned: [.pumpkinClassic],
-                onCarry: { carried = $0 },
-                onClose: {}
-            )
+            HomeEventCard(event: event, showcase: catalog.showcase(of: event), earned: 4, total: catalog.items(earnedIn: event).count, daysLeft: 29) {
+                opened = true
+            }
+            .padding(16)
+            .frame(width: size.width, height: size.height)
+            .background(Color.black),
+            size: size,
+            settle: .turns(20)
+        ) { screen in
+            let copy = try await screen.copy()
+            #expect(copy.contains("halloween is on."), "\(copy)")
+            #expect(copy.contains("29 days left"), "\(copy)")
+            #expect(copy.contains("4 of 15 earned. climb for the rest."), "\(copy)")
+            #expect(catalog.showcase(of: event).map(\.shape) == [.pumpkinClassic, .witchHat, .pumpkinLantern], "items you can earn, not the athlete")
+            try screen.photograph(named: "halloween-home-card")
+            try activateAccessibilityElement(in: screen.root) { $0.accessibilityLabel?.hasPrefix("Halloween is on.") == true }
+            #expect(opened, "the whole card opens the October page")
+        }
+    }
+
+    // MARK: - The October page
+
+    /// Every item on its ladder, with the state the climber's climbs give it. Hosted wide so each
+    /// ladder's whole row is on screen to read.
+    @Test
+    func theOctoberPageShowsEveryItemOnItsLadder() async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [])
+        let event = try #require(unlocks.catalog.event(id: "halloween-2026"))
+        let size = CGSize(width: 1_500, height: 1_300)
+        try await RenderedScreen.host(
+            NavigationStack {
+                UnlockEventPage(event: event, unlocks: unlocks, looks: Self.looks(wearing: .pumpkinClassic), userId: { Self.userId }) {}
+            }
+            .modelContainer(container)
+            .environment(AuthenticationViewModel(observesFirebaseAuth: false))
             .frame(width: size.width, height: size.height),
             size: size,
             settle: .turns(40)
         ) { screen in
-            let copy = try await screen.copy { $0.contains("equip on your athlete") }
-            #expect(copy.contains("october on ascend mountain"), "\(copy)")
-            #expect(copy.contains("halloween is on"), "\(copy)")
-            #expect(copy.contains("your pumpkin is in"), "\(copy)")
-            #expect(copy.contains("opening ascend in october earned it"), "\(copy)")
-            #expect(copy.contains("climb in october to earn more"), "\(copy)")
-            for title in ["Ghost Pumpkin", "Witch Hat", "Giant Pumpkin", "Giant Jack-o'-Lantern", "Ember Trainers"] {
-                #expect(copy.contains(title.lowercased()), "the ladder is missing \(title): \(copy)")
+            let tiles = try await Self.values(on: screen) { $0["Witching Hour Shorts"] != nil && $0["Midnight Pumpkin"] == "Earned" }
+            #expect(tiles["Pumpkin"] == "Earned, on your athlete", "\(tiles)")
+            for earned in ["Ghost Pumpkin", "Witch Hat", "Chocolate Bar", "Midnight Pumpkin"] {
+                #expect(tiles[earned] == "Earned", "\(earned): \(tiles)")
             }
-            #expect(copy.contains("yours to keep"), "\(copy)")
-            try screen.photograph(named: "unlock-october-intro")
+            #expect(tiles["Heirloom Pumpkin"] == "Next, 5 climbs", "\(tiles)")
+            #expect(tiles["The Giant"] == "Next, 50K steps", "\(tiles)")
+            #expect(tiles["Witching Hour Shorts"] == "Next, 7 days", "the day-based items sit on a third ladder: \(tiles)")
+            #expect(tiles["Pumpkin Head"] == "Locked, Every day", "\(tiles)")
+            #expect(tiles["Giant Jack-o'-Lantern"] == "Locked, 100K steps", "\(tiles)")
 
-            try activateAccessibilityElement(labelled: "EQUIP ON YOUR ATHLETE", in: screen.root)
-            #expect(carried == .pumpkinClassic, "equipping from the intro carries the open-app Pumpkin")
+            let copy = try await screen.copy()
+            for line in ["halloween is on.", "every climb and every step in october earns something new.",
+                         "climbs in october", "steps in october", "days in october", "your athlete", "5 earned", "start climbing"] {
+                #expect(copy.contains(line), "\(line): \(copy)")
+            }
+            for gone in ["how it works", "for showing up", "october on ascend mountain", "core", " of 38"] {
+                #expect(!copy.contains(gone), "\(gone) is gone from the page: \(copy)")
+            }
         }
     }
 
+    /// The page at a phone's width, top and scrolled, for the photographs.
     @Test
-    func theLockerShowsWhatOneOctoberClimbEarned() async throws {
-        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
-        let context = container.mainContext
-        // Pinned inside the event window: dated `.now`, the climb would land in November from
-        // 2026-11-01 and every October expectation below would fail.
-        let octoberClimb = try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 15, hour: 12)))
-        context.insert(Workout(date: octoberClimb, duration: 1_500, steps: 12_000, floors: 600, source: .headphoneMotion))
-        try context.save()
-
-        UnlockStore.shared.clearAccountScopedState()
-        defer { UnlockStore.shared.clearAccountScopedState() }
-        let looks = AthleteLookStore(repository: NoSavedLook(), genderSource: { _ in .man }, defaults: UserDefaults(suiteName: "UnlockSurfaces-\(UUID().uuidString)")!)
-
-        let size = CGSize(width: 402, height: 1_400)
+    func theOctoberPageAtPhoneWidth() async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [])
+        let event = try #require(unlocks.catalog.event(id: "halloween-2026"))
+        let size = CGSize(width: 402, height: 874)
         try await RenderedScreen.host(
-            LockerView(userId: Self.userId, store: looks)
-                .modelContainer(container)
-                .frame(width: size.width, height: size.height),
+            NavigationStack {
+                UnlockEventPage(event: event, unlocks: unlocks, looks: Self.looks(wearing: .pumpkinClassic), userId: { Self.userId }) {}
+            }
+            .modelContainer(container)
+            .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+            .frame(width: size.width, height: size.height),
             size: size,
             settle: .turns(40)
         ) { screen in
-            let copy = try await screen.copy(reading: 400) { $0.contains("ghost pumpkin") && $0.contains("earned") }
-            #expect(copy.contains("wear what you earned"), "\(copy)")
-            #expect(copy.contains("pumpkin earned") || copy.contains("pumpkin, earned"), "the open-app Pumpkin is earned by any October climb: \(copy)")
-            #expect(copy.contains("ghost pumpkin"), "\(copy)")
-            #expect(copy.contains("locked"), "items the climb has not reached stay locked: \(copy)")
-            #expect(UnlockStore.shared.earned.isSuperset(of: [.pumpkinClassic, .pumpkinGhost, .chocolateBar]))
-            #expect(!UnlockStore.shared.earned.contains(.pumpkinGiant), "12,000 steps is short of the Giant Pumpkin")
-            // An earned card has no progress bar, a locked one does; a row still lines up.
-            let titles = Set(AthleteGear.allCases.map(\.title))
-            let cardFrames = try await screen.elements(reading: 400).compactMap { element -> (String, CGRect)? in
-                guard let label = element.accessibilityLabel, titles.contains(label) else { return nil }
-                return (label, element.accessibilityFrame)
+            let copy = try await screen.copy { $0.contains("5 earned") || $0.contains("climbs in october") }
+            #expect(copy.contains("days left") || copy.contains("last day"), "\(copy)")
+            try screen.photograph(named: "halloween-october-page")
+        }
+        let tall = CGSize(width: 402, height: 1_250)
+        try await RenderedScreen.host(
+            NavigationStack {
+                UnlockEventPage(event: event, unlocks: unlocks, looks: Self.looks(wearing: .pumpkinClassic), userId: { Self.userId }) {}
             }
-            let heights = cardFrames.map { $0.1.height.rounded() }
-            #expect(cardFrames.count >= 4 && Set(heights).count == 1, "every Locker card is the same height, earned or locked: \(cardFrames.map { "\($0.0) \($0.1.integral)" })")
-            try screen.photograph(named: "unlock-locker-carry-earned")
+            .modelContainer(container)
+            .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+            .frame(width: tall.width, height: tall.height),
+            size: tall,
+            settle: .turns(40)
+        ) { screen in
+            _ = try await screen.copy { $0.contains("5 earned") }
+            try screen.photograph(named: "halloween-october-page-whole")
         }
     }
 
-    /// The build reaches a climber mid-October, after three climbs saved on a build that had no
-    /// unlocks at all, one of them a live climb stopped short. On the first open of the new build
-    /// all three count: three climbs, 25,000 steps, three days. The intro says what they already
-    /// earned rather than leaving it to be found, and the Locker has those items ready to wear.
+    // MARK: - The item view
+
+    /// An earned item on the whole athlete, EQUIP, then the banner and EQUIPPED.
     @Test
-    func climbsSavedBeforeTheUpdateCountOnTheFirstOpen() async throws {
-        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
-        let context = container.mainContext
-        let stoppedShort = Workout(date: try Self.october(1), duration: 900, steps: 4_000, floors: 200, source: .headphoneMotion)
-        stoppedShort.sourceMetadata = #"{"stopReason":"user_stopped","climbTargetStepCount":12000,"targetStepCount":12000}"#
-        for climb in [stoppedShort,
-                      Workout(date: try Self.october(2), duration: 1_800, steps: 9_000, floors: 450, source: .headphoneMotion),
-                      Workout(date: try Self.october(3), duration: 2_400, steps: 12_000, floors: 600, source: .headphoneMotion)] {
-            context.insert(climb)
-        }
-        try context.save()
-
-        // First launch of the new build: nothing remembered, the open recorded, the climbs counted.
+    func equippingAnEarnedItemPutsItOnTheAthlete() async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
         let unlocks = try Self.freshDevice(retiring: [])
-        let firstOpen = try Self.october(5)
-        unlocks.recordVisit(userId: Self.userId, now: firstOpen)
-        let progress = try #require(unlocks.refresh(userId: Self.userId, modelContext: context, now: firstOpen).first)
-        #expect(progress.climbs == 3)
-        #expect(progress.steps == 25_000)
-        #expect(progress.climbedDays.count == 3)
-        let creditedByClimbing: Set<AthleteGear> = [.pumpkinGhost, .witchHat, .chocolateBar, .pumpkinMidnight]
-        #expect(unlocks.earned == creditedByClimbing.union([.pumpkinClassic]), "\(unlocks.earned)")
-
-        let event = try #require(unlocks.catalog.events.first { $0.id == "halloween-2026" })
-        let introSize = CGSize(width: 402, height: 2_000)
+        let event = try #require(unlocks.catalog.event(id: "halloween-2026"))
+        let progress = try #require(unlocks.refresh(userId: Self.userId, modelContext: container.mainContext).first)
+        let item = try #require(unlocks.catalog.items(earnedIn: event).first { $0.shape == .pumpkinMidnight })
+        let looks = Self.looks(wearing: .pumpkinClassic)
+        let size = CGSize(width: 402, height: 874)
         try await RenderedScreen.host(
-            UnlockEventIntroView(event: event, items: unlocks.catalog.items(earnedIn: event), look: .starting(for: .man),
-                                 earned: unlocks.earned, onCarry: { _ in }, onClose: {})
-                .frame(width: introSize.width, height: introSize.height),
-            size: introSize,
-            settle: .turns(40)
-        ) { screen in
-            let copy = try await screen.copy { $0.contains("already earned") }
-            #expect(copy.contains("your october climbs already earned 4 more"), "the intro says what earlier climbs earned: \(copy)")
-            try screen.photograph(named: "unlock-update-midmonth-intro")
-        }
-
-        let lockerSize = CGSize(width: 402, height: 1_900)
-        try await RenderedScreen.host(
-            LockerView(userId: Self.userId, store: Self.looks(wearing: nil), unlocks: unlocks)
-                .modelContainer(container)
-                .frame(width: lockerSize.width, height: lockerSize.height),
-            size: lockerSize,
-            settle: .turns(40)
-        ) { screen in
-            let cards = try await Self.cards(on: screen) { $0["Midnight Pumpkin"] != nil }
-            // The Locker opens on carried items; the Witch Hat is on the head tab, and earned above.
-            for item in creditedByClimbing where item.slot == .carry {
-                #expect(cards[item.title] == "Earned", "\(item.title) is earned by the climbs from before the update: \(cards)")
-            }
-            #expect(cards["Heirloom Pumpkin"] == "Locked", "five climbs is still two away: \(cards)")
-            try screen.photograph(named: "unlock-update-midmonth-locker")
-        }
-    }
-
-    /// Climbs saved on October 1-3, before the climber had this build, are first counted on an
-    /// open on October 5. The back of the Ghost Pumpkin's card dates it by the climb that crossed
-    /// its threshold, October 1, not by the day this device first noticed it.
-    @Test
-    func aCardBackDatesTheItemByTheClimbThatEarnedIt() async throws {
-        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
-        let context = container.mainContext
-        for day in 1...3 {
-            context.insert(Workout(date: try Self.october(day), duration: 1_200, steps: 10_000, floors: 500, source: .headphoneMotion))
-        }
-        try context.save()
-
-        let unlocks = try Self.freshDevice(retiring: [])
-        let firstOpen = try Self.october(5)
-        unlocks.recordVisit(userId: Self.userId, now: firstOpen)
-        unlocks.refresh(userId: Self.userId, modelContext: context, now: firstOpen)
-        #expect(unlocks.earnedAt[.pumpkinGhost] == (try Self.october(1)))
-        #expect(unlocks.earnedAt[.pumpkinMidnight] == (try Self.october(3)))
-        #expect(unlocks.earnedAt[.pumpkinClassic] == firstOpen, "the open-app Pumpkin keeps the day of the visit")
-
-        let size = CGSize(width: 402, height: 1_900)
-        try await RenderedScreen.host(
-            LockerView(userId: Self.userId, revealing: .pumpkinGhost, store: Self.looks(wearing: nil), unlocks: unlocks)
-                .modelContainer(container)
+            UnlockItemView(item: item, event: event, progress: progress, unlocks: unlocks, looks: looks, userId: { Self.userId }) {}
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
                 .frame(width: size.width, height: size.height),
             size: size,
-            settle: .turns(40)
+            settle: .turns(60)
         ) { screen in
-            _ = try await Self.cards(on: screen) { $0["Midnight Pumpkin"] != nil }
-            let text = try await screen.recognizedText(scale: 2)
-            #expect(text.contains("earned oct 1"), "the Ghost Pumpkin's back reads the day of the climb that earned it: \(text)")
-            #expect(!text.contains("earned oct 5"), "no card reads the day the device first noticed it: \(text)")
-            try screen.photograph(named: "unlock-card-back-dated-by-crossing-climb")
+            let copy = try await screen.copy { $0.contains("equip") }
+            for line in ["halloween", "carried on your shoulder", "midnight pumpkin", "25k steps in october", "earned in october", "open your athlete", "equip"] {
+                #expect(copy.contains(line), "\(line): \(copy)")
+            }
+            #expect(!copy.contains("locked"), "\(copy)")
+            try screen.photograph(named: "halloween-item-earned-equip")
+
+            try activateAccessibilityElement(labelled: "EQUIP", in: screen.root)
+            // The banner shows for a couple of seconds: photograph it the moment it arrives.
+            let banner = try await screen.text(containing: "Everyone on the stairs sees it.", reading: 400)
+            #expect(banner != nil, "the banner says everyone on the stairs sees it")
+            // Past its slide in, before it slides away.
+            try await Task.sleep(for: .milliseconds(700))
+            try screen.photograph(named: "halloween-item-equipped-banner")
+            let after = try await screen.copy(reading: 400) { $0.contains("midnight pumpkin equipped") || $0.contains("equipped") }
+            #expect(after.contains("equipped"), "\(after)")
+            #expect(looks.current.wearing(.carry) == .pumpkinMidnight, "EQUIP puts it on the athlete in place of the Pumpkin")
         }
     }
 
-    /// The Locker stage with the athlete holding each carried pumpkin, for the hand that closes
-    /// around it: the shoulder carry and the overhead giant.
-    @Test(arguments: [AthleteGear.pumpkinClassic, .pumpkinGiantLantern])
-    func theLockerStageShowsTheHandClosedAroundTheCarriedPumpkin(item: AthleteGear) async throws {
-        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+    /// A locked giant on the whole athlete, pressed overhead, with how far there is to go.
+    @Test(arguments: [AthleteGear.pumpkinGiant, .pumpkinGiantLantern])
+    func aLockedGiantIsShownOverheadWithWhatItTakes(gear: AthleteGear) async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
         let unlocks = try Self.freshDevice(retiring: [])
-        let size = CGSize(width: 402, height: 900)
+        let event = try #require(unlocks.catalog.event(id: "halloween-2026"))
+        let progress = try #require(unlocks.refresh(userId: Self.userId, modelContext: container.mainContext).first)
+        let item = try #require(unlocks.catalog.items(earnedIn: event).first { $0.shape == gear })
+        let need = item.earn.threshold
+        let size = CGSize(width: 402, height: 874)
         try await RenderedScreen.host(
-            LockerView(userId: Self.userId, store: Self.looks(wearing: item), unlocks: unlocks)
-                .modelContainer(container)
+            UnlockItemView(item: item, event: event, progress: progress, unlocks: unlocks, looks: Self.looks(wearing: nil), userId: { Self.userId }) {}
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
                 .frame(width: size.width, height: size.height),
             size: size,
             settle: .turns(80)
         ) { screen in
-            let cards = try await Self.cards(on: screen) { $0[item.title] == "Wearing" }
-            #expect(cards[item.title] == "Wearing", "\(cards)")
-            try screen.photograph(named: "unlock-locker-stage-holding-\(item.rawValue)")
+            let copy = try await screen.copy { $0.contains("start climbing") }
+            for line in ["held over your head", gear.title.lowercased(), "locked",
+                         "25,000 of \(need.formatted()) steps", "\((need - 25_000).formatted()) to go", "start climbing"] {
+                #expect(copy.contains(line), "\(line): \(copy)")
+            }
+            #expect(!copy.contains("earned in october"), "\(copy)")
+            try screen.photograph(named: "halloween-item-locked-\(gear.rawValue)")
         }
     }
 
-    /// The Giant Pumpkin retired on October 20: a climber who passes 50,000 steps only after
-    /// that day is never offered it, and one who passed it before keeps it on a fresh phone,
-    /// earned back from the climbs restored there.
-    @Test(arguments: [false, true])
-    func aRetiredItemIsKeptOnlyByThoseWhoEarnedItBeforeItRetired(earnedBeforeRetiring: Bool) async throws {
-        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
-        let context = container.mainContext
-        let climbs: [(day: Int, steps: Int)] = earnedBeforeRetiring ? [(5, 30_000), (19, 25_000)] : [(5, 40_000), (25, 20_000)]
-        for climb in climbs {
-            context.insert(Workout(date: try Self.october(climb.day), duration: 3_600, steps: climb.steps, floors: 2_000, source: .headphoneMotion))
-        }
-        try context.save()
+    // MARK: - Your Athlete
 
-        let unlocks = try Self.freshDevice(retiring: [(.pumpkinGiant, UnlockEvent.Day(year: 2026, month: 10, day: 20))])
-        let size = CGSize(width: 402, height: 1_900)
+    /// The gear rows inside Your Athlete: what is owned, NEW on what has not been looked at, an
+    /// earned item put on the athlete straight away, and a locked one opening what it takes.
+    @Test
+    func yourAthleteHoldsTheGearAndTriesItOn() async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [])
+        let looks = Self.looks(wearing: .pumpkinClassic)
+        let size = CGSize(width: 402, height: 1_400)
         try await RenderedScreen.host(
-            LockerView(userId: Self.userId, store: Self.looks(wearing: nil), unlocks: unlocks)
+            AthleteEditorView(store: looks, unlocks: unlocks, userId: { Self.userId })
                 .modelContainer(container)
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+                .frame(width: size.width, height: size.height),
+            size: size,
+            settle: .turns(60)
+        ) { screen in
+            let cells = try await Self.values(on: screen) { $0["Ghost Pumpkin"] != nil && $0["Pumpkin"] == "On your athlete" }
+            #expect(cells["Pumpkin"] == "On your athlete", "\(cells)")
+            #expect(cells["Ghost Pumpkin"] == "Earned, new", "an earned item not looked at yet reads NEW: \(cells)")
+            #expect(cells["Heirloom Pumpkin"] == "Locked", "\(cells)")
+            let copy = try await screen.copy()
+            for line in ["carried", "head", "kit", "feet", "4 owned", "1 owned", "save athlete", "body", "skin"] {
+                #expect(copy.contains(line), "\(line): \(copy)")
+            }
+            for gone in ["marks", "trail", "open the locker", "wear what you earned"] {
+                #expect(!copy.contains(gone), "\(gone): \(copy)")
+            }
+            try screen.photograph(named: "halloween-your-athlete-gear")
+
+            try activateAccessibilityElement(labelled: "Ghost Pumpkin", in: screen.root)
+            let tried = try await Self.values(on: screen) { $0["Ghost Pumpkin"] == "On your athlete" }
+            #expect(tried["Pumpkin"]?.hasPrefix("Earned") == true, "ON moves to the item tapped: \(tried)")
+            #expect(!unlocks.newItems.contains(.pumpkinGhost), "looking at it clears NEW")
+            #expect(looks.current.wearing(.carry) == .pumpkinClassic, "nothing is kept until SAVE ATHLETE")
+            try screen.photograph(named: "halloween-your-athlete-try-on")
+
+            try activateAccessibilityElement(labelled: "The Giant", in: screen.root)
+            let line = try await screen.copy { $0.contains("50k steps in october") }
+            #expect(line.contains("50k steps in october · 25,000 of 50,000 steps"), "\(line)")
+            #expect(tried["The Giant"] == "Locked")
+            try screen.photograph(named: "halloween-your-athlete-locked-line")
+        }
+    }
+
+    /// The Your Athlete card on Profile counts what is waiting to be looked at.
+    @Test
+    func theProfileCardCountsWhatIsNew() async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [])
+        unlocks.recordVisit(userId: Self.userId, now: try Self.october(5))
+        unlocks.refresh(userId: Self.userId, modelContext: container.mainContext, now: try Self.october(5))
+        unlocks.markSeen([.pumpkinClassic], userId: Self.userId)
+        let size = CGSize(width: 402, height: 200)
+        try await RenderedScreen.host(
+            AthleteProfileCard(store: Self.looks(wearing: .pumpkinClassic), unlocks: unlocks, userId: { Self.userId })
+                .padding(16)
+                .modelContainer(container)
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+                .frame(width: size.width, height: size.height)
+                .background(Color.black),
+            size: size,
+            settle: .turns(40)
+        ) { screen in
+            let card = try await Self.values(on: screen) { $0["Your athlete"]?.contains("new to wear") == true }
+            #expect(card["Your athlete"]?.hasSuffix("4 new to wear.") == true, "\(card)")
+            let copy = try await screen.copy()
+            #expect(copy.contains("4 new"), "\(copy)")
+            try screen.photograph(named: "halloween-profile-card-new")
+        }
+    }
+
+    // MARK: - The first open
+
+    /// The build reaches a climber mid-October after three climbs on a build without unlocks. The
+    /// first open credits all three, and the intro says what they already earned.
+    @Test
+    func climbsSavedBeforeTheUpdateCountOnTheFirstOpen() async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [])
+        let firstOpen = try Self.october(5)
+        unlocks.recordVisit(userId: Self.userId, now: firstOpen)
+        let progress = try #require(unlocks.refresh(userId: Self.userId, modelContext: container.mainContext, now: firstOpen).first)
+        #expect(progress.climbs == 3)
+        #expect(progress.steps == 25_000)
+        #expect(progress.days == 3)
+        #expect(unlocks.earned == [.pumpkinClassic, .pumpkinGhost, .witchHat, .chocolateBar, .pumpkinMidnight], "\(unlocks.earned)")
+
+        let event = try #require(unlocks.catalog.event(id: "halloween-2026"))
+        var carried: AthleteGear?
+        let size = CGSize(width: 402, height: 2_000)
+        try await RenderedScreen.host(
+            UnlockEventIntroView(event: event, items: unlocks.catalog.items(earnedIn: event), look: .starting(for: .man),
+                                 earned: unlocks.earned, onCarry: { carried = $0 }, onClose: {})
                 .frame(width: size.width, height: size.height),
             size: size,
             settle: .turns(40)
         ) { screen in
-            let cards = try await Self.cards(on: screen)
-            if earnedBeforeRetiring {
-                #expect(cards["Giant Pumpkin"] == "Earned", "passed 50,000 steps on October 19, before it retired: \(cards)")
-                #expect(unlocks.earned.contains(.pumpkinGiant))
-            } else {
-                #expect(cards["Giant Pumpkin"] == nil, "50,000 steps passed only on October 25, after it retired: \(cards)")
-                #expect(!unlocks.earned.contains(.pumpkinGiant))
+            let copy = try await screen.copy { $0.contains("already earned") }
+            for line in ["halloween is on.", "every climb and every step in october earns something new.", "your pumpkin is in",
+                         "your october climbs already earned 4 more", "put them on in your athlete", "climb in october to earn more", "yours to keep"] {
+                #expect(copy.contains(line), "\(line): \(copy)")
             }
-            #expect(cards["Midnight Pumpkin"] == "Earned", "a live item is still earned as before: \(cards)")
-            try screen.photograph(named: earnedBeforeRetiring ? "unlock-retired-kept-by-pre-retirement-earner" : "unlock-retired-not-earned-after-retirement")
+            for title in ["Ghost Pumpkin", "The Giant", "Giant Jack-o'-Lantern", "Ember Trainers"] {
+                #expect(copy.contains(title.lowercased()), "the ladder lists \(title): \(copy)")
+            }
+            #expect(!copy.contains("october on ascend mountain"), "\(copy)")
+            #expect(copy.contains("50k steps"), "thresholds read as bare counts: \(copy)")
+            try screen.photograph(named: "halloween-first-open-intro")
+            try activateAccessibilityElement(labelled: "EQUIP ON YOUR ATHLETE", in: screen.root)
+            #expect(carried == .pumpkinClassic)
         }
     }
 
-    /// A retired item the climber is wearing stays in the Locker, offered to be taken off, even
+    // MARK: - Retired items
+
+    /// The Giant retired on October 20: a climber who passes 50,000 steps only after that day
+    /// never gets it, and one who passed it before keeps it in Your Athlete on a fresh phone.
+    @Test(arguments: [false, true])
+    func aRetiredItemIsKeptOnlyByThoseWhoEarnedItBeforeItRetired(earnedBeforeRetiring: Bool) async throws {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let climbs: [(day: Int, steps: Int)] = earnedBeforeRetiring ? [(5, 30_000), (19, 25_000)] : [(5, 40_000), (25, 20_000)]
+        for climb in climbs {
+            container.mainContext.insert(Workout(date: try Self.october(climb.day), duration: 3_600, steps: climb.steps, floors: 2_000, source: .headphoneMotion))
+        }
+        try container.mainContext.save()
+
+        let unlocks = try Self.freshDevice(retiring: [(.pumpkinGiant, UnlockEvent.Day(year: 2026, month: 10, day: 20))])
+        let size = CGSize(width: 1_500, height: 1_400)
+        try await RenderedScreen.host(
+            AthleteEditorView(store: Self.looks(wearing: nil), unlocks: unlocks, userId: { Self.userId })
+                .modelContainer(container)
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+                .frame(width: size.width, height: size.height),
+            size: size,
+            settle: .turns(60)
+        ) { screen in
+            let cells = try await Self.values(on: screen) { $0["Midnight Pumpkin"] != nil }
+            if earnedBeforeRetiring {
+                #expect(cells["The Giant"]?.hasPrefix("Earned") == true, "passed 50,000 steps on October 19, before it retired: \(cells)")
+                #expect(unlocks.earned.contains(.pumpkinGiant))
+            } else {
+                #expect(cells["The Giant"] == nil, "50,000 steps passed only on October 25, after it retired: \(cells)")
+                #expect(!unlocks.earned.contains(.pumpkinGiant))
+            }
+            #expect(cells["Midnight Pumpkin"]?.hasPrefix("Earned") == true, "a live item is still earned as before: \(cells)")
+        }
+    }
+
+    /// A retired item the climber is wearing stays in Your Athlete, so it can be taken off, even
     /// when nothing on this device remembers earning it.
     @Test
-    func aWornRetiredItemStaysInTheLockerToBeTakenOff() async throws {
+    func aWornRetiredItemStaysToBeTakenOff() async throws {
         let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
         container.mainContext.insert(Workout(date: try Self.october(15), duration: 1_500, steps: 6_000, floors: 300, source: .headphoneMotion))
         try container.mainContext.save()
 
         let unlocks = try Self.freshDevice(retiring: [(.pumpkinGiantLantern, nil)])
-        let size = CGSize(width: 402, height: 1_900)
+        let size = CGSize(width: 1_500, height: 1_400)
         try await RenderedScreen.host(
-            LockerView(userId: Self.userId, store: Self.looks(wearing: .pumpkinGiantLantern), unlocks: unlocks)
+            AthleteEditorView(store: Self.looks(wearing: .pumpkinGiantLantern), unlocks: unlocks, userId: { Self.userId })
                 .modelContainer(container)
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
                 .frame(width: size.width, height: size.height),
             size: size,
-            settle: .turns(40)
+            settle: .turns(60)
         ) { screen in
             let title = AthleteGear.pumpkinGiantLantern.title
-            let worn = try await Self.cards(on: screen) { $0[title] == "Wearing" }
-            #expect(worn[title] == "Wearing", "the worn retired item is offered so it can come off: \(worn)")
+            let cells = try await Self.values(on: screen) { $0[title] == "On your athlete" }
+            #expect(cells[title] == "On your athlete", "the worn retired item is offered so it can come off: \(cells)")
             #expect(!unlocks.earned.contains(.pumpkinGiantLantern))
-            try screen.photograph(named: "unlock-retired-worn-still-in-locker")
         }
     }
+
+    // MARK: - The finish summary
 
     /// Climb 1 of five, reopened after the fifth: its summary still credits it with the Ghost
     /// Pumpkin it earned, and none of what the later climbs earned. Climb 4 earned nothing and
@@ -324,6 +435,8 @@ struct UnlockSurfacesEvidenceTests {
         }
     }
 
+    // MARK: - Helpers
+
     private static func october(_ day: Int) throws -> Date {
         try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: day, hour: 12)))
     }
@@ -344,23 +457,18 @@ struct UnlockSurfacesEvidenceTests {
     private static func looks(wearing item: AthleteGear?) -> AthleteLookStore {
         var look = AthleteLook.starting(for: .man)
         if let item { look.equip(item) }
-        return AthleteLookStore(repository: SavedLook(look: item == nil ? nil : look), genderSource: { _ in .man }, defaults: UserDefaults(suiteName: "UnlockSurfaces-\(UUID().uuidString)")!)
+        return AthleteLookStore(repository: SavedLook(look: look), genderSource: { _ in .man }, defaults: UserDefaults(suiteName: "UnlockSurfaces-\(UUID().uuidString)")!)
     }
 
-    /// Each Locker card on screen, by item title, with what it says about it: Earned, Wearing, or
-    /// Locked and what earns it.
-    private static func cards(on screen: HostedScreen, until isReady: @escaping ([String: String]) -> Bool = { _ in true }) async throws -> [String: String] {
-        let titles = Set(AthleteGear.allCases.map(\.title))
+    /// Every labelled element on screen with what its value says, by label.
+    private static func values(on screen: HostedScreen, until isReady: @escaping ([String: String]) -> Bool) async throws -> [String: String] {
         func read(_ elements: [NSObject]) -> [String: String] {
             Dictionary(elements.compactMap { element in
-                guard let label = element.accessibilityLabel, titles.contains(label), let value = element.accessibilityValue else { return nil }
-                return (label, value.hasPrefix("Locked") ? "Locked" : value)
+                guard let label = element.accessibilityLabel, let value = element.accessibilityValue, !value.isEmpty else { return nil }
+                return (label, value)
             }, uniquingKeysWith: { first, _ in first })
         }
-        let elements = try await screen.elements(reading: 400) { elements in
-            let cards = read(elements)
-            return cards["Pumpkin"] != nil && isReady(cards)
-        }
+        let elements = try await screen.elements(reading: 400) { isReady(read($0)) }
         return read(elements)
     }
 
@@ -370,14 +478,10 @@ struct UnlockSurfacesEvidenceTests {
         func refreshCatalog() async throws -> UnlockCatalog { catalog }
     }
 
-    private struct SavedLook: AthleteLookRepository {
-        let look: AthleteLook?
+    private final class SavedLook: AthleteLookRepository, @unchecked Sendable {
+        private var look: AthleteLook?
+        init(look: AthleteLook?) { self.look = look }
         func fetchLook(userId: String) async throws -> AthleteLook? { look }
-        func saveLook(_ look: AthleteLook, userId: String) async throws {}
-    }
-
-    private struct NoSavedLook: AthleteLookRepository {
-        func fetchLook(userId: String) async throws -> AthleteLook? { nil }
-        func saveLook(_ look: AthleteLook, userId: String) async throws {}
+        func saveLook(_ look: AthleteLook, userId: String) async throws { self.look = look }
     }
 }

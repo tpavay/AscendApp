@@ -1,18 +1,19 @@
 import SwiftUI
 
-/// Where a climber makes their athlete theirs: the seasonal item they carry, body, skin, hair and
-/// its colour, the colours of the tank, shorts and shoes, size and muscle. The athlete turns above
-/// the choices and wears each one the moment it is tapped; nothing is kept until SAVE ATHLETE.
+/// Where a climber makes their athlete theirs: everything they have earned to wear, then body,
+/// skin, hair and its colour, the colours of the tank, shorts and shoes, size and muscle. The
+/// athlete turns above the choices and wears each one the moment it is tapped; nothing is kept
+/// until SAVE ATHLETE. It is the one place a climber's gear lives.
 ///
 /// Opened from the onboarding step, the Profile card and the Just Climb setup sheet.
 struct AthleteEditorView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-    @State private var unlocks = UnlockStore.shared
+    @State private var unlocks: UnlockStore
     /// Each opened event's climbs and steps so far, read once the editor opens.
     @State private var eventProgress: [UnlockEventProgress] = []
-    @State private var showingLocker = false
+    @State private var didSave = false
 
     /// Called once the look is saved, before the editor closes.
     var onSaved: () -> Void = {}
@@ -20,9 +21,13 @@ struct AthleteEditorView: View {
     @State private var model: AthleteEditorModel
     private let store: AthleteLookStore
 
-    init(store: AthleteLookStore = .shared, onSaved: @escaping () -> Void = {}) {
+    private let userId: (() -> String?)?
+
+    init(store: AthleteLookStore = .shared, unlocks: UnlockStore = .shared, userId: (() -> String?)? = nil, onSaved: @escaping () -> Void = {}) {
         self.store = store
+        self.userId = userId
         self.onSaved = onSaved
+        _unlocks = State(initialValue: unlocks)
         _model = State(initialValue: AthleteEditorModel(look: store.current))
     }
 
@@ -46,10 +51,23 @@ struct AthleteEditorView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if unlocks.isEnabled, !eventProgress.isEmpty {
-                        section("LOCKER") {
-                            lockerEntry
-                        }
+                    if unlocks.isEnabled, !gearEntries.isEmpty {
+                        AthleteGearRows(
+                            entries: gearEntries,
+                            owned: unlocks.earned.union(store.current.gear),
+                            new: unlocks.newItems,
+                            wearing: model.draft.gear,
+                            onWear: { item in
+                                model.wear(item)
+                                didSave = false
+                                if let userId = signedInUser { unlocks.markSeen([item], userId: userId) }
+                            },
+                            onTakeOff: { item in
+                                model.takeOff(item)
+                                didSave = false
+                            }
+                        )
+                        .padding(.bottom, 4)
                     }
                     section("BODY") {
                         AthleteChoiceStrip(
@@ -129,15 +147,8 @@ struct AthleteEditorView: View {
         .background(Color.black)
         .preferredColorScheme(.dark)
         .trackOnce(screen: .athleteEditor)
-        .fullScreenCover(isPresented: $showingLocker, onDismiss: {
-            // The Locker saves the athlete itself; what it put on joins this draft so a save
-            // here does not take it off again.
-            model.adoptGear(from: store.current)
-        }) {
-            LockerView(userId: authVM.user?.uid, store: store)
-        }
-        .task(id: authVM.user?.uid) {
-            if let userId = authVM.user?.uid, unlocks.isEnabled {
+        .task(id: signedInUser) {
+            if let userId = signedInUser, unlocks.isEnabled {
                 await unlocks.refreshCatalogIfNeeded()
                 eventProgress = unlocks.refresh(userId: userId, modelContext: modelContext)
             }
@@ -145,44 +156,17 @@ struct AthleteEditorView: View {
         }
     }
 
-    /// What the athlete has on from the Locker, and the way in.
-    private var lockerEntry: some View {
-        let owned = unlocks.earned.union(model.draft.gear)
-        let catalogueItems = eventProgress.flatMap { unlocks.catalog.lockerItems(of: $0.event, owned: owned) }
-        let earnedCount = catalogueItems.filter { owned.contains($0.shape) }.count
-        return Button {
-            showingLocker = true
-        } label: {
-            HStack(spacing: 12) {
-                HStack(spacing: -10) {
-                    ForEach(model.draft.gear.isEmpty ? Array(catalogueItems.prefix(3).map(\.shape)) : model.draft.gear) { item in
-                        Image(item.thumbnailName)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 40, height: 40)
-                            .padding(3)
-                            .background(Circle().fill(Color(red: 0.12, green: 0.12, blue: 0.14)))
-                    }
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("OPEN THE LOCKER")
-                        .font(.montserratBold(size: 13))
-                        .tracking(0.8)
-                        .foregroundStyle(.white)
-                    Text("\(earnedCount) of \(catalogueItems.count) earned")
-                        .font(.montserratMedium(size: 11))
-                        .foregroundStyle(.white.opacity(0.55))
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.5))
-            }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.06)))
+    private var signedInUser: String? {
+        userId?() ?? authVM.user?.uid
+    }
+
+    /// Every item the climber can wear or work toward, from every event that has opened, newest
+    /// event first. A retired item stays for whoever owns it, so it can still come off.
+    private var gearEntries: [AthleteGearRows.Entry] {
+        let owned = unlocks.earned.union(store.current.gear)
+        return eventProgress.flatMap { progress in
+            unlocks.catalog.gearItems(of: progress.event, owned: owned).map { AthleteGearRows.Entry(item: $0, progress: progress) }
         }
-        .buttonStyle(.plain)
-        .disabled(!model.isEditable)
     }
 
     private var header: some View {
@@ -250,19 +234,23 @@ struct AthleteEditorView: View {
             Button {
                 save()
             } label: {
-                Text(model.isSaving ? "SAVING..." : "SAVE ATHLETE")
+                Text(didSave ? "SAVED" : model.isSaving ? "SAVING..." : "SAVE ATHLETE")
                     .font(.montserratBold(size: 14))
                     .tracking(1.1)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(didSave ? Color.accent : .black)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.accent.opacity(model.canSave ? 1 : 0.6))
-                    )
+                    .background {
+                        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        if didSave {
+                            shape.fill(Color.accent.opacity(0.16)).overlay(shape.strokeBorder(Color.accent.opacity(0.6), lineWidth: 1.5))
+                        } else {
+                            shape.fill(Color.accent.opacity(model.canSave ? 1 : 0.6))
+                        }
+                    }
             }
             .buttonStyle(.plain)
-            .disabled(!model.canSave || authVM.user == nil)
+            .disabled(!model.canSave || didSave || signedInUser == nil)
         }
         .padding(.horizontal, 22)
         .padding(.top, 12)
@@ -278,15 +266,17 @@ struct AthleteEditorView: View {
     }
 
     private func loadSavedLook() async {
-        guard let userId = authVM.user?.uid else { return }
+        guard let userId = signedInUser else { return }
         await model.loadSavedLook(userId: userId, from: store)
     }
 
     private func save() {
-        guard let userId = authVM.user?.uid else { return }
+        guard let userId = signedInUser else { return }
         Task {
             if await model.save(userId: userId, to: store) {
+                withAnimation(.smooth(duration: 0.18)) { didSave = true }
                 onSaved()
+                try? await Task.sleep(for: .milliseconds(650))
                 dismiss()
             }
         }

@@ -10,14 +10,16 @@
       "theme": {
         "style": "haunted",
         "steps": 5000
-      }
+      },
+      "showcase": ["pumpkin_classic", "witch_hat", "pumpkin_lantern"]
     },
     {
       "id": "thanksgiving-2026",
       "title": "Thanksgiving",
       "monthName": "November",
       "startsOn": "2026-11-01",
-      "endsBefore": "2026-12-01"
+      "endsBefore": "2026-12-01",
+      "showcase": ["harvest_gourd", "roast_turkey", "pumpkin_pie"]
     }
   ],
   "items": [

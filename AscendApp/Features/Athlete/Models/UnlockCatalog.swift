@@ -45,9 +45,9 @@ struct UnlockCatalog: Decodable, Equatable, Sendable {
         items.filter { $0.status == .live && $0.earn.event == event.id }
     }
 
-    /// What the Locker offers from an event: its live items, and the retired ones the climber
+    /// What Your Athlete offers from an event: its live items, and the retired ones the climber
     /// owns, so an item that stops being earnable stays wearable, and removable, for whoever has it.
-    func lockerItems(of event: UnlockEvent, owned: Set<AthleteGear>) -> [UnlockItem] {
+    func gearItems(of event: UnlockEvent, owned: Set<AthleteGear>) -> [UnlockItem] {
         items.filter { item in
             guard item.earn.event == event.id else { return false }
             switch item.status {
@@ -74,6 +74,13 @@ struct UnlockCatalog: Decodable, Equatable, Sendable {
         items(earnedIn: event).first { $0.earn.metric == .visits }
     }
 
+    /// The three items an event's Home card shows: the ones the catalogue names, else its first.
+    func showcase(of event: UnlockEvent) -> [UnlockItem] {
+        let items = items(earnedIn: event)
+        let named = (event.showcase ?? []).compactMap { id in items.first { $0.id == id } }
+        return Array((named.isEmpty ? items : named).prefix(3))
+    }
+
     /// The item drawn as `shape`, for naming what a climber carries.
     func item(shape: AthleteGear) -> UnlockItem? {
         items.first { $0.shape == shape }
@@ -92,6 +99,8 @@ struct UnlockEvent: Decodable, Equatable, Hashable, Identifiable, Sendable {
     let endsBefore: Day
     /// How the event dresses Ascend Mountain, if it does.
     var theme: Theme? = nil
+    /// The item ids its Home card shows, left to right; the event's first items when absent.
+    var showcase: [String]? = nil
 
     /// A look the mountain wears during an event, over the first steps of every climb.
     struct Theme: Decodable, Equatable, Hashable, Sendable {
@@ -169,7 +178,7 @@ struct UnlockEvent: Decodable, Equatable, Hashable, Identifiable, Sendable {
 
 /// One thing a climber can unlock: the shape it is drawn as, the slot it goes in, and what
 /// earns it.
-struct UnlockItem: Decodable, Equatable, Hashable, Sendable {
+struct UnlockItem: Decodable, Equatable, Hashable, Identifiable, Sendable {
     typealias Slot = AthleteGear.Slot
 
     enum Status: String, Decodable, Sendable {

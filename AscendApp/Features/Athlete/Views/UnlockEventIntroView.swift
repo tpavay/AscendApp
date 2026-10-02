@@ -42,17 +42,20 @@ struct UnlockEventIntroView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 18) {
-                    VStack(spacing: 6) {
-                        Text("\(event.monthName.uppercased()) ON ASCEND MOUNTAIN")
-                            .font(.montserratBold(size: 11))
-                            .tracking(1.6)
-                            .foregroundStyle(Color.accent)
-                        Text("\(event.title.uppercased()) IS ON")
-                            .font(.montserratBold(size: 30))
+                    VStack(spacing: 8) {
+                        Text("\(event.title) is on.")
+                            .font(.montserratBold(size: 32))
+                            .tracking(-0.6)
                             .foregroundStyle(.white)
                             .multilineTextAlignment(.center)
                             .accessibilityAddTraits(.isHeader)
+                        Text("Every climb and every step in \(event.monthName) earns something new.")
+                            .font(.montserratBold(size: 12.5))
+                            .foregroundStyle(.white.opacity(0.78))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .padding(.horizontal, 24)
                     .padding(.top, 28)
 
                     if let visitItem {
@@ -154,7 +157,7 @@ struct UnlockEventIntroView: View {
                 Text(item.shape.title.uppercased())
                     .font(.montserratBold(size: 14))
                     .foregroundStyle(.white)
-                Text(UnlockCopy.requirement(item, in: event))
+                Text(UnlockCopy.threshold(item, in: event))
                     .font(.montserratMedium(size: 12))
                     .foregroundStyle(.white.opacity(0.6))
             }
