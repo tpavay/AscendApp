@@ -161,7 +161,7 @@ struct LockerView: View {
     }
 
     private var grid: some View {
-        let entries = progress.flatMap { event in event.items.map { (event, $0) } }
+        let entries = progress.flatMap { event in unlocks.catalog.lockerItems(of: event, earned: unlocks.earned).map { (event, $0) } }
             .filter { tab.slots.contains($0.1.shape.slot) }
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             ForEach(entries, id: \.1.id) { event, item in

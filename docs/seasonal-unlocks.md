@@ -32,6 +32,7 @@ Each item names the shape it is drawn as, its slot, a rarity, a status (`hidden`
 An event may also carry a `theme`, how it dresses the mountain.
 
 Without a build, the file can move an event's dates, change a threshold, or switch a shipped item live ("ship dark, drop live").
+Setting an item `retired` stops new earning only: the event ladder, the intro and the finish card drop it, while the Locker keeps it, earned and wearable, for every climber who already earned it (`UnlockCatalog.lockerItems`).
 A new shape needs a build: `AthleteGear` and `MountainGearModel` draw it.
 An item whose shape, slot or way of earning a build does not know is skipped by that build, never fatal (`UnlockTests.anItemThisBuildCannotDrawIsSkippedNotFatal`).
 `firestore.rules` lists the items each slot accepts, so a new shape also needs a rules deploy before the build that offers it.

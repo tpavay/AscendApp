@@ -45,6 +45,19 @@ struct UnlockCatalog: Decodable, Equatable, Sendable {
         items.filter { $0.status == .live && $0.earn.event == event.id }
     }
 
+    /// What the Locker offers from an event: its live items, and the retired ones this climber
+    /// earned, so an item that stops being earnable stays wearable for everyone who has it.
+    func lockerItems(of progress: UnlockEventProgress, earned: Set<AthleteGear>) -> [UnlockItem] {
+        items.filter { item in
+            guard item.earn.event == progress.event.id else { return false }
+            switch item.status {
+            case .live: return true
+            case .retired: return earned.contains(item.shape) || progress.isEarned(item)
+            case .hidden: return false
+            }
+        }
+    }
+
     /// The item an event gives to everybody who opens Ascend during it, if it has one.
     func visitItem(of event: UnlockEvent) -> UnlockItem? {
         items(earnedIn: event).first { $0.earn.metric == .visits }
