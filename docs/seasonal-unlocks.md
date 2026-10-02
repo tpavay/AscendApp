@@ -3,8 +3,9 @@
 October (Halloween) and November (Thanksgiving) are the first instance of Ascend's unlock system: items a climber earns by climbing and carries or wears up Ascend Mountain.
 Earned only, never bought, cosmetic only, and drawn for everyone who races with you.
 
-An athlete has six slots (`AthleteGear.Slot`): an item carried on the right shoulder, pressed overhead or held out like a tray (`carry`), one on the head (`head`), a costume over the whole athlete (`costume`), and kit worn in place of the colours the climber picked (`tank`, `shorts`, `trainers`).
-Carried, head and costume items are shapes of their own riding the skeleton; kit is the athlete's own body redrawn (`MountainKitPrint`): the tank carries clean texture coordinates and takes a tiled print, while the shorts' are cut across seams and the trainers have none, so theirs is a colour that glows.
+An athlete has five slots (`AthleteGear.Slot`): an item carried on the right shoulder, pressed overhead or held out like a tray (`carry`), one on the head (`head`), a costume over the whole athlete (`costume`), and kit worn in place of the colours the climber picked (`shorts`, `trainers`).
+Carried, head and costume items are shapes of their own riding the skeleton; kit is the athlete's own body redrawn in a colour that glows (`MountainKitPrint`), since the shorts' texture coordinates are cut small across seams and the trainers have none.
+A printed tank was tried and dropped: on the athlete it read as one colour, not a design.
 Each slot is stored under its own name on `users/{uid}/athlete_look/current`, and `firestore.rules` lists the items each slot accepts.
 
 ## What a climber sees

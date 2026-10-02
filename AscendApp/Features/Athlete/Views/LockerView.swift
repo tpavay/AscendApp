@@ -29,7 +29,7 @@ struct LockerView: View {
             case .carry: [.carry]
             case .head: [.head]
             case .costume: [.costume]
-            case .kit: [.tank, .shorts]
+            case .kit: [.shorts]
             case .feet: [.trainers]
             }
         }

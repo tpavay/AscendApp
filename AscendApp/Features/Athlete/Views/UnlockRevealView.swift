@@ -166,7 +166,6 @@ final class UnlockRevealStage {
         case (.carry, _): [-0.19, 1.5, -0.03]
         case (.head, _): [0, 1.6, 0]
         case (.costume, _): [0, 1.35, 0]
-        case (.tank, _): [0, 1.3, 0.15]
         case (.shorts, _): [0, 0.95, 0.15]
         case (.trainers, _): [0.1, 0.1, 0.15]
         }

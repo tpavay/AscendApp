@@ -17,7 +17,6 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
     case ghostSheet = "ghost_sheet"
     case candyCorn = "candy_corn"
     case chocolateBar = "chocolate_bar"
-    case candyCornTank = "candy_corn_tank"
     case witchingShorts = "witching_shorts"
     case glowTrainers = "glow_trainers"
     case emberTrainers = "ember_trainers"
@@ -39,9 +38,8 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
         case head
         /// Over the whole athlete.
         case costume
-        /// The tank, the shorts and the trainers: kit printed or lit for the season, worn in
-        /// place of the kit colour the climber picked.
-        case tank
+        /// The shorts and the trainers: kit lit for the season, worn in place of the colour the
+        /// climber picked.
         case shorts
         case trainers
     }
@@ -55,7 +53,6 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .witchHat, .pumpkinHead: .head
         case .ghostSheet: .costume
-        case .candyCornTank: .tank
         case .witchingShorts: .shorts
         case .glowTrainers, .emberTrainers: .trainers
         default: .carry
@@ -94,7 +91,6 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
         case .ghostSheet: "Ghost Sheet"
         case .candyCorn: "Candy Corn"
         case .chocolateBar: "Chocolate Bar"
-        case .candyCornTank: "Candy Corn Tank"
         case .witchingShorts: "Witching Hour Shorts"
         case .glowTrainers: "Glow Trainers"
         case .emberTrainers: "Ember Trainers"

@@ -126,19 +126,6 @@
       }
     },
     {
-      "id": "candy_corn_tank",
-      "slot": "tank",
-      "shape": "candy_corn_tank",
-      "rarity": "rare",
-      "status": "live",
-      "earn": {
-        "path": "event",
-        "event": "halloween-2026",
-        "metric": "days",
-        "threshold": 15
-      }
-    },
-    {
       "id": "pumpkin_head",
       "slot": "head",
       "shape": "pumpkin_head",

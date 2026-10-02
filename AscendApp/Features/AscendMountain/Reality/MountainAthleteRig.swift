@@ -399,7 +399,7 @@ final class MountainAthleteRig {
                 item.entity.transform = Transform(scale: .one, rotation: head.turn.float, translation: SIMD3<Float>(head.position))
             case .costume:
                 item.entity.transform = Transform(scale: .one, rotation: chest.turn.float, translation: SIMD3<Float>(neck.position))
-            case .tank, .shorts, .trainers:
+            case .shorts, .trainers:
                 // Kit is drawn on the body's own materials, never worn as a shape.
                 break
             }

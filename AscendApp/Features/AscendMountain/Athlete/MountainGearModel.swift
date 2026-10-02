@@ -121,7 +121,7 @@ struct MountainGearModel: Sendable {
         case .ghostSheet: ghostSheet()
         case .candyCorn: candyCorn()
         case .chocolateBar: chocolateBar()
-        case .candyCornTank, .witchingShorts, .glowTrainers, .emberTrainers:
+        case .witchingShorts, .glowTrainers, .emberTrainers:
             // Kit is drawn on the athlete's own body (`MountainKitPrint`), not as a shape.
             MountainGearModel(parts: [])
         case .harvestGourd: gourd()

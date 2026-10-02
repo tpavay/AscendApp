@@ -322,21 +322,19 @@ struct UnlockTests {
         }
     }
 
-    /// Kit is the athlete's own body redrawn: a print on the tank, a colour that glows on the
-    /// shorts and trainers, and never a shape of its own.
+    /// Kit is the athlete's own body redrawn in a colour that glows, never a shape of its own.
     @Test
     func kitIsDrawnOnTheBody() {
         let kit = AthleteGear.allCases.filter { !$0.isWornShape }
-        #expect(Set(kit.map(\.slot)) == [.tank, .shorts, .trainers])
+        #expect(Set(kit.map(\.slot)) == [.shorts, .trainers])
         #expect(kit.allSatisfy { MountainGearModel.model(for: $0).parts.isEmpty })
-        #expect(kit.filter { $0.slot == .tank }.allSatisfy { MountainKitPrint.image($0) != nil })
-        #expect(kit.filter { $0.slot != .tank }.allSatisfy { MountainKitPrint.glow($0) > 0 })
+        #expect(kit.allSatisfy { MountainKitPrint.glow($0) > 0 })
         var look = AthleteLook.starting(for: .man)
-        look.equip(.candyCornTank)
+        look.equip(.witchingShorts)
         look.equip(.emberTrainers)
-        #expect(MountainKitPrint.item(forSlot: "top", look: look) == .candyCornTank)
+        #expect(MountainKitPrint.item(forSlot: "bottom", look: look) == .witchingShorts)
         #expect(MountainKitPrint.item(forSlot: "shoe", look: look) == .emberTrainers)
-        #expect(MountainKitPrint.item(forSlot: "bottom", look: look) == nil)
+        #expect(MountainKitPrint.item(forSlot: "top", look: look) == nil)
     }
 
     /// Climbing on one named day earns its item: Halloween is the 31st of October.
