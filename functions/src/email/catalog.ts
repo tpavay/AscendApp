@@ -1,3 +1,4 @@
+import {renderDropEmailFromPayload} from "./dropTemplate";
 import {
   renderFirstAscentClaimedEmailFromPayload,
   renderFirstClimbCompletedEmailFromPayload,
@@ -88,6 +89,11 @@ export const emailTypeConfigs: Record<EmailType, EmailTypeDefinition> = {
   },
   monthly_recap_inactive: {
     render: renderMonthlyRecapInactiveEmailFromPayload,
+    retryDelaysMs: standardRetryDelaysMs,
+    sendPolicy: "send_now",
+  },
+  drop_announcement: {
+    render: renderDropEmailFromPayload,
     retryDelaysMs: standardRetryDelaysMs,
     sendPolicy: "send_now",
   },

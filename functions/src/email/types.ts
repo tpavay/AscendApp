@@ -12,7 +12,8 @@ export type EmailType =
   | "weekly_recap_active"
   | "weekly_recap_inactive"
   | "monthly_recap_active"
-  | "monthly_recap_inactive";
+  | "monthly_recap_inactive"
+  | "drop_announcement";
 export type EmailJobStatus =
   | "queued"
   | "processing"
@@ -176,13 +177,81 @@ export interface RecapInactivePayload {
   ctaUrl: string;
 }
 
+/**
+ * One unlockable item as a drop email draws it: the app's own item name, the
+ * app's own requirement wording ("10 CLIMBS", "25K STEPS"), and its
+ * thumbnail on the marketing site. `catalogItemId` is the item's id in the
+ * hosted unlock catalogue, which the send script checks the drop against.
+ */
+export interface DropEmailItem {
+  catalogItemId: string;
+  imagePath: string;
+  name: string;
+  requirement: string;
+}
+
+/**
+ * An item drawn as a full-width card with a sentence of its own: the free
+ * item a group leads with (`badge` "Free"), or a group's legendary finale.
+ */
+export interface DropEmailFeaturedItem extends DropEmailItem {
+  description: string;
+}
+
+/**
+ * One way of earning, e.g. "Climb in October": an optional full-width lead
+ * item, a grid of tiles, and an optional legendary card closing the group.
+ */
+export interface DropEmailItemGroup {
+  heading: string;
+  lead?: DropEmailFeaturedItem & {badge: string};
+  items: DropEmailItem[];
+  legendary?: DropEmailFeaturedItem;
+}
+
+export interface DropEmailFact {
+  label: string;
+  value: string;
+}
+
+export type DropEmailTheme = "halloween";
+
+/**
+ * A content drop announcement, carried whole on the job so a new drop is
+ * content rather than code: the renderer draws whatever the payload says.
+ * Image paths are relative to `assetBaseUrl`, the site the images were
+ * deployed to, which the sender checks before it queues anything.
+ */
+export interface DropEmailPayload {
+  assetBaseUrl: string;
+  banner?: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  dropId: string;
+  earnHeading: string;
+  eyebrow: string;
+  facts: DropEmailFact[];
+  groups: DropEmailItemGroup[];
+  headlineLines: string[];
+  heroImageAlt: string;
+  heroImagePath: string;
+  intro: string;
+  motifImagePath?: string;
+  preheader: string;
+  subject: string;
+  tag: string;
+  theme: DropEmailTheme;
+  whyReceived: string;
+}
+
 export type EmailJobPayload =
   | EmptyEmailPayload
   | FirstClimbCompletedPayload
   | FirstAscentClaimedPayload
   | LeaderboardFirstPlacePayload
   | RecapActivePayload
-  | RecapInactivePayload;
+  | RecapInactivePayload
+  | DropEmailPayload;
 
 export interface EmailJobDocument {
   attemptCount: number;
