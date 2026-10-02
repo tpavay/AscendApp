@@ -84,7 +84,7 @@ struct MountainGearModel: Sendable {
         /// How warty the skin is, 0 smooth.
         var warts: Float {
             switch self {
-            case .heirloom: 1
+            case .heirloom: 0.6
             case .giantLantern: 0.5
             default: 0
             }
@@ -197,11 +197,14 @@ struct MountainGearModel: Sendable {
     /// A curling tendril and a leaf at the foot of the stem.
     static func vine(base: SIMD3<Float>, radius: Float) -> (tendril: MountainGearGeometry, leaf: MountainGearGeometry) {
         let steps = 28
+        // Runs out from the stem along the top of the pumpkin, then curls up tight at its end.
         let path = (0...steps).map { i -> SIMD3<Float> in
             let t = Float(i) / Float(steps)
-            let angle = t * 1.6 * 2 * .pi
-            let spiral = radius * (0.55 - 0.42 * t)
-            return base + SIMD3(radius * 0.25 + cos(angle) * spiral, radius * 0.18 * t + sin(t * .pi) * radius * 0.1, sin(angle) * spiral)
+            let run = SIMD3<Float>(radius * 0.5 * t, radius * 0.06 * sin(t * .pi), -radius * 0.2 * t)
+            let curl = max(t - 0.45, 0) / 0.55
+            let angle = curl * 1.5 * 2 * .pi
+            let spiral = radius * 0.13 * curl * (1 - curl * 0.5)
+            return base + run + SIMD3(sin(angle) * spiral, (1 - cos(angle)) * spiral, 0)
         }
         let taper = (0...steps).map { 1 - Float($0) / Float(steps + 8) }
         let tendril = MountainGearGeometry.tube(path: path, radius: radius * 0.035, taper: taper, sides: 6)
