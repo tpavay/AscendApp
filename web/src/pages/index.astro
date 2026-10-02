@@ -3,664 +3,331 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import AppStoreBadge from '../components/AppStoreBadge.astro';
 import { APP_STORE_URL } from '../appStore';
 ---
-<BaseLayout title="Ascend - Stair Stepper Racing" description="Ascend is a stair stepper racing app for iOS. Race real towers from any gym, against every climber who has taken them on.">
+<BaseLayout title="Ascend - Stair Stepper Racing" description="Compete on the stair stepper. Your headphones count every step, and Ascend turns every one of them into a race against other climbers.">
 
   <style>
-    .hero {
-      position: relative;
-      min-height: 72vh;
-      display: flex;
-      align-items: center;
-      overflow: hidden;
-      padding: 124px 40px 84px;
-      isolation: isolate;
-      background: #090d12;
-    }
-
-    .hero::before {
-      content: none;
-    }
-
-    .hero::after {
-      content: none;
-    }
-
-    .hero-inner {
-      width: min(100%, 1040px);
+    .wrap {
+      width: min(100%, 1160px);
       margin: 0 auto;
-      display: flex;
-      justify-content: center;
-      position: relative;
-      z-index: 2;
-    }
-
-    .hero-content {
-      max-width: 1040px;
-      text-align: center;
-    }
-
-    .hero h1 {
-      max-width: 1040px;
-      margin-bottom: 24px;
-      font-size: clamp(44px, 5.6vw, 74px);
-      font-weight: 850;
-      line-height: 1.02;
-      letter-spacing: 0;
-    }
-
-    .hero h1 span {
-      display: block;
-    }
-
-    .hero h1 .accent {
-      color: var(--accent);
-    }
-
-    .hero .subtitle {
-      max-width: 820px;
-      margin-left: auto;
-      margin-right: auto;
-      margin-bottom: 32px;
-      color: #b9c2cf;
-      font-size: 20px;
-      line-height: 1.62;
-    }
-
-    .hero-actions {
-      max-width: 620px;
-      margin: 0 auto;
-    }
-
-    .phone-frame {
-      position: relative;
-      width: 276px;
-      height: 600px;
-      border-radius: 42px;
-      background: #050608;
-      padding: 12px;
-      box-shadow:
-        0 28px 70px rgba(0, 0, 0, 0.56),
-        0 0 0 1px rgba(255, 255, 255, 0.08),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-      overflow: hidden;
-    }
-
-    .phone-frame::before {
-      content: "";
-      position: absolute;
-      top: 17px;
-      left: 50%;
-      z-index: 2;
-      width: 96px;
-      height: 27px;
-      transform: translateX(-50%);
-      border-radius: 999px;
-      background: #030405;
-    }
-
-    .phone-frame.app-screenshot {
-      padding: 0;
-      border-radius: 34px;
-    }
-
-    .phone-frame.app-screenshot::before {
-      display: none;
-    }
-
-    .phone-frame.app-screenshot .screen {
-      border-radius: 34px;
-    }
-
-    .screen {
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      border-radius: 31px;
-      background: #121722;
-    }
-
-    .screen img {
-      display: block;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
+      padding: 0 40px;
     }
 
     .section {
-      padding: 104px 40px;
+      padding: 120px 0;
+      overflow-x: clip;
     }
 
-    #features {
-      padding-top: 72px;
-    }
-
-    .section-inner {
-      width: min(100%, var(--max-width));
-      margin: 0 auto;
-    }
-
-    .section-heading {
-      max-width: 720px;
-      margin-bottom: 54px;
-    }
-
-    .section-heading.centered {
-      margin-left: auto;
-      margin-right: auto;
-      text-align: center;
-    }
-
-    .section-kicker {
-      margin-bottom: 12px;
-      color: var(--accent);
-      font-size: 12px;
-      font-weight: 850;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-    }
-
-    .section h2 {
-      font-size: clamp(32px, 4.6vw, 56px);
-      font-weight: 850;
-      line-height: 1;
-      letter-spacing: 0;
-    }
-
-    .section-heading p {
-      margin-top: 18px;
-      color: #a8b2bf;
-      font-size: 18px;
-      line-height: 1.7;
-    }
-
-    .sport-section {
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-      background: var(--bg-soft);
-    }
-
-    .sport-section .section-heading {
-      max-width: 880px;
-    }
-
-    .sport-section .section-heading h2 {
-      text-wrap: balance;
-    }
-
-    .sport-section .section-heading p {
-      text-wrap: pretty;
-    }
-
-    .sport-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 16px;
-    }
-
-    .sport-card {
-      padding: 26px 24px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.035);
-    }
-
-    .sport-card h3 {
-      margin-bottom: 10px;
-      color: var(--text);
-      font-size: 18px;
+    .act {
+      font-size: 13px;
       font-weight: 800;
-      line-height: 1.25;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
 
-    .sport-card p {
-      color: #a8b2bf;
-      font-size: 15px;
-      line-height: 1.62;
+    .act.lime {
+      color: var(--accent);
     }
 
-    .feature-rows {
-      display: grid;
-      gap: 70px;
+    .accent {
+      color: var(--accent);
     }
 
-    .feature-row {
-      display: grid;
-      grid-template-columns: minmax(0, 0.9fr) minmax(360px, 1fr);
-      gap: 70px;
-      align-items: center;
-      padding: 70px 0;
-      border-top: 1px solid var(--border);
+    .muted {
+      color: var(--muted);
     }
 
-    .feature-row:first-child {
-      padding-top: 0;
-      border-top: 0;
-    }
-
-    .feature-row:last-child {
-      border-bottom: 1px solid var(--border);
-    }
-
-    .feature-row.reversed {
-      grid-template-columns: minmax(360px, 1fr) minmax(0, 0.9fr);
-    }
-
-    .feature-row.reversed .feature-copy {
-      order: 2;
-    }
-
-    .feature-row.reversed .feature-visual {
-      order: 1;
-    }
-
-    .feature-copy h3 {
-      margin-bottom: 16px;
-      font-size: clamp(28px, 3.4vw, 42px);
-      font-weight: 820;
-      line-height: 1.08;
-      letter-spacing: 0;
-    }
-
-    .feature-copy p {
-      color: #a8b2bf;
-      font-size: 17px;
-      line-height: 1.72;
-    }
-
-    .feature-points {
-      display: grid;
-      gap: 12px;
-      margin-top: 26px;
-      list-style: none;
-    }
-
-    .feature-points li {
-      position: relative;
-      padding-left: 24px;
-      color: #d9dee6;
-      font-size: 15px;
-      line-height: 1.5;
-    }
-
-    .feature-points li::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0.62em;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent);
-    }
-
-    .live-climbs-showcase {
-      min-height: calc(100vh - 82px);
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      padding: 26px 0 40px;
-      scroll-margin-top: 82px;
-      scroll-snap-align: start;
-    }
-
-    .live-showcase-heading {
-      max-width: 760px;
-      margin: 0 auto 42px;
-      text-align: center;
-    }
-
-    .live-showcase-heading h2 {
-      margin-bottom: 14px;
-      color: var(--text);
-      font-size: clamp(32px, 4vw, 50px);
+    h1.display {
+      font-size: clamp(44px, 5.4vw, 76px);
       font-weight: 850;
-      line-height: 1.04;
-      letter-spacing: 0;
+      line-height: 1.02;
+      letter-spacing: -0.01em;
     }
 
-    .live-showcase-heading h2 span {
-      color: var(--accent-hover);
+    h2.display {
+      font-size: clamp(34px, 4vw, 56px);
+      font-weight: 850;
+      line-height: 1.05;
+      letter-spacing: -0.01em;
     }
 
-    .live-walkthrough {
+    .lead {
+      font-size: 20px;
+      line-height: 1.55;
+      color: #c9d1d9;
+    }
+
+    .actions {
       display: flex;
+      align-items: center;
       justify-content: center;
-      gap: 28px;
-      overflow-x: auto;
-      padding: 4px 0 20px;
-      scroll-padding-inline: 10px;
-      scroll-snap-type: x proximity;
+      gap: 20px;
+      flex-wrap: wrap;
     }
 
-    .live-walkthrough::-webkit-scrollbar {
-      height: 8px;
+    .trial {
+      font-size: 14px;
+      color: var(--muted);
     }
 
-    .live-walkthrough::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.06);
-      border-radius: 999px;
-    }
-
-    .live-walkthrough::-webkit-scrollbar-thumb {
-      background: var(--accent);
-      border-radius: 999px;
-    }
-
-    .live-step {
-      flex: 0 0 190px;
-      scroll-snap-align: start;
-    }
-
-    .live-step-phone {
-      width: 100%;
-      aspect-ratio: 853 / 1844;
+    /* Hero: gym footage behind the line, so the first screen shows the machine itself. */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
       overflow: hidden;
-      border-radius: 26px;
-      background: #050608;
-      box-shadow:
-        0 22px 64px rgba(0, 0, 0, 0.42),
-        0 0 0 1px rgba(255, 255, 255, 0.1);
+      text-align: center;
+      padding: 120px 24px 80px;
+      background: #090d12;
     }
 
-    .live-step-phone img {
-      display: block;
+    .hero-video {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
+      z-index: 0;
+      filter: brightness(0.42) saturate(0.9);
     }
 
-    .live-step-copy {
-      margin-top: 16px;
-      padding-top: 14px;
-      border-top: 1px dashed color-mix(in srgb, var(--accent) 42%, transparent);
-    }
-
-    .live-step-copy span {
-      display: block;
-      margin-bottom: 8px;
-      color: var(--accent);
-      font-size: 10px;
-      font-weight: 850;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-    }
-
-    .live-step-copy h3 {
-      display: none;
-    }
-
-    .live-step-copy p {
-      color: #9ca6b4;
-      font-size: 12px;
-      line-height: 1.45;
-    }
-
-    .feature-visual {
-      display: flex;
-      justify-content: center;
-    }
-
-    .feature-phone-stack {
-      position: relative;
-      width: min(100%, 660px);
-      min-height: 620px;
-    }
-
-    .feature-phone-stack .phone-frame {
-      position: absolute;
-      height: auto;
-      aspect-ratio: 736 / 1600;
-    }
-
-    .feature-phone-stack .phone-stack-back {
-      left: 0;
-      top: 36px;
-      width: 244px;
-      transform: rotate(-5deg);
-      opacity: 0.88;
-    }
-
-    .feature-phone-stack .phone-stack-front {
-      left: 218px;
-      top: 0;
-      width: 264px;
-      z-index: 2;
-    }
-
-    .feature-phone-stack .phone-stack-right {
-      right: 0;
-      top: 34px;
-      width: 244px;
-      transform: rotate(5deg);
-      z-index: 1;
-      opacity: 0.96;
-    }
-
-    .routine-preview-phone {
-      width: 300px;
-      height: auto;
-      aspect-ratio: 736 / 1600;
-    }
-
-    .best-effort-preview-phone {
-      width: 300px;
-      height: auto;
-      aspect-ratio: 1206 / 2622;
-    }
-
-    .climb-visual {
-      width: min(100%, 560px);
-      min-height: 450px;
-      padding: 26px;
-      border: 1px solid rgba(255, 255, 255, 0.09);
-      border-radius: 8px;
-      background:
-        linear-gradient(140deg, rgba(27, 39, 52, 0.96), rgba(11, 15, 20, 0.96)),
-        url("/images/ascend-climb-detail.jpg");
-      background-size: cover;
-      background-blend-mode: multiply;
-      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
-    }
-
-    .globe-panel {
-      position: relative;
-      min-height: 255px;
-      margin-bottom: 22px;
-      overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 8px;
-      background:
-        radial-gradient(circle at 50% 50%, rgba(87, 173, 230, 0.42), rgba(24, 73, 100, 0.34) 34%, rgba(4, 7, 11, 0.1) 69%),
-        linear-gradient(150deg, rgba(22, 33, 45, 0.7), rgba(5, 8, 11, 0.85));
-    }
-
-    .globe-panel::before {
+    .hero::after {
       content: "";
       position: absolute;
-      left: 50%;
-      top: 50%;
-      width: 290px;
-      height: 290px;
-      transform: translate(-50%, -50%);
-      border-radius: 50%;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      box-shadow:
-        inset 0 0 36px color-mix(in srgb, var(--accent) 12%, transparent),
-        0 0 42px rgba(48, 122, 167, 0.22);
+      inset: 0;
+      z-index: 1;
+      background:
+        radial-gradient(ellipse at 50% 45%, rgba(9, 13, 18, 0.25), rgba(9, 13, 18, 0.85) 75%),
+        linear-gradient(transparent 70%, var(--bg));
     }
 
-    .pin {
-      position: absolute;
+    .hero-inner {
+      position: relative;
+      z-index: 2;
+      max-width: 900px;
+    }
+
+    .hero h1 {
+      margin-bottom: 20px;
+    }
+
+    .hero .lead {
+      max-width: 640px;
+      margin: 0 auto 32px;
+    }
+
+    .watch {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      height: 48px;
+      padding: 0 22px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+      font: inherit;
+      font-weight: 700;
+      font-size: 16px;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .watch:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .watch svg {
       width: 16px;
       height: 16px;
-      border: 2px solid var(--accent);
-      border-radius: 50% 50% 50% 0;
-      transform: rotate(-45deg);
-      background: rgba(11, 15, 20, 0.82);
     }
 
-    .pin::after {
+    /* The problem */
+    .problem {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+
+    .problem-photo {
+      border-radius: 26px;
+      overflow: hidden;
+      aspect-ratio: 4 / 5;
+    }
+
+    .problem-photo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      filter: grayscale(0.85) brightness(0.75);
+    }
+
+    .problem h2 {
+      margin: 14px 0 20px;
+    }
+
+    /* The fix */
+    .fix {
+      display: grid;
+      grid-template-columns: 0.8fr 1.2fr;
+      gap: 72px;
+      align-items: center;
+    }
+
+    .fix-visual {
+      position: relative;
+      display: grid;
+      place-items: center;
+    }
+
+    .glow {
+      position: absolute;
+      width: 640px;
+      height: 640px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(134, 211, 10, 0.28), rgba(134, 211, 10, 0) 65%);
+      filter: blur(10px);
+      pointer-events: none;
+    }
+
+    .fix h2 {
+      margin-top: 14px;
+    }
+
+    .beats {
+      margin-top: 30px;
+      border-top: 1px solid var(--border);
+    }
+
+    .beat {
+      position: relative;
+      padding: 20px 0 20px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .beat::before {
       content: "";
       position: absolute;
-      inset: 4px;
-      border-radius: 50%;
+      left: 0;
+      top: 24px;
+      bottom: 24px;
+      width: 3px;
+      border-radius: 2px;
       background: var(--accent);
     }
 
-    .pin.one {
-      left: 29%;
-      top: 39%;
+    .beat h3 {
+      font-size: 22px;
+      font-weight: 800;
+      line-height: 1.3;
     }
 
-    .pin.two {
-      left: 57%;
-      top: 31%;
+    .beat p {
+      color: var(--muted);
+      margin-top: 4px;
     }
 
-    .pin.three {
-      left: 69%;
-      top: 57%;
+    /* Phones: real captures of the app in a plain device outline. */
+    .phone {
+      position: relative;
+      width: 300px;
+      aspect-ratio: 1179 / 2556;
+      border-radius: 46px;
+      padding: 10px;
+      background: #050607;
+      box-shadow:
+        0 0 0 1.5px rgba(255, 255, 255, 0.14),
+        0 40px 90px rgba(0, 0, 0, 0.6),
+        0 0 120px rgba(134, 211, 10, 0.12);
     }
 
-    .climb-card {
-      position: absolute;
-      left: 24px;
-      right: 24px;
-      bottom: 22px;
-      padding: 16px;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(8, 11, 16, 0.78);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
+    .phone .screen {
+      width: 100%;
+      height: 100%;
+      border-radius: 37px;
+      overflow: hidden;
+      background: #000;
     }
 
-    .climb-card strong {
+    .phone .screen img,
+    .phone .screen video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
       display: block;
-      margin-bottom: 3px;
-      color: #fff;
-      font-size: 16px;
     }
 
-    .climb-card span {
-      color: #aeb8c4;
-      font-size: 13px;
+    .phone.large {
+      width: 340px;
     }
 
-    .live-stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
+    .phone.small {
+      width: 240px;
+      border-radius: 38px;
+      padding: 8px;
     }
 
-    .live-stat {
-      padding: 14px 12px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.06);
+    .phone.small .screen {
+      border-radius: 31px;
     }
 
-    .live-stat strong {
-      display: block;
-      color: var(--text);
-      font-size: 18px;
-      line-height: 1;
-    }
-
-    .live-stat span {
-      display: block;
-      margin-top: 7px;
-      color: #9ca7b4;
-      font-size: 12px;
-    }
-
-    .best-effort-panel {
-      width: min(100%, 520px);
-      padding: 28px;
-      border: 1px solid rgba(255, 255, 255, 0.09);
-      border-radius: 8px;
-      background: linear-gradient(145deg, rgba(25, 31, 39, 0.98), rgba(11, 14, 19, 0.98));
-      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
-    }
-
-    .best-effort-hero {
-      padding: 24px;
-      border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-      border-radius: 8px;
-      background: color-mix(in srgb, var(--accent) 9%, transparent);
+    /* The prize */
+    .prize {
       text-align: center;
     }
 
-    .wreath {
-      width: 86px;
-      height: 86px;
-      margin: 0 auto 14px;
-      object-fit: contain;
-      filter: drop-shadow(0 12px 28px color-mix(in srgb, var(--accent) 22%, transparent));
+    .prize h2 {
+      margin-top: 14px;
     }
 
-    .best-effort-hero span {
-      color: #b7c1cc;
-      font-size: 13px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+    .prize .lead {
+      max-width: 640px;
+      margin: 16px auto 0;
     }
 
-    .best-effort-hero strong {
+    .crowns {
+      display: flex;
+      justify-content: center;
+      gap: 36px;
+      flex-wrap: wrap;
+      margin-top: 40px;
+    }
+
+    .crown img {
+      width: 150px;
       display: block;
-      margin: 8px 0;
-      color: var(--text);
-      font-size: 30px;
-      line-height: 1;
+      margin: 0 auto 6px;
+      filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.6));
     }
 
-    .effort-list {
-      display: grid;
-      gap: 12px;
-      margin-top: 18px;
-    }
-
-    .effort-row {
-      display: grid;
-      grid-template-columns: 34px 1fr auto;
-      gap: 12px;
-      align-items: center;
-      padding: 14px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    .effort-row:last-child {
-      border-bottom: 0;
-    }
-
-    .effort-rank {
-      width: 28px;
-      height: 28px;
-      display: grid;
-      place-items: center;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.08);
-      color: #d4dbe4;
+    .crown span {
       font-size: 13px;
       font-weight: 800;
+      letter-spacing: 0.14em;
+      color: var(--muted);
     }
 
-    .effort-row p {
-      color: #dbe1e8;
-      font-size: 14px;
-      line-height: 1.35;
+    .gallery {
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      gap: 26px;
+      margin-top: 56px;
     }
 
-    .effort-row small {
-      color: #8f9aa8;
-      font-size: 12px;
-      white-space: nowrap;
+    .gallery .phone:nth-child(2) {
+      transform: translateY(-28px);
     }
 
+    /* FAQ */
     .faq {
       max-width: 860px;
       margin: 0 auto;
+      padding: 0 40px;
     }
 
     .faq h2 {
@@ -694,6 +361,7 @@ import { APP_STORE_URL } from '../appStore';
       border: 0;
       background: none;
       color: var(--text);
+      font: inherit;
       font-size: 16px;
       font-weight: 750;
       text-align: left;
@@ -722,343 +390,179 @@ import { APP_STORE_URL } from '../appStore';
       line-height: 1.7;
     }
 
-    .cta-section {
-      padding: 104px 40px;
+    /* Closing call to action */
+    .cta {
       text-align: center;
+      padding: 130px 40px;
       background:
-        linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, transparent) 0%, rgba(8, 11, 16, 0) 100%),
-        #0d1117;
+        radial-gradient(ellipse at 50% 120%, rgba(134, 211, 10, 0.35), rgba(13, 17, 23, 0) 60%),
+        var(--bg);
     }
 
-    .cta-section h2 {
-      margin-bottom: 16px;
-      font-size: clamp(34px, 4.5vw, 58px);
-      font-weight: 850;
+    .cta .actions {
+      margin-top: 30px;
+    }
+
+    .cta .trial {
+      margin-top: 14px;
+    }
+
+    /* The full story, played in place on demand. */
+    .player {
+      /* The global reset zeroes every margin, and a modal dialog centres itself with margin: auto. */
+      margin: auto;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      width: min(92vw, 1100px);
+      overflow: visible;
+    }
+
+    .player::backdrop {
+      background: rgba(0, 0, 0, 0.85);
+    }
+
+    .player video {
+      width: 100%;
+      border-radius: 16px;
+      display: block;
+    }
+
+    .player-close {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      background: rgba(0, 0, 0, 0.55);
+      color: var(--text);
+      font-size: 22px;
       line-height: 1;
-      letter-spacing: 0;
+      cursor: pointer;
     }
 
-    .cta-section p {
-      max-width: 540px;
-      margin: 0 auto 34px;
-      color: #a8b2bf;
-      font-size: 18px;
-      line-height: 1.65;
-    }
+    @media (max-width: 900px) {
+      .wrap,
+      .faq {
+        padding: 0 20px;
+      }
 
-    @media (max-width: 1080px) {
-      .feature-row,
-      .feature-row.reversed {
+      .section {
+        padding: 80px 0;
+      }
+
+      .problem,
+      .fix {
         grid-template-columns: 1fr;
-        gap: 46px;
+        gap: 36px;
       }
 
-      .feature-row.reversed .feature-copy,
-      .feature-row.reversed .feature-visual {
-        order: unset;
+      .phone.large {
+        width: 280px;
       }
 
-      .live-walkthrough {
-        justify-content: flex-start;
+      .gallery {
+        flex-direction: column;
+        align-items: center;
       }
 
-      .sport-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+      .gallery .phone:nth-child(2) {
+        transform: none;
       }
 
-      .live-step {
-        flex-basis: 178px;
-      }
-
-      .feature-phone-stack {
-        min-height: 560px;
-        max-width: 620px;
-      }
-
-      .feature-phone-stack .phone-stack-back {
-        width: 216px;
-      }
-
-      .feature-phone-stack .phone-stack-front {
-        left: 194px;
-        width: 236px;
-      }
-
-      .feature-phone-stack .phone-stack-right {
-        width: 216px;
+      .cta {
+        padding: 96px 20px;
       }
     }
 
     @media (max-width: 760px) {
-      .hero,
-      .section,
-      .cta-section {
-        padding-left: 24px;
-        padding-right: 24px;
+      .lead {
+        font-size: 17px;
       }
-
-      .hero {
-        min-height: auto;
-        padding-top: 96px;
-        padding-bottom: 72px;
-      }
-
-      .hero::after {
-        content: none;
-      }
-
-      .hero h1 {
-        font-size: clamp(40px, 12vw, 58px);
-      }
-
-      .hero .subtitle,
-      .section-heading p,
-      .cta-section p {
-        font-size: 16px;
-      }
-
-      .live-climbs-showcase {
-        min-height: auto;
-        padding-bottom: 72px;
-      }
-
-      .live-showcase-heading {
-        margin-bottom: 46px;
-        text-align: left;
-      }
-
-      .live-showcase-heading h2 {
-        font-size: clamp(36px, 11vw, 56px);
-      }
-
-      .live-step {
-        flex-basis: 204px;
-      }
-
-      .phone-frame {
-        width: 224px;
-        height: 486px;
-        border-radius: 34px;
-        padding: 10px;
-      }
-
-      .phone-frame::before {
-        top: 15px;
-        width: 78px;
-        height: 22px;
-      }
-
-      .screen {
-        border-radius: 25px;
-      }
-
-      .section {
-        padding-top: 76px;
-        padding-bottom: 76px;
-      }
-
-      .feature-row {
-        padding: 54px 0;
-      }
-
-      .routine-preview-phone {
-        width: 232px;
-        height: auto;
-        aspect-ratio: 736 / 1600;
-      }
-
-      .best-effort-preview-phone {
-        width: 232px;
-        height: auto;
-        aspect-ratio: 1206 / 2622;
-      }
-
-      .feature-phone-stack {
-        min-height: 510px;
-      }
-
-      .climb-visual,
-      .best-effort-panel {
-        padding: 18px;
-      }
-
-      .live-stats {
-        grid-template-columns: 1fr;
-      }
-
-      .sport-grid {
-        grid-template-columns: 1fr;
-      }
-
-    }
-
-    @media (max-width: 460px) {
-      .phone-frame {
-        width: 190px;
-        height: 412px;
-      }
-
     }
   </style>
 
   <section class="hero">
+    <video class="hero-video" autoplay muted loop playsinline preload="metadata" poster="/images/home/stair-stepper-hero.jpg" aria-hidden="true">
+      <source src="/images/home/stair-stepper-hero.mp4" type="video/mp4" />
+    </video>
     <div class="hero-inner">
-      <div class="hero-content">
-        <h1>
-          <span>Race real towers.</span>
-          <span class="accent">From any gym.</span>
-        </h1>
-        <p class="subtitle">
-          Stair racing is already a sport. Ascend is that sport on the machine in front of you: pick a real tower, race its actual step count, and take your rank against every climber who has taken it on.
-        </p>
+      <h1 class="display">Compete on <span class="accent">the stair stepper.</span></h1>
+      <p class="lead">Your headphones count every step. Ascend turns every one of them into a race against other climbers.</p>
+      <div class="actions">
+        <AppStoreBadge href={APP_STORE_URL} />
+        <button class="watch" id="watch-story" type="button">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" /></svg>
+          Watch the 1-minute story
+        </button>
+      </div>
+    </div>
+  </section>
 
-        <div class="hero-actions">
-          <AppStoreBadge href={APP_STORE_URL} />
+  <section class="section" id="why">
+    <div class="wrap problem">
+      <div class="problem-photo">
+        <img src="/images/home/stair-stepper-gym.jpg" alt="A row of stair steppers in a gym, seen from the floor" loading="lazy" decoding="async" />
+      </div>
+      <div>
+        <div class="act">The problem</div>
+        <h2 class="display">The hardest machine in the gym. <span class="muted">And the most boring.</span></h2>
+        <p class="lead">Forty minutes, one console, the same numbers ticking up. Nobody to chase and nothing to win.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="how-it-works" style="padding-top: 20px;">
+    <div class="wrap fix">
+      <div class="fix-visual">
+        <div class="glow"></div>
+        <div class="phone large">
+          <div class="screen">
+            <video autoplay muted loop playsinline preload="metadata" poster="/images/home/ascend-mountain-race.jpg" aria-label="An athlete racing other climbers up the stairs in Ascend">
+              <source src="/images/home/ascend-mountain-race.mp4" type="video/mp4" />
+            </video>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="act lime">The fix</div>
+        <h2 class="display">Ascend turns it <span class="accent">into a race.</span></h2>
+        <div class="beats">
+          <div class="beat">
+            <h3>Your headphones count every step</h3>
+            <p>AirPods or Beats track every step automatically. Nothing to log.</p>
+          </div>
+          <div class="beat">
+            <h3>You race other climbers</h3>
+            <p>Every step moves your athlete up the stairs, past other climbers' best climbs, step for step.</p>
+          </div>
+          <div class="beat">
+            <h3>You climb the leaderboard</h3>
+            <p>Win the week, the month or the year, and wear the crown everyone sees.</p>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="section sport-section" id="the-sport">
-    <div class="section-inner">
-      <div class="section-heading centered">
-        <div class="section-kicker">The Sport</div>
-        <h2>Tower running, without the tower.</h2>
-        <p>
-          Stair racing already exists. On the Vertical World Circuit, athletes race the stairwells of the world's tallest buildings, floor by floor, against the clock. Entry costs a skyscraper, an event date, a travel budget, and a place in a limited field. Ascend costs a stair stepper.
-        </p>
+  <section class="section" id="compete" style="padding-top: 20px;">
+    <div class="wrap prize">
+      <div class="act lime">The prize</div>
+      <h2 class="display">Chase the crown.</h2>
+      <p class="lead">Weekly, monthly, yearly and all-time champions wear their crown on every board in the app.</p>
+      <div class="crowns">
+        <div class="crown"><img src="/images/home/crown-weekly-gold.png" alt="" loading="lazy" decoding="async" /><span>WEEKLY</span></div>
+        <div class="crown"><img src="/images/home/crown-monthly-diamond.png" alt="" loading="lazy" decoding="async" /><span>MONTHLY</span></div>
+        <div class="crown"><img src="/images/home/crown-yearly-ruby.png" alt="" loading="lazy" decoding="async" /><span>YEARLY</span></div>
+        <div class="crown"><img src="/images/home/crown-alltime-mythic.png" alt="" loading="lazy" decoding="async" /><span>ALL TIME</span></div>
       </div>
-
-      <div class="sport-grid">
-        <article class="sport-card">
-          <h3>Any day</h3>
-          <p>No event calendar and no start list. The tower opens the moment you step onto the machine.</p>
-        </article>
-
-        <article class="sport-card">
-          <h3>Any gym</h3>
-          <p>Your stair stepper is the stairwell. Nothing to book, nothing to fly to, nothing else to buy.</p>
-        </article>
-
-        <article class="sport-card">
-          <h3>A real field</h3>
-          <p>Every attempt posted on that tower is the field you race. Your rank moves while you climb.</p>
-        </article>
-
-        <article class="sport-card">
-          <h3>One First Ascent</h3>
-          <p>Every new tower opens with a permanent prize. The first finisher claims it forever, even after someone posts a faster time.</p>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="features">
-    <div class="section-inner">
-      <div class="feature-rows">
-        <section class="live-climbs-showcase" id="live-climbs">
-          <div class="live-showcase-heading">
-            <h2>Race real towers across the globe and <span>take the rank.</span></h2>
-          </div>
-
-          <div class="live-walkthrough" aria-label="Live Climbs walkthrough">
-            <article class="live-step">
-              <div class="live-step-phone">
-                <img src="/images/ascend-globe-browse.jpg" alt="Ascend globe browse screen with climb search and landmark cards" loading="lazy" decoding="async" />
-              </div>
-              <div class="live-step-copy">
-                <span>01 / Pick</span>
-                <p>Pick your tower from landmarks across the globe.</p>
-              </div>
-            </article>
-
-            <article class="live-step">
-              <div class="live-step-phone">
-                <img src="/images/ascend-climb-detail.jpg" alt="Ascend climb detail screen for Empire State Building" loading="lazy" decoding="async" />
-              </div>
-              <div class="live-step-copy">
-                <span>02 / Preview</span>
-                <p>Check the steps, floors, time, and completions.</p>
-              </div>
-            </article>
-
-            <article class="live-step">
-              <div class="live-step-phone">
-                <img src="/images/ascend-live-climb-leaderboard-preview.png" alt="Ascend Live Climb leaderboard with current user highlighted" loading="lazy" decoding="async" />
-              </div>
-              <div class="live-step-copy">
-                <span>03 / Race</span>
-                <p>Watch your rank move while you climb.</p>
-              </div>
-            </article>
-
-            <article class="live-step">
-              <div class="live-step-phone">
-                <img src="/images/ascend-live-climb-results.png" alt="Ascend Live Climb result screen with rank, stats, best effort, and splits" loading="lazy" decoding="async" />
-              </div>
-              <div class="live-step-copy">
-                <span>04 / Result</span>
-                <p>Read your rank, best effort, stats, and splits.</p>
-              </div>
-            </article>
-
-            <article class="live-step">
-              <div class="live-step-phone">
-                <img src="/images/ascend-live-climb-share.png" alt="Ascend share screen with an Empire State Building Live Climb result card" loading="lazy" decoding="async" />
-              </div>
-              <div class="live-step-copy">
-                <span>05 / Share</span>
-                <p>Save a share card with your tower and your result.</p>
-              </div>
-            </article>
-
-            <article class="live-step">
-              <div class="live-step-phone">
-                <img src="/images/ascend-climb-leaderboard.jpg" alt="Ascend Live Climb leaderboard screen for a climb" loading="lazy" decoding="async" />
-              </div>
-              <div class="live-step-copy">
-                <span>06 / Leaderboard</span>
-                <p>Hold your place against everyone who finished it.</p>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section class="feature-row best-efforts-row">
-          <div class="feature-copy">
-            <div class="section-kicker">Best Efforts</div>
-            <h3>Beat the version of you that showed up last time.</h3>
-            <p>
-              Every race you finish feeds a record book only you can break: most steps, longest climb, fastest pace, rolling windows, and progress charts tied back to the session that set each one.
-            </p>
-          </div>
-
-          <div class="feature-visual">
-            <div class="phone-frame app-screenshot best-effort-preview-phone">
-              <div class="screen">
-                <img src="/images/ascend-best-effort-detail.png" alt="Ascend Best Efforts detail screen showing a Most Steps record, progress chart, and history tab" loading="lazy" decoding="async" />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="feature-row reversed">
-          <div class="feature-copy">
-            <div class="section-kicker">Train Between Races</div>
-            <h3>Build the engine the next tower will ask for.</h3>
-            <p>
-              Ascend gives you pre-built stair-stepper routines for endurance, max output, and heart-rate-zone work, then guides each interval while you climb. Pair a Bluetooth chest strap for live heart rate and effort zones. Finished routines land in the same history as your races, and you can save favorites, repeat what works, or build your own interval structure from scratch.
-            </p>
-          </div>
-
-          <div class="feature-visual">
-            <div class="phone-frame app-screenshot routine-preview-phone">
-              <div class="screen">
-                <img src="/images/ascend-routine-pyramid.jpg" alt="Ascend Pyramid Climb routine detail screen" loading="lazy" decoding="async" />
-              </div>
-            </div>
-          </div>
-        </section>
+      <div class="gallery">
+        <div class="phone small"><div class="screen"><img src="/images/home/app-race.jpg" alt="An Ascend race, fifth of 412 climbers" loading="lazy" decoding="async" /></div></div>
+        <div class="phone"><div class="screen"><img src="/images/home/app-leaderboard.jpg" alt="The weekly leaderboard with last week's champion" loading="lazy" decoding="async" /></div></div>
+        <div class="phone small"><div class="screen"><img src="/images/home/app-globe.jpg" alt="Climbs around the globe on the Home screen" loading="lazy" decoding="async" /></div></div>
       </div>
     </div>
   </section>
@@ -1153,15 +657,20 @@ import { APP_STORE_URL } from '../appStore';
     </div>
   </section>
 
-  <section class="cta-section" id="download">
-    <h2>Pick your tower. Start the race.</h2>
-    <p>Ascend is out now on the App Store. Race real towers from any gym, and climb the leaderboard one attempt at a time.</p>
-
-    <div class="cta-actions" style="margin-top: 28px;">
+  <section class="cta" id="download">
+    <h2 class="display">Make the stair stepper <span class="accent">a race.</span></h2>
+    <div class="actions">
       <AppStoreBadge href={APP_STORE_URL} />
     </div>
+    <p class="trial">7-day free trial on the yearly plan. iPhone only.</p>
   </section>
 
+  <dialog class="player" id="story-player" aria-label="The Ascend story">
+    <button class="player-close" id="close-story" type="button" aria-label="Close video">&times;</button>
+    <video controls playsinline preload="none" poster="/images/home/ascend-story.jpg">
+      <source src="/images/home/ascend-story.mp4" type="video/mp4" />
+    </video>
+  </dialog>
 
   <script>
     document.querySelectorAll('.faq-question').forEach(function(button) {
@@ -1182,6 +691,35 @@ import { APP_STORE_URL } from '../appStore';
         }
       });
     });
+
+    const player = document.getElementById('story-player');
+    const story = player?.querySelector('video');
+    if (player instanceof HTMLDialogElement && story instanceof HTMLVideoElement) {
+      document.getElementById('watch-story')?.addEventListener('click', function() {
+        player.showModal();
+        story.play().catch(function() {});
+      });
+      document.getElementById('close-story')?.addEventListener('click', function() {
+        player.close();
+      });
+      // A click on the backdrop lands on the dialog itself.
+      player.addEventListener('click', function(event) {
+        if (event.target === player) player.close();
+      });
+      player.addEventListener('close', function() {
+        story.pause();
+      });
+    }
+
+    // Decorative loops stand still for anyone who asked the system for less motion.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.querySelectorAll('video[autoplay]').forEach(function(video) {
+        if (video instanceof HTMLVideoElement) {
+          video.removeAttribute('autoplay');
+          video.pause();
+        }
+      });
+    }
   </script>
 
 </BaseLayout>
