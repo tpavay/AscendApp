@@ -147,8 +147,9 @@ struct AthleteEditorView: View {
 
     /// What the athlete has on from the Locker, and the way in.
     private var lockerEntry: some View {
-        let catalogueItems = eventProgress.flatMap { unlocks.catalog.lockerItems(of: $0, earned: unlocks.earned) }
-        let earnedCount = catalogueItems.filter { unlocks.earned.contains($0.shape) }.count
+        let owned = unlocks.earned.union(model.draft.gear)
+        let catalogueItems = eventProgress.flatMap { unlocks.catalog.lockerItems(of: $0.event, owned: owned) }
+        let earnedCount = catalogueItems.filter { owned.contains($0.shape) }.count
         return Button {
             showingLocker = true
         } label: {

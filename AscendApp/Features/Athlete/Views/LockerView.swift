@@ -161,7 +161,8 @@ struct LockerView: View {
     }
 
     private var grid: some View {
-        let entries = progress.flatMap { event in unlocks.catalog.lockerItems(of: event, earned: unlocks.earned).map { (event, $0) } }
+        let owned = unlocks.earned.union(model.draft.gear)
+        let entries = progress.flatMap { event in unlocks.catalog.lockerItems(of: event.event, owned: owned).map { (event, $0) } }
             .filter { tab.slots.contains($0.1.shape.slot) }
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             ForEach(entries, id: \.1.id) { event, item in
@@ -181,7 +182,7 @@ struct LockerView: View {
 
     private func card(_ item: UnlockItem, in event: UnlockEventProgress) -> some View {
         let isWorn = model.draft.wearing(item.shape.slot) == item.shape
-        let isEarned = unlocks.earned.contains(item.shape) || event.isEarned(item) || isWorn
+        let isEarned = unlocks.earned.union(model.draft.gear).contains(item.shape)
         let isFlipped = flipped.contains(item.id)
         return ZStack {
             front(item, in: event, isWorn: isWorn, isEarned: isEarned)

@@ -33,6 +33,9 @@ An event may also carry a `theme`, how it dresses the mountain.
 
 Without a build, the file can move an event's dates, change a threshold, or switch a shipped item live ("ship dark, drop live").
 Setting an item `retired` stops new earning only: the event ladder, the intro and the finish card drop it, while the Locker keeps it, earned and wearable, for every climber who already earned it (`UnlockCatalog.lockerItems`).
+A retired item may carry a `retiredOn` day: a new phone earns it back from the climbs before that day and never from a climb on or after it (`UnlockCatalog.retiredItems`).
+A retired item with no `retiredOn` is never re-derived, so only the device that remembered it keeps it.
+An item the athlete is wearing always shows in the Locker as earned, so it can be taken off, and the editor's earned count reads the same set as the Locker cards.
 A new shape needs a build: `AthleteGear` and `MountainGearModel` draw it.
 An item whose shape, slot or way of earning a build does not know is skipped by that build, never fatal (`UnlockTests.anItemThisBuildCannotDrawIsSkippedNotFatal`).
 `firestore.rules` lists the items each slot accepts, so a new shape also needs a rules deploy before the build that offers it.

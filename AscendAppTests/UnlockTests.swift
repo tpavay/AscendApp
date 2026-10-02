@@ -107,27 +107,65 @@ struct UnlockTests {
         #expect(catalog.items(earnedIn: Self.halloween).map(\.shape) == [.pumpkinGhost])
     }
 
-    /// A retired item stops being earned, but whoever already earned it keeps it in the Locker,
-    /// ready to wear; a climber who never earned it no longer sees it offered.
+    /// A retired item stops being earned, but whoever already owns it keeps it in the Locker,
+    /// ready to wear or take off; a climber who never earned it no longer sees it offered.
     @Test
-    func aRetiredItemStaysInTheLockerOnlyForThoseWhoEarnedIt() {
+    func aRetiredItemStaysInTheLockerOnlyForThoseWhoOwnIt() {
         let catalog = UnlockCatalog(version: 1, events: [Self.halloween], items: [
             Self.item(.pumpkinGhost, .climbs, 1),
             Self.item(.pumpkinGiant, .steps, 50_000, status: .retired),
             Self.item(.pumpkinMidnight, .steps, 25_000, status: .hidden)
         ])
-        let progress = UnlockEventProgress(event: Self.halloween, items: catalog.items(earnedIn: Self.halloween), climbs: [], visited: false, calendar: Self.utc)
 
         #expect(catalog.items(earnedIn: Self.halloween).map(\.shape) == [.pumpkinGhost], "nobody earns a retired item")
-        #expect(catalog.lockerItems(of: progress, earned: []).map(\.shape) == [.pumpkinGhost])
-        #expect(catalog.lockerItems(of: progress, earned: [.pumpkinGiant]).map(\.shape) == [.pumpkinGhost, .pumpkinGiant])
+        #expect(catalog.lockerItems(of: Self.halloween, owned: []).map(\.shape) == [.pumpkinGhost])
+        #expect(catalog.lockerItems(of: Self.halloween, owned: [.pumpkinGiant]).map(\.shape) == [.pumpkinGhost, .pumpkinGiant])
+        #expect(catalog.lockerItems(of: Self.halloween, owned: [.pumpkinMidnight]).map(\.shape) == [.pumpkinGhost], "a hidden item is never offered")
+    }
 
-        let climbedForIt = UnlockEventProgress(
-            event: Self.halloween, items: catalog.items(earnedIn: Self.halloween),
-            climbs: [.init(id: UUID(), date: Self.date(10, 3), steps: 60_000)], visited: false, calendar: Self.utc
+    private static let retiredGiant = UnlockCatalog(version: 1, events: [halloween], items: [
+        item(.pumpkinGhost, .climbs, 1),
+        UnlockItem(
+            id: "pumpkin_giant", shape: .pumpkinGiant, status: .retired, retiredOn: .init(year: 2026, month: 10, day: 20),
+            earn: .init(path: .event, event: "halloween-2026", metric: .steps, threshold: 50_000)
         )
-        #expect(climbedForIt.earned == [.pumpkinGhost], "the ladder stops counting it")
-        #expect(catalog.lockerItems(of: climbedForIt, earned: []).map(\.shape) == [.pumpkinGhost, .pumpkinGiant], "a new phone keeps what the climbs earned")
+    ])
+
+    /// Steps climbed after the retirement day count toward nothing: crossing the threshold then
+    /// does not earn the item.
+    @Test
+    func crossingTheThresholdAfterRetirementDoesNotEarnIt() {
+        let climbs = [
+            UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 5), steps: 40_000),
+            UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 20, 0), steps: 5_000),
+            UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 25), steps: 20_000)
+        ]
+        #expect(Self.retiredGiant.retiredItems(earnedIn: Self.halloween, by: climbs, calendar: Self.utc).isEmpty)
+    }
+
+    /// A climber who earned the item before it was retired earns it back on a new phone, from the
+    /// climbs restored there.
+    @Test
+    func aPreRetirementEarnerKeepsItOnAFreshDevice() {
+        let climbs = [
+            UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 5), steps: 30_000),
+            UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 19, 23), steps: 25_000)
+        ]
+        #expect(Self.retiredGiant.retiredItems(earnedIn: Self.halloween, by: climbs, calendar: Self.utc) == [.pumpkinGiant])
+
+        let undated = UnlockCatalog(version: 1, events: [Self.halloween], items: [Self.item(.pumpkinGiant, .steps, 50_000, status: .retired)])
+        #expect(undated.retiredItems(earnedIn: Self.halloween, by: climbs, calendar: Self.utc).isEmpty, "with no date, only a remembered unlock keeps it")
+    }
+
+    /// The catalogue names the retirement day the same way it names an event's days.
+    @Test
+    func aRetirementDayIsReadFromTheCatalogue() throws {
+        let json = """
+        {"id": "g", "shape": "pumpkin_giant", "slot": "carry", "status": "retired", "retiredOn": "2026-10-20",
+         "earn": {"path": "event", "event": "halloween-2026", "metric": "steps", "threshold": 50000}}
+        """
+        let item = try JSONDecoder().decode(UnlockItem.self, from: Data(json.utf8))
+        #expect(item.retiredOn == UnlockEvent.Day(year: 2026, month: 10, day: 20))
     }
 
     /// The event runs on the climber's own calendar: the first second of October 1 to the last of

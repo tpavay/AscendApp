@@ -45,16 +45,27 @@ struct UnlockCatalog: Decodable, Equatable, Sendable {
         items.filter { $0.status == .live && $0.earn.event == event.id }
     }
 
-    /// What the Locker offers from an event: its live items, and the retired ones this climber
-    /// earned, so an item that stops being earnable stays wearable for everyone who has it.
-    func lockerItems(of progress: UnlockEventProgress, earned: Set<AthleteGear>) -> [UnlockItem] {
+    /// What the Locker offers from an event: its live items, and the retired ones the climber
+    /// owns, so an item that stops being earnable stays wearable, and removable, for whoever has it.
+    func lockerItems(of event: UnlockEvent, owned: Set<AthleteGear>) -> [UnlockItem] {
         items.filter { item in
-            guard item.earn.event == progress.event.id else { return false }
+            guard item.earn.event == event.id else { return false }
             switch item.status {
             case .live: return true
-            case .retired: return earned.contains(item.shape) || progress.isEarned(item)
+            case .retired: return owned.contains(item.shape)
             case .hidden: return false
             }
+        }
+    }
+
+    /// The event's retired items that `climbs` earned before each was retired, so a new phone
+    /// earns them back. An item retired without a date is never re-derived.
+    func retiredItems(earnedIn event: UnlockEvent, by climbs: [UnlockEventProgress.Climb], calendar: Calendar = .current) -> [AthleteGear] {
+        items.compactMap { item in
+            guard item.status == .retired, item.earn.event == event.id,
+                  let retiredAt = item.retiredOn?.start(in: calendar) else { return nil }
+            let before = UnlockEventProgress(event: event, items: [item], climbs: climbs.filter { $0.date < retiredAt }, visited: false, calendar: calendar)
+            return before.isEarned(item) ? item.shape : nil
         }
     }
 
@@ -201,18 +212,22 @@ struct UnlockItem: Decodable, Equatable, Hashable, Sendable {
     let slot: Slot
     let rarity: String?
     let status: Status
+    /// The first day a retired item could no longer be earned; climbing from then on earns
+    /// nothing toward it.
+    let retiredOn: UnlockEvent.Day?
     let earn: Earn
 
-    init(id: String, shape: AthleteGear, slot: Slot = .carry, rarity: String? = nil, status: Status = .live, earn: Earn) {
+    init(id: String, shape: AthleteGear, slot: Slot = .carry, rarity: String? = nil, status: Status = .live, retiredOn: UnlockEvent.Day? = nil, earn: Earn) {
         self.id = id
         self.shape = shape
         self.slot = slot
         self.rarity = rarity
         self.status = status
+        self.retiredOn = retiredOn
         self.earn = earn
     }
 
-    private enum CodingKeys: String, CodingKey { case id, shape, slot, rarity, status, earn }
+    private enum CodingKeys: String, CodingKey { case id, shape, slot, rarity, status, retiredOn, earn }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -221,6 +236,7 @@ struct UnlockItem: Decodable, Equatable, Hashable, Sendable {
         slot = try container.decode(Slot.self, forKey: .slot)
         rarity = try container.decodeIfPresent(String.self, forKey: .rarity)
         status = try container.decode(Status.self, forKey: .status)
+        retiredOn = try container.decodeIfPresent(UnlockEvent.Day.self, forKey: .retiredOn)
         earn = try container.decode(Earn.self, forKey: .earn)
         guard earn.threshold > 0 else {
             throw DecodingError.dataCorruptedError(forKey: .earn, in: container, debugDescription: "A threshold must be positive")

@@ -122,12 +122,13 @@ final class UnlockStore {
     @discardableResult
     func refresh(userId: String, modelContext: ModelContext, now: Date = .now, calendar: Calendar = .current) -> [UnlockEventProgress] {
         load(userId: userId)
-        let progress = catalog.openedEvents(by: now, calendar: calendar).reversed().compactMap { event in
-            (try? UnlockClimbQuery.climbs(in: event, calendar: calendar, modelContext: modelContext)).map {
-                UnlockEventProgress(event: event, items: catalog.items(earnedIn: event), climbs: $0, visited: visited.contains(event.id), calendar: calendar)
-            }
+        var retired: [AthleteGear] = []
+        let progress = catalog.openedEvents(by: now, calendar: calendar).reversed().compactMap { event -> UnlockEventProgress? in
+            guard let climbs = try? UnlockClimbQuery.climbs(in: event, calendar: calendar, modelContext: modelContext) else { return nil }
+            retired += catalog.retiredItems(earnedIn: event, by: climbs, calendar: calendar)
+            return UnlockEventProgress(event: event, items: catalog.items(earnedIn: event), climbs: climbs, visited: visited.contains(event.id), calendar: calendar)
         }
-        remember(progress.flatMap(\.earned), for: userId)
+        remember(progress.flatMap(\.earned) + retired, for: userId)
         return progress
     }
 
