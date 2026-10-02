@@ -11,6 +11,8 @@ struct LockerView: View {
     @State private var model: AthleteEditorModel
     @State private var progress: [UnlockEventProgress] = []
     @State private var tab: Tab = .carry
+    /// The cards turned over to show how they are earned.
+    @State private var flipped: Set<String> = []
     private let store: AthleteLookStore
     /// The signed-in climber.
     let userId: String?
@@ -33,26 +35,36 @@ struct LockerView: View {
         }
     }
 
-    init(userId: String?, opening tab: Tab = .carry, store: AthleteLookStore = .shared) {
+    /// Opens on `tab`, or on the tab of `revealing` with that item turned over to show how it
+    /// is earned.
+    init(userId: String?, opening tab: Tab = .carry, revealing item: AthleteGear? = nil, store: AthleteLookStore = .shared) {
         self.userId = userId
         self.store = store
-        _tab = State(initialValue: tab)
+        _tab = State(initialValue: item.flatMap { item in Tab.allCases.first { $0.slots.contains(item.slot) } } ?? tab)
+        _flipped = State(initialValue: item.map { [$0.rawValue] } ?? [])
         _model = State(initialValue: AthleteEditorModel(look: store.current))
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-                    stage
-                    tabs
-                    grid
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        header
+                        stage
+                        tabs
+                        grid
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 18)
-                .padding(.bottom, 24)
+                .scrollIndicators(.hidden)
+                .onChange(of: progress.isEmpty) { _, isEmpty in
+                    // An item opened turned over is brought into view once the cards exist.
+                    guard !isEmpty, let revealed = flipped.first else { return }
+                    withAnimation { reader.scrollTo(revealed, anchor: .center) }
+                }
             }
-            .scrollIndicators(.hidden)
             saveBar
         }
         .background(Color.black.ignoresSafeArea())
@@ -154,6 +166,7 @@ struct LockerView: View {
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             ForEach(entries, id: \.1.id) { event, item in
                 card(item, in: event)
+                    .id(item.id)
             }
         }
         .overlay {
@@ -169,73 +182,177 @@ struct LockerView: View {
     private func card(_ item: UnlockItem, in event: UnlockEventProgress) -> some View {
         let isWorn = model.draft.wearing(item.shape.slot) == item.shape
         let isEarned = unlocks.earned.contains(item.shape) || event.isEarned(item) || isWorn
-        let fraction = item.earn.metric == .onDay
-            ? (isEarned ? 1 : 0)
-            : min(Double(event.value(of: item.earn.metric)) / Double(max(item.earn.threshold, 1)), 1)
-        return Button {
-            guard isEarned, model.isEditable else { return }
-            withAnimation(.smooth(duration: 0.18)) {
-                if isWorn {
-                    model.draft.unequip(item.shape.slot)
-                } else {
-                    model.draft.equip(item.shape)
-                }
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(.white.opacity(0.05))
-                    Image(item.shape.thumbnailName)
-                        .resizable()
-                        .scaledToFit()
-                        .padding(14)
-                        .saturation(isEarned ? 1 : 0)
-                        .opacity(isEarned ? 1 : 0.45)
-                    if isWorn {
-                        badge("WEARING", fill: Color.accent)
-                    } else if !isEarned {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                }
-                .aspectRatio(1, contentMode: .fit)
-                Text(item.shape.title)
-                    .font(.montserratBold(size: 14))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                Text(isEarned ? "Earned in \(event.event.monthName)" : requirementLine(item, event: event))
-                    .font(.montserratMedium(size: 11))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(2)
-                if !isEarned {
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.12))
-                            Capsule().fill(Color.accent).frame(width: geometry.size.width * fraction)
-                        }
-                    }
-                    .frame(height: 5)
-                }
-            }
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(red: 0.07, green: 0.07, blue: 0.08))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(isWorn ? Color.accent : .white.opacity(0.08), lineWidth: isWorn ? 2 : 1)
-                    )
-            )
+        let isFlipped = flipped.contains(item.id)
+        return ZStack {
+            front(item, in: event, isWorn: isWorn, isEarned: isEarned)
+                .opacity(isFlipped ? 0 : 1)
+            back(item, in: event, isEarned: isEarned)
+                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+                .opacity(isFlipped ? 1 : 0)
         }
-        .buttonStyle(.plain)
+        .rotation3DEffect(.degrees(isFlipped ? 180 : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
+        .overlay(alignment: .topTrailing) {
+            // Turns the card over to show how it is earned, whatever its state.
+            Button {
+                flip(item)
+            } label: {
+                Image(systemName: isFlipped ? "arrow.uturn.backward" : "info")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(.black.opacity(0.55)))
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+            .accessibilityLabel(isFlipped ? "Show \(item.shape.title)" : "How \(item.shape.title) is earned")
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture {
+            // An earned card puts the item on or takes it off; a locked one turns over to say
+            // what earns it.
+            if isEarned && !isFlipped {
+                guard model.isEditable else { return }
+                withAnimation(.smooth(duration: 0.18)) {
+                    if isWorn {
+                        model.draft.unequip(item.shape.slot)
+                    } else {
+                        model.draft.equip(item.shape)
+                    }
+                }
+            } else {
+                flip(item)
+            }
+        }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(item.shape.title)
         .accessibilityValue(isWorn ? "Wearing" : (isEarned ? "Earned" : "Locked. \(requirementLine(item, event: event))"))
-        .accessibilityAddTraits(isWorn ? .isSelected : [])
+        .accessibilityAddTraits(isWorn ? [.isSelected, .isButton] : .isButton)
+    }
+
+    private func flip(_ item: UnlockItem) {
+        withAnimation(.spring(duration: 0.45, bounce: 0.2)) {
+            if flipped.contains(item.id) {
+                flipped.remove(item.id)
+            } else {
+                flipped.insert(item.id)
+            }
+        }
+    }
+
+    private func front(_ item: UnlockItem, in event: UnlockEventProgress, isWorn: Bool, isEarned: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.white.opacity(0.05))
+                Image(item.shape.thumbnailName)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(14)
+                    .saturation(isEarned ? 1 : 0)
+                    .opacity(isEarned ? 1 : 0.45)
+                if isWorn {
+                    badge("WEARING", fill: Color.accent)
+                } else if !isEarned {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .padding(10)
+                }
+            }
+            .aspectRatio(1, contentMode: .fit)
+            Text(item.shape.title)
+                .font(.montserratBold(size: 14))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(isEarned ? (isWorn ? "Tap to take off" : "Tap to wear") : requirementLine(item, event: event))
+                .font(.montserratMedium(size: 11))
+                .foregroundStyle(isEarned ? Color.accent : .white.opacity(0.6))
+                .lineLimit(2)
+            if !isEarned {
+                progressBar(fraction(item, in: event))
+            }
+        }
+        .padding(10)
+        .background(cardBackground(highlighted: isWorn))
+    }
+
+    /// The back of a card: what earns the item, how far the climber is, and when they earned it.
+    private func back(_ item: UnlockItem, in event: UnlockEventProgress, isEarned: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("HOW IT'S EARNED")
+                .font(.montserratBold(size: 10))
+                .tracking(1.2)
+                .foregroundStyle(Color.accent)
+            Text(item.shape.title)
+                .font(.montserratBold(size: 15))
+                .foregroundStyle(.white)
+            Text(howEarned(item, in: event.event))
+                .font(.montserratMedium(size: 13))
+                .foregroundStyle(.white.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            if isEarned {
+                Label(earnedLine(item), systemImage: "checkmark.seal.fill")
+                    .font(.montserratSemiBold(size: 12))
+                    .foregroundStyle(Color.accent)
+            } else {
+                Text(requirementLine(item, event: event))
+                    .font(.montserratMedium(size: 11))
+                    .foregroundStyle(.white.opacity(0.6))
+                progressBar(fraction(item, in: event))
+            }
+            Text((item.rarity ?? "core").uppercased())
+                .font(.montserratBold(size: 9))
+                .tracking(1)
+                .foregroundStyle(.white.opacity(0.45))
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(cardBackground(highlighted: false))
+    }
+
+    private func fraction(_ item: UnlockItem, in event: UnlockEventProgress) -> Double {
+        if item.earn.metric == .onDay { return event.isEarned(item) ? 1 : 0 }
+        return min(Double(event.value(of: item.earn.metric)) / Double(max(item.earn.threshold, 1)), 1)
+    }
+
+    private func progressBar(_ fraction: Double) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.12))
+                Capsule().fill(Color.accent).frame(width: geometry.size.width * fraction)
+            }
+        }
+        .frame(height: 5)
+    }
+
+    private func cardBackground(highlighted: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(Color(red: 0.07, green: 0.07, blue: 0.08))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(highlighted ? Color.accent : .white.opacity(0.08), lineWidth: highlighted ? 2 : 1)
+            )
+    }
+
+    /// The rule in a sentence: "Climb 15 times in October."
+    private func howEarned(_ item: UnlockItem, in event: UnlockEvent) -> String {
+        let threshold = item.earn.threshold
+        switch item.earn.metric {
+        case .visits: return "Open Ascend in \(event.monthName)."
+        case .climbs: return threshold == 1 ? "Finish a climb in \(event.monthName)." : "Finish \(threshold) climbs in \(event.monthName)."
+        case .days: return threshold == event.dayCount() ? "Climb every day of \(event.monthName)." : "Climb on \(threshold) different days in \(event.monthName)."
+        case .steps: return "Climb \(threshold.formatted()) steps in \(event.monthName)."
+        case .onDay:
+            let day = event.date(ofDay: threshold)?.formatted(.dateTime.month(.wide).day()) ?? "that day"
+            return "Finish a climb on \(day)."
+        }
+    }
+
+    private func earnedLine(_ item: UnlockItem) -> String {
+        guard let date = unlocks.earnedAt[item.shape] else { return "Earned" }
+        return "Earned \(date.formatted(.dateTime.month(.abbreviated).day()))"
     }
 
     /// "4 / 10 climbs in October", "Climb Oct 31".

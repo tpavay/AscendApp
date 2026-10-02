@@ -15,8 +15,9 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
     case witchHat = "witch_hat"
     case pumpkinHead = "pumpkin_head"
     case ghostSheet = "ghost_sheet"
-    case spiderwebTank = "spiderweb_tank"
-    case pumpkinStripeTank = "pumpkin_stripe_tank"
+    case candyCorn = "candy_corn"
+    case chocolateBar = "chocolate_bar"
+    case candyCornTank = "candy_corn_tank"
     case witchingShorts = "witching_shorts"
     case glowTrainers = "glow_trainers"
     case emberTrainers = "ember_trainers"
@@ -54,7 +55,7 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .witchHat, .pumpkinHead: .head
         case .ghostSheet: .costume
-        case .spiderwebTank, .pumpkinStripeTank: .tank
+        case .candyCornTank: .tank
         case .witchingShorts: .shorts
         case .glowTrainers, .emberTrainers: .trainers
         default: .carry
@@ -74,7 +75,7 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
     var carry: Carry {
         switch self {
         case .pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant: .overhead
-        case .pumpkinPie: .tray
+        case .pumpkinPie, .chocolateBar: .tray
         default: .shoulder
         }
     }
@@ -91,8 +92,9 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
         case .witchHat: "Witch Hat"
         case .pumpkinHead: "Pumpkin Head"
         case .ghostSheet: "Ghost Sheet"
-        case .spiderwebTank: "Spiderweb Tank"
-        case .pumpkinStripeTank: "Pumpkin Stripe Tank"
+        case .candyCorn: "Candy Corn"
+        case .chocolateBar: "Chocolate Bar"
+        case .candyCornTank: "Candy Corn Tank"
         case .witchingShorts: "Witching Hour Shorts"
         case .glowTrainers: "Glow Trainers"
         case .emberTrainers: "Ember Trainers"

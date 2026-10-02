@@ -40,8 +40,7 @@ enum MountainKitPrint {
     /// The print tiled across the item, or nil for a plain colour.
     static func image(_ item: AthleteGear) -> CGImage? {
         switch item {
-        case .spiderwebTank: spiderweb()
-        case .pumpkinStripeTank: stripes()
+        case .candyCornTank: candyCorn()
         default: nil
         }
     }
@@ -54,51 +53,21 @@ enum MountainKitPrint {
         )
     }
 
-    /// White webs on black, four across.
-    private static func spiderweb() -> CGImage? {
-        let size = 1024, tiles = 4
+    /// Candy corn's three bands, white at the shoulders, orange through the chest, yellow at the
+    /// hem, softened where they meet.
+    private static func candyCorn() -> CGImage? {
+        let size = 256
         guard let context = context(size) else { return nil }
-        context.setFillColor(CGColor(srgbRed: 0.02, green: 0.02, blue: 0.03, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: size, height: size))
-        context.setStrokeColor(CGColor(srgbRed: 0.9, green: 0.9, blue: 0.94, alpha: 1))
-        let cell = CGFloat(size / tiles)
-        for row in 0..<tiles {
-            for column in 0..<tiles {
-                let centre = CGPoint(x: (CGFloat(column) + 0.5) * cell, y: (CGFloat(row) + 0.5) * cell)
-                context.setLineWidth(3)
-                for spoke in 0..<8 {
-                    let angle = CGFloat(spoke) * .pi / 4
-                    context.move(to: centre)
-                    context.addLine(to: CGPoint(x: centre.x + cos(angle) * cell * 0.5, y: centre.y + sin(angle) * cell * 0.5))
-                }
-                context.strokePath()
-                context.setLineWidth(2)
-                for ring in 1...4 {
-                    let radius = CGFloat(ring) * cell * 0.11
-                    for spoke in 0..<8 {
-                        let a0 = CGFloat(spoke) * .pi / 4, a1 = CGFloat(spoke + 1) * .pi / 4
-                        context.move(to: CGPoint(x: centre.x + cos(a0) * radius, y: centre.y + sin(a0) * radius))
-                        context.addQuadCurve(
-                            to: CGPoint(x: centre.x + cos(a1) * radius, y: centre.y + sin(a1) * radius),
-                            control: CGPoint(x: centre.x + cos((a0 + a1) / 2) * radius * 0.86, y: centre.y + sin((a0 + a1) / 2) * radius * 0.86)
-                        )
-                    }
-                }
-                context.strokePath()
-            }
-        }
-        return context.makeImage()
-    }
-
-    /// Pumpkin orange and black bands.
-    private static func stripes() -> CGImage? {
-        let size = 512, bands = 18
-        guard let context = context(size) else { return nil }
-        for band in 0..<bands {
-            let orange = band.isMultiple(of: 2)
-            context.setFillColor(orange ? CGColor(srgbRed: 0.95, green: 0.5, blue: 0.08, alpha: 1) : CGColor(srgbRed: 0.07, green: 0.06, blue: 0.08, alpha: 1))
-            context.fill(CGRect(x: 0, y: band * size / bands, width: size, height: size / bands))
-        }
+        let colors = [
+            CGColor(srgbRed: 0.98, green: 0.78, blue: 0.12, alpha: 1),
+            CGColor(srgbRed: 0.98, green: 0.78, blue: 0.12, alpha: 1),
+            CGColor(srgbRed: 0.96, green: 0.48, blue: 0.08, alpha: 1),
+            CGColor(srgbRed: 0.96, green: 0.48, blue: 0.08, alpha: 1),
+            CGColor(srgbRed: 0.98, green: 0.96, blue: 0.9, alpha: 1),
+            CGColor(srgbRed: 0.98, green: 0.96, blue: 0.9, alpha: 1)
+        ] as CFArray
+        guard let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors, locations: [0, 0.3, 0.36, 0.66, 0.72, 1]) else { return nil }
+        context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: size), options: [])
         return context.makeImage()
     }
 }

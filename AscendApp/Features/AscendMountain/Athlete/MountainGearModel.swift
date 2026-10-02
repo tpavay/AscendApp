@@ -21,6 +21,10 @@ struct MountainGearModel: Sendable {
         case carvedGlow(PumpkinSkin)
         /// White cloth with two eye holes cut in the front.
         case ghostSheet
+        /// Candy corn's yellow, orange and white bands, up the shape.
+        case candyCornBands
+        /// A chocolate bar's purple wrapper, an Ascend-lime band round it.
+        case wrapper
     }
 
     enum PumpkinSkin: String, Hashable, Sendable, CaseIterable {
@@ -115,7 +119,9 @@ struct MountainGearModel: Sendable {
         case .witchHat: witchHat()
         case .pumpkinHead: pumpkinHead()
         case .ghostSheet: ghostSheet()
-        case .spiderwebTank, .pumpkinStripeTank, .witchingShorts, .glowTrainers, .emberTrainers:
+        case .candyCorn: candyCorn()
+        case .chocolateBar: chocolateBar()
+        case .candyCornTank, .witchingShorts, .glowTrainers, .emberTrainers:
             // Kit is drawn on the athlete's own body (`MountainKitPrint`), not as a shape.
             MountainGearModel(parts: [])
         case .harvestGourd: gourd()
@@ -342,6 +348,58 @@ struct MountainGearModel: Sendable {
             Part(geometry: crust, paint: .color(Self.crust, roughness: 0.75)),
             Part(geometry: filling, paint: .color(pieFilling, roughness: 0.45)),
             Part(geometry: cream, paint: .color(Self.cream, roughness: 0.6))
+        ])
+    }
+
+    // MARK: - Candy
+
+    /// A giant piece of candy corn, perched point up on the shoulder.
+    static func candyCorn() -> MountainGearModel {
+        var profile: [SIMD2<Float>] = [SIMD2(0, 0)]
+        let base: Float = 0.105, height: Float = 0.3
+        for i in 0...14 {
+            let t = Float(i) / 14
+            // A rounded base swelling out, then tapering to a soft point.
+            let radius = base * (sin(min(t * 4, 1) * .pi / 2) * (1 - t * t * 0.92))
+            profile.append(SIMD2(max(radius, 0.004), height * t))
+        }
+        profile.append(SIMD2(0, height + 0.006))
+        let corn = MountainGearGeometry.lathe(profile: profile, segments: 24) { angle in
+            // Candy corn is a little flattened front to back.
+            1 - 0.18 * abs(cos(angle))
+        }
+        .transformed(rotation: simd_quatf(angle: 0.25, axis: SIMD3(0, 0, 1)))
+        return MountainGearModel(parts: [Part(geometry: corn, paint: .candyCornBands)])
+    }
+
+    /// A giant chocolate bar, half unwrapped, held flat out on the palm with its squares showing.
+    static func chocolateBar() -> MountainGearModel {
+        let length: Float = 0.5, width: Float = 0.22, thickness: Float = 0.05
+        var squares = MountainGearGeometry()
+        let columns = 3, rows = 4
+        let squareLength = length * 0.5 / Float(rows), squareWidth = width / Float(columns)
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let centre = SIMD3<Float>(
+                    -width / 2 + squareWidth * (Float(column) + 0.5),
+                    thickness * 0.5,
+                    length * 0.5 - squareLength * (Float(row) + 0.5)
+                )
+                squares.append(MountainGearGeometry.box(size: SIMD3(squareWidth * 0.9, thickness, squareLength * 0.9)).transformed(translation: centre))
+            }
+        }
+        let slab = MountainGearGeometry.box(size: SIMD3(width, thickness * 0.55, length * 0.5)).transformed(translation: SIMD3(0, thickness * 0.28, length * 0.25))
+        squares.append(slab)
+        let wrapper = MountainGearGeometry.box(size: SIMD3(width * 1.06, thickness * 1.18, length * 0.52)).transformed(translation: SIMD3(0, thickness * 0.55, -length * 0.25))
+        let foil = MountainGearGeometry.box(size: SIMD3(width * 1.02, thickness * 1.1, 0.02)).transformed(translation: SIMD3(0, thickness * 0.55, 0.005))
+        // Turned so the unwrapped squares point forward and up toward the camera behind.
+        let tilt = simd_quatf(angle: -0.25, axis: SIMD3(1, 0, 0)) * simd_quatf(angle: 0.6, axis: SIMD3(0, 1, 0))
+        // Lifted so the tilted bar rests on the palm rather than through it.
+        let lift = SIMD3<Float>(0, 0.05, 0)
+        return MountainGearModel(parts: [
+            Part(geometry: squares.transformed(rotation: tilt, translation: lift), paint: .color(MountainColor(hex: "#4A2512")!, roughness: 0.42)),
+            Part(geometry: wrapper.transformed(rotation: tilt, translation: lift), paint: .wrapper),
+            Part(geometry: foil.transformed(rotation: tilt, translation: lift), paint: .metal(MountainColor(hex: "#C9CCD2")!, roughness: 0.25))
         ])
     }
 

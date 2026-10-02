@@ -64,7 +64,8 @@ enum MountainHauntedProps {
                 // in the corner itself.
                 let reach: Float = 1.15
                 let corner = ModelEntity(mesh: .generatePlane(width: reach, height: reach), materials: [web])
-                corner.position = [side * (span - 0.23 - reach / 2), lintelBottom - reach / 2, depth / 2 + 0.02]
+                // Just behind the step plaque, so the number always reads over the silk.
+                corner.position = [side * (span - 0.23 - reach / 2), lintelBottom - reach / 2, depth / 2 - 0.02]
                 corner.orientation = simd_quatf(angle: side < 0 ? 0 : -.pi / 2, axis: [0, 0, 1])
                 gate.addChild(corner)
             }
@@ -101,8 +102,9 @@ enum MountainHauntedProps {
         return spider
     }
 
-    /// A spider web in one corner, white silk on nothing, drawn once: spokes fanning from the
-    /// corner and a spiral sagging between them, finest toward the middle.
+    /// An old cobweb in one corner, drawn once: a haze of loose silk sagging between the two
+    /// walls of the corner, and an orb over it that is uneven, broken in places and torn at the
+    /// edge, so it reads as left there rather than drawn.
     private static let web: UnlitMaterial? = {
         let size = 1024
         guard let context = CGContext(
@@ -112,39 +114,68 @@ enum MountainHauntedProps {
         ) else { return nil }
         context.setShouldAntialias(true)
         context.setLineCap(.round)
-        let corner = CGPoint(x: 0, y: CGFloat(size))
-        let reach = CGFloat(size) * 0.98
-        let spokes = 11
+        var seed: UInt64 = 0x5EED_C0B3
+        func random() -> CGFloat {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return CGFloat(seed >> 40) / CGFloat(1 << 24)
+        }
+        let full = CGFloat(size)
+        let corner = CGPoint(x: 0, y: full)
         func point(_ angle: CGFloat, _ radius: CGFloat) -> CGPoint {
             CGPoint(x: corner.x + cos(angle) * radius, y: corner.y + sin(angle) * radius)
         }
-        // Spokes from the corner, very slightly uneven, as a spider spins them.
+
+        // The haze: threads strung from the top wall to the side wall, each sagging.
+        for _ in 0..<260 {
+            let from = CGPoint(x: random() * full * 0.9, y: full)
+            let to = CGPoint(x: 0, y: full - random() * full * 0.9)
+            let middle = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
+            let sag = CGPoint(x: middle.x + random() * 60, y: middle.y - 40 - random() * 120)
+            context.setStrokeColor(CGColor(srgbRed: 0.9, green: 0.9, blue: 0.95, alpha: 0.05 + random() * 0.12))
+            context.setLineWidth(1 + random() * 1.4)
+            context.move(to: from)
+            context.addQuadCurve(to: to, control: sag)
+            context.strokePath()
+        }
+
+        // The orb: uneven spokes, a spiral with gaps where threads have broken.
         var angles: [CGFloat] = []
-        for spoke in 0...spokes {
-            let wobble: CGFloat = (spoke * 7) % 5 == 0 ? 0.1 : 0
-            angles.append(-CGFloat.pi / 2 * (CGFloat(spoke) + wobble) / CGFloat(spokes))
+        for spoke in 0...12 {
+            let wobble = (random() - 0.5) * 0.09
+            angles.append(-CGFloat.pi / 2 * min(max(CGFloat(spoke) / 12 + wobble, 0), 1))
         }
-        context.setStrokeColor(CGColor(srgbRed: 0.93, green: 0.93, blue: 0.97, alpha: 0.85))
-        context.setLineWidth(3)
+        context.setStrokeColor(CGColor(srgbRed: 0.94, green: 0.94, blue: 0.98, alpha: 0.75))
         for angle in angles {
+            context.setLineWidth(2 + random() * 1.2)
             context.move(to: corner)
-            context.addLine(to: point(angle, reach))
+            let reach = full * (0.72 + random() * 0.26)
+            context.addQuadCurve(to: point(angle, reach), control: point(angle + (random() - 0.5) * 0.06, reach * 0.5))
+            context.strokePath()
         }
-        context.strokePath()
-        // The spiral: each turn a little further out, each thread sagging toward the corner.
-        context.setLineWidth(2)
-        context.setStrokeColor(CGColor(srgbRed: 0.93, green: 0.93, blue: 0.97, alpha: 0.7))
-        var radius = CGFloat(size) * 0.07
-        while radius < reach * 0.95 {
-            for (a0, a1) in zip(angles, angles.dropFirst()) {
-                let r0 = radius, r1 = radius * 1.012
+        var radius = full * 0.06
+        while radius < full * 0.78 {
+            for (a0, a1) in zip(angles, angles.dropFirst()) where random() > 0.16 {
+                let r0 = radius * (0.97 + random() * 0.06), r1 = radius * (0.97 + random() * 0.06)
+                context.setStrokeColor(CGColor(srgbRed: 0.94, green: 0.94, blue: 0.98, alpha: 0.35 + random() * 0.35))
+                context.setLineWidth(1.2 + random())
                 context.move(to: point(a0, r0))
-                context.addQuadCurve(to: point(a1, r1), control: point((a0 + a1) / 2, (r0 + r1) / 2 * 0.93))
-                radius = r1
+                context.addQuadCurve(to: point(a1, r1), control: point((a0 + a1) / 2, (r0 + r1) / 2 * (0.86 + random() * 0.08)))
+                context.strokePath()
             }
-            radius *= 1.06
+            radius *= 1.1 + random() * 0.06
         }
-        context.strokePath()
+
+        // A few torn threads hanging loose from the orb's edge.
+        for _ in 0..<5 {
+            let start = point(-CGFloat.pi / 2 * (0.15 + random() * 0.7), full * (0.55 + random() * 0.2))
+            context.setStrokeColor(CGColor(srgbRed: 0.94, green: 0.94, blue: 0.98, alpha: 0.5))
+            context.setLineWidth(1.5)
+            context.move(to: start)
+            context.addQuadCurve(to: CGPoint(x: start.x + (random() - 0.5) * 40, y: start.y - 120 - random() * 160),
+                                 control: CGPoint(x: start.x + 30, y: start.y - 60))
+            context.strokePath()
+        }
+
         guard let image = context.makeImage(),
               let texture = try? TextureResource(image: image, withName: nil, options: .init(semantic: .color)) else { return nil }
         var material = UnlitMaterial(applyPostProcessToneMap: false)

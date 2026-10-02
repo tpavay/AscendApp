@@ -119,7 +119,7 @@ test('a look wears at most one unlocked item per slot, and only ones the app dra
   const owner = testEnv.authenticatedContext(ownerId);
   const items = [
     'pumpkin_classic', 'pumpkin_ghost', 'pumpkin_lantern', 'pumpkin_heirloom', 'pumpkin_midnight', 'pumpkin_giant',
-    'pumpkin_giant_lantern', 'harvest_gourd', 'cornucopia', 'roast_turkey', 'pumpkin_pie', 'golden_turkey', 'turkey_giant',
+    'pumpkin_giant_lantern', 'candy_corn', 'chocolate_bar', 'harvest_gourd', 'cornucopia', 'roast_turkey', 'pumpkin_pie', 'golden_turkey', 'turkey_giant',
   ];
   for (const carry of items) {
     await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry })));
@@ -129,11 +129,11 @@ test('a look wears at most one unlocked item per slot, and only ones the app dra
   }
   await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'pumpkin_giant', head: 'witch_hat', costume: 'ghost_sheet' })));
   await assertSucceeds(setDoc(lookRef(owner), look({
-    schemaVersion: 2, tank: 'spiderweb_tank', shorts: 'witching_shorts', trainers: 'ember_trainers',
+    schemaVersion: 2, tank: 'candy_corn_tank', shorts: 'witching_shorts', trainers: 'ember_trainers',
   })));
-  await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, tank: 'pumpkin_stripe_tank', trainers: 'glow_trainers' })));
+  await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, tank: 'candy_corn_tank', trainers: 'glow_trainers' })));
   await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, tank: 'glow_trainers' })));
-  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, shorts: 'spiderweb_tank' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, shorts: 'candy_corn_tank' })));
   // Each slot takes only its own items.
   await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, head: 'pumpkin_giant' })));
   await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'witch_hat' })));

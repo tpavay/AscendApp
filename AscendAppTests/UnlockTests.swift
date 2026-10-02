@@ -178,6 +178,11 @@ struct UnlockTests {
 
     // MARK: - Store
 
+    @MainActor
+    private final class Flag {
+        var enabled = true
+    }
+
     private struct FixedCatalog: UnlockCatalogRepository {
         let catalog: UnlockCatalog
         func loadInitialCatalog() -> UnlockCatalog { catalog }
@@ -216,17 +221,17 @@ struct UnlockTests {
     func theKillSwitchHidesEverySurfaceAndKeepsWhatWasEarned() {
         let defaults = UserDefaults(suiteName: "UnlockTests-\(UUID().uuidString)")!
         let catalog = UnlockCatalog(version: 1, events: [Self.halloween], items: Self.ladder)
-        var enabled = true
-        let store = UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: defaults, isFlagEnabled: { enabled })
+        let flag = Flag()
+        let store = UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: defaults, isFlagEnabled: { flag.enabled })
         store.recordVisit(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
 
-        enabled = false
+        flag.enabled = false
         var look = AthleteLook.starting(for: .man)
         look.carry = .pumpkinClassic
         #expect(store.drawnGear(for: look).isEmpty)
         #expect(store.pendingIntro(userId: "climber", now: Self.date(10, 5), calendar: Self.utc) == nil)
 
-        enabled = true
+        flag.enabled = true
         #expect(store.drawnGear(for: look) == [.pumpkinClassic])
         #expect(store.earned == [.pumpkinClassic])
     }
@@ -327,9 +332,9 @@ struct UnlockTests {
         #expect(kit.filter { $0.slot == .tank }.allSatisfy { MountainKitPrint.image($0) != nil })
         #expect(kit.filter { $0.slot != .tank }.allSatisfy { MountainKitPrint.glow($0) > 0 })
         var look = AthleteLook.starting(for: .man)
-        look.equip(.spiderwebTank)
+        look.equip(.candyCornTank)
         look.equip(.emberTrainers)
-        #expect(MountainKitPrint.item(forSlot: "top", look: look) == .spiderwebTank)
+        #expect(MountainKitPrint.item(forSlot: "top", look: look) == .candyCornTank)
         #expect(MountainKitPrint.item(forSlot: "shoe", look: look) == .emberTrainers)
         #expect(MountainKitPrint.item(forSlot: "bottom", look: look) == nil)
     }
@@ -344,12 +349,12 @@ struct UnlockTests {
         #expect(UnlockEventProgress(event: Self.halloween, items: [halloweenNight], climbs: [on30th, on31st], visited: true, calendar: Self.utc).earned == [.emberTrainers])
     }
 
-    /// Only the giants go overhead and the pie is carried like a tray; everything else rides the
+    /// Only the giants go overhead and the chocolate bar and pie are carried like a tray; everything else rides the
     /// shoulder, where the race camera behind the climber can see it.
     @Test
     func onlyTheGiantsArePressedOverhead() {
         #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .overhead } == [.pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant])
-        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .tray } == [.pumpkinPie])
+        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .tray } == [.chocolateBar, .pumpkinPie])
     }
 
     /// The hands reach the item where the item sits: the shoulder hand comes over the crown from

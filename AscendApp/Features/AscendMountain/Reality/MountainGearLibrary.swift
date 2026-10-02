@@ -22,7 +22,7 @@ final class MountainGearLibrary {
     }
 
     private var prepared: [AthleteGear: Prepared] = [:]
-    private var loads: [AthleteGear: Task<Prepared?, Never>] = [:]
+    private var loads: [AthleteGear: Task<Void, Never>] = [:]
     private var failed: Set<AthleteGear> = []
     private var materials: [MountainGearModel.Paint: any RealityKit.Material] = [:]
 
@@ -38,17 +38,21 @@ final class MountainGearLibrary {
     /// The item, waiting for it to be made.
     func prepare(_ gear: AthleteGear) async -> Prepared? {
         if let made = prepared[gear] { return made }
-        if let loading = loads[gear] { return await loading.value }
-        let load = Task { await make(gear) }
-        loads[gear] = load
-        let made = await load.value
-        loads[gear] = nil
-        if let made {
-            prepared[gear] = made
-        } else {
-            failed.insert(gear)
+        if let loading = loads[gear] {
+            await loading.value
+            return prepared[gear]
         }
-        return made
+        let load = Task {
+            if let made = await make(gear) {
+                prepared[gear] = made
+            } else {
+                failed.insert(gear)
+            }
+        }
+        loads[gear] = load
+        await load.value
+        loads[gear] = nil
+        return prepared[gear]
     }
 
     private func make(_ gear: AthleteGear) async -> Prepared? {
@@ -108,6 +112,16 @@ final class MountainGearLibrary {
             }
             // A faint sheen of its own, so the sheet still reads white on a dark stretch.
             material.emissiveColor = .init(color: UIColor(white: 0.16, alpha: 1))
+        case .candyCornBands:
+            material.roughness = .init(floatLiteral: 0.45)
+            if let texture = await Self.texture(MountainGearArt.candyCornBands()) {
+                material.baseColor = .init(tint: .white, texture: .init(texture))
+            }
+        case .wrapper:
+            material.roughness = .init(floatLiteral: 0.35)
+            if let texture = await Self.texture(MountainGearArt.wrapper()) {
+                material.baseColor = .init(tint: .white, texture: .init(texture))
+            }
         case .gourdStripes:
             material.roughness = .init(floatLiteral: 0.5)
             if let texture = await Self.texture(MountainGearArt.gourdStripes()) {
@@ -245,6 +259,32 @@ enum MountainGearArt {
         for u in [0.468, 0.532] {
             context.fillEllipse(in: CGRect(x: (u - 0.018) * Double(width), y: 0.12 * Double(height), width: 0.036 * Double(width), height: 0.06 * Double(height)))
         }
+        return context.makeImage()
+    }
+
+    /// Yellow at the base, orange through the middle, white at the tip, as v runs up a lathe.
+    static func candyCornBands() -> CGImage? {
+        let width = 16, height = 256
+        guard let context = context(width: width, height: height) else { return nil }
+        for (start, end, color) in [
+            (0.0, 0.47, CGColor(srgbRed: 0.98, green: 0.76, blue: 0.1, alpha: 1)),
+            (0.47, 0.8, CGColor(srgbRed: 0.97, green: 0.47, blue: 0.07, alpha: 1)),
+            (0.8, 1.0, CGColor(srgbRed: 0.99, green: 0.97, blue: 0.92, alpha: 1))
+        ] {
+            context.setFillColor(color)
+            context.fill(CGRect(x: 0, y: start * Double(height), width: Double(width), height: (end - start) * Double(height)))
+        }
+        return context.makeImage()
+    }
+
+    /// Deep purple with a lime band, the wrapper on a chocolate bar.
+    static func wrapper() -> CGImage? {
+        let size = 128
+        guard let context = context(width: size, height: size) else { return nil }
+        context.setFillColor(CGColor(srgbRed: 0.33, green: 0.15, blue: 0.5, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+        context.setFillColor(CGColor(srgbRed: 0.53, green: 0.83, blue: 0.04, alpha: 1))
+        context.fill(CGRect(x: 0, y: size * 2 / 5, width: size, height: size / 5))
         return context.makeImage()
     }
 

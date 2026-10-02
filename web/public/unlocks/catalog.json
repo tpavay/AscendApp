@@ -87,9 +87,9 @@
       }
     },
     {
-      "id": "spiderweb_tank",
-      "slot": "tank",
-      "shape": "spiderweb_tank",
+      "id": "candy_corn",
+      "slot": "carry",
+      "shape": "candy_corn",
       "rarity": "rare",
       "status": "live",
       "earn": {
@@ -126,9 +126,9 @@
       }
     },
     {
-      "id": "pumpkin_stripe_tank",
+      "id": "candy_corn_tank",
       "slot": "tank",
-      "shape": "pumpkin_stripe_tank",
+      "shape": "candy_corn_tank",
       "rarity": "rare",
       "status": "live",
       "earn": {
@@ -175,6 +175,19 @@
         "event": "halloween-2026",
         "metric": "steps",
         "threshold": 25000
+      }
+    },
+    {
+      "id": "chocolate_bar",
+      "slot": "carry",
+      "shape": "chocolate_bar",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "steps",
+        "threshold": 10000
       }
     },
     {

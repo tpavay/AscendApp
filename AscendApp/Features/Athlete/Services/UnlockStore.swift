@@ -20,6 +20,8 @@ final class UnlockStore {
     private(set) var catalog: UnlockCatalog
     /// Everything the climber has earned.
     private(set) var earned: Set<AthleteGear> = []
+    /// When this device first saw each item earned.
+    private(set) var earnedAt: [AthleteGear: Date] = [:]
     private(set) var userId: String?
     /// The events the climber has opened Ascend during, and the ones whose intro they have seen.
     @ObservationIgnored private var visited: Set<String> = []
@@ -37,6 +39,7 @@ final class UnlockStore {
         let earned: [String]
         var visited: [String]?
         var introsSeen: [String]?
+        var earnedAt: [String: Date]?
     }
 
     init(
@@ -81,6 +84,9 @@ final class UnlockStore {
         earned = Set((cached?.earned ?? []).compactMap(AthleteGear.init(rawValue:)))
         visited = Set(cached?.visited ?? [])
         introsSeen = Set(cached?.introsSeen ?? [])
+        earnedAt = Dictionary(uniqueKeysWithValues: (cached?.earnedAt ?? [:]).compactMap { key, date in
+            AthleteGear(rawValue: key).map { ($0, date) }
+        })
     }
 
     /// Records that the climber opened Ascend now, which earns every running event's visit item.
@@ -146,11 +152,16 @@ final class UnlockStore {
         earned = []
         visited = []
         introsSeen = []
+        earnedAt = [:]
         defaults.removeObject(forKey: Self.earnedKey)
     }
 
     private func remember(_ items: [AthleteGear], for userId: String, force: Bool = false) {
         guard force || !Set(items).isSubset(of: earned) else { return }
+        let now = Date.now
+        for item in items where earnedAt[item] == nil {
+            earnedAt[item] = now
+        }
         earned.formUnion(items)
         persist(for: userId)
     }
@@ -160,7 +171,8 @@ final class UnlockStore {
             userId: userId,
             earned: earned.map(\.rawValue).sorted(),
             visited: visited.sorted(),
-            introsSeen: introsSeen.sorted()
+            introsSeen: introsSeen.sorted(),
+            earnedAt: Dictionary(uniqueKeysWithValues: earnedAt.map { ($0.key.rawValue, $0.value) })
         )
         guard let data = try? JSONEncoder().encode(cached) else { return }
         defaults.set(data, forKey: Self.earnedKey)
