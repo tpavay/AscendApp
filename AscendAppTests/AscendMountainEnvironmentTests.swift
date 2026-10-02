@@ -473,6 +473,50 @@ struct AscendMountainAthleteTests {
         )
     }
 
+    /// A hand holding a carried pumpkin closes around it: every fingertip comes to rest on the
+    /// pumpkin's skin, neither sunk into it nor sticking straight out past it, and the fingers bend
+    /// at their joints to follow its curve. Overhead, both hands do the same on the giant.
+    @Test(arguments: [(AthleteGear.pumpkinClassic, [1]), (.pumpkinGiantLantern, [0, 1])])
+    func aHoldingHandWrapsTheItem(gear: AthleteGear, sides: [Int]) throws {
+        let model = MountainGearModel.model(for: gear)
+        let width = model.parts.flatMap(\.geometry.positions).map { Double(max(abs($0.x), abs($0.z))) }.max() ?? 0
+        let hold = MountainCarryHold(carry: gear.carry, height: Double(model.height), halfWidth: width, body: model.body)
+        let (poser, asset) = try Self.poser()
+        let names = asset.joints.map(\.name)
+        var targets = Self.targets(left: SIMD3(0.12, 0.2, 0.12), right: SIMD3(-0.12, 0.03, -0.15))
+        targets.carry = hold
+        let local = poser.pose(targets)
+        let global = poser.globalPositions(of: local)
+
+        let chest = try #require(names.firstIndex(of: asset.roles.spine.last!))
+        let rightShoulder = try #require(names.firstIndex(of: asset.roles.arms[1][0]))
+        let chestTurn = poser.frames(of: local, joints: [chest])[0].turn
+        let seat = hold.seat(chest: global[chest], chestTurn: chestTurn, rightShoulder: global[rightShoulder])
+        let grip = try #require(hold.grip(seat: seat, chestTurn: chestTurn))
+        func depth(_ point: SIMD3<Double>) -> Double {
+            simd_length(chestTurn.inverse.act(point - grip.center) / grip.radii)
+        }
+
+        for side in sides {
+            let suffix = side == 0 ? "_l" : "_r"
+            let wrist = try #require(names.firstIndex(of: asset.roles.arms[side][2]))
+            for finger in ["thumb", "index", "middle", "ring", "pinky"] {
+                let chain = try ["01", "02", "03", "04_leaf"].map { try #require(names.firstIndex(of: "\(finger)_\($0)\(suffix)")) }
+                let tip = global[chain[3]]
+                #expect((0.9...1.2).contains(depth(tip)), "the \(finger)\(suffix) tip lies on the item, at \(depth(tip))")
+                // From the palm out, so the knuckle where the finger leaves the hand counts too.
+                let joints = [wrist] + chain
+                let bones = zip(joints, joints.dropFirst()).map { simd_normalize(global[$0.1] - global[$0.0]) }
+                let bend = zip(bones, bones.dropFirst()).map { acos(min(max(simd_dot($0.0, $0.1), -1), 1)) }.reduce(0, +)
+                // A finger laid along a curve turns by about its length over the curve's radius;
+                // flat, it would not turn at all.
+                let length = zip(chain, chain.dropFirst()).map { simd_distance(global[$0.0], global[$0.1]) }.reduce(0, +)
+                let curve = length / ((grip.radii.x + grip.radii.y + grip.radii.z) / 3)
+                #expect(bend > curve * 0.5, "the \(finger)\(suffix) curls around the item rather than lying flat, bent \(bend) of \(curve)")
+            }
+        }
+    }
+
     @Test
     func feetLandExactlyWhereTheCourseSays() throws {
         let (poser, asset) = try Self.poser()

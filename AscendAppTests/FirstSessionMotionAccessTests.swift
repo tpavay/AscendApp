@@ -323,8 +323,11 @@ struct FirstSessionMotionAccessTests {
 
     // MARK: - Helpers
 
+    /// A ceiling, not a delay: it returns the moment the condition holds. Restarts hop a delayed
+    /// global-queue dispatch and then the motion queue, and three seconds ran out under a loaded
+    /// full run, so the ceiling is generous.
     private static func waitUntil(
-        timeout: Duration = .seconds(3),
+        timeout: Duration = .seconds(15),
         _ condition: @MainActor () -> Bool
     ) async throws {
         let clock = ContinuousClock()

@@ -62,7 +62,9 @@ struct PeriodRecapCoordinatorTests {
         coordinator.dismiss()
         #expect(coordinator.story == nil)
         #expect(seenStore.seenIDs(userId: "me") == ["weekly_2026-W38"])
-        try await Task.sleep(for: .milliseconds(50))
+        for _ in 0..<100 where recaps.markedSeen.isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(recaps.markedSeen == [["weekly_2026-W38"]])
 
         // It never shows twice.
@@ -124,7 +126,11 @@ struct PeriodRecapCoordinatorTests {
         #expect(story.recapIDs.count == PeriodRecapCoordinator.fetchLimit)
         coordinator.storyDidAppear()
         coordinator.dismiss()
-        try await Task.sleep(for: .milliseconds(50))
+        // Marking the backlog seen runs in the background; a fixed 50 ms lost that race under a
+        // loaded full run, so wait for it with a ceiling instead.
+        for _ in 0..<100 where Set(recaps.markedSeen.flatMap { $0 }).count < 14 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(Set(recaps.markedSeen.flatMap { $0 }).count == 14)
 
         // No second catch-up about the older weeks.

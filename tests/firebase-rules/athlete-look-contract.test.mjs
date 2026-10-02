@@ -115,6 +115,37 @@ test('a value outside the presets is refused, so nothing free-form is ever publi
   await assertFails(setDoc(lookRef(owner), look({ updatedAt: Timestamp.fromMillis(0) })));
 });
 
+test('a look wears at most one unlocked item per slot, and only ones the app draws', async () => {
+  const owner = testEnv.authenticatedContext(ownerId);
+  const items = [
+    'pumpkin_classic', 'pumpkin_ghost', 'pumpkin_lantern', 'pumpkin_heirloom', 'pumpkin_midnight', 'pumpkin_giant',
+    'pumpkin_giant_lantern', 'candy_corn', 'chocolate_bar', 'harvest_gourd', 'cornucopia', 'roast_turkey', 'pumpkin_pie', 'golden_turkey', 'turkey_giant',
+  ];
+  for (const carry of items) {
+    await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry })));
+  }
+  for (const head of ['witch_hat', 'pumpkin_head']) {
+    await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, head })));
+  }
+  await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'pumpkin_giant', head: 'witch_hat', costume: 'ghost_sheet' })));
+  await assertSucceeds(setDoc(lookRef(owner), look({
+    schemaVersion: 2, shorts: 'witching_shorts', trainers: 'ember_trainers',
+  })));
+  await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, trainers: 'glow_trainers' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, shorts: 'glow_trainers' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, trainers: 'witching_shorts' })));
+  // Each slot takes only its own items.
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, head: 'pumpkin_giant' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'witch_hat' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, costume: 'witch_hat' })));
+  // Carrying nothing is the field's absence, which every earlier build already writes.
+  await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2 })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'chainsaw' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: '' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: null })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: ['pumpkin_giant'] })));
+});
+
 test('the document is exactly the look: no extra field and none missing', async () => {
   const owner = testEnv.authenticatedContext(ownerId);
   await assertFails(setDoc(lookRef(owner), look({ displayName: 'Sam' })));

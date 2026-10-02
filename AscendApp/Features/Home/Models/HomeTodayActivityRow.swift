@@ -1,6 +1,6 @@
 import Foundation
 
-/// One uploaded climb on Home's ON THE GLOBE TODAY list, as the server projected it.
+/// One uploaded climb on Home's ASCEND ACTIVITY TODAY list, as the server projected it.
 ///
 /// Identity travels as an `UnresolvedUserIdentity` and reaches a view only through
 /// `CrossUserIdentityAdapter.homeTodayRow`, like every other row that names a climber.

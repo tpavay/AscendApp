@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// ON THE GLOBE TODAY: the three most recent uploaded climbs of any kind, each a door
+/// ASCEND ACTIVITY TODAY: the three most recent uploaded climbs of any kind, each a door
 /// into the real climb, with SEE ALL when the server holds more.
 ///
 /// Nothing renders until the first feed snapshot has landed: an empty state that
@@ -23,7 +23,7 @@ struct HomeTodayActivitySection: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                ClimbBrowseSectionHeader(title: "On the Globe Today")
+                ClimbBrowseSectionHeader(title: "Ascend Activity Today")
 
                 Spacer(minLength: 0)
 
@@ -39,7 +39,7 @@ struct HomeTodayActivitySection: View {
                         .foregroundStyle(Color.accent)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("See all climbs on the globe today")
+                    .accessibilityLabel("See all Ascend activity today")
                 }
             }
 

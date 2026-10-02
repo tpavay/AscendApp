@@ -55,6 +55,17 @@ final class AthleteEditorModel {
         savedLookRead = .read
     }
 
+    /// Puts an earned item on the athlete, in place of whatever was in its slot.
+    func wear(_ item: AthleteGear) {
+        draft.equip(item)
+    }
+
+    /// Takes an item off the athlete, leaving its slot empty.
+    func takeOff(_ item: AthleteGear) {
+        guard draft.wearing(item.slot) == item else { return }
+        draft.unequip(item.slot)
+    }
+
     /// Switching body keeps the rest of the look, and moves a hairstyle that was only the old
     /// body's first to the new body's.
     func choose(body: AthleteLook.Body) {

@@ -37,6 +37,8 @@ final class MountainSceneController {
     private let markerSource: @MainActor () -> [MountainMarker]
     private let elapsedSource: (@MainActor () -> TimeInterval)?
     private let athleteLook: @MainActor () -> AthleteLook
+    /// How the running event dresses the mountain, read once as the scene is built.
+    private let themeSource: @MainActor () -> UnlockEvent.Theme?
     private let rigs: MountainRigFactory
     /// Which climbers are drawn this frame, and how present each is.
     private var pack: MountainPack
@@ -131,8 +133,10 @@ final class MountainSceneController {
         packLimits: MountainPack.Limits = .init(),
         packReport: (@MainActor (MountainPack.Drawn) -> Void)? = nil,
         journeySource: @escaping @MainActor () -> Int = { 0 },
-        cameraTuning: MountainSceneDirector.CameraTuning = .standard
+        cameraTuning: MountainSceneDirector.CameraTuning = .standard,
+        themeSource: @escaping @MainActor () -> UnlockEvent.Theme? = { UnlockStore.shared.runningTheme() }
     ) {
+        self.themeSource = themeSource
         self.seed = seed
         self.cameraTuning = cameraTuning
         self.worldSource = worldSource
@@ -189,7 +193,14 @@ final class MountainSceneController {
         let athlete: MountainAthleteRig
         let look = athleteLook()
         do {
-            world = try worldSource()
+            var dressed = try worldSource()
+            if let theme = themeSource(), theme.style == .haunted {
+                dressed = MountainHauntedStretch.dress(dressed, from: journeySource(), length: theme.steps)
+                // The stretch's props are drawn from shared meshes the first frame they stand.
+                _ = await MountainGearLibrary.shared.prepare(.pumpkinLantern)
+                _ = await MountainGearLibrary.shared.prepare(.ghostSheet)
+            }
+            world = dressed
             var ground: [MountainTerrainBucket.Surface: MountainScannedMaterial] = [:]
             for surface in MountainTerrainBucket.Surface.allCases {
                 ground[surface] = try? await MountainScannedMaterial.load("ascend-mountain-ground-\(surface)")
@@ -202,7 +213,8 @@ final class MountainSceneController {
             )
             resources = try MountainSceneResources.make()
             far = try MountainEnvironmentRig(resources: environment)
-            athlete = try await rigs.rig(.init(look: look, style: .athlete(look), label: ""))
+            far.hauntedSteps = world.haunted
+            athlete = try await rigs.rig(.init(look: look, style: .athlete(look), label: "", castsLight: true))
         } catch {
             AppDiagnosticsRecorder.shared.record(
                 "ascend_mountain_scene_build_failed",
@@ -372,7 +384,7 @@ final class MountainSceneController {
         guard var scene else { return }
         let look = athleteLook()
         guard look != scene.athleteLook,
-              let rebuilt = rigs.readyRig(.init(look: look, style: .athlete(look), label: "")) else { return }
+              let rebuilt = rigs.readyRig(.init(look: look, style: .athlete(look), label: "", castsLight: true)) else { return }
         scene.athlete.root.removeFromParent()
         scene.root.addChild(rebuilt.root)
         scene.athlete = rebuilt

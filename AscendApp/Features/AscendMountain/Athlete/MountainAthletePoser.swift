@@ -17,6 +17,133 @@ struct MountainAthletePoseTargets: Equatable, Sendable {
     var elbowBend: Double
     /// Hip-and-shoulder counter-twist with the stride, radians about +Y.
     var twist: Double
+    /// How the arms hold a carried item, or nil when they swing free.
+    var carry: MountainCarryHold? = nil
+}
+
+/// How a carried item sits on the athlete and where the hands hold it, in model space, from the
+/// chest and right shoulder as this frame poses them. The poser reaches the hands to it and the
+/// rig rests the item on it, so the two always agree.
+struct MountainCarryHold: Equatable, Sendable {
+    var carry: AthleteGear.Carry
+    /// From the item's resting point up to its top, and half its width, in metres.
+    var height: Double
+    var halfWidth: Double
+    /// The round body under any stem or trailing vine: where the hands rest and what they close
+    /// around. Without one, a body as wide as the item and no taller than a pumpkin is assumed.
+    var body: Body
+
+    struct Body: Equatable, Sendable {
+        /// From the item's resting point up to the body's bottom and top, and its half width.
+        var base: Double
+        var top: Double
+        var halfWidth: Double
+        var halfHeight: Double { (top - base) / 2 }
+        var middle: Double { (top + base) / 2 }
+    }
+
+    init(carry: AthleteGear.Carry, height: Double, halfWidth: Double, body: Body? = nil) {
+        self.carry = carry
+        self.height = height
+        self.halfWidth = halfWidth
+        self.body = body ?? Body(base: 0, top: min(height, halfWidth * 1.64), halfWidth: halfWidth)
+    }
+
+    /// Where the item rests: on top of the right shoulder, above the head on both hands, or up
+    /// on the right palm out at the side.
+    func seat(chest: SIMD3<Double>, chestTurn: simd_quatd, rightShoulder: SIMD3<Double>) -> SIMD3<Double> {
+        switch carry {
+        case .shoulder: rightShoulder + chestTurn.act(SIMD3(-0.015, 0.075, -0.045))
+        case .overhead: chest + chestTurn.act(SIMD3(0, 0.55, 0.04))
+        // Up and out at the side like a waiter's platter, where the camera behind can see it.
+        case .tray: rightShoulder + chestTurn.act(SIMD3(-0.3, 0.16, 0.12))
+        }
+    }
+
+    /// Where a wrist reaches, or nil for an arm left to swing. On the shoulder the right hand
+    /// cups the item's outside, the palm on its flank and the fingers curled up over its top;
+    /// overhead both hands take the giant's sides from below.
+    func wrist(side: Int, seat: SIMD3<Double>, chestTurn: simd_quatd) -> SIMD3<Double>? {
+        let sign: Double = side == 0 ? 1 : -1
+        switch (carry, side) {
+        case (.shoulder, 1): return seat + chestTurn.act(SIMD3(-body.halfWidth - 0.03, body.middle + body.halfHeight * 0.15, 0.03))
+        case (.shoulder, _): return nil
+        case (.overhead, _): return seat + chestTurn.act(SIMD3(sign * body.halfWidth * 0.9, body.middle - body.halfHeight * 0.4, 0.02))
+        case (.tray, 1): return seat + chestTurn.act(SIMD3(0.02, -0.04, -0.04))
+        case (.tray, _): return nil
+        }
+    }
+
+    /// Where a holding hand's fingers point: up toward the shoulder item's crown, in against the
+    /// giant's flank. The grip then curls them around the body.
+    func fingers(side: Int, seat: SIMD3<Double>, chestTurn: simd_quatd) -> SIMD3<Double>? {
+        switch (carry, side) {
+        case (.shoulder, 1): return seat + chestTurn.act(SIMD3(-body.halfWidth * 0.2, body.top + 0.02, 0.02))
+        case (.shoulder, _): return nil
+        case (.overhead, _): return seat + chestTurn.act(SIMD3(0, body.middle + body.halfHeight * 0.1, 0))
+        case (.tray, 1): return seat + chestTurn.act(SIMD3(-0.02, -0.035, 0.14))
+        case (.tray, _): return nil
+        }
+    }
+
+    /// The round body a holding hand's fingers close around: the item's own width and the height of
+    /// its body, not its stem, about its middle, a finger's thickness out so the fingers lie on the skin rather than in it. Nil
+    /// for a tray, which rides an open palm.
+    func grip(seat: SIMD3<Double>, chestTurn: simd_quatd) -> MountainCarryGrip? {
+        switch carry {
+        case .shoulder, .overhead:
+            let skin = MountainCarryGrip.fingerThickness
+            return MountainCarryGrip(
+                center: seat + chestTurn.act(SIMD3(0, body.middle, 0)),
+                radii: SIMD3(body.halfWidth + skin, body.halfHeight + skin, body.halfWidth + skin),
+                turn: chestTurn
+            )
+        case .tray: return nil
+        }
+    }
+
+    /// Which way an elbow bends while it holds: out and down from the shoulder item, out to the
+    /// sides under a giant.
+    func elbowPole(side: Int, chestTurn: simd_quatd) -> SIMD3<Double> {
+        let sign: Double = side == 0 ? 1 : -1
+        switch carry {
+        case .shoulder: return chestTurn.act(SIMD3(sign, -0.5, -0.15))
+        case .overhead: return chestTurn.act(SIMD3(sign, -0.35, -0.25))
+        case .tray: return chestTurn.act(SIMD3(sign * 0.6, -1, -0.2))
+        }
+    }
+}
+
+/// The surface a holding hand wraps, as an upright ellipsoid turned with the chest.
+struct MountainCarryGrip: Equatable, Sendable {
+    static let fingerThickness = 0.012
+    /// The most one finger joint bends toward the item, radians: a knuckle stops short of folding flat.
+    static let maxCurl = 1.35
+
+    var center: SIMD3<Double>
+    var radii: SIMD3<Double>
+    var turn: simd_quatd
+
+    /// The way a bone of `length` leaving `joint` should run so its far end lands on the item's
+    /// skin: bent from `direction` toward the item, or back out when it starts beneath the skin.
+    /// Bone after bone around the curve, each one a chord, the hand closes like a hand on a ball.
+    func wrap(_ direction: SIMD3<Double>, from joint: SIMD3<Double>, length: Double) -> SIMD3<Double> {
+        // Solved where the ellipsoid is a unit sphere, so landing on it is plain geometry.
+        let toUnit = { (vector: SIMD3<Double>) in turn.inverse.act(vector) / radii }
+        let point = toUnit(joint - center)
+        let distance = simd_length(point)
+        let along = toUnit(direction)
+        guard distance > 1e-6, simd_length(along) > 1e-9 else { return direction }
+        let inward = -point / distance
+        let heading = simd_normalize(along)
+        let reach = length / ((radii.x + radii.y + radii.z) / 3)
+        // The angle off straight-in at which a chord of `reach` from here meets the sphere.
+        let landing = acos(min(max((reach * reach + distance * distance - 1) / (2 * reach * distance), -1), 1))
+        let toward = acos(min(max(simd_dot(heading, inward), -1), 1))
+        let bend = min(max(toward - landing, -MountainCarryGrip.maxCurl), MountainCarryGrip.maxCurl)
+        let wrapped = MountainAthletePoser.rotate(heading, towards: inward, by: bend)
+        return simd_normalize(turn.act(wrapped * radii))
+    }
 }
 
 /// Poses the athlete's skeleton for a stair climb: frame-aligned pelvis and spine, two-bone leg
@@ -54,6 +181,12 @@ struct MountainAthletePoser: Sendable {
     private let head: Int
     private let legs: [Chain]
     private let arms: [Chain]
+    /// For each wrist, the knuckle the hand bone runs to, so a holding hand can be turned onto
+    /// what it holds. Nil on a rig without fingers, whose hands just follow the forearm.
+    private let knuckles: [Int?]
+    /// For each wrist, every finger and thumb bone under it with the joint it runs to, parents
+    /// first, so a holding hand can close them around what it holds.
+    private let fingerBones: [[(joint: Int, child: Int)]]
     /// Rest-pose rotations that take each foot to point along +Z, flat.
     private let footCorrections: [simd_quatd]
     private let pelvisRestUp: SIMD3<Double>
@@ -121,6 +254,21 @@ struct MountainAthletePoser: Sendable {
                   upperLength: simd_distance(positions[upper], positions[lower]),
                   lowerLength: simd_distance(positions[lower], positions[end]))
         }
+        knuckles = [wristL, wristR].map { wrist in
+            let children = joints.indices.filter { joints[$0].parent == wrist }
+            return children.first { joints[$0].name.hasPrefix("middle") } ?? children.first
+        }
+        fingerBones = [wristL, wristR].map { wrist in
+            var bones: [(joint: Int, child: Int)] = []
+            var frontier = joints.indices.filter { joints[$0].parent == wrist }
+            while let joint = frontier.first {
+                frontier.removeFirst()
+                let children = joints.indices.filter { joints[$0].parent == joint }
+                if let child = children.first { bones.append((joint, child)) }
+                frontier += children
+            }
+            return bones
+        }
         arms = [(upperArmL, lowerArmL, wristL), (upperArmR, lowerArmR, wristR)].map { upper, lower, end in
             Chain(upper: upper, lower: lower, end: end,
                   upperLength: simd_distance(positions[upper], positions[lower]),
@@ -164,9 +312,12 @@ struct MountainAthletePoser: Sendable {
             toUp: Self.pitched(SIMD3(0, 1, 0), by: lean),
             toSide: Self.yawed(SIMD3(1, 0, 0), by: -targets.twist * 0.6)
         )
+        // A head leans away from the item on its right shoulder, toward +X.
+        let headRoll = targets.carry?.carry == .shoulder ? -0.14 : 0
         let headCorrection = Self.align(
             fromUp: chestRestUp, fromSide: chestRestSide,
-            toUp: Self.pitched(SIMD3(0, 1, 0), by: 0.08), toSide: SIMD3(1, 0, 0)
+            toUp: simd_quatd(angle: headRoll, axis: SIMD3(0, 0, 1)).act(Self.pitched(SIMD3(0, 1, 0), by: 0.08)),
+            toSide: SIMD3(1, 0, 0)
         )
         var fixed: [Int: simd_quatd] = [body: pelvisCorrection, head: headCorrection, neck: simd_slerp(chestCorrection, headCorrection, 0.5)]
         for (step, joint) in spine.enumerated() {
@@ -187,6 +338,12 @@ struct MountainAthletePoser: Sendable {
         }
         var knees: [Int: SIMD3<Double>] = [:]
         var feet: [Int: SIMD3<Double>] = [:]
+        var elbows: [Int: SIMD3<Double>] = [:]
+        var wrists: [Int: SIMD3<Double>] = [:]
+        var fingertips: [Int: (knuckle: Int, target: SIMD3<Double>, grip: MountainCarryGrip?)] = [:]
+        var gripped: [Int: (child: Int, grip: MountainCarryGrip)] = [:]
+        let chest = spine[spine.count - 1]
+        let rightShoulder = arms[1].upper
 
         for joint in order {
             let parent = parents[joint]
@@ -228,15 +385,56 @@ struct MountainAthletePoser: Sendable {
 
             if let (chain, side) = armOf[joint] {
                 let sign: Double = side == 0 ? 1 : -1
-                let swing = targets.leftArmSwing * sign
-                let upperDirection = simd_normalize(SIMD3(sign * 0.2, -cos(swing), sin(swing)) + SIMD3(0, 0, 0.05))
-                if joint == chain.upper {
-                    rotation[joint] = aim(joint, child: chain.lower, toward: upperDirection, carriedBy: parentDelta)
-                } else {
-                    let bend = targets.elbowBend + max(swing, 0) * 0.4
-                    let forearm = simd_normalize(Self.rotate(upperDirection, towards: SIMD3(0, 0.15, 1), by: bend))
-                    rotation[joint] = aim(joint, child: chain.end, toward: forearm, carriedBy: parentDelta)
+                if joint == chain.upper, let hold = targets.carry {
+                    let chestTurn = delta[chest]
+                    // The right shoulder rides its clavicle, so it is known here for either arm.
+                    let shoulderPosition = position[parents[rightShoulder] ?? rightShoulder]
+                        + rotation[parents[rightShoulder] ?? rightShoulder].act(restLocalTranslation[rightShoulder])
+                    let seat = hold.seat(chest: position[chest], chestTurn: chestTurn, rightShoulder: shoulderPosition)
+                    if var wrist = hold.wrist(side: side, seat: seat, chestTurn: chestTurn) {
+                        let shoulder = position[joint]
+                        let reach = chain.upperLength + chain.lowerLength - 1e-4
+                        if simd_distance(wrist, shoulder) > reach {
+                            wrist = shoulder + simd_normalize(wrist - shoulder) * reach
+                        }
+                        let elbow = Self.knee(root: shoulder, end: wrist, upper: chain.upperLength, lower: chain.lowerLength,
+                                              bendToward: hold.elbowPole(side: side, chestTurn: chestTurn))
+                        elbows[joint] = elbow
+                        wrists[chain.lower] = wrist
+                        let grip = hold.grip(seat: seat, chestTurn: chestTurn)
+                        if let knuckle = knuckles[side], let target = hold.fingers(side: side, seat: seat, chestTurn: chestTurn) {
+                            fingertips[chain.end] = (knuckle, target, grip)
+                        }
+                        if let grip {
+                            for bone in fingerBones[side] { gripped[bone.joint] = (bone.child, grip) }
+                        }
+                    }
                 }
+                if joint == chain.upper, let elbow = elbows[joint] {
+                    rotation[joint] = aim(joint, child: chain.lower, toward: elbow - position[joint], carriedBy: parentDelta)
+                } else if joint == chain.lower, let wrist = wrists[joint] {
+                    rotation[joint] = aim(joint, child: chain.end, toward: wrist - position[joint], carriedBy: parentDelta)
+                } else {
+                    let directions = Self.armDirections(sign: sign, targets: targets)
+                    if joint == chain.upper {
+                        rotation[joint] = aim(joint, child: chain.lower, toward: directions.upper, carriedBy: parentDelta)
+                    } else {
+                        rotation[joint] = aim(joint, child: chain.end, toward: directions.forearm, carriedBy: parentDelta)
+                    }
+                }
+            }
+
+            if let fingers = fingertips[joint] {
+                // The palm lies on the item too, so the fingers start from its skin, not inside it.
+                let reach = fingers.target - position[joint]
+                let palmLength = simd_distance(restGlobalPosition[fingers.knuckle], restGlobalPosition[joint])
+                let palm = fingers.grip?.wrap(simd_normalize(reach), from: position[joint], length: palmLength) ?? reach
+                rotation[joint] = aim(joint, child: fingers.knuckle, toward: palm, carriedBy: parentDelta)
+            }
+            if let (child, grip) = gripped[joint] {
+                let carried = parentDelta.act(simd_normalize(restGlobalPosition[child] - restGlobalPosition[joint]))
+                let length = simd_distance(restGlobalPosition[child], restGlobalPosition[joint])
+                rotation[joint] = aim(joint, child: child, toward: grip.wrap(carried, from: position[joint], length: length), carriedBy: parentDelta)
             }
 
             delta[joint] = simd_normalize(rotation[joint] * restGlobalRotation[joint].inverse)
@@ -252,6 +450,14 @@ struct MountainAthletePoser: Sendable {
                 rotation: simd_normalize(inverse * rotation[joint]).float
             )
         }
+    }
+
+    /// Where a free arm's upper arm and forearm point, in model space: swinging with the stride.
+    static func armDirections(sign: Double, targets: MountainAthletePoseTargets) -> (upper: SIMD3<Double>, forearm: SIMD3<Double>) {
+        let swing = targets.leftArmSwing * sign
+        let upper = simd_normalize(SIMD3(sign * 0.2, -cos(swing), sin(swing)) + SIMD3(0, 0, 0.05))
+        let bend = targets.elbowBend + max(swing, 0) * 0.4
+        return (upper, simd_normalize(rotate(upper, towards: SIMD3(0, 0.15, 1), by: bend)))
     }
 
     /// Model-space positions of every joint for a pose, by forward kinematics over the local
@@ -271,6 +477,41 @@ struct MountainAthletePoser: Sendable {
             }
         }
         return position
+    }
+
+    /// Where one joint is in model space for a pose, and how far it has turned from rest: what an
+    /// item riding that joint is carried by.
+    struct JointFrame: Equatable, Sendable {
+        let position: SIMD3<Double>
+        /// The joint's turn from its rest orientation, in model space.
+        let turn: simd_quatd
+        /// Where the joint stands at rest, which items are authored from.
+        let restPosition: SIMD3<Double>
+    }
+
+    /// The model-space frames of `joints` for a pose, by forward kinematics over the local
+    /// transforms `pose` returns.
+    func frames(of local: [LocalTransform], joints: [Int]) -> [JointFrame] {
+        var position = [SIMD3<Double>](repeating: .zero, count: jointCount)
+        var rotation = [simd_quatd](repeating: simd_quatd(ix: 0, iy: 0, iz: 0, r: 1), count: jointCount)
+        for joint in order {
+            let transform = local[joint]
+            let r = transform.rotation.double, t = SIMD3<Double>(transform.translation)
+            if let parent = parents[joint] {
+                position[joint] = position[parent] + rotation[parent].act(t)
+                rotation[joint] = rotation[parent] * r
+            } else {
+                position[joint] = t
+                rotation[joint] = r
+            }
+        }
+        return joints.map { joint in
+            JointFrame(
+                position: position[joint],
+                turn: simd_normalize(rotation[joint] * restGlobalRotation[joint].inverse),
+                restPosition: restGlobalPosition[joint]
+            )
+        }
     }
 
     /// Turns a joint so the bone toward `child` points along `direction`, taking the smallest

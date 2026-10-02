@@ -6,7 +6,7 @@ import Foundation
 struct HomeTodayActivityFeed: Equatable, Sendable {
     /// How many rows Home's sheet shows before SEE ALL. Settled at three.
     static let homeRowLimit = 3
-    /// How long a row stays under ON THE GLOBE TODAY, measured from when the server
+    /// How long a row stays under ASCEND ACTIVITY TODAY, measured from when the server
     /// first saw the workout. The same day the server publishes and prunes on
     /// (`HOME_TODAY_ACTIVITY_MAX_ROW_AGE_MILLIS`).
     static let maxRowAge: TimeInterval = 24 * 60 * 60
