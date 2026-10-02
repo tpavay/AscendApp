@@ -135,6 +135,7 @@ struct UnlockFinishCard: View {
             defer { isSaving = false }
             do {
                 try await AthleteLookStore.shared.equip(item, userId: userId)
+                unlocks.markSeen([item], userId: userId)
                 equipped = item
             } catch {
                 saveFailed = true

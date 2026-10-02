@@ -441,16 +441,40 @@ struct UnlockTests {
         let (store, defaults) = store()
         store.recordVisit(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
         store.refresh(userId: "climber", modelContext: context, now: Self.date(10, 5), calendar: Self.utc)
-        #expect(store.newItems == [.pumpkinClassic, .pumpkinGhost])
+        #expect(store.newItems(wearing: []) == [.pumpkinClassic, .pumpkinGhost])
         store.markSeen([.pumpkinGhost, .pumpkinGiant], userId: "climber")
-        #expect(store.newItems == [.pumpkinClassic], "only earned items are marked; an unearned one stays unseen")
+        #expect(store.newItems(wearing: []) == [.pumpkinClassic], "only earned items are marked; an unearned one stays unseen")
 
         let reopened = UnlockStore(repository: FixedCatalog(catalog: UnlockCatalog(version: 1, events: [Self.halloween], items: Self.ladder)), defaults: defaults, isFlagEnabled: { true })
         reopened.load(userId: "climber")
-        #expect(reopened.newItems == [.pumpkinClassic], "what was looked at stays looked at after a relaunch")
+        #expect(reopened.newItems(wearing: []) == [.pumpkinClassic], "what was looked at stays looked at after a relaunch")
 
         store.clearAccountScopedState()
-        #expect(store.newItems.isEmpty)
+        #expect(store.newItems(wearing: []).isEmpty)
+    }
+
+    /// The Profile pill counts only what Your Athlete can show as NEW: an item the athlete is
+    /// wearing reads ON there, so it never counts, and an item the catalogue later hides is not
+    /// drawn there, so it never counts either.
+    @Test
+    func theNewCountMatchesWhatYourAthleteShowsAsNew() throws {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let context = container.mainContext
+        context.insert(Workout(date: Self.date(10, 1), duration: 1_200, steps: 30_000, floors: 500, source: .headphoneMotion))
+        try context.save()
+
+        let (store, defaults) = store()
+        store.refresh(userId: "climber", modelContext: context, now: Self.date(10, 5), calendar: Self.utc)
+        #expect(store.newItems(wearing: []) == [.pumpkinClassic, .pumpkinGhost, .pumpkinMidnight])
+        #expect(store.newItems(wearing: [.pumpkinGhost]) == [.pumpkinClassic, .pumpkinMidnight], "an item on the athlete is never new")
+
+        let hiding = UnlockCatalog(version: 1, events: [Self.halloween], items: Self.ladder.map { item in
+            item.shape == .pumpkinMidnight ? Self.item(.pumpkinMidnight, .steps, 25_000, status: .hidden) : item
+        })
+        let later = UnlockStore(repository: FixedCatalog(catalog: hiding), defaults: defaults, isFlagEnabled: { true })
+        later.load(userId: "climber")
+        #expect(later.earned.contains(.pumpkinMidnight))
+        #expect(later.newItems(wearing: []) == [.pumpkinClassic, .pumpkinGhost], "an item Your Athlete does not draw is never counted")
     }
 
     /// The finish screen's outcome counts the store's own climbs inside the event, and only the

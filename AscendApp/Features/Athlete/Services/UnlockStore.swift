@@ -160,9 +160,11 @@ final class UnlockStore {
         defaults.removeObject(forKey: Self.earnedKey)
     }
 
-    /// Earned items the climber has not looked at yet.
-    var newItems: Set<AthleteGear> {
-        earned.subtracting(seen)
+    /// Earned items the climber has not looked at yet: only ones Your Athlete draws, and never
+    /// one the athlete is `wearing`, so every NEW counted is a NEW tag the climber can see.
+    func newItems(wearing: [AthleteGear]) -> Set<AthleteGear> {
+        let drawn = catalog.events.flatMap { catalog.gearItems(of: $0, owned: earned) }.map(\.shape)
+        return Set(drawn).intersection(earned).subtracting(seen).subtracting(wearing)
     }
 
     /// Records that the climber has looked at `items`, which stops them reading NEW.

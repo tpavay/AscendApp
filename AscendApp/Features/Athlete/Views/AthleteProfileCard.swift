@@ -22,7 +22,7 @@ struct AthleteProfileCard: View {
 
     /// Earned items waiting to be looked at in the editor.
     private var newCount: Int {
-        unlocks.isEnabled ? unlocks.newItems.count : 0
+        unlocks.isEnabled ? unlocks.newItems(wearing: store.current.gear).count : 0
     }
 
     var body: some View {

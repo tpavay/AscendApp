@@ -55,7 +55,7 @@ struct AthleteEditorView: View {
                         AthleteGearRows(
                             entries: gearEntries,
                             owned: unlocks.earned.union(store.current.gear),
-                            new: unlocks.newItems,
+                            new: unlocks.newItems(wearing: store.current.gear),
                             wearing: model.draft.gear,
                             onWear: { item in
                                 model.wear(item)
@@ -153,6 +153,9 @@ struct AthleteEditorView: View {
                 eventProgress = unlocks.refresh(userId: userId, modelContext: modelContext)
             }
             await loadSavedLook()
+        }
+        .onDisappear {
+            if let userId = signedInUser { unlocks.markSeen(gearEntries.map(\.item.shape), userId: userId) }
         }
     }
 

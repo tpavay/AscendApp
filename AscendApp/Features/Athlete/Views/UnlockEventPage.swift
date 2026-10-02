@@ -219,10 +219,12 @@ struct UnlockEventPage: View {
             showingAthlete = true
         } label: {
             HStack(spacing: 12) {
-                Image((looks.current.wearing(.carry) ?? earned.last?.shape ?? .pumpkinClassic).thumbnailName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 44, height: 44)
+                if let thumbnail = looks.current.wearing(.carry) ?? earned.last?.shape ?? (unlocks.catalog.visitItem(of: event) ?? unlocks.catalog.showcase(of: event).first)?.shape {
+                    Image(thumbnail.thumbnailName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 44, height: 44)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Your Athlete")
                         .font(.montserratBold(size: 14))

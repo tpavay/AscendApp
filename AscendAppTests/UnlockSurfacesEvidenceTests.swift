@@ -241,7 +241,7 @@ struct UnlockSurfacesEvidenceTests {
             try activateAccessibilityElement(labelled: "Ghost Pumpkin", in: screen.root)
             let tried = try await Self.values(on: screen) { $0["Ghost Pumpkin"] == "On your athlete" }
             #expect(tried["Pumpkin"]?.hasPrefix("Earned") == true, "ON moves to the item tapped: \(tried)")
-            #expect(!unlocks.newItems.contains(.pumpkinGhost), "looking at it clears NEW")
+            #expect(!unlocks.newItems(wearing: []).contains(.pumpkinGhost), "looking at it clears NEW")
             #expect(looks.current.wearing(.carry) == .pumpkinClassic, "nothing is kept until SAVE ATHLETE")
             try screen.photograph(named: "halloween-your-athlete-try-on")
 

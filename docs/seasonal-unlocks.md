@@ -25,7 +25,8 @@ The design is the captain's round-20 approval of 2026-10-02; the build handoff w
   Tapping an earned item puts it on the preview straight away and tapping the worn one takes it off; tapping a locked one opens a line under its row with its rule and progress.
   Nothing is kept until SAVE ATHLETE, which reads SAVED.
   There is no separate Locker and no item page from here.
-- An earned item reads NEW until the climber looks at it in Your Athlete or opens its page (`UnlockStore.seen`), and the Your Athlete card on Profile shows a lime "<n> NEW" pill while any are waiting.
+- An earned item reads NEW until the climber looks at it in Your Athlete, opens its page or equips it from anywhere (`UnlockStore.seen`), and the Your Athlete card on Profile shows a lime "<n> NEW" pill while any are waiting.
+  The pill counts exactly the items whose Your Athlete cell reads NEW: never one the athlete is wearing, and never one Your Athlete does not draw (`UnlockStore.newItems(wearing:)`).
 - The first open during an event still shows `UnlockEventIntroView`, in the page's words: the item everybody gets for opening Ascend that month, revealed on the climber's own athlete (`UnlockRevealView`), and the ladder of what climbing earns as bare counts.
   It is shown once per event per account, after the period recap and never over it (`MainTabView.presentUnlockIntroIfNeeded`).
 - Every climb saved during an event shows `UnlockFinishCard` on the summary: the item that climb earned, revealed the same way, with EQUIP ON YOUR ATHLETE, or how far the next item is.

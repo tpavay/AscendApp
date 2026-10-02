@@ -278,6 +278,7 @@ struct UnlockItemView: View {
             defer { isEquipping = false }
             do {
                 try await looks.equip(item.shape, userId: userId)
+                unlocks.markSeen([item.shape], userId: userId)
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { showingBanner = true }
                 try? await Task.sleep(for: .seconds(2.2))
                 withAnimation(.easeIn(duration: 0.3)) { showingBanner = false }
