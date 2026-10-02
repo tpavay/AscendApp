@@ -122,7 +122,7 @@ struct MountainGearModel: Sendable {
         case .candyCorn: candyCorn()
         case .chocolateBar: chocolateBar()
         case .witchingShorts, .glowTrainers, .emberTrainers:
-            // Kit is drawn on the athlete's own body (`MountainKitPrint`), not as a shape.
+            // Kit is drawn on the athlete's own body (`MountainKitColor`), not as a shape.
             MountainGearModel(parts: [])
         case .harvestGourd: gourd()
         case .cornucopia: cornucopia()

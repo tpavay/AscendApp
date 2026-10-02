@@ -145,7 +145,7 @@ final class MountainRigFactory {
             switch style {
             case .athlete(let look):
                 let set = figure.textures(forSlot: MountainAthleteRig.texturesKey(forSlot: slot, look: look))
-                let kit = UnlockStore.shared.isEnabled ? MountainKitPrint.item(forSlot: slot, look: look) : nil
+                let kit = UnlockStore.shared.isEnabled ? MountainKitColor.item(forSlot: slot, look: look) : nil
                 let textures = ([set?.baseColor, set?.normal, set?.roughness].map { $0 ?? "-" } + [kit?.rawValue ?? "-"]).joined(separator: "|")
                 key = MaterialKey(slot: slot, textures: textures, tint: MountainAthleteRig.tint(forSlot: slot, look: look, textures: set), ghostly: false)
             case .ghost(let color):
@@ -162,7 +162,7 @@ final class MountainRigFactory {
     }
 
     private func material(for slot: String, look: AthleteLook, figure: MountainAthleteFigure) -> PhysicallyBasedMaterial {
-        if UnlockStore.shared.isEnabled, let item = MountainKitPrint.item(forSlot: slot, look: look) {
+        if UnlockStore.shared.isEnabled, let item = MountainKitColor.item(forSlot: slot, look: look) {
             return kitMaterial(item)
         }
         let textureSet = figure.textures(forSlot: MountainAthleteRig.texturesKey(forSlot: slot, look: look))
@@ -196,9 +196,9 @@ final class MountainRigFactory {
         var material = PhysicallyBasedMaterial()
         material.metallic = .init(floatLiteral: 0)
         material.roughness = .init(floatLiteral: 0.7)
-        let tint = MountainKitPrint.tint(item).uiColor
+        let tint = MountainKitColor.tint(item).uiColor
         material.baseColor = .init(tint: tint)
-        let glow = MountainKitPrint.glow(item)
+        let glow = MountainKitColor.glow(item)
         if glow > 0 {
             material.emissiveColor = .init(color: tint)
             material.emissiveIntensity = glow

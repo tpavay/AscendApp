@@ -3,7 +3,7 @@ import Foundation
 /// Unlocked kit drawn on the athlete's own body: shorts or trainers in a colour that glows, worn
 /// in place of the colour the climber picked. A colour rather than a print, because the shorts'
 /// texture coordinates are cut small across seams and the trainers have none.
-enum MountainKitPrint {
+enum MountainKitColor {
     /// The item drawn on a body slot, as the athlete pack names its material slots.
     static func item(forSlot slot: String, look: AthleteLook) -> AthleteGear? {
         switch slot {

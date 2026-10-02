@@ -3,8 +3,9 @@
 October (Halloween) and November (Thanksgiving) are the first instance of Ascend's unlock system: items a climber earns by climbing and carries or wears up Ascend Mountain.
 Earned only, never bought, cosmetic only, and drawn for everyone who races with you.
 
-An athlete has five slots (`AthleteGear.Slot`): an item carried on the right shoulder, pressed overhead, or held up on the palm out at the side like a waiter's platter (`carry`) - every hold is placed so the race camera, which films from behind, can see it, one on the head (`head`), a costume over the whole athlete (`costume`), and kit worn in place of the colours the climber picked (`shorts`, `trainers`).
-Carried, head and costume items are shapes of their own riding the skeleton; kit is the athlete's own body redrawn in a colour that glows (`MountainKitPrint`), since the shorts' texture coordinates are cut small across seams and the trainers have none.
+An athlete has five slots (`AthleteGear.Slot`): one carried item (`carry`), one on the head (`head`), a costume over the whole athlete (`costume`), and kit worn in place of the colours the climber picked (`shorts`, `trainers`).
+A carried item sits on the right shoulder, is pressed overhead with both hands, or is held up on the palm out at the side like a waiter's platter; every hold is placed so the race camera, which films from behind, can see it, and the arms reach it with IK (`MountainCarryHold`).
+Carried, head and costume items are shapes of their own riding the skeleton; kit is the athlete's own body redrawn in a colour that glows (`MountainKitColor`), since the shorts' texture coordinates are cut small across seams and the trainers have none.
 A printed tank was tried and dropped: on the athlete it read as one colour, not a design.
 Each slot is stored under its own name on `users/{uid}/athlete_look/current`, and `firestore.rules` lists the items each slot accepts.
 
@@ -13,7 +14,8 @@ Each slot is stored under its own name on `users/{uid}/athlete_look/current`, an
 - The first open during an event shows `UnlockEventIntroView`: the item everybody gets for opening Ascend that month, revealed on the climber's own athlete (`UnlockRevealView`: the athlete faces you, the item bursts in, hovers, and lands where it is worn), and the ladder of what climbing earns.
   It is shown once per event per account, after the period recap and never over it (`MainTabView.presentUnlockIntroIfNeeded`).
 - Every climb finished during an event shows `UnlockFinishCard` on the summary: the item that climb earned, revealed the same way, with EQUIP ON YOUR ATHLETE, or how far the next item is.
-- The Locker (`LockerView`, opened from the athlete editor) holds every item of every event that has opened, by where it goes - carry, head, costume, kit, feet - earned ones ready to wear and the rest showing how far the climber is; tapping an earned item puts it on, tapping it again takes it off.
+- The Locker (`LockerView`, opened from the athlete editor) holds every item of every event that has opened, by where it goes - carry, head, costume, kit, feet - earned ones ready to wear and the rest showing how far the climber is.
+  Tapping an earned card puts the item on or takes it off; tapping a locked card, or any card's info corner, turns it over to say what earns it and when it was earned.
 - What an athlete has on is drawn on the climber's athlete and on every rival wearing something (`MountainAthleteRig.wear`).
 - During Halloween the first steps of every climb are the haunted stretch (below).
 
@@ -25,14 +27,14 @@ One file, hosted beside the climb catalogue and bundled as a fallback:
 - Bundled: `AscendApp/Features/Athlete/Resources/unlock-catalog.json`, which must be byte-identical to the hosted file (`UnlockTests.theBundledCatalogueIsTheHostedOne`).
 
 Each event has an id, a title ("Halloween"), a month name ("October") and its days (`startsOn`, `endsBefore`, read in the climber's own time zone).
-Each item names the shape it is drawn as, its slot, a rarity, a status (`hidden`, `live`, `retired`) and how it is earned (`path: event`, the event id, `metric` of `visits`, `climbs`, `days` or `steps`, and a threshold).
+Each item names the shape it is drawn as, its slot, a rarity, a status (`hidden`, `live`, `retired`) and how it is earned (`path: event`, the event id, `metric` of `visits`, `climbs`, `days`, `onDay` or `steps`, and a threshold).
 `days` counts different days with a finished climb, so a threshold of the event's length is "every day"; `onDay` is a climb on one day of the event, counted from 1, so 31 is Halloween itself.
 An event may also carry a `theme`, how it dresses the mountain.
 
 Without a build, the file can move an event's dates, change a threshold, or switch a shipped item live ("ship dark, drop live").
 A new shape needs a build: `AthleteGear` and `MountainGearModel` draw it.
 An item whose shape, slot or way of earning a build does not know is skipped by that build, never fatal (`UnlockTests.anItemThisBuildCannotDrawIsSkippedNotFatal`).
-`firestore.rules` lists the shapes a look may carry, so a new shape also needs a rules deploy before the build that offers it.
+`firestore.rules` lists the items each slot accepts, so a new shape also needs a rules deploy before the build that offers it.
 
 ## How an item is earned
 
@@ -43,7 +45,7 @@ What was earned is remembered on the device per account (`UnlockStore.earnedKey`
 
 This is a deliberate first step.
 The general unlock plan moves deciding who earned what to a server job that writes where only the server can, and checks ownership before publishing an outfit.
-Until that exists, `carry` on `users/{uid}/athlete_look/current` is bounded to the known shapes but not to what the climber earned: a cosmetic, so the rule bounds the value rather than the evidence.
+Until that exists, what a look wears on `users/{uid}/athlete_look/current` is bounded to the known items but not to what the climber earned: a cosmetic, so the rule bounds the value rather than the evidence.
 
 ## The haunted stretch
 
@@ -53,7 +55,7 @@ Changing the length, or dropping the theme, is a catalogue edit.
 
 ## Off switch
 
-`unlocks_enabled` (`RemoteFeatureFlag.unlocks`) hides every unlock surface: nothing worn is drawn, no intro, no finish card, no editor row, no haunted stretch.
+`unlocks_enabled` (`RemoteFeatureFlag.unlocks`) hides every unlock surface: nothing worn is drawn, no intro, no finish card, no Locker, no haunted stretch.
 It writes and deletes nothing, and earned items come back with it (`docs/remote-config-kill-switches.md`).
 
 ## Cost on the mountain
@@ -92,5 +94,5 @@ Limits: name 30 characters, short description 50, long description 120.
 
 - Name: November Harvest Climbs
 - Short description: Climb in November. Carry the harvest up.
-- Long description: Open Ascend in November: your Harvest Gourd is in. Climb for the Pie, Cornucopia, Roast Turkey and the Giant Turkey.
+- Long description: Open Ascend in November: your Harvest Gourd is in. Climb for the Pumpkin Pie, the Cornucopia and the Giant Turkey.
 - Badge: Challenge.

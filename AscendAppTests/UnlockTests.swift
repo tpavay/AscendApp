@@ -328,13 +328,13 @@ struct UnlockTests {
         let kit = AthleteGear.allCases.filter { !$0.isWornShape }
         #expect(Set(kit.map(\.slot)) == [.shorts, .trainers])
         #expect(kit.allSatisfy { MountainGearModel.model(for: $0).parts.isEmpty })
-        #expect(kit.allSatisfy { MountainKitPrint.glow($0) > 0 })
+        #expect(kit.allSatisfy { MountainKitColor.glow($0) > 0 })
         var look = AthleteLook.starting(for: .man)
         look.equip(.witchingShorts)
         look.equip(.emberTrainers)
-        #expect(MountainKitPrint.item(forSlot: "bottom", look: look) == .witchingShorts)
-        #expect(MountainKitPrint.item(forSlot: "shoe", look: look) == .emberTrainers)
-        #expect(MountainKitPrint.item(forSlot: "top", look: look) == nil)
+        #expect(MountainKitColor.item(forSlot: "bottom", look: look) == .witchingShorts)
+        #expect(MountainKitColor.item(forSlot: "shoe", look: look) == .emberTrainers)
+        #expect(MountainKitColor.item(forSlot: "top", look: look) == nil)
     }
 
     /// Climbing on one named day earns its item: Halloween is the 31st of October.
