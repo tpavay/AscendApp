@@ -59,7 +59,7 @@ function shippedCatalogue() {
       item("candy_corn", "halloween-2026", "climbs", 15),
       item("ghost_sheet", "halloween-2026", "climbs", 20),
       item("witching_shorts", "halloween-2026", "days", 7),
-      item("pumpkin_head", "halloween-2026", "days", 31),
+      item("pumpkin_head", "halloween-2026", "days", 20),
       item("ember_trainers", "halloween-2026", "onDay", 31),
       item("pumpkin_midnight", "halloween-2026", "steps", 25000),
       item("chocolate_bar", "halloween-2026", "steps", 10000),

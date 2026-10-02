@@ -141,7 +141,7 @@ const HALLOWEEN_2026: DropEmailDefinition = {
         heading: "Days in October",
         items: halloweenTiles([
           ["witching_shorts", "Witching Hour Shorts", "7 days"],
-          ["pumpkin_head", "Pumpkin Head", "31 days"],
+          ["pumpkin_head", "Pumpkin Head", "20 days"],
           ["ember_trainers", "Ember Trainers", "Oct 31"],
         ]),
       },
