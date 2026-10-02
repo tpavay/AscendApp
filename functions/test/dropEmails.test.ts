@@ -160,8 +160,12 @@ test("the html stays inside what every target client draws", () => {
 
   // Outlook on Windows drops an rgba colour outright.
   assert.doesNotMatch(html, /rgba\(/);
-  // Gmail strips <style> blocks and ignores positioning and flex/grid.
-  assert.doesNotMatch(html, /<style|[;"]position:|display:flex|display:grid/);
+  // Layout is inline; the one <style> block only upsizes the header for
+  // wide windows, so a client that drops it still draws the phone layout.
+  // No positioning or flex/grid, which Gmail ignores.
+  assert.equal((html.match(/<style>/g) ?? []).length, 1);
+  assert.match(html, /<style>@media only screen and \(min-width:640px\)/);
+  assert.doesNotMatch(html, /[;"]position:|display:flex|display:grid/);
   assert.doesNotMatch(html, /<svg/);
   assert.match(html, /<meta name="color-scheme" content="dark">/);
   // Hyphenated names never break across lines.

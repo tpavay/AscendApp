@@ -124,6 +124,7 @@ const COLUMN_WIDTH = 600;
 const FEATURE_WIDTH = 552;
 const FEATURE_HEIGHT = 184;
 const HEADER_ART_SIZE = 112;
+const WIDE_HEADER_ART_SIZE = 176;
 const COBWEB_SIZE = 110;
 /** The lower-corner web, kept inside the band's bottom padding. */
 const CORNER_WEB_SIZE = 80;
@@ -429,14 +430,16 @@ function bandHtml(
   padding: string,
   content: string,
   extraStyle = "",
-  extraAttributes = ""
+  extraAttributes = "",
+  columnClass = ""
 ): string {
   return [
     `<tr><td align="center" bgcolor="${color}" ${extraAttributes}`,
     `style="background-color:${color};${extraStyle}">`,
     `<table ${PRESENTATION_TABLE} width="100%" align="center" `,
     `style="max-width:${COLUMN_WIDTH}px;margin:0 auto;"><tr>`,
-    `<td style="padding:${padding};">${content}</td>`,
+    `<td${columnClass ? ` class="${columnClass}"` : ""} `,
+    `style="padding:${padding};">${content}</td>`,
     "</tr></table></td></tr>",
   ].join("");
 }
@@ -496,7 +499,8 @@ function headerBandHtml(
     null;
   const left = payload.cobwebs ? imageUrl(payload, payload.cobwebs.left) : null;
   const art = payload.headerArt ? [
-    `<td valign="middle" align="right" width="${HEADER_ART_SIZE + 8}" `,
+    "<td class=\"dh-artcell\" valign=\"middle\" align=\"right\" ",
+    `width="${HEADER_ART_SIZE + 8}" `,
     right ? `background="${right}" ` : "",
     "style=\"padding-left:8px;",
     right ?
@@ -505,7 +509,7 @@ function headerBandHtml(
         `${COBWEB_SIZE}px;` :
       "",
     "\">",
-    `<img src="${imageUrl(payload, payload.headerArt.path)}" `,
+    `<img class="dh-art" src="${imageUrl(payload, payload.headerArt.path)}" `,
     `width="${HEADER_ART_SIZE}" height="${HEADER_ART_SIZE}" `,
     `alt="${escapeHtml(payload.headerArt.alt)}" style="`,
     // No fill: the art is a cut-out on the band's glow, and a blocked one
@@ -525,13 +529,14 @@ function headerBandHtml(
     "<p style=\"margin:0 0 12px;font-size:12px;line-height:1.3;",
     `color:${palette.eyebrow};font-weight:800;letter-spacing:0.22em;`,
     `text-transform:uppercase;">${escapeHtml(payload.eyebrow)}</p>`,
-    "<h1 style=\"margin:0;font-size:40px;line-height:1.02;font-weight:900;",
+    "<h1 class=\"dh-h1\" style=\"margin:0;font-size:40px;line-height:1.02;font-weight:900;",
     `letter-spacing:-0.03em;color:${palette.ink};text-shadow:0 0 24px `,
     `${palette.accent}59;">${headline}</h1>`,
     "</td>",
     art,
     "</tr></table>",
-    "<p style=\"margin:18px 0 0;font-size:17px;line-height:1.55;",
+    "<p class=\"dh-intro\" style=\"margin:18px 0 0;font-size:17px;",
+    "line-height:1.55;",
     `color:${palette.body};">${proseHtml(payload.intro)}</p>`,
   ].join("");
 
@@ -547,8 +552,36 @@ function headerBandHtml(
     `24px 24px ${CORNER_WEB_SIZE + 8}px`,
     brand + title,
     leftWeb,
-    left ? `background="${left}" ` : ""
+    left ? `background="${left}" ` : "",
+    "dh-pad"
   );
+}
+
+/**
+ * Wide-window sizes for the header band, so on a desktop the headline and
+ * art fill it instead of floating small in it. Inline styles stay the phone
+ * sizes: a client that ignores this block (Outlook on Windows, some Gmail
+ * views) draws the phone layout, which still reads correctly. The bottom
+ * padding only tightens once the window is wide enough for the corner web to
+ * sit in the gutter beside the column rather than under the text.
+ * @return {string} `<style>` element
+ */
+function wideHeaderStyle(): string {
+  const gutterWidth = COLUMN_WIDTH + 2 * CORNER_WEB_SIZE + 40;
+  return [
+    "<style>",
+    "@media only screen and (min-width:640px){",
+    ".dh-h1{font-size:60px !important;}",
+    ".dh-intro{font-size:19px !important;}",
+    `.dh-artcell{width:${WIDE_HEADER_ART_SIZE + 8}px !important;}`,
+    `.dh-art{width:${WIDE_HEADER_ART_SIZE}px !important;`,
+    `height:${WIDE_HEADER_ART_SIZE}px !important;}`,
+    "}",
+    `@media only screen and (min-width:${gutterWidth}px){`,
+    ".dh-pad{padding-bottom:40px !important;}",
+    "}",
+    "</style>",
+  ].join("");
 }
 
 /**
@@ -571,13 +604,15 @@ function factsBandHtml(
       `<td valign="top" width="${Math.floor(100 / payload.facts.length)}%" `,
       `style="padding:${padding};">`,
       `<div style="background:${palette.factTile};border:1px solid `,
-      `${palette.factBorder};border-radius:14px;padding:13px 12px 12px;">`,
+      `${palette.factBorder};border-radius:14px;padding:13px 10px 12px;">`,
       "<div style=\"font-size:22px;line-height:1.1;font-weight:900;",
       `letter-spacing:-0.02em;color:${palette.factInk};white-space:nowrap;">`,
       escapeHtml(fact.value),
       "</div>",
-      "<div style=\"margin-top:5px;font-size:10px;line-height:1.3;",
-      "font-weight:800;letter-spacing:0.1em;text-transform:uppercase;",
+      // One line in every card at phone width, so the three stay one height.
+      "<div style=\"margin-top:5px;font-size:9.5px;line-height:1.3;",
+      "font-weight:800;letter-spacing:0.05em;text-transform:uppercase;",
+      "white-space:nowrap;",
       `color:${palette.factLabel};">${escapeHtml(fact.label)}</div>`,
       "</div></td>",
     ].join("");
@@ -956,6 +991,7 @@ export function renderDropEmail(
     "<meta name=\"color-scheme\" content=\"dark\">",
     "<meta name=\"supported-color-schemes\" content=\"dark\">",
     `<title>${escapeHtml(payload.subject)}</title>`,
+    wideHeaderStyle(),
     "</head>",
     `<body bgcolor="${palette.footerBand}" style="margin:0;padding:0;`,
     `background:${palette.footerBand};font-family:${FONT_STACK};color:`,
