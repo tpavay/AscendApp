@@ -146,9 +146,9 @@ test("a rerun queues nobody twice, and the worker delivers one email",
     assert.equal(job.type, "drop_announcement");
     assert.equal(job.status, "sent");
     assert.equal(sends.length, 1);
-    assert.equal(sends[0].subject, "Halloween is on");
+    assert.equal(sends[0].subject, "Halloween on the stair stepper");
     assert.deepEqual(sends[0].to, ["climber@example.com"]);
-    assert.match(sends[0].html, /HALLOWEEN<br>IS ON\./);
+    assert.match(sends[0].html, /Halloween<br>is on\./);
     assert.match(sends[0].html, /\/api\/unsubscribe\?token=/);
     assert.match(sends[0].text, /Unsubscribe: https:\/\/ascendstepper\.com\/api\/unsubscribe\?token=/);
     assert.match(

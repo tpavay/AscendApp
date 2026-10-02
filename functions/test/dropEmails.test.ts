@@ -1,4 +1,7 @@
 import test from "node:test";
+import {createHash} from "node:crypto";
+import {existsSync, readFileSync} from "node:fs";
+import {join} from "node:path";
 import assert from "node:assert/strict";
 import {
   buildDropDedupeKey,
@@ -78,7 +81,7 @@ test("the Halloween email matches the catalogue the app ships", () => {
   // The fact row and the intro count what the groups hold.
   assert.equal(dropEmailItems(halloween()).length, 15);
   assert.equal(halloween().facts[0].value, "15");
-  assert.match(halloween().preheader, /toward 14 more/);
+  assert.match(halloween().intro, /since October 1 already counts/);
 });
 
 test("a catalogue change the email does not reflect is reported", () => {
@@ -138,7 +141,7 @@ test("the drop renders through the queue with its unsubscribe link", () => {
 
   const rendered = renderEmailContentForJob(job, {unsubscribeUrl: UNSUBSCRIBE});
 
-  assert.equal(rendered.subject, "Halloween is on");
+  assert.equal(rendered.subject, "Halloween on the stair stepper");
   assert.ok(rendered.html.includes(
     "href=\"https://ascendstepper.com/api/unsubscribe?token=abc\""
   ));
@@ -182,12 +185,14 @@ test("tiles run three across, and a short last row is centred", () => {
 test("with pictures blocked, every picture is a sized, filled box", () => {
   const {html} = renderDropEmail(halloween(), {});
   const images = html.match(/<img [^>]*>/g) ?? [];
-  // The hero and 15 items; the brand mark is a background, never an <img>.
-  assert.equal(images.length, 16);
+  // The header art, 15 items and the feature picture; the brand mark and
+  // the cobwebs are backgrounds, never an <img>.
+  assert.equal(images.length, 17);
   for (const image of images) {
     assert.match(image, / width="\d+" height="\d+"/, image);
     assert.match(image, /alt="[^"]+"/, image);
-    assert.match(image, /background-color:#[0-9a-f]{6};/i, image);
+    // A fill, or transparent for the header art cut out on the band's glow.
+    assert.match(image, /background-color:(#[0-9a-f]{6}|transparent);/i, image);
     assert.match(image, /font-size:\d+px;/, image);
   }
   assert.doesNotMatch(html, /<img [^>]*ascend-a-icon/);
@@ -216,8 +221,8 @@ test("a stored payload is validated before it is drawn", () => {
   const broken: Array<[string, Record<string, unknown>]> = [
     ["theme", {...valid, theme: "christmas"}],
     ["http asset site", {...valid, assetBaseUrl: "http://ascendstepper.com"}],
-    ["absolute image", {...valid, heroImagePath: "https://evil.example/x.png"}],
-    ["parent image", {...valid, heroImagePath: "images/../../x.png"}],
+    ["absolute image", {...valid, feature: {alt: "x", path: "https://evil.example/x.png"}}],
+    ["parent image", {...valid, feature: {alt: "x", path: "images/../../x.png"}}],
     ["no groups", {...valid, groups: []}],
     ["empty group", {...valid, groups: [{heading: "Nothing", items: []}]}],
     ["blank subject", {...valid, subject: "  "}],
@@ -241,9 +246,9 @@ test("names from a payload are escaped", () => {
 
 test("every image the email draws is listed for the preflight", () => {
   const paths = dropEmailImagePaths(halloween());
-  assert.equal(paths.length, 17);
-  assert.ok(paths.includes("images/drops/halloween-2026/hero.jpg"));
-  assert.ok(paths.includes("images/drops/halloween-2026/cobweb.png"));
+  // Two cobwebs, 15 items (the header art is one of them) and the feature.
+  assert.equal(paths.length, 18);
+
 });
 
 test("only a recorded yes with an address is in the audience", () => {
@@ -306,3 +311,26 @@ test("every drop is keyed by its own id and names a minimum app version",
     }
     assert.throws(() => buildDropEmailPayload("nope", ASSETS), /Unknown drop/);
   });
+
+test("every picture is published under its own content hash", () => {
+  // Runs from functions/lib/test; the site's files are web/public.
+  const publicDir = join(__dirname, "..", "..", "..", "web", "public");
+  const paths = dropEmailImagePaths(halloween());
+  for (const path of paths) {
+    const match = /-([0-9a-f]{12})\.(png|jpe?g)$/.exec(path);
+    assert.ok(match, `${path} carries no content hash`);
+    const file = join(publicDir, path);
+    assert.ok(existsSync(file), `${path} is not published under web/public`);
+    const hash = createHash("sha256").update(readFileSync(file)).digest("hex");
+    assert.equal(hash.slice(0, 12), match[1], `${path} does not match its bytes`);
+  }
+});
+
+test("the subject and preheader read as one thought", () => {
+  const payload = halloween();
+  assert.equal(payload.subject, "Halloween on the stair stepper");
+  assert.match(payload.preheader, /^15 things to earn/);
+  const {html} = renderDropEmail(payload, {});
+  // The preheader is padded so a preview never runs on into the body.
+  assert.ok(html.includes("&#847;&zwnj;&nbsp;".repeat(90)));
+});

@@ -217,26 +217,40 @@ export interface DropEmailFact {
 export type DropEmailTheme = "halloween";
 
 /**
+ * A picture with the words that stand in for it when it is blocked.
+ */
+export interface DropEmailPicture {
+  alt: string;
+  path: string;
+}
+
+/**
  * A content drop announcement, carried whole on the job so a new drop is
  * content rather than code: the renderer draws whatever the payload says.
- * Image paths are relative to `assetBaseUrl`, the site the images were
- * deployed to, which the sender checks before it queues anything.
+ * Picture paths are site-relative, content-hashed names under
+ * `assetBaseUrl` (`scripts/build-drop-email-assets.mjs`), which the sender
+ * checks are deployed before it queues anything.
+ *
+ * The layout is text first: the header band carries the headline as live
+ * text, with `headerArt` beside it and `cobwebs` in its corners as
+ * decoration; `feature` is the short picture drawn beside `banner`, lower
+ * down.
  */
 export interface DropEmailPayload {
   assetBaseUrl: string;
   banner?: string;
+  cobwebs?: {left: string; right: string};
   ctaLabel: string;
   ctaUrl: string;
   dropId: string;
   earnHeading: string;
   eyebrow: string;
   facts: DropEmailFact[];
+  feature?: DropEmailPicture;
   groups: DropEmailItemGroup[];
+  headerArt?: DropEmailPicture;
   headlineLines: string[];
-  heroImageAlt: string;
-  heroImagePath: string;
   intro: string;
-  motifImagePath?: string;
   /** The sender's postal address, drawn in the footer only when set. */
   postalAddress?: string;
   preheader: string;

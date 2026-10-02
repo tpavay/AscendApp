@@ -1,3 +1,4 @@
+import {DROP_ASSETS} from "./dropAssets.generated";
 import type {DropEmailPayload} from "./types";
 
 /**
@@ -22,16 +23,32 @@ export interface DropEmailDefinition {
  */
 export const APP_STORE_URL = "https://apps.apple.com/app/id6757202987";
 
-const HALLOWEEN_IMAGES = "images/drops/halloween-2026";
+/**
+ * The published, content-hashed path of one of a drop's pictures, by its
+ * source name in `web/drop-email-assets/<dropId>/`. Never typed by hand: the
+ * names come from `scripts/build-drop-email-assets.mjs`, so a changed picture
+ * is always a new address that no mailbox can have cached.
+ * @param {string} dropId - Drop id
+ * @param {string} source - Source file name, e.g. "pumpkin_ghost.png"
+ * @return {string} Site-relative path
+ */
+export function dropAsset(dropId: string, source: string): string {
+  const path = DROP_ASSETS[dropId]?.[source];
+  if (!path) {
+    throw new Error(`No published picture "${source}" for drop "${dropId}". ` +
+      "Run: node scripts/build-drop-email-assets.mjs");
+  }
+  return path;
+}
 
 /**
  * The thumbnail the app itself draws for an item (`AthleteGear.thumbnailName`,
- * `Assets.xcassets/Gear`), copied to the marketing site.
+ * `Assets.xcassets/Gear`), copied into the drop's assets.
  * @param {string} itemId - Catalogue item id
  * @return {string} Site-relative path
  */
 function halloweenItemImage(itemId: string): string {
-  return `${HALLOWEEN_IMAGES}/${itemId}.png`;
+  return dropAsset("halloween-2026", `${itemId}.png`);
 }
 
 /**
@@ -127,17 +144,26 @@ const HALLOWEEN_2026: DropEmailDefinition = {
         ]),
       },
     ],
-    headlineLines: ["HALLOWEEN", "IS ON."],
-    heroImageAlt: "Halloween on Ascend Mountain: carrying a jack-o'-lantern " +
-      "through a webbed gate",
-    heroImagePath: `${HALLOWEEN_IMAGES}/hero.jpg`,
+    headlineLines: ["Halloween", "is on."],
+    cobwebs: {
+      left: dropAsset("halloween-2026", "cobweb-left.png"),
+      right: dropAsset("halloween-2026", "cobweb-right.png"),
+    },
+    feature: {
+      alt: "The haunted stretch: carrying a jack-o'-lantern up a webbed " +
+        "stairwell",
+      path: dropAsset("halloween-2026", "haunted-band.jpg"),
+    },
+    headerArt: {
+      alt: "Jack-o'-Lantern",
+      path: halloweenItemImage("pumpkin_lantern"),
+    },
     intro: "Every climb and every step in October earns something new. " +
       "Open Ascend and your pumpkin is in. Every climb you saved since " +
       "October 1 already counts.",
-    motifImagePath: `${HALLOWEEN_IMAGES}/cobweb.png`,
-    preheader: "Your pumpkin is in. Every climb since October 1 counts " +
-      "toward 14 more.",
-    subject: "Halloween is on",
+    preheader: "15 things to earn by climbing this October, and your " +
+      "pumpkin is already in.",
+    subject: "Halloween on the stair stepper",
     tag: "Halloween",
     theme: "halloween",
     whyReceived: "You received this because you turned on drop emails " +

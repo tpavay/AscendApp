@@ -6,6 +6,7 @@ import type {
   DropEmailItemGroup,
   DropEmailLeadItem,
   DropEmailPayload,
+  DropEmailPicture,
   DropEmailTheme,
   EmailJobPayload,
   EmailRenderContext,
@@ -13,47 +14,56 @@ import type {
 } from "./types";
 
 // =============================================================================
-// Drop announcement email (round 13 of the Mountain art direction, approved
-// 2026-10-02, with its item list and copy brought in line with the approved
-// Halloween redesign): one shared frame - brand bar with a theme tag, hero,
-// eyebrow, heavy headline, a row of facts, "How to earn" grouped by way of
-// earning, lime CTA, footer - and a palette per theme.
+// Drop announcement email. Round 13 of the Mountain art direction set the
+// palette and item tiles; the captain's review of the staging tests
+// (2026-10-02) set the layout: text first, and full-width bands of colour.
+//
+// Each section is a band that runs edge to edge of the reading pane, with its
+// content in a centred column no wider than COLUMN_WIDTH - a full-width table
+// row with a `bgcolor`, holding a centred inner table, which is how Gmail,
+// Apple Mail and Outlook all draw a full-bleed band. The header band carries
+// the headline as live text first; art and cobwebs are decoration beside and
+// behind it. The mountain picture sits lower, beside the haunted line it
+// illustrates.
 //
 // Every colour is a solid hex, never rgba: Outlook on Windows drops an rgba
-// colour entirely, so a translucent border in the mock is pre-blended here
-// over the surface it sits on. Gradients, glows and the cobweb motif are
+// colour entirely. Gradients, glows and background-image cobwebs are
 // progressive enhancement over a solid `bgcolor` that already reads right.
-// The layout is dark by design and says so (`color-scheme: dark`), the same
-// way the recap emails stop Apple Mail and Outlook.com re-theming them.
+// The layout is dark by design and says so (`color-scheme: dark`), the way
+// the recap emails stop Apple Mail and Outlook.com re-theming them.
 //
-// Many clients block remote images until the reader allows them, and Gmail
+// Many clients block remote pictures until the reader allows them, and Gmail
 // never loads them in Spam. So every <img> has fixed pixel dimensions, a fill
-// and styled alt text, and sits in a well of its own fixed height: a blocked
+// and styled alt text, and sits in a box of its own fixed size: a blocked
 // picture reads as a deliberate tile, never a broken icon in a collapsed box.
 // The brand mark is a background image behind a solid black cell, so when it
-// is blocked the bar shows the ASCEND wordmark alone rather than a broken logo.
+// is blocked the bar shows the ASCEND wordmark alone.
 // =============================================================================
 
 interface DropPalette {
-  accentRule: string;
+  accent: string;
   altInk: string;
-  bannerBorder: string;
-  bannerDot: string;
-  bannerFrom: string;
-  bannerInk: string;
-  bannerTo: string;
   body: string;
-  card: string;
-  cardLine: string;
+  ctaBand: string;
+  earnBand: string;
   eyebrow: string;
+  factBorder: string;
+  factInk: string;
+  factLabel: string;
+  factTile: string;
+  factsBand: string;
+  featureBand: string;
+  featureInk: string;
+  featureFill: string;
   footer: string;
+  footerBand: string;
   footerLink: string;
   footerLine: string;
-  heroFill: string;
+  headerBand: string;
+  headerGlow: string;
   ink: string;
   leadBorder: string;
   muted: string;
-  page: string;
   requirement: string;
   tag: string;
   tagInk: string;
@@ -67,25 +77,29 @@ interface DropPalette {
 
 const DROP_PALETTES: Record<DropEmailTheme, DropPalette> = {
   halloween: {
-    accentRule: "#ff7a1a",
+    accent: "#ff7a1a",
     altInk: "#8f7fa8",
-    bannerBorder: "#67351b",
-    bannerDot: "#ff8a2b",
-    bannerFrom: "#3f231b",
-    bannerInk: "#ffd9b8",
-    bannerTo: "#2e233f",
-    body: "#cbbfd8",
-    card: "#15101b",
-    cardLine: "#412212",
+    body: "#d6cbe3",
+    ctaBand: "#24163a",
+    earnBand: "#15101b",
     eyebrow: "#ff8a2b",
-    footer: "#7f7192",
-    footerLink: "#b0a3c6",
-    footerLine: "#28232d",
-    heroFill: "#24182e",
+    factBorder: "#4a3368",
+    factInk: "#f7f1e6",
+    factLabel: "#c9b8e6",
+    factTile: "#321f4d",
+    factsBand: "#24163a",
+    featureBand: "#ff7a1a",
+    featureFill: "#3a1c08",
+    featureInk: "#1a0d03",
+    footer: "#8a7c9c",
+    footerBand: "#0b0910",
+    footerLink: "#b9acce",
+    footerLine: "#241e2c",
+    headerBand: "#0b0910",
+    headerGlow: "radial-gradient(ellipse at 78% 40%,#3a1f52 0%,#0b0910 62%)",
     ink: "#f7f1e6",
     leadBorder: "#4e6c1b",
     muted: "#a493bb",
-    page: "#0b0910",
     requirement: "#ff9a4a",
     tag: "#ff7a1a",
     tagInk: "#120a02",
@@ -104,14 +118,15 @@ const FONT_STACK = "-apple-system,BlinkMacSystemFont,'SF Pro Text'," +
   "'Segoe UI',Arial,sans-serif";
 const PRESENTATION_TABLE = "role=\"presentation\" cellspacing=\"0\" " +
   "cellpadding=\"0\" border=\"0\"";
-/** The card's width, which the hero is drawn at. */
-const CARD_WIDTH = 600;
-/**
- * Hero height at the card's full width: the hero is a 900x420 picture, short
- * enough that the headline under it is in the first screen on a phone and in
- * desktop Gmail.
- */
-const HERO_HEIGHT = 280;
+/** The readable column every band centres its content in. */
+const COLUMN_WIDTH = 600;
+/** The feature picture: a 900x300 band, drawn full column width. */
+const FEATURE_WIDTH = 552;
+const FEATURE_HEIGHT = 184;
+const HEADER_ART_SIZE = 112;
+const COBWEB_SIZE = 110;
+/** The lower-corner web, kept inside the band's bottom padding. */
+const CORNER_WEB_SIZE = 80;
 /** A tile's picture: fixed, and small enough for three across on a phone. */
 const TILE_IMAGE_SIZE = 72;
 const LEAD_IMAGE_SIZE = 56;
@@ -197,6 +212,25 @@ function requiredImagePath(
     throw new Error(`drop_email_invalid_payload:${key}`);
   }
   return path;
+}
+
+/**
+ * Parses an optional picture with its alt text.
+ * @param {unknown} value - Stored picture
+ * @param {string} key - Field name, for the error
+ * @return {DropEmailPicture | undefined} Validated picture
+ */
+function optionalPicture(
+  value: unknown,
+  key: string
+): DropEmailPicture | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!isPlainObject(value)) {
+    throw new Error(`drop_email_invalid_payload:${key}`);
+  }
+  return {alt: requiredText(value, "alt"), path: requiredImagePath(value, "path")};
 }
 
 /**
@@ -286,24 +320,32 @@ export function parseDropEmailPayload(
     }
     return line.trim();
   });
+  let cobwebs: DropEmailPayload["cobwebs"];
+  if (payload.cobwebs !== undefined && payload.cobwebs !== null) {
+    if (!isPlainObject(payload.cobwebs)) {
+      throw new Error("drop_email_invalid_payload:cobwebs");
+    }
+    cobwebs = {
+      left: requiredImagePath(payload.cobwebs, "left"),
+      right: requiredImagePath(payload.cobwebs, "right"),
+    };
+  }
 
   return {
     assetBaseUrl: requiredHttpsUrl(payload, "assetBaseUrl"),
     banner: optionalText(payload, "banner"),
+    cobwebs,
     ctaLabel: requiredText(payload, "ctaLabel"),
     ctaUrl: requiredHttpsUrl(payload, "ctaUrl"),
     dropId: requiredText(payload, "dropId"),
     earnHeading: requiredText(payload, "earnHeading"),
     eyebrow: requiredText(payload, "eyebrow"),
     facts: payload.facts.map(parseFact),
+    feature: optionalPicture(payload.feature, "feature"),
     groups: payload.groups.map(parseGroup),
+    headerArt: optionalPicture(payload.headerArt, "headerArt"),
     headlineLines,
-    heroImageAlt: requiredText(payload, "heroImageAlt"),
-    heroImagePath: requiredImagePath(payload, "heroImagePath"),
     intro: requiredText(payload, "intro"),
-    motifImagePath: payload.motifImagePath === undefined ?
-      undefined :
-      requiredImagePath(payload, "motifImagePath"),
     postalAddress: optionalText(payload, "postalAddress"),
     preheader: requiredText(payload, "preheader"),
     subject: requiredText(payload, "subject"),
@@ -320,12 +362,18 @@ export function parseDropEmailPayload(
  * @return {string[]} Unique relative image paths
  */
 export function dropEmailImagePaths(payload: DropEmailPayload): string[] {
-  const paths = [payload.heroImagePath];
-  if (payload.motifImagePath) {
-    paths.push(payload.motifImagePath);
+  const paths: string[] = [];
+  if (payload.headerArt) {
+    paths.push(payload.headerArt.path);
+  }
+  if (payload.cobwebs) {
+    paths.push(payload.cobwebs.left, payload.cobwebs.right);
   }
   for (const item of dropEmailItems(payload)) {
     paths.push(item.imagePath);
+  }
+  if (payload.feature) {
+    paths.push(payload.feature.path);
   }
   return [...new Set(paths)];
 }
@@ -355,20 +403,42 @@ function imageUrl(payload: DropEmailPayload, path: string): string {
 /**
  * The inline style every picture carries, so a blocked one is a filled box
  * of exactly its own size with its alt text set small and centred in it.
- * @param {DropPalette} palette - Theme palette
  * @param {string} fill - The box's fill
+ * @param {string} ink - The alt text's colour
  * @param {string} sizing - Width and height declarations
  * @return {string} Style attribute value
  */
-function blockedImageStyle(
-  palette: DropPalette,
-  fill: string,
-  sizing: string
-): string {
+function blockedImageStyle(fill: string, ink: string, sizing: string): string {
   return `display:block;border:0;outline:none;text-decoration:none;${sizing}` +
-    `background-color:${fill};color:${palette.altInk};font-family:` +
-    `${FONT_STACK};font-size:10px;line-height:1.3;font-weight:700;` +
-    "text-align:center;";
+    `background-color:${fill};color:${ink};font-family:${FONT_STACK};` +
+    "font-size:10px;line-height:1.3;font-weight:700;text-align:center;";
+}
+
+/**
+ * Wraps a section's content in a full-width band of colour with a centred
+ * readable column, the shape every client draws edge to edge.
+ * @param {string} color - The band's colour
+ * @param {string} padding - The column's padding
+ * @param {string} content - The column's HTML
+ * @param {string} extraStyle - Extra declarations for the band cell
+ * @param {string} extraAttributes - Extra attributes for the band cell
+ * @return {string} `<tr>` HTML
+ */
+function bandHtml(
+  color: string,
+  padding: string,
+  content: string,
+  extraStyle = "",
+  extraAttributes = ""
+): string {
+  return [
+    `<tr><td align="center" bgcolor="${color}" ${extraAttributes}`,
+    `style="background-color:${color};${extraStyle}">`,
+    `<table ${PRESENTATION_TABLE} width="100%" align="center" `,
+    `style="max-width:${COLUMN_WIDTH}px;margin:0 auto;"><tr>`,
+    `<td style="padding:${padding};">${content}</td>`,
+    "</tr></table></td></tr>",
+  ].join("");
 }
 
 /**
@@ -386,20 +456,22 @@ function pillHtml(text: string): string {
 }
 
 /**
- * Renders the brand bar: the A, ASCEND, and the drop's tag. The A is a
- * background image so that a client blocking images shows the wordmark
- * alone, never a broken logo.
+ * The header band: brand bar, then the headline as live text with the art
+ * beside it and cobwebs behind the art and in the band's lower corner, then
+ * the intro. With every picture blocked it is still a coloured band that
+ * says what the email is about.
+ * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
- * @param {string} tag - Tag text
  * @return {string} `<tr>` HTML
  */
-function brandRowHtml(palette: DropPalette, tag: string): string {
+function headerBandHtml(
+  payload: DropEmailPayload,
+  palette: DropPalette
+): string {
   const iconUrl = escapeHtml(
     `${getMarketingWebsiteUrl()}/images/ascend-a-icon.png`
   );
-  return [
-    "<tr><td bgcolor=\"#000000\" style=\"background:#000000;padding:20px 22px ",
-    `20px 26px;border-bottom:2px solid ${palette.accentRule};">`,
+  const brand = [
     `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
     "<td valign=\"middle\" width=\"48\" style=\"padding-right:12px;\">",
     `<table ${PRESENTATION_TABLE}><tr>`,
@@ -415,121 +487,106 @@ function brandRowHtml(palette: DropPalette, tag: string): string {
     `<span style="display:inline-block;background:${palette.tag};`,
     `color:${palette.tagInk};font-size:10px;line-height:1;font-weight:800;`,
     "letter-spacing:0.16em;text-transform:uppercase;padding:8px 11px;",
-    `border-radius:99px;white-space:nowrap;">${escapeHtml(tag)}</span>`,
-    "</td></tr></table></td></tr>",
+    `border-radius:99px;white-space:nowrap;">${escapeHtml(payload.tag)}`,
+    "</span></td></tr></table>",
   ].join("");
+
+  const right = payload.cobwebs ?
+    imageUrl(payload, payload.cobwebs.right) :
+    null;
+  const left = payload.cobwebs ? imageUrl(payload, payload.cobwebs.left) : null;
+  const art = payload.headerArt ? [
+    `<td valign="middle" align="right" width="${HEADER_ART_SIZE + 8}" `,
+    right ? `background="${right}" ` : "",
+    "style=\"padding-left:8px;",
+    right ?
+      `background-image:url('${right}');background-repeat:no-repeat;` +
+        `background-position:right top;background-size:${COBWEB_SIZE}px ` +
+        `${COBWEB_SIZE}px;` :
+      "",
+    "\">",
+    `<img src="${imageUrl(payload, payload.headerArt.path)}" `,
+    `width="${HEADER_ART_SIZE}" height="${HEADER_ART_SIZE}" `,
+    `alt="${escapeHtml(payload.headerArt.alt)}" style="`,
+    // No fill: the art is a cut-out on the band's glow, and a blocked one
+    // leaves its alt text on the band itself.
+    blockedImageStyle(
+      "transparent",
+      palette.altInk,
+      `width:${HEADER_ART_SIZE}px;height:${HEADER_ART_SIZE}px;margin:0 0 0 auto;`
+    ),
+    "\" /></td>",
+  ].join("") : "";
+
+  const headline = payload.headlineLines.map(escapeHtml).join("<br>");
+  const title = [
+    `<table ${PRESENTATION_TABLE} width="100%" style="margin-top:30px;"><tr>`,
+    "<td valign=\"middle\">",
+    "<p style=\"margin:0 0 12px;font-size:12px;line-height:1.3;",
+    `color:${palette.eyebrow};font-weight:800;letter-spacing:0.22em;`,
+    `text-transform:uppercase;">${escapeHtml(payload.eyebrow)}</p>`,
+    "<h1 style=\"margin:0;font-size:40px;line-height:1.02;font-weight:900;",
+    `letter-spacing:-0.03em;color:${palette.ink};text-shadow:0 0 24px `,
+    `${palette.accent}59;">${headline}</h1>`,
+    "</td>",
+    art,
+    "</tr></table>",
+    "<p style=\"margin:18px 0 0;font-size:17px;line-height:1.55;",
+    `color:${palette.body};">${proseHtml(payload.intro)}</p>`,
+  ].join("");
+
+  const leftWeb = left ?
+    `background-image:url('${left}'),${palette.headerGlow};` +
+      "background-repeat:no-repeat;background-position:left bottom,center;" +
+      `background-size:${CORNER_WEB_SIZE}px ${CORNER_WEB_SIZE}px,cover;` :
+    `background-image:${palette.headerGlow};`;
+  return bandHtml(
+    palette.headerBand,
+    // The bottom padding is taller than the corner web, so the web never
+    // reaches the intro's last line.
+    `24px 24px ${CORNER_WEB_SIZE + 8}px`,
+    brand + title,
+    leftWeb,
+    left ? `background="${left}" ` : ""
+  );
 }
 
 /**
- * Renders the hero photograph. The fade into the card is baked into the
- * image, since a CSS overlay does not survive Gmail. Blocked, it is a filled
- * panel carrying its alt text, set where the picture would be.
+ * The facts band.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
- * @return {string} `<tr>` HTML
+ * @return {string} `<tr>` HTML, or empty without facts
  */
-function heroRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
-  const style = blockedImageStyle(
-    palette,
-    palette.heroFill,
-    `width:100%;max-width:${CARD_WIDTH}px;height:auto;`
-  ) + `color:${palette.bannerInk};font-size:15px;`;
-  return [
-    `<tr><td bgcolor="${palette.heroFill}" style="padding:0;line-height:0;`,
-    `background-color:${palette.heroFill};">`,
-    `<img src="${imageUrl(payload, payload.heroImagePath)}" `,
-    `width="${CARD_WIDTH}" height="${HERO_HEIGHT}" `,
-    `alt="${escapeHtml(payload.heroImageAlt)}" style="${style}" />`,
-    "</td></tr>",
-  ].join("");
-}
-
-/**
- * Renders the optional theme banner, under the intro so the headline stays
- * high in the first screen.
- * @param {DropEmailPayload} payload - Validated payload
- * @param {DropPalette} palette - Theme palette
- * @return {string} `<tr>` HTML, or empty without a banner
- */
-function bannerRowHtml(
+function factsBandHtml(
   payload: DropEmailPayload,
   palette: DropPalette
 ): string {
-  if (!payload.banner) {
+  if (payload.facts.length === 0) {
     return "";
   }
-  return [
-    `<tr><td bgcolor="${palette.card}" style="padding:8px 24px 0;">`,
-    `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
-    `<td bgcolor="${palette.bannerFrom}" style="background-color:`,
-    `${palette.bannerFrom};background-image:linear-gradient(90deg,`,
-    `${palette.bannerFrom},${palette.bannerTo});border:1px solid `,
-    `${palette.bannerBorder};border-radius:14px;padding:12px 14px;">`,
-    `<table ${PRESENTATION_TABLE}><tr>`,
-    "<td valign=\"middle\" width=\"20\" style=\"padding-right:10px;\">",
-    "<div style=\"width:10px;height:10px;border-radius:99px;background:",
-    `${palette.bannerDot};box-shadow:0 0 10px 3px ${palette.bannerDot};`,
-    "font-size:0;line-height:0;\">&nbsp;</div></td>",
-    "<td valign=\"middle\" style=\"font-size:13px;line-height:1.4;",
-    `font-weight:700;color:${palette.bannerInk};">`,
-    escapeHtml(payload.banner),
-    "</td></tr></table></td></tr></table></td></tr>",
-  ].join("");
-}
-
-/**
- * Renders the eyebrow, headline, intro and facts. The motif (the cobweb)
- * is a background image on this cell, so a client that drops background
- * images loses decoration, never content.
- * @param {DropEmailPayload} payload - Validated payload
- * @param {DropPalette} palette - Theme palette
- * @return {string} `<tr>` HTML
- */
-function introRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
-  const motif = payload.motifImagePath ?
-    imageUrl(payload, payload.motifImagePath) :
-    null;
-  const motifStyle = motif ?
-    `background-image:url('${motif}');background-repeat:no-repeat;` +
-      "background-position:right top;background-size:110px 110px;" :
-    "";
-  const headline = payload.headlineLines.map(escapeHtml).join("<br>");
-  const factCells = payload.facts.map((fact, index) => {
+  const cells = payload.facts.map((fact, index) => {
     const padding = index === 0 ? "0 4px 0 0" :
       index === payload.facts.length - 1 ? "0 0 0 4px" : "0 4px";
     return [
       `<td valign="top" width="${Math.floor(100 / payload.facts.length)}%" `,
       `style="padding:${padding};">`,
-      `<div style="background:${palette.tile};border:1px solid `,
-      `${palette.tileLine};border-radius:14px;padding:12px 11px 11px;">`,
-      "<div style=\"font-size:21px;line-height:1.1;font-weight:900;",
-      `letter-spacing:-0.02em;color:${palette.tileInk};white-space:nowrap;">`,
+      `<div style="background:${palette.factTile};border:1px solid `,
+      `${palette.factBorder};border-radius:14px;padding:13px 12px 12px;">`,
+      "<div style=\"font-size:22px;line-height:1.1;font-weight:900;",
+      `letter-spacing:-0.02em;color:${palette.factInk};white-space:nowrap;">`,
       escapeHtml(fact.value),
       "</div>",
-      "<div style=\"margin-top:4px;font-size:10px;line-height:1.3;",
+      "<div style=\"margin-top:5px;font-size:10px;line-height:1.3;",
       "font-weight:800;letter-spacing:0.1em;text-transform:uppercase;",
-      `color:${palette.tileMuted};">${escapeHtml(fact.label)}</div>`,
+      `color:${palette.factLabel};">${escapeHtml(fact.label)}</div>`,
       "</div></td>",
     ].join("");
   }).join("");
-
-  return [
-    `<tr><td bgcolor="${palette.card}" `,
-    motif ? `background="${motif}" ` : "",
-    `style="padding:22px 24px 4px;${motifStyle}">`,
-    "<p style=\"margin:0 0 14px;font-size:12px;line-height:1.3;",
-    `color:${palette.eyebrow};font-weight:800;letter-spacing:0.22em;`,
-    `text-transform:uppercase;">${escapeHtml(payload.eyebrow)}</p>`,
-    "<h1 style=\"margin:0 0 16px;font-size:38px;line-height:1.02;",
-    `font-weight:900;letter-spacing:-0.03em;color:${palette.ink};`,
-    `text-shadow:0 0 24px ${palette.accentRule}59;">${headline}</h1>`,
-    "<p style=\"margin:0 0 20px;font-size:17px;line-height:1.6;",
-    `color:${palette.body};">${escapeHtml(payload.intro)}</p>`,
-    payload.facts.length > 0 ?
-      `<table ${PRESENTATION_TABLE} width="100%"><tr>${factCells}</tr></table>` :
-      "",
-    "</td></tr>",
-  ].join("");
+  return bandHtml(
+    palette.factsBand,
+    "22px 24px",
+    `<table ${PRESENTATION_TABLE} width="100%"><tr>${cells}</tr></table>`
+  );
 }
 
 /**
@@ -549,8 +606,8 @@ function wellHtml(
   size: number
 ): string {
   const style = blockedImageStyle(
-    palette,
     palette.well,
+    palette.altInk,
     `width:${size}px;height:${size}px;margin:0 auto;`
   );
   return [
@@ -566,6 +623,20 @@ function wellHtml(
 }
 
 /**
+ * Prose as visible HTML whose last two words never part, so no paragraph
+ * ends on a word alone on its line.
+ * @param {string} text - Paragraph text
+ * @return {string} Escaped HTML
+ */
+function proseHtml(text: string): string {
+  const escaped = escapeHtml(text);
+  const last = escaped.lastIndexOf(" ");
+  return last < 0 ?
+    escaped :
+    `${escaped.slice(0, last)}&nbsp;${escaped.slice(last + 1)}`;
+}
+
+/**
  * An item name as visible HTML: its hyphens never break, so
  * "Jack-o'-Lantern" stays one word instead of ending a line on "Jack-o'-".
  * @param {string} name - Item name
@@ -578,7 +649,7 @@ function itemNameHtml(name: string): string {
 /**
  * Renders one item tile: thumbnail, name, requirement. A one-word name too
  * long for a third of a phone (the hyphenated Jack-o'-Lantern) steps down a
- * size, as the approved mock did, rather than overflowing its tile.
+ * size rather than overflowing its tile.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @param {DropEmailItem} item - Item drawn
@@ -597,12 +668,15 @@ function tileHtml(
     `${palette.tileLine};border-radius:14px;padding:7px 7px 10px;`,
     "text-align:center;\">",
     wellHtml(payload, palette, item, TILE_IMAGE_SIZE),
-    `<div style="margin-top:8px;${nameSize}line-height:1.25;`,
+    // Two lines reserved for every name, so a row of tiles keeps one height
+    // whether a name wraps or not.
+    `<div style="margin-top:8px;height:30px;${nameSize}line-height:15px;`,
     `font-weight:800;color:${palette.tileInk};">${itemNameHtml(item.name)}`,
     "</div>",
     "<div style=\"margin-top:5px;font-size:10px;line-height:1.2;",
     "font-weight:800;letter-spacing:0.06em;text-transform:uppercase;",
-    `color:${palette.requirement};">${escapeHtml(item.requirement)}</div>`,
+    `white-space:nowrap;color:${palette.requirement};">`,
+    `${escapeHtml(item.requirement)}</div>`,
     "</div>",
   ].join("");
 }
@@ -668,7 +742,7 @@ function leadCardHtml(
     "<div style=\"font-size:15px;line-height:1.25;font-weight:800;",
     `color:${palette.tileInk};">${itemNameHtml(item.name)}</div>`,
     "<div style=\"margin-top:3px;font-size:13px;line-height:1.4;",
-    `color:${palette.tileMuted};">${escapeHtml(item.description)}</div>`,
+    `color:${palette.tileMuted};">${proseHtml(item.description)}</div>`,
     "</td><td valign=\"middle\" align=\"right\" style=\"padding-left:8px;\">",
     pillHtml(item.badge),
     "</td></tr></table></td></tr></table>",
@@ -676,14 +750,14 @@ function leadCardHtml(
 }
 
 /**
- * Renders "How to earn" and every group under it.
+ * The how-to-earn band: every group of items.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @return {string} `<tr>` HTML
  */
-function earnRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
+function earnBandHtml(payload: DropEmailPayload, palette: DropPalette): string {
   const groups = payload.groups.map((group) => [
-    "<div style=\"margin:0 0 10px;\">",
+    "<div style=\"margin:0 0 12px;\">",
     "<p style=\"margin:0 0 8px;font-size:11px;line-height:1.3;",
     "font-weight:800;letter-spacing:0.14em;text-transform:uppercase;",
     `color:${palette.muted};">${escapeHtml(group.heading)}</p>`,
@@ -691,51 +765,83 @@ function earnRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
     tileGridHtml(payload, palette, group.items),
     "</div>",
   ].join("")).join("");
-
-  return [
-    `<tr><td bgcolor="${palette.card}" style="padding:20px 24px 0;">`,
-    `<table ${PRESENTATION_TABLE} width="100%" style="margin:0 0 12px;"><tr>`,
+  const heading = [
+    `<table ${PRESENTATION_TABLE} width="100%" style="margin:0 0 14px;"><tr>`,
     "<td valign=\"middle\" style=\"white-space:nowrap;padding-right:10px;",
     "font-size:12px;line-height:1;font-weight:800;letter-spacing:0.22em;",
     `text-transform:uppercase;color:${palette.ink};">`,
     escapeHtml(payload.earnHeading),
     "</td><td valign=\"middle\" width=\"100%\">",
     "<div style=\"height:1px;line-height:1px;font-size:0;background:",
-    `${palette.footerLine};">&nbsp;</div></td></tr></table>`,
-    groups,
-    "</td></tr>",
+    `${palette.tileLine};">&nbsp;</div></td></tr></table>`,
   ].join("");
+  return bandHtml(palette.earnBand, "30px 24px 18px", heading + groups);
 }
 
 /**
- * Renders the lime CTA.
+ * The feature band: the picture and the line it illustrates, on the theme's
+ * accent colour. Blocked, the picture is a dark panel carrying its alt text
+ * and the line still reads.
+ * @param {DropEmailPayload} payload - Validated payload
+ * @param {DropPalette} palette - Theme palette
+ * @return {string} `<tr>` HTML, or empty with neither
+ */
+function featureBandHtml(
+  payload: DropEmailPayload,
+  palette: DropPalette
+): string {
+  if (!payload.feature && !payload.banner) {
+    return "";
+  }
+  const picture = payload.feature ? [
+    `<img src="${imageUrl(payload, payload.feature.path)}" `,
+    `width="${FEATURE_WIDTH}" height="${FEATURE_HEIGHT}" `,
+    `alt="${escapeHtml(payload.feature.alt)}" style="`,
+    blockedImageStyle(
+      palette.featureFill,
+      "#ffd9b8",
+      `width:100%;max-width:${FEATURE_WIDTH}px;height:auto;` +
+        "border-radius:14px;font-size:13px;"
+    ),
+    "\" />",
+  ].join("") : "";
+  const line = payload.banner ? [
+    `<p style="margin:${payload.feature ? "16px" : "0"} 0 0;font-size:19px;`,
+    `line-height:1.35;font-weight:800;color:${palette.featureInk};`,
+    `letter-spacing:-0.01em;">${proseHtml(payload.banner)}</p>`,
+  ].join("") : "";
+  return bandHtml(palette.featureBand, "26px 24px 28px", picture + line);
+}
+
+/**
+ * The call-to-action band.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @return {string} `<tr>` HTML
  */
-function ctaRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
-  return [
-    `<tr><td bgcolor="${palette.card}" align="center" `,
-    "style=\"padding:14px 24px 30px;text-align:center;\">",
+function ctaBandHtml(payload: DropEmailPayload, palette: DropPalette): string {
+  const button = [
+    "<div style=\"text-align:center;\">",
     `<a href="${escapeHtml(payload.ctaUrl)}" style="display:inline-block;`,
-    `padding:18px 26px;border-radius:16px;background:${LIME};`,
+    `padding:18px 28px;border-radius:16px;background:${LIME};`,
     `color:${ON_LIME};font-size:16px;line-height:1;font-weight:800;`,
     "text-decoration:none;text-transform:uppercase;letter-spacing:0.04em;",
     "box-shadow:0 0 0 1px #86d30a99,0 0 28px #86d30a73;\">",
     escapeHtml(payload.ctaLabel),
-    "</a></td></tr>",
+    "</a></div>",
   ].join("");
+  return bandHtml(palette.ctaBand, "30px 24px", button);
 }
 
 /**
- * Renders the footer: why this arrived, help, the sender's postal address,
- * privacy, unsubscribe.
+ * The footer band: why this arrived, help, the sender's postal address when
+ * one is set, privacy, unsubscribe.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @param {string | null | undefined} unsubscribeUrl - Signed link
  * @return {string} `<tr>` HTML
  */
-function footerRowHtml(
+function footerBandHtml(
   payload: DropEmailPayload,
   palette: DropPalette,
   unsubscribeUrl: string | null | undefined
@@ -752,17 +858,31 @@ function footerRowHtml(
   const address = payload.postalAddress ?
     `<p style="${paragraph}">${escapeHtml(payload.postalAddress)}</p>` :
     "";
-  return [
-    `<tr><td bgcolor="${palette.card}" style="padding:0 24px 30px;">`,
-    `<div style="border-top:1px solid ${palette.footerLine};`,
-    "padding-top:20px;text-align:center;\">",
-    `<p style="${paragraph}">${escapeHtml(payload.whyReceived)}</p>`,
+  return bandHtml(palette.footerBand, "26px 24px 34px", [
+    "<div style=\"text-align:center;\">",
+    `<p style="${paragraph}">${proseHtml(payload.whyReceived)}</p>`,
     `<p style="${paragraph}">Need help? Reply to this email.</p>`,
     address,
     `<p style="${paragraph}margin-bottom:0;">`,
     `<a href="${privacyUrl}" style="${linkStyle}">Privacy Policy</a>`,
     unsubscribe,
-    "</p></div></td></tr>",
+    "</p></div>",
+  ].join(""));
+}
+
+/**
+ * The hidden preheader, padded so an inbox preview ends with it instead of
+ * running on into the email's first visible words ("AscendHalloween...").
+ * @param {string} preheader - Preheader text
+ * @return {string} Hidden preheader HTML
+ */
+function preheaderHtml(preheader: string): string {
+  return [
+    "<div style=\"display:none;max-height:0;max-width:0;overflow:hidden;",
+    "opacity:0;mso-hide:all;font-size:1px;line-height:1px;",
+    `color:transparent;">${escapeHtml(preheader)}`,
+    "&#847;&zwnj;&nbsp;".repeat(90),
+    "</div>",
   ].join("");
 }
 
@@ -782,9 +902,6 @@ function dropEmailText(
     "",
     payload.intro,
   ];
-  if (payload.banner) {
-    lines.push("", payload.banner);
-  }
   if (payload.facts.length > 0) {
     lines.push("", payload.facts.map((fact) =>
       `${fact.value} ${fact.label.toLowerCase()}`).join(" / "));
@@ -799,6 +916,9 @@ function dropEmailText(
     for (const item of group.items) {
       lines.push(`- ${item.name}: ${item.requirement}`);
     }
+  }
+  if (payload.banner) {
+    lines.push("", payload.banner);
   }
   lines.push(
     "",
@@ -837,26 +957,20 @@ export function renderDropEmail(
     "<meta name=\"supported-color-schemes\" content=\"dark\">",
     `<title>${escapeHtml(payload.subject)}</title>`,
     "</head>",
-    `<body bgcolor="${palette.page}" style="margin:0;padding:0;`,
-    `background:${palette.page};font-family:${FONT_STACK};color:`,
+    `<body bgcolor="${palette.footerBand}" style="margin:0;padding:0;`,
+    `background:${palette.footerBand};font-family:${FONT_STACK};color:`,
     `${palette.ink};-webkit-font-smoothing:antialiased;">`,
-    "<div style=\"display:none;max-height:0;overflow:hidden;opacity:0;",
-    `color:transparent;">${escapeHtml(payload.preheader)}</div>`,
-    `<table ${PRESENTATION_TABLE} width="100%" bgcolor="${palette.page}" `,
-    `style="background:${palette.page};"><tr>`,
-    "<td align=\"center\" style=\"padding:24px 12px;\">",
-    `<table ${PRESENTATION_TABLE} width="100%" bgcolor="${palette.card}" `,
-    `style="max-width:${CARD_WIDTH}px;background:${palette.card};`,
-    `border:1px solid ${palette.cardLine};border-radius:28px;`,
-    "overflow:hidden;border-collapse:separate;\">",
-    brandRowHtml(palette, payload.tag),
-    heroRowHtml(payload, palette),
-    introRowHtml(payload, palette),
-    bannerRowHtml(payload, palette),
-    earnRowHtml(payload, palette),
-    ctaRowHtml(payload, palette),
-    footerRowHtml(payload, palette, context.unsubscribeUrl),
-    "</table></td></tr></table></body></html>",
+    preheaderHtml(payload.preheader),
+    `<table ${PRESENTATION_TABLE} width="100%" `,
+    `bgcolor="${palette.footerBand}" style="width:100%;`,
+    `background:${palette.footerBand};">`,
+    headerBandHtml(payload, palette),
+    factsBandHtml(payload, palette),
+    earnBandHtml(payload, palette),
+    featureBandHtml(payload, palette),
+    ctaBandHtml(payload, palette),
+    footerBandHtml(payload, palette, context.unsubscribeUrl),
+    "</table></body></html>",
   ].join("");
 
   return {
