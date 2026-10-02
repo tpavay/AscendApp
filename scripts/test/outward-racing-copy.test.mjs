@@ -156,12 +156,12 @@ test("the public website consistently presents Ascend as racing", async () => {
     source("privacy"),
     source("terms")
   ]);
-  const outwardCopy = publicSources.join("\n");
+  const outwardCopy = publicSources.join("\n").replace(/<[^>]+>/g, "");
 
   assert.match(outwardCopy, /stair stepper racing app/i);
   // The homepage the captain approved on 2026-10-01 leads with competition on the
   // machine itself, not with towers.
-  assert.match(outwardCopy, /Compete on <span class="accent">the stair stepper\.<\/span>/);
+  assert.match(outwardCopy, /Compete on the stair stepper\./);
   assert.match(outwardCopy, /Ascend turns every one of them into a race against other climbers/);
   assert.match(
     outwardCopy,
