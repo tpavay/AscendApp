@@ -107,6 +107,17 @@ struct MountainGearModel: Sendable {
         parts.flatMap(\.geometry.positions).map(\.y).max() ?? 0
     }
 
+    /// The item's main body, its first part, without the stem, vine or leaf that rise above it or
+    /// trail off it: what a hand holding it closes around.
+    var body: MountainCarryHold.Body {
+        let positions = parts.first?.geometry.positions ?? []
+        return MountainCarryHold.Body(
+            base: Double(positions.map(\.y).min() ?? 0),
+            top: Double(positions.map(\.y).max() ?? 0),
+            halfWidth: Double(positions.map { max(abs($0.x), abs($0.z)) }.max() ?? 0)
+        )
+    }
+
     static func model(for gear: AthleteGear) -> MountainGearModel {
         switch gear {
         case .pumpkinClassic: pumpkin(.classic)

@@ -122,7 +122,7 @@ final class MountainAthleteRig {
                 candle = light
             }
             gearRoot.addChild(entity)
-            worn[slot] = Worn(gear: item, entity: entity, hold: MountainCarryHold(carry: item.carry, height: prepared.height, halfWidth: prepared.halfWidth))
+            worn[slot] = Worn(gear: item, entity: entity, hold: MountainCarryHold(carry: item.carry, height: prepared.height, halfWidth: prepared.halfWidth, body: prepared.body))
         }
     }
 

@@ -17,6 +17,8 @@ final class MountainGearLibrary {
         /// From its resting point up to its top, and half its width, in metres.
         let height: Double
         let halfWidth: Double
+        /// The round body inside that, which a holding hand closes around.
+        let body: MountainCarryHold.Body
         /// The candlelight a carved item casts, if it glows.
         let glow: MountainColor?
     }
@@ -72,7 +74,7 @@ final class MountainGearLibrary {
         guard let mesh = try? MeshResource.generate(from: descriptors) else { return nil }
         let positions = model.parts.flatMap(\.geometry.positions)
         let halfWidth = positions.map { max(abs($0.x), abs($0.z)) }.max() ?? 0
-        return Prepared(mesh: mesh, materials: partMaterials, height: Double(model.height), halfWidth: Double(halfWidth), glow: model.glow)
+        return Prepared(mesh: mesh, materials: partMaterials, height: Double(model.height), halfWidth: Double(halfWidth), body: model.body, glow: model.glow)
     }
 
     // MARK: - Materials
