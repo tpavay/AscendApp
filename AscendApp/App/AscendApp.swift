@@ -140,6 +140,10 @@ struct AscendApp: App {
         if LiveClimbActivityRouter.shared.route(from: url) {
             return
         }
+
+        if WebStravaAuthorizationPresenter.receive(url) {
+            return
+        }
     }
     
     private static func createModelContainer() -> ModelContainerCreationResult {

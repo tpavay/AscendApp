@@ -20,7 +20,9 @@ struct HomeRankStreakEvidenceTests {
         )
 
         #expect(copy.contains("streak: 1 week in a row. this week counts."))
-        #expect(!copy.contains("sunday"))
+        // The streak's own deadline, not the rank tile's board countdown ("ends sunday at ..."),
+        // which reads the same day name in the same accessibility tree.
+        #expect(!copy.contains("climb by sunday"))
     }
 
     @Test

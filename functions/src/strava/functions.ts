@@ -21,7 +21,7 @@ import {
 } from "./api";
 import {
   getStravaServerConfig,
-  STRAVA_REDIRECT_SCHEME,
+  stravaCallbackScheme,
   stravaServerConfig,
 } from "./config";
 import {athleteDisplayName, StravaConnectionStore} from "./connections";
@@ -93,7 +93,7 @@ export const stravaBeginConnect = onCall(
     await saveStravaOAuthState(firestore, userId, state, new Date());
     return {
       authorizeUrl: buildStravaAuthorizeUrl(config, state),
-      callbackScheme: STRAVA_REDIRECT_SCHEME,
+      callbackScheme: stravaCallbackScheme(config.redirectUri),
     };
   }
 );

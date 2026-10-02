@@ -30,6 +30,13 @@ struct AthleteEditorView: View {
             AthletePreviewView(look: model.draft)
                 .frame(height: 290)
                 .frame(maxWidth: .infinity)
+                .opacity(model.isEditable ? 1 : 0.35)
+                .overlay {
+                    if model.savedLookRead == .reading {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                }
                 .background(stageGlow)
 
             ScrollView {
@@ -104,12 +111,17 @@ struct AthleteEditorView: View {
                 .padding(.bottom, 20)
             }
             .scrollIndicators(.hidden)
+            .disabled(!model.isEditable)
+            .opacity(model.isEditable ? 1 : 0.45)
 
             saveBar
         }
         .background(Color.black)
         .preferredColorScheme(.dark)
         .trackOnce(screen: .athleteEditor)
+        .task(id: authVM.user?.uid) {
+            await loadSavedLook()
+        }
     }
 
     private var header: some View {
@@ -154,7 +166,21 @@ struct AthleteEditorView: View {
 
     private var saveBar: some View {
         VStack(spacing: 10) {
-            if model.saveFailed {
+            if model.savedLookRead == .failed {
+                HStack(spacing: 12) {
+                    Text("Couldn't load your athlete.")
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("TRY AGAIN") {
+                        Task { await loadSavedLook() }
+                    }
+                    .font(.montserratBold(size: 12))
+                    .tracking(1)
+                    .foregroundStyle(Color.accent)
+                    .buttonStyle(.plain)
+                }
+            } else if model.saveFailed {
                 Text("Couldn't save your athlete. Try again.")
                     .font(.montserratMedium(size: 13))
                     .foregroundStyle(.white.opacity(0.72))
@@ -171,11 +197,11 @@ struct AthleteEditorView: View {
                     .frame(height: 52)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.accent.opacity(model.isSaving ? 0.6 : 1))
+                            .fill(Color.accent.opacity(model.canSave ? 1 : 0.6))
                     )
             }
             .buttonStyle(.plain)
-            .disabled(model.isSaving || authVM.user == nil)
+            .disabled(!model.canSave || authVM.user == nil)
         }
         .padding(.horizontal, 22)
         .padding(.top, 12)
@@ -188,6 +214,11 @@ struct AthleteEditorView: View {
                 .offset(y: -22)
                 .allowsHitTesting(false)
         }
+    }
+
+    private func loadSavedLook() async {
+        guard let userId = authVM.user?.uid else { return }
+        await model.loadSavedLook(userId: userId, from: store)
     }
 
     private func save() {

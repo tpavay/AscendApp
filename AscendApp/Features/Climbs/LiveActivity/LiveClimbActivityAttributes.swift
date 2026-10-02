@@ -132,7 +132,7 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
 
     var deepLinkURL: URL? {
         var components = URLComponents()
-        components.scheme = "ascendapp"
+        components.scheme = AscendURLScheme.current
         components.host = "live-climb"
         components.queryItems = [
             URLQueryItem(name: "sessionID", value: sessionID),

@@ -15,13 +15,16 @@ final class StravaIntegrationViewModel {
 
     private let client: any StravaIntegrationClient
     private let presenter: any StravaAuthorizationPresenting
+    private let appURLScheme: String
 
     init(
         client: any StravaIntegrationClient = FunctionsStravaIntegrationClient(),
-        presenter: any StravaAuthorizationPresenting = WebStravaAuthorizationPresenter()
+        presenter: any StravaAuthorizationPresenting = WebStravaAuthorizationPresenter(),
+        appURLScheme: String = AscendURLScheme.current
     ) {
         self.client = client
         self.presenter = presenter
+        self.appURLScheme = appURLScheme
     }
 
     var statusLabel: String? {
@@ -53,6 +56,18 @@ final class StravaIntegrationViewModel {
         defer { isWorking = false }
         do {
             let request = try await client.beginConnect()
+            // Strava hands the code to whichever installed build claims the redirect's scheme,
+            // so a project configured for another build's scheme would connect that build.
+            guard request.callbackScheme.lowercased() == appURLScheme else {
+                TelemetryManager.shared.recordError(
+                    StravaIntegrationError.malformedResponse,
+                    context: .network,
+                    code: "strava_callback_scheme_mismatch",
+                    additionalInfo: ["callback_scheme": request.callbackScheme, "app_scheme": appURLScheme]
+                )
+                errorMessage = Self.message(for: .malformedResponse)
+                return
+            }
             guard let callbackURL = try await presenter.authorize(request) else { return }
             switch StravaAuthorizationCallback(url: callbackURL) {
             case let .approved(code, state):

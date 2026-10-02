@@ -3,38 +3,72 @@ import UIKit
 
 /// Presents Strava's mobile consent page in an `ASWebAuthenticationSession`.
 ///
-/// The session catches the redirect on the app's custom scheme directly, so
-/// the code never passes through `onOpenURL`, and a climber already signed in
-/// to Strava in Safari is not asked to sign in again.
+/// Strava's redirect comes back one of two ways. Approved in the sheet itself, the session
+/// catches it on the callback scheme. Approved in the Strava app - which takes over when it is
+/// installed - Strava opens the redirect like any other link, so it reaches the app through
+/// `onOpenURL` and is handed to the sheet still waiting for it (`receive(_:)`). A climber
+/// already signed in to Strava in Safari is not asked to sign in again.
 @MainActor
 final class WebStravaAuthorizationPresenter: NSObject, StravaAuthorizationPresenting {
+    /// The presenter whose sign-in is waiting for Strava's redirect, if any.
+    private static weak var waiting: WebStravaAuthorizationPresenter?
+
     private var session: ASWebAuthenticationSession?
+    private var pending: (callbackScheme: String, continuation: CheckedContinuation<URL?, any Error>)?
 
     func authorize(_ request: StravaAuthorizationRequest) async throws -> URL? {
         try await withCheckedThrowingContinuation { continuation in
+            pending = (request.callbackScheme, continuation)
             let session = ASWebAuthenticationSession(
                 url: request.authorizeURL,
                 callback: .customScheme(request.callbackScheme)
             ) { [weak self] callbackURL, error in
                 Task { @MainActor in
-                    self?.session = nil
                     if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
-                        continuation.resume(returning: nil)
+                        self?.finish(.success(nil))
                     } else if let error {
-                        continuation.resume(throwing: error)
+                        self?.finish(.failure(error))
                     } else {
-                        continuation.resume(returning: callbackURL)
+                        self?.finish(.success(callbackURL))
                     }
                 }
             }
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = false
             self.session = session
+            Self.waiting = self
             if !session.start() {
-                self.session = nil
-                continuation.resume(throwing: StravaIntegrationError.other("The Strava sign-in sheet could not open."))
+                finish(.failure(StravaIntegrationError.other("The Strava sign-in sheet could not open.")))
             }
         }
+    }
+
+    /// Hands a redirect that arrived through `onOpenURL` to the sign-in waiting for it.
+    ///
+    /// Returns false when no sign-in is waiting on that scheme, so the link falls through to
+    /// the app's other routes.
+    static func receive(_ url: URL) -> Bool {
+        guard let waiting,
+              let callbackScheme = waiting.pending?.callbackScheme,
+              url.scheme?.lowercased() == callbackScheme.lowercased() else {
+            return false
+        }
+        waiting.finish(.success(url))
+        return true
+    }
+
+    /// Resumes the caller exactly once, whichever of the sheet and `onOpenURL` answers first,
+    /// and takes the sheet down if it is still up.
+    private func finish(_ result: Result<URL?, any Error>) {
+        guard let pending else { return }
+        self.pending = nil
+        if Self.waiting === self {
+            Self.waiting = nil
+        }
+        let session = self.session
+        self.session = nil
+        session?.cancel()
+        pending.continuation.resume(with: result)
     }
 }
 

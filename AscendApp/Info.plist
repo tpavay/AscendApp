@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>AscendURLScheme</key>
+	<string>$(ASCEND_URL_SCHEME)</string>
 	<key>AscendRevenueCatAPIKey</key>
 	<string>$(ASCEND_REVENUECAT_API_KEY)</string>
 	<key>AscendRevenueCatTestAPIKey</key>
@@ -45,7 +47,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>ascendapp</string>
+				<string>$(ASCEND_URL_SCHEME)</string>
 			</array>
 		</dict>
 	</array>
