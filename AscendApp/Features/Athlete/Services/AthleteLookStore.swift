@@ -121,6 +121,19 @@ final class AthleteLookStore {
         cache(look, for: userId)
     }
 
+    /// Saves the climber's look carrying `item`, once their saved look has been read so the rest
+    /// of it is not replaced by this device's copy or the starting athlete.
+    func carry(_ item: AthleteGear?, userId: String) async throws {
+        guard await load(userId: userId) else { throw CarryError.lookUnread }
+        var look = current
+        look.carry = item
+        try await save(look, userId: userId)
+    }
+
+    enum CarryError: Error {
+        case lookUnread
+    }
+
     /// Forgets the account's look on this device, on sign-out and account deletion.
     func clearAccountScopedState() {
         loading?.cancel()

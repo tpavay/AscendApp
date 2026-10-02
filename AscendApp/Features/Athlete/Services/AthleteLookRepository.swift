@@ -13,7 +13,8 @@ final class FirestoreAthleteLookRepository: AthleteLookRepository, Sendable {
     static let shared = FirestoreAthleteLookRepository()
 
     /// Bump when the stored shape changes; `firestore.rules` accepts a range, never one number.
-    static let schemaVersion = 1
+    /// 2 added the optional seasonal `carry`.
+    static let schemaVersion = 2
 
     private let db: Firestore
 
@@ -31,7 +32,7 @@ final class FirestoreAthleteLookRepository: AthleteLookRepository, Sendable {
     }
 
     static func payload(for look: AthleteLook) -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "schemaVersion": schemaVersion,
             "body": look.body.rawValue,
             "skinTone": look.skinTone.rawValue,
@@ -44,10 +45,16 @@ final class FirestoreAthleteLookRepository: AthleteLookRepository, Sendable {
             "muscle": look.muscle.rawValue,
             "updatedAt": FieldValue.serverTimestamp()
         ]
+        if let carry = look.carry {
+            payload["carry"] = carry.rawValue
+        }
+        return payload
     }
 
     /// A stored look, or nil when any field is missing or is an option this build does not
-    /// offer - a newer build's choice is drawn as a stand-in rather than guessed at.
+    /// offer - a newer build's choice is drawn as a stand-in rather than guessed at. The carried
+    /// item is the exception: one this build does not know is simply not drawn, and the rest of
+    /// the look still is.
     static func look(from data: [String: Any]) -> AthleteLook? {
         func option<Option: RawRepresentable>(_ key: String) -> Option? where Option.RawValue == String {
             (data[key] as? String).flatMap(Option.init(rawValue:))
@@ -70,7 +77,8 @@ final class FirestoreAthleteLookRepository: AthleteLookRepository, Sendable {
             bottom: bottom,
             shoes: shoes,
             size: size,
-            muscle: muscle
+            muscle: muscle,
+            carry: option("carry")
         )
     }
 

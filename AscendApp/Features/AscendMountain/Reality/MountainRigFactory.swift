@@ -18,6 +18,10 @@ final class MountainRigFactory {
         let look: AthleteLook
         let style: MountainAthleteRig.Style
         let label: String
+        /// Whether a glowing carried item lights its surroundings. Only the climber's own athlete
+        /// does: a pack of thirty lanterns would be thirty lights, and a rival's carved face
+        /// glows without one.
+        var castsLight = false
     }
 
     /// A material depends only on its slot's textures and tint, so hundreds of looks share a
@@ -41,6 +45,9 @@ final class MountainRigFactory {
         let materials: [any RealityKit.Material]
         let ghostly: Bool
         let tag: Tag?
+        /// The seasonal item the athlete carries; a ghost carries nothing.
+        let carry: AthleteGear?
+        let carryCastsLight: Bool
     }
 
     /// A name drawn once: its texture on a plane of the right shape.
@@ -50,6 +57,7 @@ final class MountainRigFactory {
     }
 
     private let athletes: MountainAthleteLibrary
+    private let gear: MountainGearLibrary
     private let bundle: Bundle
     private var meshes: [MountainAthleteFigure.Key: MeshResource] = [:]
     private var meshLoads: [MountainAthleteFigure.Key: Task<MeshResource, any Error>] = [:]
@@ -61,15 +69,16 @@ final class MountainRigFactory {
     /// Resources that failed to load: drawn without rather than asked for every frame.
     private var failed: Set<String> = []
 
-    init(athletes: MountainAthleteLibrary = .shared, bundle: Bundle = .main) {
+    init(athletes: MountainAthleteLibrary = .shared, gear: MountainGearLibrary = .shared, bundle: Bundle = .main) {
         self.athletes = athletes
+        self.gear = gear
         self.bundle = bundle
     }
 
     /// The rig for `request` if everything it needs is ready; otherwise nil, and whatever is
     /// missing starts loading so a later frame can build it.
     func readyRig(_ request: Request) -> MountainAthleteRig? {
-        readyParts(request).flatMap { try? MountainAthleteRig(parts: $0) }
+        readyParts(request).flatMap { try? MountainAthleteRig(parts: $0, gearLibrary: gear) }
     }
 
     /// The parts for `request` if all of them are ready; otherwise nil, and whatever is missing
@@ -105,7 +114,12 @@ final class MountainRigFactory {
         if !request.label.isEmpty {
             await makeTag(TagKey(label: request.label, accent: MountainAthleteRig.tagAccent(for: request.style)))
         }
-        return try MountainAthleteRig(parts: parts(figure: figure, mesh: mesh, request: request))
+        let parts = parts(figure: figure, mesh: mesh, request: request)
+        // A standing athlete is posed once, so what it carries has to be made before it stands.
+        if let carry = parts.carry {
+            _ = await gear.prepare(carry)
+        }
+        return try MountainAthleteRig(parts: parts, gearLibrary: gear)
     }
 
     // MARK: - Assembly
@@ -117,7 +131,9 @@ final class MountainRigFactory {
             mesh: mesh,
             materials: materials(for: figure, style: request.style),
             ghostly: ghostly,
-            tag: tags[TagKey(label: request.label, accent: MountainAthleteRig.tagAccent(for: request.style))]
+            tag: tags[TagKey(label: request.label, accent: MountainAthleteRig.tagAccent(for: request.style))],
+            carry: ghostly ? nil : UnlockStore.shared.drawnCarry(for: request.look),
+            carryCastsLight: request.castsLight
         )
     }
 

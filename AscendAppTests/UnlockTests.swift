@@ -1,0 +1,315 @@
+import Foundation
+import SwiftData
+import simd
+import Testing
+@testable import AscendApp
+
+/// The unlock catalogue, the event ladder it describes, and how the climber's own climbs earn
+/// from it.
+@MainActor
+struct UnlockTests {
+    private static var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Chicago")!
+        return calendar
+    }
+
+    private static func date(_ month: Int, _ day: Int, _ hour: Int = 12) -> Date {
+        utc.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour))!
+    }
+
+    private static let halloween = UnlockEvent(
+        id: "halloween-2026", title: "Halloween", monthName: "October",
+        startsOn: .init(year: 2026, month: 10, day: 1), endsBefore: .init(year: 2026, month: 11, day: 1)
+    )
+
+    private static func item(_ shape: AthleteGear, _ metric: UnlockItem.Earn.Metric, _ threshold: Int, status: UnlockItem.Status = .live) -> UnlockItem {
+        UnlockItem(id: shape.rawValue, shape: shape, status: status, earn: .init(path: .event, event: "halloween-2026", metric: metric, threshold: threshold))
+    }
+
+    private static let ladder = [
+        item(.pumpkinClassic, .visits, 1),
+        item(.pumpkinGhost, .climbs, 1),
+        item(.pumpkinHeirloom, .climbs, 5),
+        item(.pumpkinMidnight, .steps, 25_000),
+        item(.pumpkinGiant, .steps, 50_000)
+    ]
+
+    // MARK: - Catalogue
+
+    /// The app bundles the same file Hosting serves, so a device that never reached the network
+    /// runs the same events; one copy edited without the other would split the fleet.
+    @Test
+    func theBundledCatalogueIsTheHostedOne() throws {
+        let repo = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let hosted = try Data(contentsOf: repo.appending(path: "web/public/unlocks/catalog.json"))
+        let bundled = try Data(contentsOf: repo.appending(path: "AscendApp/Features/Athlete/Resources/unlock-catalog.json"))
+        #expect(hosted == bundled)
+        let catalog = HostedUnlockCatalogRepository.bundledCatalog()
+        #expect(catalog == (try JSONDecoder().decode(UnlockCatalog.self, from: hosted)))
+        #expect(!catalog.items.isEmpty, "the bundle carries the catalogue")
+    }
+
+    /// October and November each give one item for showing up and the rest for climbing, and
+    /// every item the catalogue names is one this build draws.
+    @Test
+    func eachEventGivesOneItemForOpeningAndTheRestForClimbing() throws {
+        let catalog = HostedUnlockCatalogRepository.bundledCatalog()
+        #expect(catalog.events.map(\.id) == ["halloween-2026", "thanksgiving-2026"])
+        for event in catalog.events {
+            let items = catalog.items(earnedIn: event)
+            #expect(items.filter { $0.earn.metric == .visits }.count == 1, "\(event.id) gives one item for opening Ascend")
+            #expect(items.count == 6)
+        }
+        #expect(Set(catalog.items.map(\.shape)) == Set(AthleteGear.allCases))
+    }
+
+    /// A newer catalogue can name shapes, slots and ways of earning this build has never heard of;
+    /// those items are skipped and the rest of the catalogue still loads.
+    @Test
+    func anItemThisBuildCannotDrawIsSkippedNotFatal() throws {
+        let json = """
+        {"version": 2, "events": [{"id": "e", "title": "E", "monthName": "December", "startsOn": "2026-12-01", "endsBefore": "2027-01-01"}],
+         "items": [
+          {"id": "a", "shape": "pumpkin_classic", "slot": "carry", "status": "live", "earn": {"path": "event", "event": "e", "metric": "climbs", "threshold": 1}},
+          {"id": "b", "shape": "snowman", "slot": "carry", "status": "live", "earn": {"path": "event", "event": "e", "metric": "climbs", "threshold": 1}},
+          {"id": "c", "shape": "pumpkin_ghost", "slot": "hat", "status": "live", "earn": {"path": "event", "event": "e", "metric": "climbs", "threshold": 1}},
+          {"id": "d", "shape": "pumpkin_ghost", "slot": "carry", "status": "live", "earn": {"path": "streak", "event": "e", "metric": "weeks", "threshold": 4}},
+          {"id": "e", "shape": "pumpkin_ghost", "slot": "carry", "status": "hidden", "earn": {"path": "event", "event": "e", "metric": "steps", "threshold": 0}}
+         ]}
+        """
+        let catalog = try JSONDecoder().decode(UnlockCatalog.self, from: Data(json.utf8))
+        #expect(catalog.items.map(\.id) == ["a"])
+    }
+
+    /// Shipped dark: an item the file has not switched on is neither offered nor earnable.
+    @Test
+    func onlyLiveItemsAreOffered() {
+        let catalog = UnlockCatalog(version: 1, events: [Self.halloween], items: [
+            Self.item(.pumpkinGhost, .climbs, 1),
+            Self.item(.pumpkinGiant, .steps, 50_000, status: .hidden)
+        ])
+        #expect(catalog.items(earnedIn: Self.halloween).map(\.shape) == [.pumpkinGhost])
+    }
+
+    /// The event runs on the climber's own calendar: the first second of October 1 to the last of
+    /// October 31.
+    @Test
+    func anEventCoversItsDaysInTheClimbersCalendar() {
+        let calendar = Self.utc
+        #expect(Self.halloween.contains(Self.date(10, 1, 0), calendar: calendar))
+        #expect(Self.halloween.contains(Self.date(10, 31, 23), calendar: calendar))
+        #expect(!Self.halloween.contains(Self.date(9, 30, 23), calendar: calendar))
+        #expect(!Self.halloween.contains(Self.date(11, 1, 0), calendar: calendar))
+    }
+
+    // MARK: - Ladder
+
+    @Test
+    func climbsAndStepsInsideTheEventEarnTheirRungs() {
+        let climbs = [
+            UnlockEventProgress.Climb(id: UUID(), date: Self.date(9, 30), steps: 90_000),
+            UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 2), steps: 3_000),
+            UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 9), steps: 24_000)
+        ]
+        let progress = UnlockEventProgress(event: Self.halloween, items: Self.ladder, climbs: climbs, visited: false, calendar: Self.utc)
+
+        #expect(progress.climbs == 2, "September's climb is not October's")
+        #expect(progress.steps == 27_000)
+        #expect(progress.earned == [.pumpkinClassic, .pumpkinGhost, .pumpkinMidnight], "a climb in October is also a visit")
+        #expect(progress.nextItems.map(\.item.shape) == [.pumpkinHeirloom, .pumpkinGiant])
+        #expect(progress.nextItems.map(\.remaining) == [3, 23_000])
+        #expect(UnlockCopy.nextLines(progress) == ["3 more climbs to the Heirloom Pumpkin", "23,000 more steps to the Giant Pumpkin"])
+    }
+
+    @Test
+    func openingTheAppAloneEarnsOnlyTheVisitItem() {
+        let progress = UnlockEventProgress(event: Self.halloween, items: Self.ladder, climbs: [], visited: true, calendar: Self.utc)
+        #expect(progress.earned == [.pumpkinClassic])
+    }
+
+    @Test
+    func theClimbThatCrossesARungIsTheOneThatEarnedIt() {
+        let first = UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 2), steps: 12_000)
+        let second = UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 3), steps: 14_000)
+        let before = UnlockEventProgress(event: Self.halloween, items: Self.ladder, climbs: [first], visited: true, calendar: Self.utc)
+        let after = UnlockEventProgress(event: Self.halloween, items: Self.ladder, climbs: [first, second], visited: true, calendar: Self.utc)
+        #expect(after.newlyEarned(since: before) == [.pumpkinMidnight])
+        #expect(after.newlyEarned(since: after).isEmpty)
+    }
+
+    @Test
+    func requirementsReadTheWayTheyAreEarned() {
+        #expect(UnlockCopy.requirement(Self.ladder[0]) == "OPEN ASCEND")
+        #expect(UnlockCopy.requirement(Self.ladder[1]) == "1 CLIMB")
+        #expect(UnlockCopy.requirement(Self.ladder[2]) == "5 CLIMBS")
+        #expect(UnlockCopy.requirement(Self.ladder[3]) == "25K STEPS")
+    }
+
+    // MARK: - Store
+
+    private struct FixedCatalog: UnlockCatalogRepository {
+        let catalog: UnlockCatalog
+        func loadInitialCatalog() -> UnlockCatalog { catalog }
+        func refreshCatalog() async throws -> UnlockCatalog { catalog }
+    }
+
+    private func store(enabled: Bool = true) -> (UnlockStore, UserDefaults) {
+        let defaults = UserDefaults(suiteName: "UnlockTests-\(UUID().uuidString)")!
+        let catalog = UnlockCatalog(version: 1, events: [Self.halloween], items: Self.ladder)
+        return (UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: defaults, isFlagEnabled: { enabled }), defaults)
+    }
+
+    @Test
+    func openingAscendInOctoberEarnsThePumpkinAndShowsTheIntroOnce() {
+        let (store, _) = store()
+        store.recordVisit(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
+        #expect(store.earned == [.pumpkinClassic])
+
+        let intro = store.pendingIntro(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
+        #expect(intro?.id == "halloween-2026")
+        store.markIntroSeen(try! #require(intro), userId: "climber")
+        #expect(store.pendingIntro(userId: "climber", now: Self.date(10, 6), calendar: Self.utc) == nil)
+    }
+
+    @Test
+    func openingAscendOutsideAnEventEarnsNothing() {
+        let (store, _) = store()
+        store.recordVisit(userId: "climber", now: Self.date(9, 30), calendar: Self.utc)
+        #expect(store.earned.isEmpty)
+        #expect(store.pendingIntro(userId: "climber", now: Self.date(9, 30), calendar: Self.utc) == nil)
+    }
+
+    /// The switch hides every surface: nothing is drawn, offered or earned on an open, and what
+    /// was already earned is still there when it comes back.
+    @Test
+    func theKillSwitchHidesEverySurfaceAndKeepsWhatWasEarned() {
+        let defaults = UserDefaults(suiteName: "UnlockTests-\(UUID().uuidString)")!
+        let catalog = UnlockCatalog(version: 1, events: [Self.halloween], items: Self.ladder)
+        var enabled = true
+        let store = UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: defaults, isFlagEnabled: { enabled })
+        store.recordVisit(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
+
+        enabled = false
+        var look = AthleteLook.starting(for: .man)
+        look.carry = .pumpkinClassic
+        #expect(store.drawnCarry(for: look) == nil)
+        #expect(store.pendingIntro(userId: "climber", now: Self.date(10, 5), calendar: Self.utc) == nil)
+
+        enabled = true
+        #expect(store.drawnCarry(for: look) == .pumpkinClassic)
+        #expect(store.earned == [.pumpkinClassic])
+    }
+
+    /// Unlocks are remembered per account on the device, and signing out forgets them.
+    @Test
+    func unlocksAreTheAccountsAndSignOutForgetsThem() {
+        let (store, defaults) = store()
+        store.recordVisit(userId: "first", now: Self.date(10, 5), calendar: Self.utc)
+
+        let reopened = UnlockStore(
+            repository: FixedCatalog(catalog: UnlockCatalog(version: 1, events: [Self.halloween], items: Self.ladder)),
+            defaults: defaults,
+            isFlagEnabled: { true }
+        )
+        reopened.load(userId: "first")
+        #expect(reopened.earned == [.pumpkinClassic], "an unlock outlives a relaunch")
+        reopened.load(userId: "second")
+        #expect(reopened.earned.isEmpty, "another account never sees the first one's")
+
+        store.clearAccountScopedState()
+        #expect(defaults.data(forKey: UnlockStore.earnedKey) == nil)
+        #expect(store.earned.isEmpty)
+    }
+
+    /// The finish screen's outcome counts the store's own climbs inside the event, and only the
+    /// climb that crossed a rung is credited with it.
+    @Test
+    func aFinishedClimbReportsWhatItEarned() throws {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let context = container.mainContext
+        let earlier = Workout(date: Self.date(10, 3), duration: 1_200, steps: 3_000, floors: 150, source: .headphoneMotion)
+        let imported = Workout(date: Self.date(10, 3), duration: 1_200, steps: 60_000, floors: 150, source: .appleHealth)
+        let finished = Workout(date: Self.date(10, 4), duration: 1_200, steps: 3_200, floors: 150, source: .headphoneMotion)
+        [earlier, imported, finished].forEach(context.insert)
+        try context.save()
+
+        let (store, _) = store()
+        let outcome = try #require(store.outcome(of: finished, userId: "climber", modelContext: context, calendar: Self.utc))
+        #expect(outcome.progress.climbs == 2, "only climbs Ascend recorded count")
+        #expect(outcome.progress.steps == 6_200)
+        #expect(outcome.newlyEarned.isEmpty, "the first climb already earned the visit and the 1-climb rungs")
+        #expect(store.earned == [.pumpkinClassic, .pumpkinGhost])
+
+        let september = Workout(date: Self.date(9, 20), duration: 1_200, steps: 3_000, floors: 150, source: .headphoneMotion)
+        context.insert(september)
+        #expect(store.outcome(of: september, userId: "climber", modelContext: context, calendar: Self.utc) == nil)
+    }
+
+    // MARK: - Drawing
+
+    /// Every item is a few thousand triangles at most, shared by everyone who carries it, so a
+    /// pack of carriers costs less than one more athlete.
+    @Test(arguments: AthleteGear.allCases)
+    func everyItemIsCheapAndRestsOnItsSeat(gear: AthleteGear) {
+        let model = MountainGearModel.model(for: gear)
+        #expect(model.triangleCount > 0)
+        #expect(model.triangleCount < 6_000)
+        let lowest = model.parts.flatMap(\.geometry.positions).map(\.y).min() ?? 0
+        #expect(lowest > -0.06, "an item rests on its seat rather than hanging through it")
+        for part in model.parts {
+            #expect(part.geometry.normals.count == part.geometry.positions.count)
+            #expect(part.geometry.uvs.count == part.geometry.positions.count)
+            #expect(part.geometry.indices.allSatisfy { Int($0) < part.geometry.positions.count })
+        }
+    }
+
+    @Test
+    func onlyTheCarvedPumpkinsGlow() {
+        let glowing = AthleteGear.allCases.filter { MountainGearModel.model(for: $0).glow != nil }
+        #expect(glowing == [.pumpkinLantern, .pumpkinMidnight])
+        #expect(MountainGearModel.PumpkinSkin.midnight.glow == MountainColor(hex: "#86D30A"), "the midnight pumpkin glows Ascend lime")
+    }
+
+    /// The lathe's triangles face outward, so the renderer's back-face culling keeps the skin.
+    @Test
+    func aLatheFacesOutward() {
+        let ball = MountainGearGeometry.sphere(radius: 1, segments: 12)
+        for start in stride(from: 0, to: ball.indices.count, by: 3) {
+            let a = ball.positions[Int(ball.indices[start])]
+            let b = ball.positions[Int(ball.indices[start + 1])]
+            let c = ball.positions[Int(ball.indices[start + 2])]
+            let normal = simd_cross(b - a, c - a)
+            guard simd_length(normal) > 1e-6 else { continue }
+            #expect(simd_dot(normal, (a + b + c) / 3) > 0)
+        }
+    }
+
+    /// Only the giants go overhead; everything else rides the shoulder, where the race camera
+    /// behind the climber can see it.
+    @Test
+    func onlyTheGiantsArePressedOverhead() {
+        #expect(AthleteGear.allCases.filter { $0.carry == .overhead } == [.pumpkinGiant, .turkeyGiant])
+    }
+
+    /// The hands reach the item where the item sits: the shoulder hand comes over the crown from
+    /// outside, and both hands take a giant's sides.
+    @Test
+    func theHandsHoldTheItemWhereItSits() throws {
+        let shoulder = MountainCarryHold(carry: .shoulder, height: 0.2, halfWidth: 0.14)
+        let turn = simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
+        let seat = shoulder.seat(chest: SIMD3(0, 1.3, 0), chestTurn: turn, rightShoulder: SIMD3(-0.17, 1.45, 0))
+        #expect(seat.y > 1.45, "it sits on top of the shoulder")
+        let rightHand = try #require(shoulder.wrist(side: 1, seat: seat, chestTurn: turn))
+        #expect(rightHand.y > seat.y + 0.18, "the hand is over the crown")
+        #expect(rightHand.x < seat.x, "and comes from outside")
+        #expect(shoulder.wrist(side: 0, seat: seat, chestTurn: turn) == nil, "the other arm keeps swinging")
+
+        let giant = MountainCarryHold(carry: .overhead, height: 0.45, halfWidth: 0.34)
+        let overhead = giant.seat(chest: SIMD3(0, 1.3, 0), chestTurn: turn, rightShoulder: SIMD3(-0.17, 1.45, 0))
+        let left = try #require(giant.wrist(side: 0, seat: overhead, chestTurn: turn))
+        let right = try #require(giant.wrist(side: 1, seat: overhead, chestTurn: turn))
+        #expect(left.x > 0.25 && right.x < -0.25, "a hand on each side")
+        #expect(abs(left.y - right.y) < 1e-9)
+    }
+}

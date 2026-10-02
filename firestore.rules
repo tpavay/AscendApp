@@ -1352,6 +1352,7 @@ service cloud.firestore {
           "shoes",
           "size",
           "muscle",
+          "carry",
           "updatedAt"
         ]) &&
         request.resource.data.keys().hasAll([
@@ -1377,6 +1378,12 @@ service cloud.firestore {
         request.resource.data.shoes in ["lime", "white", "blue", "pink", "orange", "black"] &&
         request.resource.data.size in ["slim", "regular", "solid", "big"] &&
         request.resource.data.muscle in ["smooth", "some", "defined"] &&
+        // The seasonal item carried, optional (AthleteGear). Earning is the client's own count
+        // of its own climbs: a cosmetic, so the rule bounds the value rather than the evidence.
+        (!("carry" in request.resource.data) || request.resource.data.carry in [
+          "pumpkin_classic", "pumpkin_ghost", "pumpkin_lantern", "pumpkin_heirloom", "pumpkin_midnight", "pumpkin_giant",
+          "harvest_gourd", "cornucopia", "roast_turkey", "pumpkin_pie", "golden_turkey", "turkey_giant"
+        ]) &&
         request.resource.data.updatedAt is timestamp &&
         request.resource.data.updatedAt == request.time;
     }

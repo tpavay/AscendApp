@@ -96,6 +96,7 @@ struct LiveClimbCompletionSummaryView: View {
                     rankingSection(hero: hero)
                     primaryStatsGrid
                     achievementCard(hero: hero)
+                    UnlockFinishCard(workout: workout)
                     paceSplitsCard
                     paceTrendCard
                 }

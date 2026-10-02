@@ -52,6 +52,24 @@ struct AthleteLookTests {
         #expect(FirestoreAthleteLookRepository.look(from: payload) == look)
     }
 
+    /// Carrying nothing writes no field, which every earlier build's document already matches;
+    /// a carried item is its preset id, and one a later build added is simply not drawn.
+    @Test
+    func theCarriedItemIsOptionalAndAnUnknownOneIsDroppedNotTheLook() throws {
+        var look = AthleteLook.starting(for: .man)
+        #expect(FirestoreAthleteLookRepository.payload(for: look)["carry"] == nil)
+
+        look.carry = .pumpkinLantern
+        var payload = FirestoreAthleteLookRepository.payload(for: look)
+        #expect(payload["carry"] as? String == "pumpkin_lantern")
+        #expect(FirestoreAthleteLookRepository.look(from: payload) == look)
+
+        payload["carry"] = "flaming_skull"
+        let read = try #require(FirestoreAthleteLookRepository.look(from: payload))
+        #expect(read.carry == nil)
+        #expect(read.body == look.body)
+    }
+
     @Test
     func aLookWithAnOptionThisBuildDoesNotOfferIsNotGuessedAt() {
         var payload = FirestoreAthleteLookRepository.payload(for: .starting(for: nil))

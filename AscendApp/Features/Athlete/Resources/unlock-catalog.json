@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "events": [
+    {
+      "id": "halloween-2026",
+      "title": "Halloween",
+      "monthName": "October",
+      "startsOn": "2026-10-01",
+      "endsBefore": "2026-11-01"
+    },
+    {
+      "id": "thanksgiving-2026",
+      "title": "Thanksgiving",
+      "monthName": "November",
+      "startsOn": "2026-11-01",
+      "endsBefore": "2026-12-01"
+    }
+  ],
+  "items": [
+    {
+      "id": "pumpkin_classic",
+      "slot": "carry",
+      "shape": "pumpkin_classic",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "visits",
+        "threshold": 1
+      }
+    },
+    {
+      "id": "pumpkin_ghost",
+      "slot": "carry",
+      "shape": "pumpkin_ghost",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "climbs",
+        "threshold": 1
+      }
+    },
+    {
+      "id": "pumpkin_heirloom",
+      "slot": "carry",
+      "shape": "pumpkin_heirloom",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "climbs",
+        "threshold": 5
+      }
+    },
+    {
+      "id": "pumpkin_lantern",
+      "slot": "carry",
+      "shape": "pumpkin_lantern",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "climbs",
+        "threshold": 10
+      }
+    },
+    {
+      "id": "pumpkin_midnight",
+      "slot": "carry",
+      "shape": "pumpkin_midnight",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "steps",
+        "threshold": 25000
+      }
+    },
+    {
+      "id": "pumpkin_giant",
+      "slot": "carry",
+      "shape": "pumpkin_giant",
+      "rarity": "elite",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "steps",
+        "threshold": 50000
+      }
+    },
+    {
+      "id": "harvest_gourd",
+      "slot": "carry",
+      "shape": "harvest_gourd",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "thanksgiving-2026",
+        "metric": "visits",
+        "threshold": 1
+      }
+    },
+    {
+      "id": "pumpkin_pie",
+      "slot": "carry",
+      "shape": "pumpkin_pie",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "thanksgiving-2026",
+        "metric": "climbs",
+        "threshold": 1
+      }
+    },
+    {
+      "id": "cornucopia",
+      "slot": "carry",
+      "shape": "cornucopia",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "thanksgiving-2026",
+        "metric": "climbs",
+        "threshold": 5
+      }
+    },
+    {
+      "id": "roast_turkey",
+      "slot": "carry",
+      "shape": "roast_turkey",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "thanksgiving-2026",
+        "metric": "climbs",
+        "threshold": 10
+      }
+    },
+    {
+      "id": "golden_turkey",
+      "slot": "carry",
+      "shape": "golden_turkey",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "thanksgiving-2026",
+        "metric": "steps",
+        "threshold": 25000
+      }
+    },
+    {
+      "id": "turkey_giant",
+      "slot": "carry",
+      "shape": "turkey_giant",
+      "rarity": "elite",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "thanksgiving-2026",
+        "metric": "steps",
+        "threshold": 50000
+      }
+    }
+  ]
+}

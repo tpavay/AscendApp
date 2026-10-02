@@ -115,6 +115,23 @@ test('a value outside the presets is refused, so nothing free-form is ever publi
   await assertFails(setDoc(lookRef(owner), look({ updatedAt: Timestamp.fromMillis(0) })));
 });
 
+test('a look may carry one seasonal item, and only one the app draws', async () => {
+  const owner = testEnv.authenticatedContext(ownerId);
+  const items = [
+    'pumpkin_classic', 'pumpkin_ghost', 'pumpkin_lantern', 'pumpkin_heirloom', 'pumpkin_midnight', 'pumpkin_giant',
+    'harvest_gourd', 'cornucopia', 'roast_turkey', 'pumpkin_pie', 'golden_turkey', 'turkey_giant',
+  ];
+  for (const carry of items) {
+    await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry })));
+  }
+  // Carrying nothing is the field's absence, which every earlier build already writes.
+  await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2 })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'chainsaw' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: '' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: null })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: ['pumpkin_giant'] })));
+});
+
 test('the document is exactly the look: no extra field and none missing', async () => {
   const owner = testEnv.authenticatedContext(ownerId);
   await assertFails(setDoc(lookRef(owner), look({ displayName: 'Sam' })));

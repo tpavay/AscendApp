@@ -72,6 +72,11 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// the switch returns.
     case periodRecap = "period_recap_enabled"
 
+    /// Every unlock surface: the carried item drawn on the mountain, the unlock moment after a
+    /// climb, and the editor's carry row. Display only - off, nothing is drawn or offered, nothing
+    /// is written or deleted, and what was earned is offered and drawn again when it returns.
+    case unlocks = "unlocks_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -117,6 +122,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Shows champion crowns, the champion strip, and past boards."
         case .periodRecap:
             return "Shows the period recap after a week or month closes and marks it seen."
+        case .unlocks:
+            return "Shows unlockable items: drawn on the mountain, the unlock moment, the editor row."
         }
     }
 }

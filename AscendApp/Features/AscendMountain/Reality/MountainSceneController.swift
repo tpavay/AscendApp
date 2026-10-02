@@ -202,7 +202,7 @@ final class MountainSceneController {
             )
             resources = try MountainSceneResources.make()
             far = try MountainEnvironmentRig(resources: environment)
-            athlete = try await rigs.rig(.init(look: look, style: .athlete(look), label: ""))
+            athlete = try await rigs.rig(.init(look: look, style: .athlete(look), label: "", castsLight: true))
         } catch {
             AppDiagnosticsRecorder.shared.record(
                 "ascend_mountain_scene_build_failed",
@@ -372,7 +372,7 @@ final class MountainSceneController {
         guard var scene else { return }
         let look = athleteLook()
         guard look != scene.athleteLook,
-              let rebuilt = rigs.readyRig(.init(look: look, style: .athlete(look), label: "")) else { return }
+              let rebuilt = rigs.readyRig(.init(look: look, style: .athlete(look), label: "", castsLight: true)) else { return }
         scene.athlete.root.removeFromParent()
         scene.root.addChild(rebuilt.root)
         scene.athlete = rebuilt

@@ -99,12 +99,8 @@ final class AthletePreviewStage {
     }
 
     func install(in content: inout RealityViewCameraContent, framing: AthletePreviewView.Framing) {
-        switch framing {
-        case .fullBody:
-            camera.look(at: [0, 0.93, 0], from: [0, 1.05, 4.1], relativeTo: nil)
-        case .portrait:
-            camera.look(at: [0, 1.36, 0], from: [0, 1.46, 2.1], relativeTo: nil)
-        }
+        self.framing = framing
+        frame(raisedOverhead: shown?.carry?.carry == .overhead)
         content.camera = .virtual
         content.renderingEffects.motionBlur = .disabled
         content.renderingEffects.depthOfField = .disabled
@@ -118,12 +114,30 @@ final class AthletePreviewStage {
 
     func show(_ look: AthleteLook) async {
         guard look != shown,
-              let made = try? await rigs.rig(.init(look: look, style: .athlete(look), label: "")) else { return }
+              let made = try? await rigs.rig(.init(look: look, style: .athlete(look), label: "", castsLight: true)) else { return }
         made.stand()
+        frame(raisedOverhead: look.carry?.carry == .overhead)
         rig?.root.removeFromParent()
         turntable.addChild(made.root)
         rig = made
         shown = look
+    }
+
+    private var framing = AthletePreviewView.Framing.fullBody
+
+    /// Aims the camera at the athlete, pulled back and up when they press a giant overhead so
+    /// the whole of it stays in frame.
+    private func frame(raisedOverhead: Bool) {
+        switch (framing, raisedOverhead) {
+        case (.fullBody, false):
+            camera.look(at: [0, 0.93, 0], from: [0, 1.05, 4.1], relativeTo: nil)
+        case (.fullBody, true):
+            camera.look(at: [0, 1.22, 0], from: [0, 1.36, 5.6], relativeTo: nil)
+        case (.portrait, false):
+            camera.look(at: [0, 1.36, 0], from: [0, 1.46, 2.1], relativeTo: nil)
+        case (.portrait, true):
+            camera.look(at: [0, 1.75, 0], from: [0, 1.85, 3.2], relativeTo: nil)
+        }
     }
 
     private func turn(by seconds: Float) {

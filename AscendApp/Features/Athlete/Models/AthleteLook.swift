@@ -111,6 +111,8 @@ struct AthleteLook: Codable, Hashable, Sendable {
     var shoes: KitColor
     var size: Size
     var muscle: Muscle
+    /// The seasonal item the athlete carries up the mountain, if any.
+    var carry: AthleteGear? = nil
 
     /// The athlete a climber starts with, from the onboarding gender answer (captain, round 8):
     /// the body the answer suggests - body A for any answer that names none - a middle skin tone,

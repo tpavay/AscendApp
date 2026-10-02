@@ -1,13 +1,17 @@
 import SwiftUI
 
-/// Where a climber makes their athlete theirs: body, skin, hair and its colour, the colours of
-/// the tank, shorts and shoes, size and muscle. The athlete turns above the choices and wears
-/// each one the moment it is tapped; nothing is kept until SAVE ATHLETE.
+/// Where a climber makes their athlete theirs: the seasonal item they carry, body, skin, hair and
+/// its colour, the colours of the tank, shorts and shoes, size and muscle. The athlete turns above
+/// the choices and wears each one the moment it is tapped; nothing is kept until SAVE ATHLETE.
 ///
 /// Opened from the onboarding step, the Profile card and the Just Climb setup sheet.
 struct AthleteEditorView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @State private var unlocks = UnlockStore.shared
+    /// Each opened event's climbs and steps so far, read once the editor opens.
+    @State private var eventProgress: [UnlockEventProgress] = []
 
     /// Called once the look is saved, before the editor closes.
     var onSaved: () -> Void = {}
@@ -41,6 +45,15 @@ struct AthleteEditorView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if unlocks.isEnabled, !eventProgress.isEmpty {
+                        section("CARRY") {
+                            AthleteCarryPicker(
+                                progress: eventProgress,
+                                earned: unlocks.earned,
+                                selection: $model.draft.carry
+                            )
+                        }
+                    }
                     section("BODY") {
                         AthleteChoiceStrip(
                             options: AthleteLook.Body.allCases,
@@ -120,6 +133,10 @@ struct AthleteEditorView: View {
         .preferredColorScheme(.dark)
         .trackOnce(screen: .athleteEditor)
         .task(id: authVM.user?.uid) {
+            if let userId = authVM.user?.uid, unlocks.isEnabled {
+                await unlocks.refreshCatalogIfNeeded()
+                eventProgress = unlocks.refresh(userId: userId, modelContext: modelContext)
+            }
             await loadSavedLook()
         }
     }
