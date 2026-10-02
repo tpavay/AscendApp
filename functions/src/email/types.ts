@@ -179,7 +179,7 @@ export interface RecapInactivePayload {
 
 /**
  * One unlockable item as a drop email draws it: the app's own item name, the
- * app's own requirement wording ("10 CLIMBS", "25K STEPS"), and its
+ * app's own requirement wording ("10 climbs", "25K steps"), and its
  * thumbnail on the marketing site. `catalogItemId` is the item's id in the
  * hosted unlock catalogue, which the send script checks the drop against.
  */
