@@ -232,7 +232,7 @@ struct ModeratedReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Renderer input for one row of Home's ON THE GLOBE TODAY list.
+/// Renderer input for one row of Home's ASCEND ACTIVITY TODAY list.
 ///
 /// The raw `HomeTodayActivityRow` cannot reach a view: it crosses
 /// `CrossUserIdentityAdapter.homeTodayRow`, the only place that can build this.

@@ -29,7 +29,7 @@ struct HomeTodayActivityListView: View {
         }
         .scrollIndicators(.hidden)
         .background(Color.black.ignoresSafeArea())
-        .navigationTitle("On the Globe Today")
+        .navigationTitle("Ascend Activity Today")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.black, for: .navigationBar)
         .preferredColorScheme(.dark)

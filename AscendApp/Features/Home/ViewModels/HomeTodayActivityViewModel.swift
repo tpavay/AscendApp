@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Holds Home's ON THE GLOBE TODAY feed for as long as Home is mounted.
+/// Holds Home's ASCEND ACTIVITY TODAY feed for as long as Home is mounted.
 ///
 /// One listener on the server's one document. The stream is consumed by a task the
 /// view owns, so the listener dies with the Home tab; hidden tabs are unmounted and
@@ -10,7 +10,7 @@ import Observation
 /// The server prunes rows published more than a day ago only when it rewrites the
 /// document, so on a quiet day the stored rows outlive the header's promise. The
 /// rows exposed here are re-cut against the same day bound on a clock the view
-/// advances, so nothing days old ever sits under ON THE GLOBE TODAY.
+/// advances, so nothing days old ever sits under ASCEND ACTIVITY TODAY.
 @MainActor
 @Observable
 final class HomeTodayActivityViewModel {

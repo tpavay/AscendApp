@@ -13,7 +13,7 @@ import SwiftData
 /// The realistic globe fills the band above the collapsed sheet and opens fully
 /// zoomed out, the whole globe and every pin on its near side in view. Over it sits
 /// a sheet with three positions, collapsed by default to the This Week line; pulled
-/// up it carries the Today's Climb row, ON THE GLOBE TODAY, the Weekly Rank and
+/// up it carries the Today's Climb row, a running event's card, ASCEND ACTIVITY TODAY, the Weekly Rank and
 /// Streak tiles, Recent Personal Records, and then the catalog browse sections with
 /// search. A tapped marker shows a card that opens Climb Detail.
 ///
@@ -45,6 +45,8 @@ struct HomeView: View {
     @State private var pendingStartAction: HomeStartAction?
     @State private var pendingJustClimbGoal: JustClimbGoal?
     @State private var selectedDetailClimb: Climb?
+    @State private var unlocks = UnlockStore.shared
+    @State private var openEvent: UnlockEvent?
     @State private var selectedDetailEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     @State private var activeJustClimbGoal: JustClimbGoal?
     @State private var activeJustClimbExperience: JustClimbExperience = .classic
@@ -183,6 +185,12 @@ struct HomeView: View {
                 analyticsEntryPoint: .homeDaily
             )
         }
+        .navigationDestination(item: $openEvent) { event in
+            UnlockEventPage(event: event) {
+                openEvent = nil
+                showingStartActionSheet = true
+            }
+        }
         .navigationDestination(isPresented: $showingTodayActivityList) {
             HomeTodayActivityListView(
                 rows: moderatedTodayRows(allRows: true),
@@ -312,6 +320,12 @@ struct HomeView: View {
 
     // MARK: - Layout
 
+    /// The event running today that has items to earn, while unlocks are switched on.
+    private var runningEvent: UnlockEvent? {
+        guard unlocks.isEnabled else { return nil }
+        return unlocks.catalog.events.first { $0.contains(.now) && !unlocks.catalog.items(earnedIn: $0).isEmpty }
+    }
+
     private func globeVerticalOffset(sheetHeight: CGFloat) -> CGFloat {
         switch sheetDetent {
         case .compact:
@@ -409,6 +423,19 @@ struct HomeView: View {
                             isCompleted: globeViewModel.isCompleted(todayClimb)
                         ) {
                             openTodayClimb(todayClimb)
+                        }
+                    }
+
+                    if let event = runningEvent {
+                        let items = unlocks.catalog.items(earnedIn: event)
+                        HomeEventCard(
+                            event: event,
+                            showcase: unlocks.catalog.showcase(of: event),
+                            earned: items.filter { unlocks.earned.contains($0.shape) }.count,
+                            total: items.count,
+                            daysLeft: event.daysLeft()
+                        ) {
+                            openEvent = event
                         }
                     }
 
