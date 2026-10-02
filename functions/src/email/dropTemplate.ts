@@ -2,9 +2,9 @@ import {escapeHtml} from "./html";
 import {getMarketingWebsiteUrl} from "./config";
 import type {
   DropEmailFact,
-  DropEmailFeaturedItem,
   DropEmailItem,
   DropEmailItemGroup,
+  DropEmailLeadItem,
   DropEmailPayload,
   DropEmailTheme,
   EmailJobPayload,
@@ -14,9 +14,10 @@ import type {
 
 // =============================================================================
 // Drop announcement email (round 13 of the Mountain art direction, approved
-// 2026-10-02): one shared frame - brand bar with a theme tag, hero, eyebrow,
-// heavy headline, a row of facts, "How to earn" grouped by way of earning,
-// lime CTA, footer - and a palette per theme.
+// 2026-10-02, with its item list and copy brought in line with the approved
+// Halloween redesign): one shared frame - brand bar with a theme tag, hero,
+// eyebrow, heavy headline, a row of facts, "How to earn" grouped by way of
+// earning, lime CTA, footer - and a palette per theme.
 //
 // Every colour is a solid hex, never rgba: Outlook on Windows drops an rgba
 // colour entirely, so a translucent border in the mock is pre-blended here
@@ -24,15 +25,23 @@ import type {
 // progressive enhancement over a solid `bgcolor` that already reads right.
 // The layout is dark by design and says so (`color-scheme: dark`), the same
 // way the recap emails stop Apple Mail and Outlook.com re-theming them.
+//
+// Many clients block remote images until the reader allows them, and Gmail
+// never loads them in Spam. So every <img> has fixed pixel dimensions, a fill
+// and styled alt text, and sits in a well of its own fixed height: a blocked
+// picture reads as a deliberate tile, never a broken icon in a collapsed box.
+// The brand mark is a background image behind a solid black cell, so when it
+// is blocked the bar shows the ASCEND wordmark alone rather than a broken logo.
 // =============================================================================
 
 interface DropPalette {
   accentRule: string;
+  altInk: string;
   bannerBorder: string;
+  bannerDot: string;
   bannerFrom: string;
   bannerInk: string;
   bannerTo: string;
-  bannerDot: string;
   body: string;
   card: string;
   cardLine: string;
@@ -40,13 +49,8 @@ interface DropPalette {
   footer: string;
   footerLink: string;
   footerLine: string;
+  heroFill: string;
   ink: string;
-  legendaryBorder: string;
-  legendaryFrom: string;
-  legendaryInk: string;
-  legendaryMuted: string;
-  legendaryTo: string;
-  legendaryWell: string;
   leadBorder: string;
   muted: string;
   page: string;
@@ -64,6 +68,7 @@ interface DropPalette {
 const DROP_PALETTES: Record<DropEmailTheme, DropPalette> = {
   halloween: {
     accentRule: "#ff7a1a",
+    altInk: "#8f7fa8",
     bannerBorder: "#67351b",
     bannerDot: "#ff8a2b",
     bannerFrom: "#3f231b",
@@ -76,14 +81,9 @@ const DROP_PALETTES: Record<DropEmailTheme, DropPalette> = {
     footer: "#7f7192",
     footerLink: "#b0a3c6",
     footerLine: "#28232d",
+    heroFill: "#24182e",
     ink: "#f7f1e6",
     leadBorder: "#4e6c1b",
-    legendaryBorder: "#b29036",
-    legendaryFrom: "#2a2010",
-    legendaryInk: "#fff3d6",
-    legendaryMuted: "#c9b98f",
-    legendaryTo: "#1d1626",
-    legendaryWell: "#261c14",
     muted: "#a493bb",
     page: "#0b0910",
     requirement: "#ff9a4a",
@@ -100,12 +100,22 @@ const DROP_PALETTES: Record<DropEmailTheme, DropPalette> = {
 
 const LIME = "#86D30A";
 const ON_LIME = "#111111";
-const LEGENDARY_GOLD = "#F5C742";
-const LEGENDARY_GOLD_INK = "#1a1206";
 const FONT_STACK = "-apple-system,BlinkMacSystemFont,'SF Pro Text'," +
   "'Segoe UI',Arial,sans-serif";
 const PRESENTATION_TABLE = "role=\"presentation\" cellspacing=\"0\" " +
   "cellpadding=\"0\" border=\"0\"";
+/** The card's width, which the hero is drawn at. */
+const CARD_WIDTH = 600;
+/**
+ * Hero height at the card's full width: the hero is a 900x420 picture, short
+ * enough that the headline under it is in the first screen on a phone and in
+ * desktop Gmail.
+ */
+const HERO_HEIGHT = 280;
+/** A tile's picture: fixed, and small enough for three across on a phone. */
+const TILE_IMAGE_SIZE = 72;
+const LEAD_IMAGE_SIZE = 56;
+const TILE_COLUMNS = 3;
 
 /**
  * Checks whether an unknown payload is a plain object.
@@ -207,21 +217,6 @@ function parseItem(value: unknown): DropEmailItem {
 }
 
 /**
- * Parses an item drawn as a full-width card.
- * @param {unknown} value - Stored item
- * @return {DropEmailFeaturedItem} Validated item
- */
-function parseFeaturedItem(value: unknown): DropEmailFeaturedItem {
-  if (!isPlainObject(value)) {
-    throw new Error("drop_email_invalid_payload:featured");
-  }
-  return {
-    ...parseItem(value),
-    description: requiredText(value, "description"),
-  };
-}
-
-/**
  * Parses one way-of-earning group.
  * @param {unknown} value - Stored group
  * @return {DropEmailItemGroup} Validated group
@@ -239,12 +234,13 @@ function parseGroup(value: unknown): DropEmailItemGroup {
     if (!isPlainObject(lead)) {
       throw new Error("drop_email_invalid_payload:lead");
     }
-    group.lead = {...parseFeaturedItem(lead), badge: requiredText(lead, "badge")};
+    group.lead = {
+      ...parseItem(lead),
+      badge: requiredText(lead, "badge"),
+      description: requiredText(lead, "description"),
+    };
   }
-  if (value.legendary !== undefined) {
-    group.legendary = parseFeaturedItem(value.legendary);
-  }
-  if (!group.lead && group.items.length === 0 && !group.legendary) {
+  if (!group.lead && group.items.length === 0) {
     throw new Error("drop_email_invalid_payload:empty_group");
   }
   return group;
@@ -275,7 +271,8 @@ export function parseDropEmailPayload(
     throw new Error("drop_email_invalid_payload");
   }
   const theme = payload.theme;
-  if (typeof theme !== "string" || !Object.prototype.hasOwnProperty.call(DROP_PALETTES, theme)) {
+  if (typeof theme !== "string" ||
+    !Object.prototype.hasOwnProperty.call(DROP_PALETTES, theme)) {
     throw new Error("drop_email_invalid_payload:theme");
   }
   if (!Array.isArray(payload.groups) || payload.groups.length === 0 ||
@@ -307,6 +304,7 @@ export function parseDropEmailPayload(
     motifImagePath: payload.motifImagePath === undefined ?
       undefined :
       requiredImagePath(payload, "motifImagePath"),
+    postalAddress: optionalText(payload, "postalAddress"),
     preheader: requiredText(payload, "preheader"),
     subject: requiredText(payload, "subject"),
     tag: requiredText(payload, "tag"),
@@ -326,14 +324,8 @@ export function dropEmailImagePaths(payload: DropEmailPayload): string[] {
   if (payload.motifImagePath) {
     paths.push(payload.motifImagePath);
   }
-  for (const group of payload.groups) {
-    if (group.lead) {
-      paths.push(group.lead.imagePath);
-    }
-    paths.push(...group.items.map((item) => item.imagePath));
-    if (group.legendary) {
-      paths.push(group.legendary.imagePath);
-    }
+  for (const item of dropEmailItems(payload)) {
+    paths.push(item.imagePath);
   }
   return [...new Set(paths)];
 }
@@ -347,7 +339,6 @@ export function dropEmailItems(payload: DropEmailPayload): DropEmailItem[] {
   return payload.groups.flatMap((group) => [
     ...(group.lead ? [group.lead] : []),
     ...group.items,
-    ...(group.legendary ? [group.legendary] : []),
   ]);
 }
 
@@ -362,15 +353,32 @@ function imageUrl(payload: DropEmailPayload, path: string): string {
 }
 
 /**
- * Renders a lime pill or gold label.
+ * The inline style every picture carries, so a blocked one is a filled box
+ * of exactly its own size with its alt text set small and centred in it.
+ * @param {DropPalette} palette - Theme palette
+ * @param {string} fill - The box's fill
+ * @param {string} sizing - Width and height declarations
+ * @return {string} Style attribute value
+ */
+function blockedImageStyle(
+  palette: DropPalette,
+  fill: string,
+  sizing: string
+): string {
+  return `display:block;border:0;outline:none;text-decoration:none;${sizing}` +
+    `background-color:${fill};color:${palette.altInk};font-family:` +
+    `${FONT_STACK};font-size:10px;line-height:1.3;font-weight:700;` +
+    "text-align:center;";
+}
+
+/**
+ * Renders a lime pill.
  * @param {string} text - Label text
- * @param {string} background - Fill
- * @param {string} ink - Text colour
  * @return {string} Inline label HTML
  */
-function pillHtml(text: string, background: string, ink: string): string {
+function pillHtml(text: string): string {
   return [
-    `<span style="display:inline-block;background:${background};color:${ink};`,
+    `<span style="display:inline-block;background:${LIME};color:${ON_LIME};`,
     "font-size:9px;line-height:1;font-weight:900;letter-spacing:0.16em;",
     "text-transform:uppercase;padding:4px 7px;border-radius:99px;",
     `white-space:nowrap;">${escapeHtml(text)}</span>`,
@@ -378,7 +386,9 @@ function pillHtml(text: string, background: string, ink: string): string {
 }
 
 /**
- * Renders the brand bar: the A, ASCEND, and the drop's tag.
+ * Renders the brand bar: the A, ASCEND, and the drop's tag. The A is a
+ * background image so that a client blocking images shows the wordmark
+ * alone, never a broken logo.
  * @param {DropPalette} palette - Theme palette
  * @param {string} tag - Tag text
  * @return {string} `<tr>` HTML
@@ -392,9 +402,12 @@ function brandRowHtml(palette: DropPalette, tag: string): string {
     `20px 26px;border-bottom:2px solid ${palette.accentRule};">`,
     `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
     "<td valign=\"middle\" width=\"48\" style=\"padding-right:12px;\">",
-    `<img src="${iconUrl}" width="36" height="36" alt="Ascend icon" `,
-    "style=\"display:block;width:36px;height:36px;border:0;",
-    "border-radius:9px;\" /></td>",
+    `<table ${PRESENTATION_TABLE}><tr>`,
+    `<td width="36" height="36" bgcolor="#000000" background="${iconUrl}" `,
+    "style=\"width:36px;height:36px;background-color:#000000;",
+    `background-image:url('${iconUrl}');background-size:36px 36px;`,
+    "background-repeat:no-repeat;border-radius:9px;font-size:0;",
+    "line-height:0;\">&nbsp;</td></tr></table></td>",
     "<td valign=\"middle\" style=\"font-size:15px;line-height:1;",
     "color:#ffffff;font-weight:800;letter-spacing:0.08em;",
     "text-transform:uppercase;\">Ascend</td>",
@@ -409,22 +422,31 @@ function brandRowHtml(palette: DropPalette, tag: string): string {
 
 /**
  * Renders the hero photograph. The fade into the card is baked into the
- * image, since a CSS overlay does not survive Gmail.
+ * image, since a CSS overlay does not survive Gmail. Blocked, it is a filled
+ * panel carrying its alt text, set where the picture would be.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @return {string} `<tr>` HTML
  */
 function heroRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
+  const style = blockedImageStyle(
+    palette,
+    palette.heroFill,
+    `width:100%;max-width:${CARD_WIDTH}px;height:auto;`
+  ) + `color:${palette.bannerInk};font-size:15px;`;
   return [
-    `<tr><td bgcolor="${palette.card}" style="padding:0;line-height:0;">`,
-    `<img src="${imageUrl(payload, payload.heroImagePath)}" width="600" `,
-    `alt="${escapeHtml(payload.heroImageAlt)}" style="display:block;`,
-    "width:100%;max-width:600px;height:auto;border:0;\" /></td></tr>",
+    `<tr><td bgcolor="${palette.heroFill}" style="padding:0;line-height:0;`,
+    `background-color:${palette.heroFill};">`,
+    `<img src="${imageUrl(payload, payload.heroImagePath)}" `,
+    `width="${CARD_WIDTH}" height="${HERO_HEIGHT}" `,
+    `alt="${escapeHtml(payload.heroImageAlt)}" style="${style}" />`,
+    "</td></tr>",
   ].join("");
 }
 
 /**
- * Renders the optional theme banner under the hero.
+ * Renders the optional theme banner, under the intro so the headline stays
+ * high in the first screen.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @return {string} `<tr>` HTML, or empty without a banner
@@ -437,7 +459,7 @@ function bannerRowHtml(
     return "";
   }
   return [
-    `<tr><td bgcolor="${palette.card}" style="padding:4px 24px 0;">`,
+    `<tr><td bgcolor="${palette.card}" style="padding:8px 24px 0;">`,
     `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
     `<td bgcolor="${palette.bannerFrom}" style="background-color:`,
     `${palette.bannerFrom};background-image:linear-gradient(90deg,`,
@@ -494,7 +516,7 @@ function introRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
   return [
     `<tr><td bgcolor="${palette.card}" `,
     motif ? `background="${motif}" ` : "",
-    `style="padding:28px 24px 4px;${motifStyle}">`,
+    `style="padding:22px 24px 4px;${motifStyle}">`,
     "<p style=\"margin:0 0 14px;font-size:12px;line-height:1.3;",
     `color:${palette.eyebrow};font-weight:800;letter-spacing:0.22em;`,
     `text-transform:uppercase;">${escapeHtml(payload.eyebrow)}</p>`,
@@ -511,29 +533,35 @@ function introRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
 }
 
 /**
- * Renders the image well a thumbnail sits in.
+ * Renders the well a thumbnail sits in: a fixed-height box with the
+ * picture centred at a fixed size, so it holds its shape with the picture
+ * blocked as surely as with it shown.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @param {DropEmailItem} item - Item drawn
- * @param {number} size - Rendered image size in CSS pixels
- * @param {string} well - Well fill
+ * @param {number} size - Picture size in CSS pixels
  * @return {string} Well HTML
  */
 function wellHtml(
   payload: DropEmailPayload,
   palette: DropPalette,
   item: DropEmailItem,
-  size: number,
-  well: string
+  size: number
 ): string {
+  const style = blockedImageStyle(
+    palette,
+    palette.well,
+    `width:${size}px;height:${size}px;margin:0 auto;`
+  );
   return [
-    `<div style="background-color:${well};background-image:`,
-    `${palette.wellGlow};border-radius:10px;padding:8px;text-align:center;`,
-    "line-height:0;\">",
+    `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
+    `<td align="center" valign="middle" height="${size + 16}" `,
+    `bgcolor="${palette.well}" style="height:${size + 16}px;`,
+    `background-color:${palette.well};background-image:${palette.wellGlow};`,
+    "border-radius:10px;padding:8px;line-height:0;\">",
     `<img src="${imageUrl(payload, item.imagePath)}" width="${size}" `,
-    `height="${size}" alt="${escapeHtml(item.name)}" style="display:inline-`,
-    `block;width:100%;max-width:${size}px;height:auto;border:0;" />`,
-    "</div>",
+    `height="${size}" alt="${escapeHtml(item.name)}" style="${style}" />`,
+    "</td></tr></table>",
   ].join("");
 }
 
@@ -568,7 +596,7 @@ function tileHtml(
     `<div style="background:${palette.tile};border:1px solid `,
     `${palette.tileLine};border-radius:14px;padding:7px 7px 10px;`,
     "text-align:center;\">",
-    wellHtml(payload, palette, item, 120, palette.well),
+    wellHtml(payload, palette, item, TILE_IMAGE_SIZE),
     `<div style="margin-top:8px;${nameSize}line-height:1.25;`,
     `font-weight:800;color:${palette.tileInk};">${itemNameHtml(item.name)}`,
     "</div>",
@@ -580,9 +608,9 @@ function tileHtml(
 }
 
 /**
- * Lays tiles out three across, or two across when the count does not fill
- * rows of three - a group of four is two rows of two, never three and an
- * orphan.
+ * Lays tiles out three across. A short last row keeps the same tile width
+ * and sits centred, so five items read as three and two, never as a
+ * stretched pair.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @param {DropEmailItem[]} items - Tiles
@@ -596,35 +624,36 @@ function tileGridHtml(
   if (items.length === 0) {
     return "";
   }
-  const columns = items.length % 3 === 0 ? 3 : Math.min(items.length, 2);
-  const width = Math.floor(100 / columns);
   const rows: string[] = [];
-  for (let start = 0; start < items.length; start += columns) {
-    const cells = items.slice(start, start + columns).map((item, index) => {
-      const padding = index === 0 ? "0 4px 8px 0" :
-        index === columns - 1 ? "0 0 8px 4px" : "0 4px 8px";
-      return `<td valign="top" width="${width}%" style="padding:${padding};">` +
-        `${tileHtml(payload, palette, item)}</td>`;
-    });
-    while (cells.length < columns) {
-      cells.push(`<td width="${width}%"></td>`);
-    }
-    rows.push(`<tr>${cells.join("")}</tr>`);
+  for (let start = 0; start < items.length; start += TILE_COLUMNS) {
+    const row = items.slice(start, start + TILE_COLUMNS);
+    // The row's table is a third of the width per tile, so each cell takes
+    // an equal share of that, and every tile comes out a third wide.
+    const width = Math.floor(100 / row.length);
+    const cells = row.map((item) =>
+      `<td valign="top" width="${width}%" style="padding:0 4px 8px;">` +
+      `${tileHtml(payload, palette, item)}</td>`
+    ).join("");
+    const rowWidth = Math.round(100 * row.length / TILE_COLUMNS);
+    rows.push(
+      `<table ${PRESENTATION_TABLE} width="${rowWidth}%" align="center" ` +
+        `style="margin:0 auto;"><tr>${cells}</tr></table>`
+    );
   }
-  return `<table ${PRESENTATION_TABLE} width="100%">${rows.join("")}</table>`;
+  return `<div style="margin:0 -4px;">${rows.join("")}</div>`;
 }
 
 /**
  * Renders a group's free lead item: a wide card with a lime pill.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
- * @param {DropEmailFeaturedItem & {badge: string}} item - Lead item
+ * @param {DropEmailLeadItem} item - Lead item
  * @return {string} Card HTML
  */
 function leadCardHtml(
   payload: DropEmailPayload,
   palette: DropPalette,
-  item: DropEmailFeaturedItem & {badge: string}
+  item: DropEmailLeadItem
 ): string {
   return [
     `<table ${PRESENTATION_TABLE} width="100%" style="margin-bottom:8px;">`,
@@ -632,53 +661,16 @@ function leadCardHtml(
     `border:1px solid ${palette.leadBorder};border-radius:16px;`,
     "padding:10px 12px;\">",
     `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
-    "<td valign=\"middle\" width=\"72\" style=\"padding-right:12px;\">",
-    wellHtml(payload, palette, item, 56, palette.well),
+    `<td valign="middle" width="${LEAD_IMAGE_SIZE + 16}" `,
+    "style=\"padding-right:12px;\">",
+    wellHtml(payload, palette, item, LEAD_IMAGE_SIZE),
     "</td><td valign=\"middle\">",
     "<div style=\"font-size:15px;line-height:1.25;font-weight:800;",
     `color:${palette.tileInk};">${itemNameHtml(item.name)}</div>`,
     "<div style=\"margin-top:3px;font-size:13px;line-height:1.4;",
     `color:${palette.tileMuted};">${escapeHtml(item.description)}</div>`,
     "</td><td valign=\"middle\" align=\"right\" style=\"padding-left:8px;\">",
-    pillHtml(item.badge, LIME, ON_LIME),
-    "</td></tr></table></td></tr></table>",
-  ].join("");
-}
-
-/**
- * Renders a group's legendary finale: a gold-edged wide card.
- * @param {DropEmailPayload} payload - Validated payload
- * @param {DropPalette} palette - Theme palette
- * @param {DropEmailFeaturedItem} item - Legendary item
- * @return {string} Card HTML
- */
-function legendaryCardHtml(
-  payload: DropEmailPayload,
-  palette: DropPalette,
-  item: DropEmailFeaturedItem
-): string {
-  return [
-    `<table ${PRESENTATION_TABLE} width="100%" style="margin-bottom:8px;">`,
-    `<tr><td bgcolor="${palette.legendaryFrom}" style="background-color:`,
-    `${palette.legendaryFrom};background-image:linear-gradient(135deg,`,
-    `${palette.legendaryFrom},${palette.legendaryTo} 60%);border:1px solid `,
-    `${palette.legendaryBorder};border-radius:16px;padding:12px;">`,
-    `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
-    "<td valign=\"middle\" width=\"88\" style=\"padding-right:12px;\">",
-    wellHtml(payload, palette, item, 68, palette.legendaryWell),
-    "</td><td valign=\"middle\">",
-    pillHtml("Legendary", LEGENDARY_GOLD, LEGENDARY_GOLD_INK),
-    "<span style=\"display:inline-block;margin-left:8px;font-size:10px;",
-    "line-height:1;font-weight:900;letter-spacing:0.1em;",
-    `text-transform:uppercase;color:${LEGENDARY_GOLD};">`,
-    escapeHtml(item.requirement),
-    "</span>",
-    "<div style=\"margin-top:7px;font-size:16px;line-height:1.25;",
-    `font-weight:800;color:${palette.legendaryInk};">`,
-    itemNameHtml(item.name),
-    "</div>",
-    "<div style=\"margin-top:3px;font-size:12.5px;line-height:1.4;",
-    `color:${palette.legendaryMuted};">${escapeHtml(item.description)}</div>`,
+    pillHtml(item.badge),
     "</td></tr></table></td></tr></table>",
   ].join("");
 }
@@ -697,9 +689,6 @@ function earnRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
     `color:${palette.muted};">${escapeHtml(group.heading)}</p>`,
     group.lead ? leadCardHtml(payload, palette, group.lead) : "",
     tileGridHtml(payload, palette, group.items),
-    group.legendary ?
-      legendaryCardHtml(payload, palette, group.legendary) :
-      "",
     "</div>",
   ].join("")).join("");
 
@@ -739,7 +728,8 @@ function ctaRowHtml(payload: DropEmailPayload, palette: DropPalette): string {
 }
 
 /**
- * Renders the footer: why this arrived, help, privacy, unsubscribe.
+ * Renders the footer: why this arrived, help, the sender's postal address,
+ * privacy, unsubscribe.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @param {string | null | undefined} unsubscribeUrl - Signed link
@@ -759,12 +749,16 @@ function footerRowHtml(
   ].join("") : "";
   const paragraph = "margin:0 0 9px;font-size:13px;line-height:1.55;" +
     `color:${palette.footer};`;
+  const address = payload.postalAddress ?
+    `<p style="${paragraph}">${escapeHtml(payload.postalAddress)}</p>` :
+    "";
   return [
     `<tr><td bgcolor="${palette.card}" style="padding:0 24px 30px;">`,
     `<div style="border-top:1px solid ${palette.footerLine};`,
     "padding-top:20px;text-align:center;\">",
     `<p style="${paragraph}">${escapeHtml(payload.whyReceived)}</p>`,
     `<p style="${paragraph}">Need help? Reply to this email.</p>`,
+    address,
     `<p style="${paragraph}margin-bottom:0;">`,
     `<a href="${privacyUrl}" style="${linkStyle}">Privacy Policy</a>`,
     unsubscribe,
@@ -805,20 +799,18 @@ function dropEmailText(
     for (const item of group.items) {
       lines.push(`- ${item.name}: ${item.requirement}`);
     }
-    if (group.legendary) {
-      lines.push(`- ${group.legendary.name} (legendary, ` +
-        `${group.legendary.requirement}): ` +
-        group.legendary.description);
-    }
   }
   lines.push(
     "",
     `${payload.ctaLabel}: ${payload.ctaUrl}`,
     "",
     payload.whyReceived,
-    "Need help? Reply to this email.",
-    `Privacy Policy: ${getMarketingWebsiteUrl()}/privacy`
+    "Need help? Reply to this email."
   );
+  if (payload.postalAddress) {
+    lines.push(payload.postalAddress);
+  }
+  lines.push(`Privacy Policy: ${getMarketingWebsiteUrl()}/privacy`);
   if (unsubscribeUrl) {
     lines.push(`Unsubscribe: ${unsubscribeUrl}`);
   }
@@ -854,13 +846,13 @@ export function renderDropEmail(
     `style="background:${palette.page};"><tr>`,
     "<td align=\"center\" style=\"padding:24px 12px;\">",
     `<table ${PRESENTATION_TABLE} width="100%" bgcolor="${palette.card}" `,
-    `style="max-width:600px;background:${palette.card};border:1px solid `,
-    `${palette.cardLine};border-radius:28px;overflow:hidden;`,
-    "border-collapse:separate;\">",
+    `style="max-width:${CARD_WIDTH}px;background:${palette.card};`,
+    `border:1px solid ${palette.cardLine};border-radius:28px;`,
+    "overflow:hidden;border-collapse:separate;\">",
     brandRowHtml(palette, payload.tag),
     heroRowHtml(payload, palette),
-    bannerRowHtml(payload, palette),
     introRowHtml(payload, palette),
+    bannerRowHtml(payload, palette),
     earnRowHtml(payload, palette),
     ctaRowHtml(payload, palette),
     footerRowHtml(payload, palette, context.unsubscribeUrl),

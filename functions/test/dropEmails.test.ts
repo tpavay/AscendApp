@@ -42,8 +42,9 @@ function item(id: string, event: string, metric: string, threshold: number) {
 function shippedCatalogue() {
   return {
     events: [
-      {id: "halloween-2026", startsOn: "2026-10-01", endsBefore: "2026-11-01"},
-      {id: "thanksgiving-2026", startsOn: "2026-11-01",
+      {id: "halloween-2026", monthName: "October", startsOn: "2026-10-01",
+        endsBefore: "2026-11-01"},
+      {id: "thanksgiving-2026", monthName: "November", startsOn: "2026-11-01",
         endsBefore: "2026-12-01"},
     ],
     items: [
@@ -77,7 +78,7 @@ test("the Halloween email matches the catalogue the app ships", () => {
   // The fact row and the intro count what the groups hold.
   assert.equal(dropEmailItems(halloween()).length, 15);
   assert.equal(halloween().facts[0].value, "15");
-  assert.match(halloween().intro, /toward 14 more/);
+  assert.match(halloween().preheader, /toward 14 more/);
 });
 
 test("a catalogue change the email does not reflect is reported", () => {
@@ -90,8 +91,8 @@ test("a catalogue change the email does not reflect is reported", () => {
 
   assert.deepEqual(mismatches, [
     "Witch Hat: catalogue status is \"hidden\", not \"live\".",
-    "Candy Corn: the email says \"15 CLIMBS\", the catalogue says " +
-      "\"12 CLIMBS\".",
+    "Candy Corn: the email says \"15 climbs\", the catalogue says " +
+      "\"12 climbs\".",
     "\"bat_wings\" is live in the catalogue but missing from the email.",
   ]);
   assert.deepEqual(
@@ -104,19 +105,20 @@ test("a catalogue change the email does not reflect is reported", () => {
   );
 });
 
-test("requirements use the app's own wording", () => {
-  const event = {id: "e", startsOn: "2026-10-01", endsBefore: "2026-11-01"};
+test("requirements use the redesign's bare counts", () => {
+  const event = {id: "e", monthName: "October", startsOn: "2026-10-01",
+    endsBefore: "2026-11-01"};
   const cases: Array<[string, number, string]> = [
-    ["visits", 1, "OPEN ASCEND"],
-    ["climbs", 1, "1 CLIMB"],
-    ["climbs", 3, "3 CLIMBS"],
-    ["days", 1, "1 DAY"],
-    ["days", 7, "7 DAYS"],
-    ["days", 31, "EVERY DAY"],
-    ["onDay", 31, "CLIMB OCT 31"],
-    ["onDay", 1, "CLIMB OCT 1"],
-    ["steps", 10000, "10K STEPS"],
-    ["steps", 12500, "12,500 STEPS"],
+    ["visits", 1, "Open Ascend in October"],
+    ["climbs", 1, "1 climb"],
+    ["climbs", 3, "3 climbs"],
+    ["days", 1, "1 day"],
+    ["days", 7, "7 days"],
+    ["days", 31, "31 days"],
+    ["onDay", 31, "Climb on Oct 31"],
+    ["onDay", 1, "Climb on Oct 1"],
+    ["steps", 10000, "10K steps"],
+    ["steps", 12500, "12,500 steps"],
   ];
   for (const [metric, threshold, expected] of cases) {
     assert.equal(
@@ -163,15 +165,44 @@ test("the html stays inside what every target client draws", () => {
   assert.ok(html.includes("Jack&#8209;o&#39;&#8209;Lantern"));
 });
 
-test("four tiles lay out two by two, six lay out three across", () => {
+test("tiles run three across, and a short last row is centred", () => {
   const {html} = renderDropEmail(halloween(), {});
-  const stepsGroup = html.slice(html.indexOf("Steps in October"));
-  const climbGroup = html.slice(
-    html.indexOf("Climb in October"),
-    html.indexOf("Show up")
+  const steps = html.slice(
+    html.indexOf("Steps in October"),
+    html.indexOf("Days in October")
   );
-  assert.equal((stepsGroup.match(/width="50%"/g) ?? []).length, 4);
-  assert.equal((climbGroup.match(/width="33%"/g) ?? []).length, 6);
+  // Five step items: a full row of three and a centred row of two, every
+  // tile the same third of the width.
+  assert.equal((steps.match(/<td valign="top" width="33%"/g) ?? []).length, 3);
+  assert.equal((steps.match(/<td valign="top" width="50%"/g) ?? []).length, 2);
+  assert.match(steps, /width="100%" align="center"/);
+  assert.match(steps, /width="67%" align="center"/);
+});
+
+test("with pictures blocked, every picture is a sized, filled box", () => {
+  const {html} = renderDropEmail(halloween(), {});
+  const images = html.match(/<img [^>]*>/g) ?? [];
+  // The hero and 15 items; the brand mark is a background, never an <img>.
+  assert.equal(images.length, 16);
+  for (const image of images) {
+    assert.match(image, / width="\d+" height="\d+"/, image);
+    assert.match(image, /alt="[^"]+"/, image);
+    assert.match(image, /background-color:#[0-9a-f]{6};/i, image);
+    assert.match(image, /font-size:\d+px;/, image);
+  }
+  assert.doesNotMatch(html, /<img [^>]*ascend-a-icon/);
+  assert.match(html, /background-image:url\('[^']*ascend-a-icon\.png'\)/);
+});
+
+test("the footer carries a postal address only when one is set", () => {
+  const without = renderDropEmail(halloween(), {});
+  assert.doesNotMatch(without.text, /PO Box/);
+  const withAddress = renderDropEmail(
+    {...halloween(), postalAddress: "Ascend, PO Box 1, Austin, TX 78701"},
+    {}
+  );
+  assert.ok(withAddress.html.includes("Ascend, PO Box 1, Austin, TX 78701"));
+  assert.ok(withAddress.text.includes("Ascend, PO Box 1, Austin, TX 78701"));
 });
 
 test("the footer draws Unsubscribe only from a signed link", () => {

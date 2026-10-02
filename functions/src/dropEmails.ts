@@ -306,6 +306,7 @@ export async function readDropJobStatus(
 interface CatalogueEvent {
   endsBefore: string;
   id: string;
+  monthName?: string;
   startsOn: string;
 }
 
@@ -313,17 +314,6 @@ interface CatalogueItem {
   earn?: {event?: string; metric?: string; path?: string; threshold?: number};
   id: string;
   status?: string;
-}
-
-/**
- * Days in an event, from its `startsOn` to its exclusive `endsBefore`.
- * @param {CatalogueEvent} event - Catalogue event
- * @return {number} Day count
- */
-function eventDayCount(event: CatalogueEvent): number {
-  const start = Date.parse(`${event.startsOn}T00:00:00Z`);
-  const end = Date.parse(`${event.endsBefore}T00:00:00Z`);
-  return Math.round((end - start) / 86_400_000);
 }
 
 /**
@@ -338,10 +328,13 @@ function compactCount(value: number): string {
 }
 
 /**
- * The requirement wording the app shows for a catalogue item: a port of
- * `UnlockCopy.requirement`
- * (`AscendApp/Features/Athlete/Views/UnlockCopy.swift`),
- * so the email can be checked against what the app will say.
+ * The requirement wording the approved Halloween redesign shows on the
+ * October page for a catalogue item - bare counts ("5 climbs", "10K steps",
+ * "31 days", "Climb on Oct 31"), never "save", "do" or "every day" - so the
+ * email can be checked against what the app will say. The redesign
+ * (`data/ascend-mountain-art-direction/halloween-build-handoff.md` in the
+ * firstmate home, section 4.1) supersedes `UnlockCopy.requirement`'s older
+ * upper-case wording on PR 636.
  * @param {CatalogueItem} item - Catalogue item
  * @param {CatalogueEvent} event - The item's event
  * @return {string | null} Requirement, or null for an unknown metric
@@ -356,16 +349,13 @@ export function catalogueRequirement(
   }
   switch (item.earn?.metric) {
   case "visits":
-    return "OPEN ASCEND";
+    return `Open Ascend in ${event.monthName ?? "the event"}`;
   case "climbs":
-    return threshold === 1 ? "1 CLIMB" : `${threshold} CLIMBS`;
+    return threshold === 1 ? "1 climb" : `${threshold} climbs`;
   case "days":
-    if (threshold === eventDayCount(event)) {
-      return "EVERY DAY";
-    }
-    return threshold === 1 ? "1 DAY" : `${threshold} DAYS`;
+    return threshold === 1 ? "1 day" : `${threshold} days`;
   case "steps":
-    return `${compactCount(threshold)} STEPS`;
+    return `${compactCount(threshold)} steps`;
   case "onDay": {
     const start = Date.parse(`${event.startsOn}T00:00:00Z`);
     const day = new Date(start + (threshold - 1) * 86_400_000);
@@ -374,7 +364,7 @@ export function catalogueRequirement(
       month: "short",
       timeZone: "UTC",
     });
-    return `CLIMB ${label.toUpperCase()}`;
+    return `Climb on ${label}`;
   }
   default:
     return null;

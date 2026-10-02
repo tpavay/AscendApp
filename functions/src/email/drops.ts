@@ -35,16 +35,40 @@ function halloweenItemImage(itemId: string): string {
 }
 
 /**
+ * The sender's postal address for the footer of every drop, or null to leave
+ * the line out. Whether and which address Ascend publishes is the captain's
+ * decision; nothing refuses a send without one.
+ */
+export const SENDER_POSTAL_ADDRESS: string | null = null;
+
+/**
+ * Builds a group's tiles from `[catalogItemId, name, requirement]` rows.
+ * @param {Array<[string, string, string]>} rows - Item rows
+ * @return {DropEmailPayload["groups"][number]["items"]} Tiles
+ */
+function halloweenTiles(
+  rows: Array<[string, string, string]>
+): DropEmailPayload["groups"][number]["items"] {
+  return rows.map(([catalogItemId, name, requirement]) => ({
+    catalogItemId,
+    imagePath: halloweenItemImage(catalogItemId),
+    name,
+    requirement,
+  }));
+}
+
+/**
  * Halloween 2026 (`halloween-2026` in `web/public/unlocks/catalog.json`,
- * October 1-31). Item names are `AthleteGear.title`; requirements are
- * `UnlockCopy.requirement`'s wording for each item's catalogue threshold.
+ * October 1-31), worded to the approved Halloween redesign (2026-10-02): the
+ * October page's headline and subline, all 15 items in the page's three
+ * groups, item names as the redesign names them ("The Giant"), thresholds as
+ * bare counts, and the ruling that every climb saved in October counts from
+ * October 1, however late the update lands. No rarity labels: the redesign
+ * removed them from the app.
+ *
  * The send script re-checks every requirement against the hosted catalogue
  * of the environment it sends from, so a threshold changed in the catalogue
  * stops the send instead of mailing a stale ladder.
- *
- * The round 13 mock drew a Spiderweb Tank and a Pumpkin Stripe Tank; the
- * shipped catalogue dropped both printed tanks, so Candy Corn (15 climbs)
- * and the Chocolate Bar (10K steps) stand where the app has them.
  */
 const HALLOWEEN_2026: DropEmailDefinition = {
   minimumAppStoreVersion: "1.2.2",
@@ -57,8 +81,8 @@ const HALLOWEEN_2026: DropEmailDefinition = {
     eyebrow: "October 1 to 31",
     facts: [
       {value: "15", label: "To earn"},
+      {value: "Oct 1", label: "Counts from"},
       {value: "Oct 31", label: "Last day"},
-      {value: "Forever", label: "Yours to keep"},
     ],
     groups: [
       {
@@ -69,76 +93,50 @@ const HALLOWEEN_2026: DropEmailDefinition = {
           description: "Open Ascend in October. Carry it up the mountain.",
           imagePath: halloweenItemImage("pumpkin_classic"),
           name: "Pumpkin",
-          requirement: "OPEN ASCEND",
+          requirement: "Open Ascend in October",
         },
         items: [],
       },
       {
-        heading: "Climb in October",
-        items: [
-          ["pumpkin_ghost", "Ghost Pumpkin", "1 CLIMB"],
-          ["witch_hat", "Witch Hat", "3 CLIMBS"],
-          ["pumpkin_heirloom", "Heirloom Pumpkin", "5 CLIMBS"],
-          ["pumpkin_lantern", "Jack-o'-Lantern", "10 CLIMBS"],
-          ["candy_corn", "Candy Corn", "15 CLIMBS"],
-          ["ghost_sheet", "Ghost Sheet", "20 CLIMBS"],
-        ].map(([catalogItemId, name, requirement]) => ({
-          catalogItemId,
-          imagePath: halloweenItemImage(catalogItemId),
-          name,
-          requirement,
-        })),
-      },
-      {
-        heading: "Show up",
-        items: [
-          ["witching_shorts", "Witching Hour Shorts", "7 DAYS"],
-          ["ember_trainers", "Ember Trainers", "CLIMB OCT 31"],
-        ].map(([catalogItemId, name, requirement]) => ({
-          catalogItemId,
-          imagePath: halloweenItemImage(catalogItemId),
-          name,
-          requirement,
-        })),
-        legendary: {
-          catalogItemId: "pumpkin_head",
-          description: "Climb every day in October. " +
-            "Wear the pumpkin on your shoulders.",
-          imagePath: halloweenItemImage("pumpkin_head"),
-          name: "Pumpkin Head",
-          requirement: "EVERY DAY",
-        },
+        heading: "Climbs in October",
+        items: halloweenTiles([
+          ["pumpkin_ghost", "Ghost Pumpkin", "1 climb"],
+          ["witch_hat", "Witch Hat", "3 climbs"],
+          ["pumpkin_heirloom", "Heirloom Pumpkin", "5 climbs"],
+          ["pumpkin_lantern", "Jack-o'-Lantern", "10 climbs"],
+          ["candy_corn", "Candy Corn", "15 climbs"],
+          ["ghost_sheet", "Ghost Sheet", "20 climbs"],
+        ]),
       },
       {
         heading: "Steps in October",
-        items: [
-          ["chocolate_bar", "Chocolate Bar", "10K STEPS"],
-          ["pumpkin_midnight", "Midnight Pumpkin", "25K STEPS"],
-          ["pumpkin_giant", "Giant Pumpkin", "50K STEPS"],
-          ["glow_trainers", "Glow Trainers", "75K STEPS"],
-        ].map(([catalogItemId, name, requirement]) => ({
-          catalogItemId,
-          imagePath: halloweenItemImage(catalogItemId),
-          name,
-          requirement,
-        })),
-        legendary: {
-          catalogItemId: "pumpkin_giant_lantern",
-          description: "100,000 October steps. " +
-            "Pressed overhead, lit, the whole climb.",
-          imagePath: halloweenItemImage("pumpkin_giant_lantern"),
-          name: "Giant Jack-o'-Lantern",
-          requirement: "100K STEPS",
-        },
+        items: halloweenTiles([
+          ["chocolate_bar", "Chocolate Bar", "10K steps"],
+          ["pumpkin_midnight", "Midnight Pumpkin", "25K steps"],
+          ["pumpkin_giant", "The Giant", "50K steps"],
+          ["glow_trainers", "Glow Trainers", "75K steps"],
+          ["pumpkin_giant_lantern", "Giant Jack-o'-Lantern", "100K steps"],
+        ]),
+      },
+      {
+        heading: "Days in October",
+        items: halloweenTiles([
+          ["witching_shorts", "Witching Hour Shorts", "7 days"],
+          ["pumpkin_head", "Pumpkin Head", "31 days"],
+          ["ember_trainers", "Ember Trainers", "Climb on Oct 31"],
+        ]),
       },
     ],
     headlineLines: ["HALLOWEEN", "IS ON."],
-    heroImageAlt: "Carrying a jack-o'-lantern through a webbed gate",
+    heroImageAlt: "Halloween on Ascend Mountain: carrying a jack-o'-lantern " +
+      "through a webbed gate",
     heroImagePath: `${HALLOWEEN_IMAGES}/hero.jpg`,
-    intro: "Open Ascend in October and your pumpkin is in. Every climb " +
-      "this month counts toward 14 more. Earn them and they stay yours.",
+    intro: "Every climb and every step in October earns something new. " +
+      "Open Ascend and your pumpkin is in. Every climb you saved since " +
+      "October 1 already counts.",
     motifImagePath: `${HALLOWEEN_IMAGES}/cobweb.png`,
-    preheader: "Your pumpkin is in. 14 more to earn by climbing in October.",
+    preheader: "Your pumpkin is in. Every climb since October 1 counts " +
+      "toward 14 more.",
     subject: "Halloween is on",
     tag: "Halloween",
     theme: "halloween",
@@ -170,5 +168,6 @@ export function buildDropEmailPayload(
   return {
     ...definition.content,
     assetBaseUrl: assetBaseUrl.replace(/\/+$/, ""),
+    ...(SENDER_POSTAL_ADDRESS ? {postalAddress: SENDER_POSTAL_ADDRESS} : {}),
   };
 }

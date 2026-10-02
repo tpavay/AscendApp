@@ -191,22 +191,22 @@ export interface DropEmailItem {
 }
 
 /**
- * An item drawn as a full-width card with a sentence of its own: the free
- * item a group leads with (`badge` "Free"), or a group's legendary finale.
+ * The free item a group leads with, drawn as a full-width card with a
+ * sentence of its own and a pill (`badge`, "Free").
  */
-export interface DropEmailFeaturedItem extends DropEmailItem {
+export interface DropEmailLeadItem extends DropEmailItem {
+  badge: string;
   description: string;
 }
 
 /**
- * One way of earning, e.g. "Climb in October": an optional full-width lead
- * item, a grid of tiles, and an optional legendary card closing the group.
+ * One way of earning, e.g. "Climbs in October": an optional full-width lead
+ * item, then a grid of tiles.
  */
 export interface DropEmailItemGroup {
   heading: string;
-  lead?: DropEmailFeaturedItem & {badge: string};
+  lead?: DropEmailLeadItem;
   items: DropEmailItem[];
-  legendary?: DropEmailFeaturedItem;
 }
 
 export interface DropEmailFact {
@@ -237,6 +237,8 @@ export interface DropEmailPayload {
   heroImagePath: string;
   intro: string;
   motifImagePath?: string;
+  /** The sender's postal address, drawn in the footer only when set. */
+  postalAddress?: string;
   preheader: string;
   subject: string;
   tag: string;
