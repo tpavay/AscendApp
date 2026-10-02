@@ -74,7 +74,8 @@ struct UnlockTests {
         #expect(Set(items.map(\.shape.slot)) == Set(AthleteGear.Slot.allCases))
         let everyDay = try #require(items.first { $0.earn.metric == .days && $0.earn.threshold == event.dayCount() })
         #expect(everyDay.earn.threshold == event.dayCount())
-        #expect(UnlockCopy.threshold(everyDay, in: event) == "Every day")
+        #expect(UnlockCopy.threshold(everyDay, in: event) == "31 days", "a bare count like every other tile")
+        #expect(UnlockCopy.rule(everyDay, in: event) == "31 days in October")
         #expect(items.map(\.earn.threshold).max() == 100_000)
     }
 
@@ -258,7 +259,7 @@ struct UnlockTests {
         #expect(UnlockCopy.nextLines(progress) == ["3 more climbs to the Heirloom Pumpkin", "23,000 more steps to The Giant"])
     }
 
-    /// Every day of October means thirty-one different days with a finished climb; two climbs on
+    /// Every day of October means thirty-one different days with a saved climb; two climbs on
     /// one day count once.
     @Test
     func daysCountDifferentDaysNotClimbs() {

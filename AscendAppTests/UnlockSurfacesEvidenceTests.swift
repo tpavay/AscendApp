@@ -165,7 +165,7 @@ struct UnlockSurfacesEvidenceTests {
             #expect(tiles["Heirloom Pumpkin"] == "Next, 5 climbs", "\(tiles)")
             #expect(tiles["The Giant"] == "Next, 50K steps", "\(tiles)")
             #expect(tiles["Witching Hour Shorts"] == "Next, 7 days", "the day-based items sit on a third ladder: \(tiles)")
-            #expect(tiles["Pumpkin Head"] == "Locked, Every day", "\(tiles)")
+            #expect(tiles["Pumpkin Head"] == "Locked, 31 days", "\(tiles)")
             #expect(tiles["Giant Jack-o'-Lantern"] == "Locked, 100K steps", "\(tiles)")
 
             let copy = try await screen.copy()
