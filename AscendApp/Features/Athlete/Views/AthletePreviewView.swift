@@ -115,6 +115,7 @@ final class AthletePreviewStage {
     func show(_ look: AthleteLook) async {
         guard look != shown,
               let made = try? await rigs.rig(.init(look: look, style: .athlete(look), label: "", castsLight: true)) else { return }
+        made.isFacingViewer = true
         made.stand()
         frame(raisedOverhead: look.carry?.carry == .overhead)
         rig?.root.removeFromParent()

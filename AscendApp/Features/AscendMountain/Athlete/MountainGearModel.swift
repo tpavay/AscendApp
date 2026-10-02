@@ -233,11 +233,14 @@ struct MountainGearModel: Sendable {
             .transformed(translation: base)
     }
 
-    /// A pumpkin resting on its base, its face turned to the climber's right so the glow reads
-    /// from the camera behind them.
+    /// How far a pumpkin's face is turned from the athlete's front, about +Y: back and to the
+    /// climber's right, so the glow reads from the camera behind them.
+    static let pumpkinFaceTurn: Float = -2.75
+
+    /// A pumpkin resting on its base, its face turned by `pumpkinFaceTurn`.
     static func pumpkin(_ skin: PumpkinSkin, radius: Float = 0.14, squash: Float = 0.82) -> MountainGearModel {
         let pole = pumpkinPole(radius: radius, squash: squash)
-        let facing = simd_quatf(angle: -2.75, axis: SIMD3(0, 1, 0))
+        let facing = simd_quatf(angle: pumpkinFaceTurn, axis: SIMD3(0, 1, 0))
         let body = warted(pumpkinBody(radius: radius, squash: squash), amount: skin.warts)
             .transformed(rotation: facing, translation: SIMD3(0, pole, 0))
         let top = SIMD3<Float>(0, 2 * pole - radius * 0.06, 0)

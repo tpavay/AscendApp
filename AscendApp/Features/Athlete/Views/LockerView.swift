@@ -37,9 +37,10 @@ struct LockerView: View {
 
     /// Opens on `tab`, or on the tab of `revealing` with that item turned over to show how it
     /// is earned.
-    init(userId: String?, opening tab: Tab = .carry, revealing item: AthleteGear? = nil, store: AthleteLookStore = .shared) {
+    init(userId: String?, opening tab: Tab = .carry, revealing item: AthleteGear? = nil, store: AthleteLookStore = .shared, unlocks: UnlockStore = .shared) {
         self.userId = userId
         self.store = store
+        _unlocks = State(initialValue: unlocks)
         _tab = State(initialValue: item.flatMap { item in Tab.allCases.first { $0.slots.contains(item.slot) } } ?? tab)
         _flipped = State(initialValue: item.map { [$0.rawValue] } ?? [])
         _model = State(initialValue: AthleteEditorModel(look: store.current))
@@ -269,10 +270,10 @@ struct LockerView: View {
             Text(isEarned ? (isWorn ? "Tap to take off" : "Tap to wear") : requirementLine(item, event: event))
                 .font(.montserratMedium(size: 11))
                 .foregroundStyle(isEarned ? Color.accent : .white.opacity(0.6))
-                .lineLimit(2)
-            if !isEarned {
-                progressBar(fraction(item, in: event))
-            }
+                .lineLimit(2, reservesSpace: true)
+            // Every card keeps the bar's room, so earned and locked cards in a row line up.
+            progressBar(fraction(item, in: event))
+                .opacity(isEarned ? 0 : 1)
         }
         .padding(10)
         .background(cardBackground(highlighted: isWorn))

@@ -36,11 +36,19 @@ final class MountainAthleteRig {
     private let gearLibrary: MountainGearLibrary
     /// The candle inside a glowing item, flickered every frame it is posed.
     private var candle: PointLight?
+    /// Whether a camera in front of the athlete is watching rather than the race camera behind,
+    /// so a pumpkin pressed overhead turns its carved face forward instead of back.
+    var isFacingViewer = false
 
     private struct Worn {
         let gear: AthleteGear
         let entity: ModelEntity
         let hold: MountainCarryHold
+
+        /// A giant pumpkin overhead is round about +Y, so only its face moves when it turns.
+        var turnsToViewer: Bool {
+            hold.carry == .overhead && [.pumpkinGiant, .pumpkinGiantLantern].contains(gear)
+        }
     }
 
     /// A rig from parts `MountainRigFactory` has already prepared, so building one costs a frame
@@ -394,7 +402,11 @@ final class MountainAthleteRig {
             switch slot {
             case .carry:
                 let seat = item.hold.seat(chest: chest.position, chestTurn: chest.turn, rightShoulder: rightShoulder.position)
-                item.entity.transform = Transform(scale: .one, rotation: chest.turn.float, translation: SIMD3<Float>(seat))
+                var turn = chest.turn.float
+                if isFacingViewer, item.turnsToViewer {
+                    turn *= simd_quatf(angle: -MountainGearModel.pumpkinFaceTurn, axis: [0, 1, 0])
+                }
+                item.entity.transform = Transform(scale: .one, rotation: turn, translation: SIMD3<Float>(seat))
             case .head:
                 item.entity.transform = Transform(scale: .one, rotation: head.turn.float, translation: SIMD3<Float>(head.position))
             case .costume:

@@ -14,6 +14,14 @@ struct UnlockFinishCard: View {
     @State private var equipped: AthleteGear?
     @State private var isSaving = false
     @State private var saveFailed = false
+    /// The signed-in climber, read when the card needs it.
+    private let currentUserId: @MainActor () -> String?
+
+    init(workout: Workout, unlocks: UnlockStore = .shared, userId: @escaping @MainActor () -> String? = { Auth.auth().currentUser?.uid }) {
+        self.workout = workout
+        _unlocks = State(initialValue: unlocks)
+        self.currentUserId = userId
+    }
 
     var body: some View {
         Group {
@@ -26,7 +34,7 @@ struct UnlockFinishCard: View {
             }
         }
         .task(id: workout.id) {
-            guard let userId = Auth.auth().currentUser?.uid else { return }
+            guard let userId = currentUserId() else { return }
             await unlocks.refreshCatalogIfNeeded()
             outcome = unlocks.outcome(of: workout, userId: userId, modelContext: modelContext)
             equipped = AthleteLookStore.shared.current.gear.first { $0 == outcome?.newlyEarned.last }
@@ -120,7 +128,7 @@ struct UnlockFinishCard: View {
     }
 
     private func carry(_ item: AthleteGear) {
-        guard let userId = Auth.auth().currentUser?.uid else { return }
+        guard let userId = currentUserId() else { return }
         isSaving = true
         saveFailed = false
         Task {
