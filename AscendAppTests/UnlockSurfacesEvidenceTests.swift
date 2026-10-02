@@ -40,8 +40,8 @@ struct UnlockSurfacesEvidenceTests {
     @Test
     func theHomeCardSaysHalloweenIsOnAndHowMuchIsEarned() async throws {
         let container = try Self.threeEarlyOctoberClimbs()
-        let unlocks = try Self.freshDevice(retiring: [], now: try Self.october(5))
-        unlocks.refresh(userId: Self.userId, modelContext: container.mainContext, now: try Self.october(5))
+        let unlocks = try Self.freshDevice(retiring: [])
+        unlocks.refresh(userId: Self.userId, modelContext: container.mainContext)
         let event = try #require(unlocks.runningEvent())
         var opened = false
         let size = CGSize(width: 402, height: 200)
@@ -72,8 +72,8 @@ struct UnlockSurfacesEvidenceTests {
     @Test
     func everySurfaceCountsTheSameEarnedItemsAndDaysLeft() async throws {
         let container = try Self.threeEarlyOctoberClimbs()
-        let unlocks = try Self.freshDevice(retiring: [], now: try Self.october(5))
-        unlocks.refresh(userId: Self.userId, modelContext: container.mainContext, now: try Self.october(5))
+        let unlocks = try Self.freshDevice(retiring: [])
+        unlocks.refresh(userId: Self.userId, modelContext: container.mainContext)
         let event = try #require(unlocks.runningEvent())
         #expect(Set(unlocks.earnedItems(in: event).map(\.shape)) == [.pumpkinClassic, .pumpkinGhost, .witchHat, .chocolateBar, .pumpkinMidnight])
         #expect(unlocks.daysLeft(in: event) == 27)
@@ -333,8 +333,8 @@ struct UnlockSurfacesEvidenceTests {
     func theProfileCardCountsWhatIsNew() async throws {
         let container = try Self.threeEarlyOctoberClimbs()
         let unlocks = try Self.freshDevice(retiring: [])
-        unlocks.recordVisit(userId: Self.userId, now: try Self.october(5))
-        unlocks.refresh(userId: Self.userId, modelContext: container.mainContext, now: try Self.october(5))
+        unlocks.recordVisit(userId: Self.userId)
+        unlocks.refresh(userId: Self.userId, modelContext: container.mainContext)
         unlocks.markSeen([.pumpkinClassic], userId: Self.userId)
         let size = CGSize(width: 402, height: 200)
         try await RenderedScreen.host(
@@ -363,9 +363,8 @@ struct UnlockSurfacesEvidenceTests {
     func climbsSavedBeforeTheUpdateCountOnTheFirstOpen() async throws {
         let container = try Self.threeEarlyOctoberClimbs()
         let unlocks = try Self.freshDevice(retiring: [])
-        let firstOpen = try Self.october(5)
-        unlocks.recordVisit(userId: Self.userId, now: firstOpen)
-        let progress = try #require(unlocks.refresh(userId: Self.userId, modelContext: container.mainContext, now: firstOpen).first)
+        unlocks.recordVisit(userId: Self.userId)
+        let progress = try #require(unlocks.refresh(userId: Self.userId, modelContext: container.mainContext).first)
         #expect(progress.climbs == 3)
         #expect(progress.steps == 25_000)
         #expect(progress.days == 3)
@@ -516,9 +515,10 @@ struct UnlockSurfacesEvidenceTests {
         try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: day, hour: 12)))
     }
 
-    /// A store on a device that has remembered nothing, reading the bundled Halloween ladder with
-    /// `retiring` items retired on the given day.
-    private static func freshDevice(retiring: [(AthleteGear, UnlockEvent.Day?)], now: Date = .now) throws -> UnlockStore {
+    /// A store on a device that has remembered nothing, its clock on October 5, reading the bundled
+    /// Halloween ladder with `retiring` items retired on the given day.
+    private static func freshDevice(retiring: [(AthleteGear, UnlockEvent.Day?)]) throws -> UnlockStore {
+        let now = try october(5)
         let bundled = HostedUnlockCatalogRepository.bundledCatalog()
         let halloween = try #require(bundled.events.first { $0.id == "halloween-2026" })
         let items = bundled.items.filter { $0.earn.event == halloween.id }.map { item in

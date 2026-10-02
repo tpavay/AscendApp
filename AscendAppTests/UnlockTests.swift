@@ -361,30 +361,39 @@ struct UnlockTests {
         func refreshCatalog() async throws -> UnlockCatalog { catalog }
     }
 
-    private func store(enabled: Bool = true) -> (UnlockStore, UserDefaults) {
+    /// The day the store believes it is, moved by a test.
+    @MainActor
+    private final class Clock {
+        var date: Date
+        init(_ date: Date) { self.date = date }
+    }
+
+    private func store(enabled: Bool = true, clock: Clock = Clock(UnlockTests.date(10, 5))) -> (UnlockStore, UserDefaults) {
         let defaults = UserDefaults(suiteName: "UnlockTests-\(UUID().uuidString)")!
         let catalog = UnlockCatalog(version: 1, events: [Self.halloween], items: Self.ladder)
-        return (UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: defaults, isFlagEnabled: { enabled }), defaults)
+        return (UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: defaults, isFlagEnabled: { enabled }, now: { clock.date }), defaults)
     }
 
     @Test
     func openingAscendInOctoberEarnsThePumpkinAndShowsTheIntroOnce() {
-        let (store, _) = store()
-        store.recordVisit(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
+        let clock = Clock(Self.date(10, 5))
+        let (store, _) = store(clock: clock)
+        store.recordVisit(userId: "climber", calendar: Self.utc)
         #expect(store.earned == [.pumpkinClassic])
 
-        let intro = store.pendingIntro(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
+        let intro = store.pendingIntro(userId: "climber", calendar: Self.utc)
         #expect(intro?.id == "halloween-2026")
         store.markIntroSeen(try! #require(intro), userId: "climber")
-        #expect(store.pendingIntro(userId: "climber", now: Self.date(10, 6), calendar: Self.utc) == nil)
+        clock.date = Self.date(10, 6)
+        #expect(store.pendingIntro(userId: "climber", calendar: Self.utc) == nil)
     }
 
     @Test
     func openingAscendOutsideAnEventEarnsNothing() {
-        let (store, _) = store()
-        store.recordVisit(userId: "climber", now: Self.date(9, 30), calendar: Self.utc)
+        let (store, _) = store(clock: Clock(Self.date(9, 30)))
+        store.recordVisit(userId: "climber", calendar: Self.utc)
         #expect(store.earned.isEmpty)
-        #expect(store.pendingIntro(userId: "climber", now: Self.date(9, 30), calendar: Self.utc) == nil)
+        #expect(store.pendingIntro(userId: "climber", calendar: Self.utc) == nil)
     }
 
     /// The switch hides every surface: nothing is drawn, offered or earned on an open, and what
@@ -394,14 +403,14 @@ struct UnlockTests {
         let defaults = UserDefaults(suiteName: "UnlockTests-\(UUID().uuidString)")!
         let catalog = UnlockCatalog(version: 1, events: [Self.halloween], items: Self.ladder)
         let flag = Flag()
-        let store = UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: defaults, isFlagEnabled: { flag.enabled })
-        store.recordVisit(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
+        let store = UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: defaults, isFlagEnabled: { flag.enabled }, now: { Self.date(10, 5) })
+        store.recordVisit(userId: "climber", calendar: Self.utc)
 
         flag.enabled = false
         var look = AthleteLook.starting(for: .man)
         look.carry = .pumpkinClassic
         #expect(store.drawnGear(for: look).isEmpty)
-        #expect(store.pendingIntro(userId: "climber", now: Self.date(10, 5), calendar: Self.utc) == nil)
+        #expect(store.pendingIntro(userId: "climber", calendar: Self.utc) == nil)
 
         flag.enabled = true
         #expect(store.drawnGear(for: look) == [.pumpkinClassic])
@@ -412,7 +421,7 @@ struct UnlockTests {
     @Test
     func unlocksAreTheAccountsAndSignOutForgetsThem() {
         let (store, defaults) = store()
-        store.recordVisit(userId: "first", now: Self.date(10, 5), calendar: Self.utc)
+        store.recordVisit(userId: "first", calendar: Self.utc)
 
         let reopened = UnlockStore(
             repository: FixedCatalog(catalog: UnlockCatalog(version: 1, events: [Self.halloween], items: Self.ladder)),
@@ -439,8 +448,8 @@ struct UnlockTests {
         try context.save()
 
         let (store, defaults) = store()
-        store.recordVisit(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
-        store.refresh(userId: "climber", modelContext: context, now: Self.date(10, 5), calendar: Self.utc)
+        store.recordVisit(userId: "climber", calendar: Self.utc)
+        store.refresh(userId: "climber", modelContext: context, calendar: Self.utc)
         #expect(store.newItems(wearing: []) == [.pumpkinClassic, .pumpkinGhost])
         store.markSeen([.pumpkinGhost, .pumpkinGiant], userId: "climber")
         #expect(store.newItems(wearing: []) == [.pumpkinClassic], "only earned items are marked; an unearned one stays unseen")
@@ -464,7 +473,7 @@ struct UnlockTests {
         try context.save()
 
         let (store, defaults) = store()
-        store.refresh(userId: "climber", modelContext: context, now: Self.date(10, 5), calendar: Self.utc)
+        store.refresh(userId: "climber", modelContext: context, calendar: Self.utc)
         #expect(store.newItems(wearing: []) == [.pumpkinClassic, .pumpkinGhost, .pumpkinMidnight])
         #expect(store.newItems(wearing: [.pumpkinGhost]) == [.pumpkinClassic, .pumpkinMidnight], "an item on the athlete is never new")
 

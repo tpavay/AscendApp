@@ -111,7 +111,7 @@ struct UnlockItemProgress: Equatable, Sendable {
 
 extension UnlockEvent {
     /// Days left in the event counting today, so the last day reads 1 and the day after 0.
-    func daysLeft(now: Date = .now, calendar: Calendar = .current) -> Int {
+    func daysLeft(now: Date, calendar: Calendar = .current) -> Int {
         guard let end = interval(in: calendar)?.end else { return 0 }
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: end).day ?? 0
         return max(days, 0)

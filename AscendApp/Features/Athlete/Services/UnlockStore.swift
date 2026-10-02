@@ -33,7 +33,7 @@ final class UnlockStore {
     @ObservationIgnored private let repository: UnlockCatalogRepository
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let isFlagEnabled: @MainActor () -> Bool
-    @ObservationIgnored private let now: @MainActor () -> Date
+    @ObservationIgnored private let clock: @MainActor () -> Date
     @ObservationIgnored private var refreshedCatalog = false
 
     static let earnedKey = "unlocks.earned"
@@ -55,7 +55,7 @@ final class UnlockStore {
         self.repository = repository
         self.defaults = defaults
         self.isFlagEnabled = isFlagEnabled
-        self.now = now
+        self.clock = now
         catalog = repository.loadInitialCatalog()
     }
 
@@ -68,20 +68,21 @@ final class UnlockStore {
     }
 
     /// How the running event dresses the mountain, if it does: none while unlocks are off.
-    func runningTheme(now: Date = .now, calendar: Calendar = .current) -> UnlockEvent.Theme? {
+    func runningTheme(calendar: Calendar = .current) -> UnlockEvent.Theme? {
         guard isEnabled else { return nil }
+        let now = clock()
         return catalog.events.first { $0.contains(now, calendar: calendar) }?.theme
     }
 
     /// The event running now that has items to earn, while unlocks are switched on.
     func runningEvent(calendar: Calendar = .current) -> UnlockEvent? {
         guard isEnabled else { return nil }
-        return catalog.events.first { $0.contains(now(), calendar: calendar) && !catalog.items(earnedIn: $0).isEmpty }
+        return catalog.events.first { $0.contains(clock(), calendar: calendar) && !catalog.items(earnedIn: $0).isEmpty }
     }
 
     /// Days left in `event`: the one count every surface that says so reads.
     func daysLeft(in event: UnlockEvent, calendar: Calendar = .current) -> Int {
-        event.daysLeft(now: now(), calendar: calendar)
+        event.daysLeft(now: clock(), calendar: calendar)
     }
 
     /// The items of `event` the climber has earned, the open-app item included: the one earned
@@ -111,9 +112,10 @@ final class UnlockStore {
     }
 
     /// Records that the climber opened Ascend now, which earns every running event's visit item.
-    func recordVisit(userId: String, now: Date = .now, calendar: Calendar = .current) {
+    func recordVisit(userId: String, calendar: Calendar = .current) {
         guard isEnabled else { return }
         load(userId: userId)
+        let now = clock()
         let running = catalog.events.filter { $0.contains(now, calendar: calendar) && catalog.visitItem(of: $0) != nil }
         guard !running.isEmpty, !Set(running.map(\.id)).isSubset(of: visited) else { return }
         visited.formUnion(running.map(\.id))
@@ -121,9 +123,10 @@ final class UnlockStore {
     }
 
     /// The running event whose intro the climber has not seen yet, if any.
-    func pendingIntro(userId: String, now: Date = .now, calendar: Calendar = .current) -> UnlockEvent? {
+    func pendingIntro(userId: String, calendar: Calendar = .current) -> UnlockEvent? {
         guard isEnabled else { return nil }
         load(userId: userId)
+        let now = clock()
         return catalog.events.first { event in
             event.contains(now, calendar: calendar) && !introsSeen.contains(event.id) && !catalog.items(earnedIn: event).isEmpty
         }
@@ -139,8 +142,9 @@ final class UnlockStore {
     /// Recounts every event that has opened from the climbs in the store, and remembers anything
     /// newly earned. Returns each opened event's progress, the newest event first.
     @discardableResult
-    func refresh(userId: String, modelContext: ModelContext, now: Date = .now, calendar: Calendar = .current) -> [UnlockEventProgress] {
+    func refresh(userId: String, modelContext: ModelContext, calendar: Calendar = .current) -> [UnlockEventProgress] {
         load(userId: userId)
+        let now = clock()
         var retired: [AthleteGear] = []
         let progress = catalog.openedEvents(by: now, calendar: calendar).reversed().compactMap { event -> UnlockEventProgress? in
             guard let climbs = try? UnlockClimbQuery.climbs(in: event, calendar: calendar, modelContext: modelContext) else { return nil }
