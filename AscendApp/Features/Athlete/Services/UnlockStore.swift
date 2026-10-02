@@ -33,6 +33,7 @@ final class UnlockStore {
     @ObservationIgnored private let repository: UnlockCatalogRepository
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let isFlagEnabled: @MainActor () -> Bool
+    @ObservationIgnored private let now: @MainActor () -> Date
     @ObservationIgnored private var refreshedCatalog = false
 
     static let earnedKey = "unlocks.earned"
@@ -48,11 +49,13 @@ final class UnlockStore {
     init(
         repository: UnlockCatalogRepository = HostedUnlockCatalogRepository(),
         defaults: UserDefaults = .standard,
-        isFlagEnabled: @escaping @MainActor () -> Bool = { RemoteFeatureFlagStore.shared.isEnabled(.unlocks) }
+        isFlagEnabled: @escaping @MainActor () -> Bool = { RemoteFeatureFlagStore.shared.isEnabled(.unlocks) },
+        now: @escaping @MainActor () -> Date = { .now }
     ) {
         self.repository = repository
         self.defaults = defaults
         self.isFlagEnabled = isFlagEnabled
+        self.now = now
         catalog = repository.loadInitialCatalog()
     }
 
@@ -68,6 +71,23 @@ final class UnlockStore {
     func runningTheme(now: Date = .now, calendar: Calendar = .current) -> UnlockEvent.Theme? {
         guard isEnabled else { return nil }
         return catalog.events.first { $0.contains(now, calendar: calendar) }?.theme
+    }
+
+    /// The event running now that has items to earn, while unlocks are switched on.
+    func runningEvent(calendar: Calendar = .current) -> UnlockEvent? {
+        guard isEnabled else { return nil }
+        return catalog.events.first { $0.contains(now(), calendar: calendar) && !catalog.items(earnedIn: $0).isEmpty }
+    }
+
+    /// Days left in `event`: the one count every surface that says so reads.
+    func daysLeft(in event: UnlockEvent, calendar: Calendar = .current) -> Int {
+        event.daysLeft(now: now(), calendar: calendar)
+    }
+
+    /// The items of `event` the climber has earned, the open-app item included: the one earned
+    /// count every surface that shows one reads.
+    func earnedItems(in event: UnlockEvent) -> [UnlockItem] {
+        catalog.items(earnedIn: event).filter { earned.contains($0.shape) }
     }
 
     /// Fetches the hosted catalogue once per launch, so an event can move without a build.

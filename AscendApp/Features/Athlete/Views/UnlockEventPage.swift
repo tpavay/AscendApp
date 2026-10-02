@@ -154,7 +154,7 @@ struct UnlockEventPage: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
             Spacer(minLength: 0)
-            Text(UnlockCopy.daysLeft(event.daysLeft()))
+            Text(UnlockCopy.daysLeft(unlocks.daysLeft(in: event)))
                 .font(.montserratBold(size: 11))
                 .tracking(1.1)
                 .monospacedDigit()
@@ -214,7 +214,7 @@ struct UnlockEventPage: View {
     // MARK: - Your Athlete and the button
 
     private var athleteRow: some View {
-        let earned = ladders.flatMap { ladder in ladder.items.filter { ladder.state(of: $0) == .earned } }
+        let earned = unlocks.earnedItems(in: event)
         return Button {
             showingAthlete = true
         } label: {

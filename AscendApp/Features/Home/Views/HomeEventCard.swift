@@ -5,11 +5,13 @@ import SwiftUI
 /// opens the event's page.
 struct HomeEventCard: View {
     let event: UnlockEvent
-    let showcase: [UnlockItem]
-    let earned: Int
-    let total: Int
-    let daysLeft: Int
+    let unlocks: UnlockStore
     let onOpen: () -> Void
+
+    private var showcase: [UnlockItem] { unlocks.catalog.showcase(of: event) }
+    private var earned: Int { unlocks.earnedItems(in: event).count }
+    private var total: Int { unlocks.catalog.items(earnedIn: event).count }
+    private var daysLeft: Int { unlocks.daysLeft(in: event) }
 
     var body: some View {
         Button(action: onOpen) {

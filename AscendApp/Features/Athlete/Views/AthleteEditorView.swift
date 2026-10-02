@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Where a climber makes their athlete theirs: everything they have earned to wear, then body,
 /// skin, hair and its colour, the colours of the tank, shorts and shoes, size and muscle. The
-/// athlete turns above the choices and wears each one the moment it is tapped; nothing is kept
-/// until SAVE ATHLETE. It is the one place a climber's gear lives.
+/// athlete stands still above the choices, three-quarters on as the item view shows it, and wears
+/// each one the moment it is tapped; nothing is kept until SAVE ATHLETE. It is the one place a climber's gear lives.
 ///
 /// Opened from the onboarding step, the Profile card and the Just Climb setup sheet.
 struct AthleteEditorView: View {
@@ -37,7 +37,7 @@ struct AthleteEditorView: View {
                 .padding(.horizontal, 22)
                 .padding(.top, 22)
 
-            AthletePreviewView(look: model.draft)
+            AthletePreviewView(look: model.draft, turns: false)
                 .frame(height: 290)
                 .frame(maxWidth: .infinity)
                 .opacity(model.isEditable ? 1 : 0.35)

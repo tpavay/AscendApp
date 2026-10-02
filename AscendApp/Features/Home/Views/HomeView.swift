@@ -320,12 +320,6 @@ struct HomeView: View {
 
     // MARK: - Layout
 
-    /// The event running today that has items to earn, while unlocks are switched on.
-    private var runningEvent: UnlockEvent? {
-        guard unlocks.isEnabled else { return nil }
-        return unlocks.catalog.events.first { $0.contains(.now) && !unlocks.catalog.items(earnedIn: $0).isEmpty }
-    }
-
     private func globeVerticalOffset(sheetHeight: CGFloat) -> CGFloat {
         switch sheetDetent {
         case .compact:
@@ -426,15 +420,8 @@ struct HomeView: View {
                         }
                     }
 
-                    if let event = runningEvent {
-                        let items = unlocks.catalog.items(earnedIn: event)
-                        HomeEventCard(
-                            event: event,
-                            showcase: unlocks.catalog.showcase(of: event),
-                            earned: items.filter { unlocks.earned.contains($0.shape) }.count,
-                            total: items.count,
-                            daysLeft: event.daysLeft()
-                        ) {
+                    if let event = unlocks.runningEvent() {
+                        HomeEventCard(event: event, unlocks: unlocks) {
                             openEvent = event
                         }
                     }

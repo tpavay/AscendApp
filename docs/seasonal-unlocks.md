@@ -14,6 +14,7 @@ Each slot is stored under its own name on `users/{uid}/athlete_look/current`, an
 The design is the captain's round-20 approval of 2026-10-02; the build handoff with its reference prototype is kept with the firstmate design record.
 
 - Home carries a card for the running event right after Today's Climb (`HomeEventCard`): days left, "Halloween is on.", how much is earned ("4 of 15 earned. Climb for the rest."), and three of the event's items, never a photo of the athlete.
+  Every surface that shows how much of an event is earned or how many days it has left reads the one count in `UnlockStore` (`earnedItems(in:)`, `daysLeft(in:)`), with the open-app item counted like any other, so the Home card, the event page, the Profile pill and Your Athlete never disagree.
   Which three is the event's `showcase` in the catalogue.
   The card pushes the event's page.
 - The event page (`UnlockEventPage`) has the haunted stairwell art for a haunted event, a back button and the days left, "Halloween is on." over "Every climb and every step in October earns something new.", then one ladder per way of earning (`UnlockLadder`): climbs (the open-app item first), steps, and days.
@@ -22,6 +23,7 @@ The design is the captain's round-20 approval of 2026-10-02; the build handoff w
 - Tapping a tile opens the item (`UnlockItemView`): the climber's whole athlete, head to feet, wearing it where it really goes - a shoulder item on the shoulder, a giant pressed overhead - whether it is earned or not, with where it goes ("HELD OVER YOUR HEAD"), its rule ("50K steps in October"), and either "Earned in October" with EQUIP, or how far is left ("25,000 of 50,000 steps", "25,000 to go") with START CLIMBING.
   EQUIP saves the look and says so: "<Item> equipped / Everyone on the stairs sees it."
 - Your Athlete (`AthleteEditorView`) is the one place a climber's gear lives: rows above the body choices for CARRIED, HEAD, KIT and FEET, each with an owned count, owned items first (`AthleteGearRows`).
+  The athlete above them stands still, three-quarters on, framed as the item view frames it, so a giant overhead stays in view.
   Tapping an earned item puts it on the preview straight away and tapping the worn one takes it off; tapping a locked one opens a line under its row with its rule and progress.
   Nothing is kept until SAVE ATHLETE, which reads SAVED.
   There is no separate Locker and no item page from here.

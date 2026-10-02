@@ -35,14 +35,18 @@ struct UnlockSurfacesEvidenceTests {
 
     // MARK: - Home
 
+    /// The Home card reads the climber's own store: days left on its clock, and what the
+    /// fixture's climbs earned, the open-app Pumpkin among them.
     @Test
     func theHomeCardSaysHalloweenIsOnAndHowMuchIsEarned() async throws {
-        let catalog = HostedUnlockCatalogRepository.bundledCatalog()
-        let event = try #require(catalog.event(id: "halloween-2026"))
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [], now: try Self.october(5))
+        unlocks.refresh(userId: Self.userId, modelContext: container.mainContext, now: try Self.october(5))
+        let event = try #require(unlocks.runningEvent())
         var opened = false
         let size = CGSize(width: 402, height: 200)
         try await RenderedScreen.host(
-            HomeEventCard(event: event, showcase: catalog.showcase(of: event), earned: 4, total: catalog.items(earnedIn: event).count, daysLeft: 29) {
+            HomeEventCard(event: event, unlocks: unlocks) {
                 opened = true
             }
             .padding(16)
@@ -53,12 +57,83 @@ struct UnlockSurfacesEvidenceTests {
         ) { screen in
             let copy = try await screen.copy()
             #expect(copy.contains("halloween is on."), "\(copy)")
-            #expect(copy.contains("29 days left"), "\(copy)")
-            #expect(copy.contains("4 of 15 earned. climb for the rest."), "\(copy)")
-            #expect(catalog.showcase(of: event).map(\.shape) == [.pumpkinClassic, .witchHat, .pumpkinLantern], "items you can earn, not the athlete")
+            #expect(copy.contains("27 days left"), "\(copy)")
+            #expect(copy.contains("5 of 15 earned. climb for the rest."), "\(copy)")
+            #expect(unlocks.catalog.showcase(of: event).map(\.shape) == [.pumpkinClassic, .witchHat, .pumpkinLantern], "items you can earn, not the athlete")
             try screen.photograph(named: "halloween-home-card")
             try activateAccessibilityElement(in: screen.root) { $0.accessibilityLabel?.hasPrefix("Halloween is on.") == true }
             #expect(opened, "the whole card opens the October page")
+        }
+    }
+
+    /// One fixture and one clock: the Home card, the October page, the Profile pill and Your
+    /// Athlete all count the same five earned items, the open-app Pumpkin among them, and the
+    /// two surfaces that say how long is left say the same days.
+    @Test
+    func everySurfaceCountsTheSameEarnedItemsAndDaysLeft() async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [], now: try Self.october(5))
+        unlocks.refresh(userId: Self.userId, modelContext: container.mainContext, now: try Self.october(5))
+        let event = try #require(unlocks.runningEvent())
+        #expect(Set(unlocks.earnedItems(in: event).map(\.shape)) == [.pumpkinClassic, .pumpkinGhost, .witchHat, .chocolateBar, .pumpkinMidnight])
+        #expect(unlocks.daysLeft(in: event) == 27)
+        let looks = Self.looks(wearing: nil)
+
+        let card = CGSize(width: 402, height: 200)
+        try await RenderedScreen.host(
+            HomeEventCard(event: event, unlocks: unlocks) {}
+                .padding(16)
+                .frame(width: card.width, height: card.height)
+                .background(Color.black),
+            size: card,
+            settle: .turns(20)
+        ) { screen in
+            let copy = try await screen.copy()
+            #expect(copy.contains("27 days left") && copy.contains("5 of 15 earned."), "home: \(copy)")
+        }
+
+        let page = CGSize(width: 402, height: 1_250)
+        try await RenderedScreen.host(
+            NavigationStack {
+                UnlockEventPage(event: event, unlocks: unlocks, looks: looks, userId: { Self.userId }) {}
+            }
+            .modelContainer(container)
+            .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+            .frame(width: page.width, height: page.height),
+            size: page,
+            settle: .turns(40)
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("earned") }
+            #expect(copy.contains("27 days left") && copy.contains("5 earned"), "october page: \(copy)")
+        }
+
+        try await RenderedScreen.host(
+            AthleteProfileCard(store: looks, unlocks: unlocks, userId: { Self.userId })
+                .padding(16)
+                .modelContainer(container)
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+                .frame(width: card.width, height: card.height)
+                .background(Color.black),
+            size: card,
+            settle: .turns(40)
+        ) { screen in
+            let values = try await Self.values(on: screen) { $0["Your athlete"]?.contains("new to wear") == true }
+            #expect(values["Your athlete"]?.hasSuffix("5 new to wear.") == true, "profile: \(values)")
+        }
+
+        let titles = unlocks.catalog.items(earnedIn: event).map(\.shape.title)
+        let editor = CGSize(width: 402, height: 1_400)
+        try await RenderedScreen.host(
+            AthleteEditorView(store: looks, unlocks: unlocks, userId: { Self.userId })
+                .modelContainer(container)
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+                .frame(width: editor.width, height: editor.height),
+            size: editor,
+            settle: .turns(60)
+        ) { screen in
+            let cells = try await Self.values(on: screen) { values in titles.allSatisfy { values[$0] != nil } }
+            let owned = titles.filter { cells[$0] != "Locked" }
+            #expect(owned.count == 5, "your athlete: \(cells)")
         }
     }
 
@@ -443,7 +518,7 @@ struct UnlockSurfacesEvidenceTests {
 
     /// A store on a device that has remembered nothing, reading the bundled Halloween ladder with
     /// `retiring` items retired on the given day.
-    private static func freshDevice(retiring: [(AthleteGear, UnlockEvent.Day?)]) throws -> UnlockStore {
+    private static func freshDevice(retiring: [(AthleteGear, UnlockEvent.Day?)], now: Date = .now) throws -> UnlockStore {
         let bundled = HostedUnlockCatalogRepository.bundledCatalog()
         let halloween = try #require(bundled.events.first { $0.id == "halloween-2026" })
         let items = bundled.items.filter { $0.earn.event == halloween.id }.map { item in
@@ -451,7 +526,7 @@ struct UnlockSurfacesEvidenceTests {
             return UnlockItem(id: item.id, shape: item.shape, slot: item.slot, rarity: item.rarity, status: .retired, retiredOn: retired.1, earn: item.earn)
         }
         let catalog = UnlockCatalog(version: bundled.version, events: [halloween], items: items)
-        return UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: UserDefaults(suiteName: "UnlockSurfaces-\(UUID().uuidString)")!, isFlagEnabled: { true })
+        return UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: UserDefaults(suiteName: "UnlockSurfaces-\(UUID().uuidString)")!, isFlagEnabled: { true }, now: { now })
     }
 
     private static func looks(wearing item: AthleteGear?) -> AthleteLookStore {
