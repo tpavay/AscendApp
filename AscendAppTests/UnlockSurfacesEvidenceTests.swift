@@ -157,6 +157,62 @@ struct UnlockSurfacesEvidenceTests {
         }
     }
 
+    /// Climbs saved on October 1-3, before the climber had this build, are first counted on an
+    /// open on October 5. The back of the Ghost Pumpkin's card dates it by the climb that crossed
+    /// its threshold, October 1, not by the day this device first noticed it.
+    @Test
+    func aCardBackDatesTheItemByTheClimbThatEarnedIt() async throws {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let context = container.mainContext
+        for day in 1...3 {
+            context.insert(Workout(date: try Self.october(day), duration: 1_200, steps: 10_000, floors: 500, source: .headphoneMotion))
+        }
+        try context.save()
+
+        let unlocks = try Self.freshDevice(retiring: [])
+        let firstOpen = try Self.october(5)
+        unlocks.recordVisit(userId: Self.userId, now: firstOpen)
+        unlocks.refresh(userId: Self.userId, modelContext: context, now: firstOpen)
+        #expect(unlocks.earnedAt[.pumpkinGhost] == (try Self.october(1)))
+        #expect(unlocks.earnedAt[.pumpkinMidnight] == (try Self.october(3)))
+        #expect(unlocks.earnedAt[.pumpkinClassic] == firstOpen, "the open-app Pumpkin keeps the day of the visit")
+
+        let size = CGSize(width: 402, height: 1_900)
+        try await RenderedScreen.host(
+            LockerView(userId: Self.userId, revealing: .pumpkinGhost, store: Self.looks(wearing: nil), unlocks: unlocks)
+                .modelContainer(container)
+                .frame(width: size.width, height: size.height),
+            size: size,
+            settle: .turns(40)
+        ) { screen in
+            _ = try await Self.cards(on: screen) { $0["Midnight Pumpkin"] != nil }
+            let text = try await screen.recognizedText(scale: 2)
+            #expect(text.contains("earned oct 1"), "the Ghost Pumpkin's back reads the day of the climb that earned it: \(text)")
+            #expect(!text.contains("earned oct 5"), "no card reads the day the device first noticed it: \(text)")
+            try screen.photograph(named: "unlock-card-back-dated-by-crossing-climb")
+        }
+    }
+
+    /// The Locker stage with the athlete holding each carried pumpkin, for the hand that closes
+    /// around it: the shoulder carry and the overhead giant.
+    @Test(arguments: [AthleteGear.pumpkinClassic, .pumpkinGiantLantern])
+    func theLockerStageShowsTheHandClosedAroundTheCarriedPumpkin(item: AthleteGear) async throws {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let unlocks = try Self.freshDevice(retiring: [])
+        let size = CGSize(width: 402, height: 900)
+        try await RenderedScreen.host(
+            LockerView(userId: Self.userId, store: Self.looks(wearing: item), unlocks: unlocks)
+                .modelContainer(container)
+                .frame(width: size.width, height: size.height),
+            size: size,
+            settle: .turns(80)
+        ) { screen in
+            let cards = try await Self.cards(on: screen) { $0[item.title] == "Wearing" }
+            #expect(cards[item.title] == "Wearing", "\(cards)")
+            try screen.photograph(named: "unlock-locker-stage-holding-\(item.rawValue)")
+        }
+    }
+
     /// The Giant Pumpkin retired on October 20: a climber who passes 50,000 steps only after
     /// that day is never offered it, and one who passed it before keeps it on a fresh phone,
     /// earned back from the climbs restored there.
