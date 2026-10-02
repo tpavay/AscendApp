@@ -91,6 +91,8 @@ const HALLOWEEN_2026: DropEmailDefinition = {
   minimumAppStoreVersion: "1.2.2",
   content: {
     banner: "All October, the first 5,000 steps of every climb are haunted.",
+    bannerDetail: "Lit jack-o'-lanterns, drifting ghosts and webbed gates " +
+      "line that stretch of Ascend Mountain.",
     ctaLabel: "Climb tonight",
     ctaUrl: APP_STORE_URL,
     dropId: "halloween-2026",
@@ -98,7 +100,7 @@ const HALLOWEEN_2026: DropEmailDefinition = {
     eyebrow: "October 1 to 31",
     facts: [
       {value: "15", label: "To earn"},
-      {value: "Oct 1", label: "Counts from"},
+      {value: "Oct 1", label: "First day"},
       {value: "Oct 31", label: "Last day"},
     ],
     groups: [
@@ -107,7 +109,7 @@ const HALLOWEEN_2026: DropEmailDefinition = {
         lead: {
           badge: "Free",
           catalogItemId: "pumpkin_classic",
-          description: "Open Ascend in October. Carry it up the mountain.",
+          description: "Yours free for opening Ascend in October.",
           imagePath: halloweenItemImage("pumpkin_classic"),
           name: "Pumpkin",
           requirement: "Open Ascend in October",
@@ -145,10 +147,7 @@ const HALLOWEEN_2026: DropEmailDefinition = {
       },
     ],
     headlineLines: ["Halloween", "is on."],
-    cobwebs: {
-      left: dropAsset("halloween-2026", "cobweb-left.png"),
-      right: dropAsset("halloween-2026", "cobweb-right.png"),
-    },
+    cobweb: dropAsset("halloween-2026", "cobweb.png"),
     feature: {
       alt: "The haunted stretch: carrying a jack-o'-lantern up a webbed " +
         "stairwell",
@@ -158,16 +157,15 @@ const HALLOWEEN_2026: DropEmailDefinition = {
       alt: "Jack-o'-Lantern",
       path: halloweenItemImage("pumpkin_lantern"),
     },
-    intro: "Every climb and every step in October earns something new. " +
-      "Open Ascend and your pumpkin is in. Every climb you saved since " +
-      "October 1 already counts.",
-    preheader: "15 things to earn by climbing this October, and your " +
-      "pumpkin is already in.",
+    intro: "Climb in October to earn Halloween gear for your athlete on " +
+      "Ascend Mountain. Open the app for a free Pumpkin, then earn 14 more " +
+      "by climbing. Climbs you've done since October 1 already count.",
+    preheader: "Open Ascend for a free Pumpkin, then climb for 14 more " +
+      "pieces of Halloween gear.",
     subject: "Halloween on the stair stepper",
-    tag: "Halloween",
     theme: "halloween",
-    whyReceived: "You received this because you turned on drop emails " +
-      "in Ascend.",
+    whyReceived: "You're getting this because you turned on email from " +
+      "Ascend.",
   },
 };
 

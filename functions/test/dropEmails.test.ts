@@ -81,7 +81,7 @@ test("the Halloween email matches the catalogue the app ships", () => {
   // The fact row and the intro count what the groups hold.
   assert.equal(dropEmailItems(halloween()).length, 15);
   assert.equal(halloween().facts[0].value, "15");
-  assert.match(halloween().intro, /since October 1 already counts/);
+  assert.match(halloween().intro, /since October 1 already count\./);
 });
 
 test("a catalogue change the email does not reflect is reported", () => {
@@ -250,8 +250,8 @@ test("names from a payload are escaped", () => {
 
 test("every image the email draws is listed for the preflight", () => {
   const paths = dropEmailImagePaths(halloween());
-  // Two cobwebs, 15 items (the header art is one of them) and the feature.
-  assert.equal(paths.length, 18);
+  // The cobweb, 15 items (the header art is one of them) and the feature.
+  assert.equal(paths.length, 17);
 
 });
 
@@ -333,8 +333,26 @@ test("every picture is published under its own content hash", () => {
 test("the subject and preheader read as one thought", () => {
   const payload = halloween();
   assert.equal(payload.subject, "Halloween on the stair stepper");
-  assert.match(payload.preheader, /^15 things to earn/);
+  assert.match(payload.preheader, /^Open Ascend for a free Pumpkin/);
   const {html} = renderDropEmail(payload, {});
   // The preheader is padded so a preview never runs on into the body.
   assert.ok(html.includes("&#847;&zwnj;&nbsp;".repeat(90)));
+});
+
+test("no insider shorthand reaches the reader", () => {
+  const {html, text} = renderDropEmail(halloween(), {});
+  for (const phrase of [/pumpkin is (already )?in/i, /drop emails/i,
+    /counts from/i]) {
+    assert.doesNotMatch(text, phrase);
+    assert.doesNotMatch(html, phrase);
+  }
+  // The header says Halloween once, in the headline; no pill repeats it.
+  assert.doesNotMatch(html, />Halloween<\/span>/);
+});
+
+test("lime is only the button and the Free pill", () => {
+  const {html} = renderDropEmail(halloween(), {});
+  // Every lime anywhere is the button's fill, its glow, or the pill's fill.
+  assert.equal((html.match(/background:#86D30A/gi) ?? []).length, 2);
+  assert.equal((html.match(/#86D30A/gi) ?? []).length, 4);
 });

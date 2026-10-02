@@ -232,14 +232,16 @@ export interface DropEmailPicture {
  * checks are deployed before it queues anything.
  *
  * The layout is text first: the header band carries the headline as live
- * text, with `headerArt` beside it and `cobwebs` in its corners as
+ * text, with `headerArt` beside it and `cobweb` hung in its corner as
  * decoration; `feature` is the short picture drawn beside `banner`, lower
  * down.
  */
 export interface DropEmailPayload {
   assetBaseUrl: string;
   banner?: string;
-  cobwebs?: {left: string; right: string};
+  /** A smaller line under `banner` that says what it means. */
+  bannerDetail?: string;
+  cobweb?: string;
   ctaLabel: string;
   ctaUrl: string;
   dropId: string;
@@ -255,7 +257,6 @@ export interface DropEmailPayload {
   postalAddress?: string;
   preheader: string;
   subject: string;
-  tag: string;
   theme: DropEmailTheme;
   whyReceived: string;
 }

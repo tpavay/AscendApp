@@ -7,8 +7,7 @@ export const DROP_ASSETS: Readonly<Record<string, Readonly<Record<string, string
   "halloween-2026": {
     "candy_corn.png": "images/drops/halloween-2026/candy_corn-c6883bfadf99.png",
     "chocolate_bar.png": "images/drops/halloween-2026/chocolate_bar-f64d3a1bea7b.png",
-    "cobweb-left.png": "images/drops/halloween-2026/cobweb-left-9701018c0bd8.png",
-    "cobweb-right.png": "images/drops/halloween-2026/cobweb-right-9848ce04fb25.png",
+    "cobweb.png": "images/drops/halloween-2026/cobweb-af194f2176ba.png",
     "ember_trainers.png": "images/drops/halloween-2026/ember_trainers-2df01cc2ba26.png",
     "ghost_sheet.png": "images/drops/halloween-2026/ghost_sheet-3d3f21bae2ee.png",
     "glow_trainers.png": "images/drops/halloween-2026/glow_trainers-7c7d45595d47.png",

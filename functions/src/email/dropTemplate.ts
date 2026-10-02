@@ -62,17 +62,13 @@ interface DropPalette {
   headerBand: string;
   headerGlow: string;
   ink: string;
-  leadBorder: string;
   muted: string;
   requirement: string;
-  tag: string;
-  tagInk: string;
   tile: string;
   tileInk: string;
   tileLine: string;
   tileMuted: string;
-  well: string;
-  wellGlow: string;
+  tileGlow: string;
 }
 
 const DROP_PALETTES: Record<DropEmailTheme, DropPalette> = {
@@ -98,17 +94,13 @@ const DROP_PALETTES: Record<DropEmailTheme, DropPalette> = {
     headerBand: "#0b0910",
     headerGlow: "radial-gradient(ellipse at 78% 40%,#3a1f52 0%,#0b0910 62%)",
     ink: "#f7f1e6",
-    leadBorder: "#4e6c1b",
     muted: "#a493bb",
     requirement: "#ff9a4a",
-    tag: "#ff7a1a",
-    tagInk: "#120a02",
     tile: "#201828",
     tileInk: "#f7f1e6",
     tileLine: "#37294a",
     tileMuted: "#a99cc0",
-    well: "#1d1627",
-    wellGlow: "radial-gradient(circle at 50% 45%,#2e2340,#120d18 75%)",
+    tileGlow: "radial-gradient(circle at 50% 30%,#2b2038,#1d1626 70%)",
   },
 };
 
@@ -123,11 +115,13 @@ const COLUMN_WIDTH = 600;
 /** The feature picture: a 900x300 band, drawn full column width. */
 const FEATURE_WIDTH = 552;
 const FEATURE_HEIGHT = 184;
-const HEADER_ART_SIZE = 112;
-const WIDE_HEADER_ART_SIZE = 176;
-const COBWEB_SIZE = 110;
-/** The lower-corner web, kept inside the band's bottom padding. */
-const CORNER_WEB_SIZE = 80;
+const HEADER_ART_SIZE = 104;
+const WIDE_HEADER_ART_SIZE = 168;
+/** The header's corner web: small on a phone, larger on a wide window. */
+const COBWEB_SIZE = 120;
+const WIDE_COBWEB_SIZE = 190;
+/** One corner radius for every tile, card, picture and button. */
+const RADIUS = 14;
 /** A tile's picture: fixed, and small enough for three across on a phone. */
 const TILE_IMAGE_SIZE = 72;
 const LEAD_IMAGE_SIZE = 56;
@@ -321,21 +315,13 @@ export function parseDropEmailPayload(
     }
     return line.trim();
   });
-  let cobwebs: DropEmailPayload["cobwebs"];
-  if (payload.cobwebs !== undefined && payload.cobwebs !== null) {
-    if (!isPlainObject(payload.cobwebs)) {
-      throw new Error("drop_email_invalid_payload:cobwebs");
-    }
-    cobwebs = {
-      left: requiredImagePath(payload.cobwebs, "left"),
-      right: requiredImagePath(payload.cobwebs, "right"),
-    };
-  }
-
   return {
     assetBaseUrl: requiredHttpsUrl(payload, "assetBaseUrl"),
     banner: optionalText(payload, "banner"),
-    cobwebs,
+    bannerDetail: optionalText(payload, "bannerDetail"),
+    cobweb: payload.cobweb === undefined ?
+      undefined :
+      requiredImagePath(payload, "cobweb"),
     ctaLabel: requiredText(payload, "ctaLabel"),
     ctaUrl: requiredHttpsUrl(payload, "ctaUrl"),
     dropId: requiredText(payload, "dropId"),
@@ -350,7 +336,6 @@ export function parseDropEmailPayload(
     postalAddress: optionalText(payload, "postalAddress"),
     preheader: requiredText(payload, "preheader"),
     subject: requiredText(payload, "subject"),
-    tag: requiredText(payload, "tag"),
     theme: theme as DropEmailTheme,
     whyReceived: requiredText(payload, "whyReceived"),
   };
@@ -367,8 +352,8 @@ export function dropEmailImagePaths(payload: DropEmailPayload): string[] {
   if (payload.headerArt) {
     paths.push(payload.headerArt.path);
   }
-  if (payload.cobwebs) {
-    paths.push(payload.cobwebs.left, payload.cobwebs.right);
+  if (payload.cobweb) {
+    paths.push(payload.cobweb);
   }
   for (const item of dropEmailItems(payload)) {
     paths.push(item.imagePath);
@@ -421,25 +406,31 @@ function blockedImageStyle(fill: string, ink: string, sizing: string): string {
  * @param {string} color - The band's colour
  * @param {string} padding - The column's padding
  * @param {string} content - The column's HTML
- * @param {string} extraStyle - Extra declarations for the band cell
- * @param {string} extraAttributes - Extra attributes for the band cell
+ * @param {object} options - Extra style for the band cell, and a class,
+ *   extra style and attributes for the column cell
  * @return {string} `<tr>` HTML
  */
 function bandHtml(
   color: string,
   padding: string,
   content: string,
-  extraStyle = "",
-  extraAttributes = "",
-  columnClass = ""
+  options: {
+    bandStyle?: string;
+    columnAttributes?: string;
+    columnClass?: string;
+    columnStyle?: string;
+  } = {}
 ): string {
+  const columnClass = options.columnClass ?
+    ` class="${options.columnClass}"` :
+    "";
   return [
-    `<tr><td align="center" bgcolor="${color}" ${extraAttributes}`,
-    `style="background-color:${color};${extraStyle}">`,
+    `<tr><td align="center" bgcolor="${color}" `,
+    `style="background-color:${color};${options.bandStyle ?? ""}">`,
     `<table ${PRESENTATION_TABLE} width="100%" align="center" `,
     `style="max-width:${COLUMN_WIDTH}px;margin:0 auto;"><tr>`,
-    `<td${columnClass ? ` class="${columnClass}"` : ""} `,
-    `style="padding:${padding};">${content}</td>`,
+    `<td${columnClass} ${options.columnAttributes ?? ""}`,
+    `style="padding:${padding};${options.columnStyle ?? ""}">${content}</td>`,
     "</tr></table></td></tr>",
   ].join("");
 }
@@ -459,10 +450,10 @@ function pillHtml(text: string): string {
 }
 
 /**
- * The header band: brand bar, then the headline as live text with the art
- * beside it and cobwebs behind the art and in the band's lower corner, then
- * the intro. With every picture blocked it is still a coloured band that
- * says what the email is about.
+ * The header band: the brand, then the headline as live text composed with
+ * the jack-o'-lantern beside it, a cobweb hung in the column's top-right
+ * corner above the art, and the intro. With every picture blocked it is still
+ * a coloured band that says what the email is about.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @return {string} `<tr>` HTML
@@ -475,40 +466,22 @@ function headerBandHtml(
     `${getMarketingWebsiteUrl()}/images/ascend-a-icon.png`
   );
   const brand = [
-    `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
-    "<td valign=\"middle\" width=\"48\" style=\"padding-right:12px;\">",
     `<table ${PRESENTATION_TABLE}><tr>`,
-    `<td width="36" height="36" bgcolor="#000000" background="${iconUrl}" `,
-    "style=\"width:36px;height:36px;background-color:#000000;",
-    `background-image:url('${iconUrl}');background-size:36px 36px;`,
-    "background-repeat:no-repeat;border-radius:9px;font-size:0;",
+    "<td valign=\"middle\" width=\"44\" style=\"padding-right:12px;\">",
+    `<table ${PRESENTATION_TABLE}><tr>`,
+    `<td width="32" height="32" bgcolor="#000000" background="${iconUrl}" `,
+    "style=\"width:32px;height:32px;background-color:#000000;",
+    `background-image:url('${iconUrl}');background-size:32px 32px;`,
+    `background-repeat:no-repeat;border-radius:${RADIUS - 6}px;font-size:0;`,
     "line-height:0;\">&nbsp;</td></tr></table></td>",
-    "<td valign=\"middle\" style=\"font-size:15px;line-height:1;",
-    "color:#ffffff;font-weight:800;letter-spacing:0.08em;",
-    "text-transform:uppercase;\">Ascend</td>",
-    "<td valign=\"middle\" align=\"right\">",
-    `<span style="display:inline-block;background:${palette.tag};`,
-    `color:${palette.tagInk};font-size:10px;line-height:1;font-weight:800;`,
-    "letter-spacing:0.16em;text-transform:uppercase;padding:8px 11px;",
-    `border-radius:99px;white-space:nowrap;">${escapeHtml(payload.tag)}`,
-    "</span></td></tr></table>",
+    "<td valign=\"middle\" style=\"font-size:14px;line-height:1;",
+    "color:#ffffff;font-weight:800;letter-spacing:0.12em;",
+    "text-transform:uppercase;\">Ascend</td></tr></table>",
   ].join("");
 
-  const right = payload.cobwebs ?
-    imageUrl(payload, payload.cobwebs.right) :
-    null;
-  const left = payload.cobwebs ? imageUrl(payload, payload.cobwebs.left) : null;
   const art = payload.headerArt ? [
-    "<td class=\"dh-artcell\" valign=\"middle\" align=\"right\" ",
-    `width="${HEADER_ART_SIZE + 8}" `,
-    right ? `background="${right}" ` : "",
-    "style=\"padding-left:8px;",
-    right ?
-      `background-image:url('${right}');background-repeat:no-repeat;` +
-        `background-position:right top;background-size:${COBWEB_SIZE}px ` +
-        `${COBWEB_SIZE}px;` :
-      "",
-    "\">",
+    "<td class=\"dh-artcell\" valign=\"bottom\" align=\"right\" ",
+    `width="${HEADER_ART_SIZE}" style="padding-left:8px;">`,
     `<img class="dh-art" src="${imageUrl(payload, payload.headerArt.path)}" `,
     `width="${HEADER_ART_SIZE}" height="${HEADER_ART_SIZE}" `,
     `alt="${escapeHtml(payload.headerArt.alt)}" style="`,
@@ -517,68 +490,65 @@ function headerBandHtml(
     blockedImageStyle(
       "transparent",
       palette.altInk,
-      `width:${HEADER_ART_SIZE}px;height:${HEADER_ART_SIZE}px;margin:0 0 0 auto;`
+      `width:${HEADER_ART_SIZE}px;height:${HEADER_ART_SIZE}px;` +
+        "margin:0 0 0 auto;"
     ),
     "\" /></td>",
   ].join("") : "";
 
   const headline = payload.headlineLines.map(escapeHtml).join("<br>");
   const title = [
-    `<table ${PRESENTATION_TABLE} width="100%" style="margin-top:30px;"><tr>`,
-    "<td valign=\"middle\">",
+    `<table ${PRESENTATION_TABLE} width="100%" style="margin-top:24px;"><tr>`,
+    "<td valign=\"bottom\">",
     "<p style=\"margin:0 0 12px;font-size:12px;line-height:1.3;",
-    `color:${palette.eyebrow};font-weight:800;letter-spacing:0.22em;`,
+    `color:${palette.eyebrow};font-weight:800;letter-spacing:0.2em;`,
     `text-transform:uppercase;">${escapeHtml(payload.eyebrow)}</p>`,
-    "<h1 class=\"dh-h1\" style=\"margin:0;font-size:40px;line-height:1.02;font-weight:900;",
-    `letter-spacing:-0.03em;color:${palette.ink};text-shadow:0 0 24px `,
-    `${palette.accent}59;">${headline}</h1>`,
+    "<h1 class=\"dh-h1\" style=\"margin:0;font-size:42px;line-height:1;",
+    "font-weight:900;letter-spacing:-0.03em;",
+    `color:${palette.ink};text-shadow:0 0 28px ${palette.accent}4d;">`,
+    `${headline}</h1>`,
     "</td>",
     art,
     "</tr></table>",
-    "<p class=\"dh-intro\" style=\"margin:18px 0 0;font-size:17px;",
-    "line-height:1.55;",
-    `color:${palette.body};">${proseHtml(payload.intro)}</p>`,
+    "<p class=\"dh-intro\" style=\"margin:20px 0 0;font-size:17px;",
+    `line-height:1.55;color:${palette.body};">${proseHtml(payload.intro)}</p>`,
   ].join("");
 
-  const leftWeb = left ?
-    `background-image:url('${left}'),${palette.headerGlow};` +
-      "background-repeat:no-repeat;background-position:left bottom,center;" +
-      `background-size:${CORNER_WEB_SIZE}px ${CORNER_WEB_SIZE}px,cover;` :
-    `background-image:${palette.headerGlow};`;
-  return bandHtml(
-    palette.headerBand,
-    // The bottom padding is taller than the corner web, so the web never
-    // reaches the intro's last line.
-    `24px 24px ${CORNER_WEB_SIZE + 8}px`,
-    brand + title,
-    leftWeb,
-    left ? `background="${left}" ` : "",
-    "dh-pad"
-  );
+  // The web hangs in the column's top-right corner, above the art and clear
+  // of the headline and intro, which sit left and below it.
+  const web = payload.cobweb ? imageUrl(payload, payload.cobweb) : null;
+  return bandHtml(palette.headerBand, "24px 24px 32px", brand + title, {
+    bandStyle: `background-image:${palette.headerGlow};`,
+    columnAttributes: web ? `background="${web}" ` : "",
+    columnClass: "dh-pad",
+    columnStyle: web ?
+      `background-image:url('${web}');background-repeat:no-repeat;` +
+        "background-position:right top;" +
+        `background-size:${COBWEB_SIZE}px ${COBWEB_SIZE}px;` :
+      "",
+  });
 }
 
 /**
  * Wide-window sizes for the header band, so on a desktop the headline and
  * art fill it instead of floating small in it. Inline styles stay the phone
  * sizes: a client that ignores this block (Outlook on Windows, some Gmail
- * views) draws the phone layout, which still reads correctly. The bottom
- * padding only tightens once the window is wide enough for the corner web to
- * sit in the gutter beside the column rather than under the text.
+ * views) draws the phone layout, which still reads correctly.
  * @return {string} `<style>` element
  */
 function wideHeaderStyle(): string {
-  const gutterWidth = COLUMN_WIDTH + 2 * CORNER_WEB_SIZE + 40;
   return [
     "<style>",
     "@media only screen and (min-width:640px){",
-    ".dh-h1{font-size:60px !important;}",
+    ".dh-h1{font-size:64px !important;}",
     ".dh-intro{font-size:19px !important;}",
-    `.dh-artcell{width:${WIDE_HEADER_ART_SIZE + 8}px !important;}`,
+    // A long one-word name only needs the smaller size on a phone.
+    ".dh-longname{font-size:13px !important;letter-spacing:0 !important;}",
+    `.dh-artcell{width:${WIDE_HEADER_ART_SIZE}px !important;}`,
     `.dh-art{width:${WIDE_HEADER_ART_SIZE}px !important;`,
     `height:${WIDE_HEADER_ART_SIZE}px !important;}`,
-    "}",
-    `@media only screen and (min-width:${gutterWidth}px){`,
-    ".dh-pad{padding-bottom:40px !important;}",
+    `.dh-pad{background-size:${WIDE_COBWEB_SIZE}px ${WIDE_COBWEB_SIZE}px `,
+    "!important;padding-top:32px !important;}",
     "}",
     "</style>",
   ].join("");
@@ -604,67 +574,61 @@ function factsBandHtml(
       `<td valign="top" width="${Math.floor(100 / payload.facts.length)}%" `,
       `style="padding:${padding};">`,
       `<div style="background:${palette.factTile};border:1px solid `,
-      `${palette.factBorder};border-radius:14px;padding:13px 10px 12px;">`,
+      `${palette.factBorder};border-radius:${RADIUS}px;padding:14px 12px;">`,
       "<div style=\"font-size:22px;line-height:1.1;font-weight:900;",
       `letter-spacing:-0.02em;color:${palette.factInk};white-space:nowrap;">`,
       escapeHtml(fact.value),
       "</div>",
       // One line in every card at phone width, so the three stay one height.
-      "<div style=\"margin-top:5px;font-size:9.5px;line-height:1.3;",
-      "font-weight:800;letter-spacing:0.05em;text-transform:uppercase;",
-      "white-space:nowrap;",
-      `color:${palette.factLabel};">${escapeHtml(fact.label)}</div>`,
+      "<div style=\"margin-top:6px;font-size:9.5px;line-height:1.3;",
+      "font-weight:800;letter-spacing:0.08em;text-transform:uppercase;",
+      `white-space:nowrap;color:${palette.factLabel};">`,
+      `${escapeHtml(fact.label)}</div>`,
       "</div></td>",
     ].join("");
   }).join("");
   return bandHtml(
     palette.factsBand,
-    "22px 24px",
+    "24px",
     `<table ${PRESENTATION_TABLE} width="100%"><tr>${cells}</tr></table>`
   );
 }
 
 /**
- * Renders the well a thumbnail sits in: a fixed-height box with the
- * picture centred at a fixed size, so it holds its shape with the picture
- * blocked as surely as with it shown.
+ * An item's picture, set straight on its tile: a fixed-size box, so it holds
+ * its shape with the picture blocked as surely as with it shown.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @param {DropEmailItem} item - Item drawn
  * @param {number} size - Picture size in CSS pixels
- * @return {string} Well HTML
+ * @return {string} Picture HTML
  */
-function wellHtml(
+function itemPictureHtml(
   payload: DropEmailPayload,
   palette: DropPalette,
   item: DropEmailItem,
   size: number
 ): string {
+  // No fill of its own: the picture sits straight on the tile's surface,
+  // so the tile is one box, never a box inside a box.
   const style = blockedImageStyle(
-    palette.well,
+    "transparent",
     palette.altInk,
     `width:${size}px;height:${size}px;margin:0 auto;`
   );
-  return [
-    `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
-    `<td align="center" valign="middle" height="${size + 16}" `,
-    `bgcolor="${palette.well}" style="height:${size + 16}px;`,
-    `background-color:${palette.well};background-image:${palette.wellGlow};`,
-    "border-radius:10px;padding:8px;line-height:0;\">",
-    `<img src="${imageUrl(payload, item.imagePath)}" width="${size}" `,
-    `height="${size}" alt="${escapeHtml(item.name)}" style="${style}" />`,
-    "</td></tr></table>",
-  ].join("");
+  return `<img src="${imageUrl(payload, item.imagePath)}" width="${size}" ` +
+    `height="${size}" alt="${escapeHtml(item.name)}" style="${style}" />`;
 }
 
 /**
  * Prose as visible HTML whose last two words never part, so no paragraph
- * ends on a word alone on its line.
+ * ends on a word alone on its line, and whose hyphenated words never split.
  * @param {string} text - Paragraph text
  * @return {string} Escaped HTML
  */
 function proseHtml(text: string): string {
-  const escaped = escapeHtml(text);
+  // A hyphenated word ("jack-o'-lanterns") never breaks at its hyphens.
+  const escaped = escapeHtml(text).replace(/(\w)-(?=[\w&])/g, "$1&#8209;");
   const last = escaped.lastIndexOf(" ");
   return last < 0 ?
     escaped :
@@ -682,9 +646,10 @@ function itemNameHtml(name: string): string {
 }
 
 /**
- * Renders one item tile: thumbnail, name, requirement. A one-word name too
- * long for a third of a phone (the hyphenated Jack-o'-Lantern) steps down a
- * size rather than overflowing its tile.
+ * Renders one item tile: one clean surface with the item's picture set on
+ * it, the name, then what it takes. A one-word name too long for a third of
+ * a phone (the hyphenated Jack-o'-Lantern) steps down a size rather than
+ * overflowing its tile.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @param {DropEmailItem} item - Item drawn
@@ -696,20 +661,21 @@ function tileHtml(
   item: DropEmailItem
 ): string {
   const isLongWord = !item.name.includes(" ") && item.name.length > 12;
-  const nameSize = isLongWord ? "font-size:10.5px;letter-spacing:-0.01em;" :
-    "font-size:12px;";
+  const nameSize = isLongWord ? "font-size:11px;letter-spacing:-0.01em;" :
+    "font-size:13px;";
   return [
-    `<div style="background:${palette.tile};border:1px solid `,
-    `${palette.tileLine};border-radius:14px;padding:7px 7px 10px;`,
-    "text-align:center;\">",
-    wellHtml(payload, palette, item, TILE_IMAGE_SIZE),
+    `<div style="background:${palette.tile};background-image:`,
+    `${palette.tileGlow};border:1px solid ${palette.tileLine};`,
+    `border-radius:${RADIUS}px;padding:16px 8px 14px;text-align:center;">`,
+    itemPictureHtml(payload, palette, item, TILE_IMAGE_SIZE),
     // Two lines reserved for every name, so a row of tiles keeps one height
     // whether a name wraps or not.
-    `<div style="margin-top:8px;height:30px;${nameSize}line-height:15px;`,
+    `<div${isLongWord ? " class=\"dh-longname\"" : ""} `,
+    `style="margin-top:12px;height:32px;${nameSize}line-height:16px;`,
     `font-weight:800;color:${palette.tileInk};">${itemNameHtml(item.name)}`,
     "</div>",
-    "<div style=\"margin-top:5px;font-size:10px;line-height:1.2;",
-    "font-weight:800;letter-spacing:0.06em;text-transform:uppercase;",
+    "<div style=\"margin-top:6px;font-size:10px;line-height:1.2;",
+    "font-weight:800;letter-spacing:0.08em;text-transform:uppercase;",
     `white-space:nowrap;color:${palette.requirement};">`,
     `${escapeHtml(item.requirement)}</div>`,
     "</div>",
@@ -753,7 +719,8 @@ function tileGridHtml(
 }
 
 /**
- * Renders a group's free lead item: a wide card with a lime pill.
+ * Renders a group's free lead item: one wide tile with the picture set on
+ * it and a lime pill.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @param {DropEmailLeadItem} item - Lead item
@@ -767,33 +734,34 @@ function leadCardHtml(
   return [
     `<table ${PRESENTATION_TABLE} width="100%" style="margin-bottom:8px;">`,
     `<tr><td bgcolor="${palette.tile}" style="background:${palette.tile};`,
-    `border:1px solid ${palette.leadBorder};border-radius:16px;`,
-    "padding:10px 12px;\">",
+    `background-image:${palette.tileGlow};border:1px solid `,
+    `${palette.tileLine};border-radius:${RADIUS}px;padding:12px 16px;">`,
     `<table ${PRESENTATION_TABLE} width="100%"><tr>`,
-    `<td valign="middle" width="${LEAD_IMAGE_SIZE + 16}" `,
-    "style=\"padding-right:12px;\">",
-    wellHtml(payload, palette, item, LEAD_IMAGE_SIZE),
+    `<td valign="middle" width="${LEAD_IMAGE_SIZE}" `,
+    "style=\"padding-right:16px;\">",
+    itemPictureHtml(payload, palette, item, LEAD_IMAGE_SIZE),
     "</td><td valign=\"middle\">",
-    "<div style=\"font-size:15px;line-height:1.25;font-weight:800;",
+    "<div style=\"font-size:16px;line-height:1.25;font-weight:800;",
     `color:${palette.tileInk};">${itemNameHtml(item.name)}</div>`,
-    "<div style=\"margin-top:3px;font-size:13px;line-height:1.4;",
+    "<div style=\"margin-top:4px;font-size:14px;line-height:1.45;",
     `color:${palette.tileMuted};">${proseHtml(item.description)}</div>`,
-    "</td><td valign=\"middle\" align=\"right\" style=\"padding-left:8px;\">",
+    "</td><td valign=\"middle\" align=\"right\" style=\"padding-left:12px;\">",
     pillHtml(item.badge),
     "</td></tr></table></td></tr></table>",
   ].join("");
 }
 
 /**
- * The how-to-earn band: every group of items.
+ * The how-to-earn band: a real heading, then every group of items under a
+ * small label of its own.
  * @param {DropEmailPayload} payload - Validated payload
  * @param {DropPalette} palette - Theme palette
  * @return {string} `<tr>` HTML
  */
 function earnBandHtml(payload: DropEmailPayload, palette: DropPalette): string {
-  const groups = payload.groups.map((group) => [
-    "<div style=\"margin:0 0 12px;\">",
-    "<p style=\"margin:0 0 8px;font-size:11px;line-height:1.3;",
+  const groups = payload.groups.map((group, index) => [
+    `<div style="margin:${index === 0 ? "0" : "24px"} 0 0;">`,
+    "<p style=\"margin:0 0 12px;font-size:11px;line-height:1.3;",
     "font-weight:800;letter-spacing:0.14em;text-transform:uppercase;",
     `color:${palette.muted};">${escapeHtml(group.heading)}</p>`,
     group.lead ? leadCardHtml(payload, palette, group.lead) : "",
@@ -801,16 +769,11 @@ function earnBandHtml(payload: DropEmailPayload, palette: DropPalette): string {
     "</div>",
   ].join("")).join("");
   const heading = [
-    `<table ${PRESENTATION_TABLE} width="100%" style="margin:0 0 14px;"><tr>`,
-    "<td valign=\"middle\" style=\"white-space:nowrap;padding-right:10px;",
-    "font-size:12px;line-height:1;font-weight:800;letter-spacing:0.22em;",
-    `text-transform:uppercase;color:${palette.ink};">`,
-    escapeHtml(payload.earnHeading),
-    "</td><td valign=\"middle\" width=\"100%\">",
-    "<div style=\"height:1px;line-height:1px;font-size:0;background:",
-    `${palette.tileLine};">&nbsp;</div></td></tr></table>`,
+    "<h2 style=\"margin:0 0 20px;font-size:26px;line-height:1.15;",
+    `font-weight:900;letter-spacing:-0.02em;color:${palette.ink};">`,
+    `${escapeHtml(payload.earnHeading)}</h2>`,
   ].join("");
-  return bandHtml(palette.earnBand, "30px 24px 18px", heading + groups);
+  return bandHtml(palette.earnBand, "32px 24px 24px", heading + groups);
 }
 
 /**
@@ -836,16 +799,21 @@ function featureBandHtml(
       palette.featureFill,
       "#ffd9b8",
       `width:100%;max-width:${FEATURE_WIDTH}px;height:auto;` +
-        "border-radius:14px;font-size:13px;"
+        `border-radius:${RADIUS}px;font-size:13px;`
     ),
     "\" />",
   ].join("") : "";
   const line = payload.banner ? [
-    `<p style="margin:${payload.feature ? "16px" : "0"} 0 0;font-size:19px;`,
+    `<p style="margin:${payload.feature ? "20px" : "0"} 0 0;font-size:20px;`,
     `line-height:1.35;font-weight:800;color:${palette.featureInk};`,
     `letter-spacing:-0.01em;">${proseHtml(payload.banner)}</p>`,
   ].join("") : "";
-  return bandHtml(palette.featureBand, "26px 24px 28px", picture + line);
+  const detail = payload.bannerDetail ? [
+    "<p style=\"margin:8px 0 0;font-size:15px;line-height:1.5;",
+    `font-weight:600;color:${palette.featureInk};">`,
+    `${proseHtml(payload.bannerDetail)}</p>`,
+  ].join("") : "";
+  return bandHtml(palette.featureBand, "32px 24px", picture + line + detail);
 }
 
 /**
@@ -858,14 +826,14 @@ function ctaBandHtml(payload: DropEmailPayload, palette: DropPalette): string {
   const button = [
     "<div style=\"text-align:center;\">",
     `<a href="${escapeHtml(payload.ctaUrl)}" style="display:inline-block;`,
-    `padding:18px 28px;border-radius:16px;background:${LIME};`,
+    `padding:18px 32px;border-radius:${RADIUS}px;background:${LIME};`,
     `color:${ON_LIME};font-size:16px;line-height:1;font-weight:800;`,
     "text-decoration:none;text-transform:uppercase;letter-spacing:0.04em;",
     "box-shadow:0 0 0 1px #86d30a99,0 0 28px #86d30a73;\">",
     escapeHtml(payload.ctaLabel),
     "</a></div>",
   ].join("");
-  return bandHtml(palette.ctaBand, "30px 24px", button);
+  return bandHtml(palette.ctaBand, "32px 24px", button);
 }
 
 /**
@@ -893,7 +861,7 @@ function footerBandHtml(
   const address = payload.postalAddress ?
     `<p style="${paragraph}">${escapeHtml(payload.postalAddress)}</p>` :
     "";
-  return bandHtml(palette.footerBand, "26px 24px 34px", [
+  return bandHtml(palette.footerBand, "32px 24px", [
     "<div style=\"text-align:center;\">",
     `<p style="${paragraph}">${proseHtml(payload.whyReceived)}</p>`,
     `<p style="${paragraph}">Need help? Reply to this email.</p>`,
@@ -954,6 +922,9 @@ function dropEmailText(
   }
   if (payload.banner) {
     lines.push("", payload.banner);
+  }
+  if (payload.bannerDetail) {
+    lines.push(payload.bannerDetail);
   }
   lines.push(
     "",
