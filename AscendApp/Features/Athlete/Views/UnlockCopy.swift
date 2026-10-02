@@ -15,7 +15,7 @@ enum UnlockCopy {
     }
 
     /// What an item takes, as a bare count: "Open Ascend", "5 climbs", "10K steps", "7 days",
-    /// "31 days", "Oct 31". Every day of the month reads as its count too, like every other tile.
+    /// "20 days", "Oct 31".
     static func threshold(_ item: UnlockItem, in event: UnlockEvent) -> String {
         let count = item.earn.threshold
         switch item.earn.metric {
@@ -29,7 +29,7 @@ enum UnlockCopy {
         }
     }
 
-    /// What an item takes, in a sentence: "5 climbs in October", "31 days in October",
+    /// What an item takes, in a sentence: "5 climbs in October", "20 days in October",
     /// "Climb on October 31".
     static func rule(_ item: UnlockItem, in event: UnlockEvent) -> String {
         switch item.earn.metric {

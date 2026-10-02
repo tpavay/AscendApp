@@ -64,7 +64,7 @@ struct UnlockTests {
         #expect(Set(catalog.items.map(\.id)).count == catalog.items.count)
     }
 
-    /// October's ladder: the open, climbs up to twenty, every day of the month, and steps up to a
+    /// October's ladder: the open, climbs up to twenty, twenty days of the month, and steps up to a
     /// hundred thousand - and something for every slot, not only carried.
     @Test
     func halloweenHasALongLadderAndOutfits() throws {
@@ -72,10 +72,11 @@ struct UnlockTests {
         let event = try #require(catalog.event(id: "halloween-2026"))
         let items = catalog.items(earnedIn: event)
         #expect(Set(items.map(\.shape.slot)) == Set(AthleteGear.Slot.allCases))
-        let everyDay = try #require(items.first { $0.earn.metric == .days && $0.earn.threshold == event.dayCount() })
-        #expect(everyDay.earn.threshold == event.dayCount())
-        #expect(UnlockCopy.threshold(everyDay, in: event) == "31 days", "a bare count like every other tile")
-        #expect(UnlockCopy.rule(everyDay, in: event) == "31 days in October")
+        let pumpkinHead = try #require(items.first { $0.shape == .pumpkinHead })
+        #expect(pumpkinHead.earn.metric == .days)
+        #expect(pumpkinHead.earn.threshold == 20)
+        #expect(UnlockCopy.threshold(pumpkinHead, in: event) == "20 days", "a bare count like every other tile")
+        #expect(UnlockCopy.rule(pumpkinHead, in: event) == "20 days in October")
         #expect(items.map(\.earn.threshold).max() == 100_000)
     }
 
@@ -335,7 +336,7 @@ struct UnlockTests {
         #expect(climbsLadder.state(of: climbsLadder.items[4]) == .locked)
         #expect(stepsLadder.state(of: stepsLadder.items[2]) == .next, "The Giant is next")
         #expect(abs(stepsLadder.fraction - 0.25) < 1e-9, "the bar measures the way to the ladder's last rung")
-        #expect(daysLadder.goal == 31)
+        #expect(daysLadder.goal == 20)
 
         let short = try #require(UnlockItemProgress(item: climbsLadder.items[3], progress: progress))
         #expect((short.have, short.need, short.remaining, short.unit) == (3, 5, 2, "climbs"))

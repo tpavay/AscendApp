@@ -137,7 +137,7 @@
         "path": "event",
         "event": "halloween-2026",
         "metric": "days",
-        "threshold": 31
+        "threshold": 20
       }
     },
     {
