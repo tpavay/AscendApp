@@ -52,6 +52,8 @@ Opening Ascend during an event earns its `visits` item (`UnlockStore.recordVisit
 That visit is remembered only on this device for the signed-in account, so the open-app item is scoped to the device and the account session: after a sign-out or a reinstall it comes back only from a climb in the event, since any climb in the event also counts as a visit.
 A climber who opened Ascend during October but never climbed, then signs out or reinstalls after the event, loses the Pumpkin; keeping it would need the visit stored on the account, which `users/{uid}/athlete_look/current`'s key list does not allow without a rules change.
 What was earned is remembered on the device per account (`UnlockStore.earnedKey`) and cleared on sign-out, so an unlock outlives a later change to an event's dates.
+The date a Locker card shows is when the item was earned, not when this device first noticed it: a climbing item takes the date of the climb that crossed its threshold (`UnlockEventProgress.earnedDates`), so climbs saved before this build or restored on a new phone keep their own days, and the open-app item takes the day of the visit.
+A date already remembered on the device is never moved.
 
 This is a deliberate first step.
 The general unlock plan moves deciding who earned what to a server job that writes where only the server can, and checks ownership before publishing an outfit.

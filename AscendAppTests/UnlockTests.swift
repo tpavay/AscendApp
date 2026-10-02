@@ -350,6 +350,33 @@ struct UnlockTests {
         #expect(store.earned.isEmpty)
     }
 
+    /// Climbs saved on October 1-3, before this build, credited on a first open on October 5:
+    /// each climbing item is dated by the climb that crossed its threshold, the open-app item by
+    /// the visit, and a date already remembered is never moved.
+    @Test
+    func anItemIsDatedByTheClimbThatEarnedItNotTheDayItWasNoticed() throws {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let context = container.mainContext
+        (1...3).map { day in
+            Workout(date: Self.date(10, day), duration: 1_200, steps: 10_000, floors: 500, source: .headphoneMotion)
+        }.forEach(context.insert)
+        try context.save()
+
+        let (store, _) = store()
+        store.recordVisit(userId: "climber", now: Self.date(10, 5), calendar: Self.utc)
+        store.refresh(userId: "climber", modelContext: context, now: Self.date(10, 5), calendar: Self.utc)
+        #expect(store.earned == [.pumpkinClassic, .pumpkinGhost, .pumpkinMidnight])
+        #expect(store.earnedAt[.pumpkinClassic] == Self.date(10, 5), "the open-app item keeps the day of the visit")
+        #expect(store.earnedAt[.pumpkinGhost] == Self.date(10, 1))
+        #expect(store.earnedAt[.pumpkinMidnight] == Self.date(10, 3))
+
+        context.insert(Workout(date: Self.date(10, 6), duration: 1_200, steps: 30_000, floors: 500, source: .headphoneMotion))
+        try context.save()
+        store.refresh(userId: "climber", modelContext: context, now: Self.date(10, 7), calendar: Self.utc)
+        #expect(store.earnedAt[.pumpkinGiant] == Self.date(10, 6))
+        #expect(store.earnedAt[.pumpkinGhost] == Self.date(10, 1), "a remembered date never moves")
+    }
+
     /// The finish screen's outcome counts the store's own climbs inside the event, and only the
     /// climb that crossed a rung is credited with it.
     @Test

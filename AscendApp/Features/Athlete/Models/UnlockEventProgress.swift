@@ -79,6 +79,20 @@ struct UnlockEventProgress: Equatable, Sendable {
         }
     }
 
+    /// The day of the climb that crossed each item's threshold, for every item `climbs` earn.
+    /// Opening Ascend is not a climb, so an item earned by the visit alone has no date here.
+    static func earnedDates(of items: [UnlockItem], in event: UnlockEvent, climbs: [Climb], calendar: Calendar = .current) -> [AthleteGear: Date] {
+        let ordered = climbs.filter { event.contains($0.date, calendar: calendar) }.sorted { $0.date < $1.date }
+        var dates: [AthleteGear: Date] = [:]
+        for index in ordered.indices {
+            let progress = UnlockEventProgress(event: event, items: items, climbs: Array(ordered[...index]), visited: false, calendar: calendar)
+            for shape in progress.earned where dates[shape] == nil {
+                dates[shape] = ordered[index].date
+            }
+        }
+        return dates
+    }
+
     /// What the climb that brought the climber from `before` to here earned.
     func newlyEarned(since before: UnlockEventProgress?) -> [AthleteGear] {
         let had = Set(before?.earned ?? [])

@@ -23,7 +23,7 @@ final class UnlockStore {
     private(set) var catalog: UnlockCatalog
     /// Everything the climber has earned.
     private(set) var earned: Set<AthleteGear> = []
-    /// When this device first saw each item earned.
+    /// When each item was earned: the climb that crossed its threshold, or the visit that gave it.
     private(set) var earnedAt: [AthleteGear: Date] = [:]
     private(set) var userId: String?
     /// The events the climber has opened Ascend during, and the ones whose intro they have seen.
@@ -99,7 +99,8 @@ final class UnlockStore {
         let running = catalog.events.filter { $0.contains(now, calendar: calendar) && catalog.visitItem(of: $0) != nil }
         guard !running.isEmpty, !Set(running.map(\.id)).isSubset(of: visited) else { return }
         visited.formUnion(running.map(\.id))
-        remember(running.compactMap { catalog.visitItem(of: $0)?.shape }, for: userId, force: true)
+        let items = running.compactMap { catalog.visitItem(of: $0)?.shape }
+        remember(items, earnedOn: Dictionary(items.map { ($0, now) }) { first, _ in first }, for: userId, force: true)
     }
 
     /// The running event whose intro the climber has not seen yet, if any.
@@ -124,12 +125,16 @@ final class UnlockStore {
     func refresh(userId: String, modelContext: ModelContext, now: Date = .now, calendar: Calendar = .current) -> [UnlockEventProgress] {
         load(userId: userId)
         var retired: [AthleteGear] = []
+        var earnedOn: [AthleteGear: Date] = [:]
         let progress = catalog.openedEvents(by: now, calendar: calendar).reversed().compactMap { event -> UnlockEventProgress? in
             guard let climbs = try? UnlockClimbQuery.climbs(in: event, calendar: calendar, modelContext: modelContext) else { return nil }
-            retired += catalog.retiredItems(earnedIn: event, by: climbs, calendar: calendar)
+            let retiredHere = catalog.retiredItems(earnedIn: event, by: climbs, calendar: calendar)
+            retired += retiredHere
+            let items = catalog.lockerItems(of: event, owned: Set(retiredHere))
+            earnedOn.merge(UnlockEventProgress.earnedDates(of: items, in: event, climbs: climbs, calendar: calendar)) { first, _ in first }
             return UnlockEventProgress(event: event, items: catalog.items(earnedIn: event), climbs: climbs, visited: visited.contains(event.id), calendar: calendar)
         }
-        remember(progress.flatMap(\.earned) + retired, for: userId)
+        remember(progress.flatMap(\.earned) + retired, earnedOn: earnedOn, for: userId)
         return progress
     }
 
@@ -147,7 +152,7 @@ final class UnlockStore {
         let upToThisClimb = climbs.filter { $0.date <= workout.date }
         let after = UnlockEventProgress(event: event, items: items, climbs: upToThisClimb, visited: wasVisited, calendar: calendar)
         let before = UnlockEventProgress(event: event, items: items, climbs: upToThisClimb.filter { $0.id != workout.id }, visited: wasVisited, calendar: calendar)
-        remember(after.earned, for: userId)
+        remember(after.earned, earnedOn: UnlockEventProgress.earnedDates(of: items, in: event, climbs: upToThisClimb, calendar: calendar), for: userId)
         return UnlockClimbOutcome(progress: after, newlyEarned: after.newlyEarned(since: before))
     }
 
@@ -162,11 +167,11 @@ final class UnlockStore {
         defaults.removeObject(forKey: Self.earnedKey)
     }
 
-    private func remember(_ items: [AthleteGear], for userId: String, force: Bool = false) {
+    private func remember(_ items: [AthleteGear], earnedOn dates: [AthleteGear: Date], for userId: String, force: Bool = false) {
         guard force || !Set(items).isSubset(of: earned) else { return }
         let now = Date.now
         for item in items where earnedAt[item] == nil {
-            earnedAt[item] = now
+            earnedAt[item] = dates[item] ?? now
         }
         earned.formUnion(items)
         persist(for: userId)
