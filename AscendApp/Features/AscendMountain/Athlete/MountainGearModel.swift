@@ -271,7 +271,7 @@ struct MountainGearModel: Sendable {
         ])
     }
 
-    /// A woven horn spilling fruit out of its mouth, which faces forward.
+    /// A woven horn spilling fruit out of its mouth, which faces forward, laid along the palm.
     static func cornucopia() -> MountainGearModel {
         let count = 16
         let path = (0..<count).map { i -> SIMD3<Float> in
@@ -392,8 +392,8 @@ struct MountainGearModel: Sendable {
         squares.append(slab)
         let wrapper = MountainGearGeometry.box(size: SIMD3(width * 1.06, thickness * 1.18, length * 0.52)).transformed(translation: SIMD3(0, thickness * 0.55, -length * 0.25))
         let foil = MountainGearGeometry.box(size: SIMD3(width * 1.02, thickness * 1.1, 0.02)).transformed(translation: SIMD3(0, thickness * 0.55, 0.005))
-        // Turned so the unwrapped squares point forward and up toward the camera behind.
-        let tilt = simd_quatf(angle: -0.25, axis: SIMD3(1, 0, 0)) * simd_quatf(angle: 0.6, axis: SIMD3(0, 1, 0))
+        // Tipped back toward the camera behind so the unwrapped squares show.
+        let tilt = simd_quatf(angle: 0.35, axis: SIMD3(1, 0, 0)) * simd_quatf(angle: 0.6, axis: SIMD3(0, 1, 0))
         // Lifted so the tilted bar rests on the palm rather than through it.
         let lift = SIMD3<Float>(0, 0.05, 0)
         return MountainGearModel(parts: [

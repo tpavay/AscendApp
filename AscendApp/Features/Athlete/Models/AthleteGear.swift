@@ -72,7 +72,7 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
     var carry: Carry {
         switch self {
         case .pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant: .overhead
-        case .pumpkinPie, .chocolateBar: .tray
+        case .pumpkinPie, .chocolateBar, .cornucopia: .tray
         default: .shoulder
         }
     }

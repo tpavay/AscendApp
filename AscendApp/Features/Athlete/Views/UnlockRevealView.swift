@@ -139,11 +139,34 @@ final class UnlockRevealStage {
             flight.addChild(made)
             burst = made
         }
+        sparkle(at: Self.hoverPoint(for: item))
         elapsed = 0
         playing = (item, after.gear, Self.landing(for: item))
     }
 
     private var pendingRig: MountainAthleteRig?
+    private var sparkles: Entity?
+
+    /// A burst of lime and gold sparks where the item appears.
+    private func sparkle(at point: SIMD3<Float>) {
+        sparkles?.removeFromParent()
+        var emitter = ParticleEmitterComponent.Presets.magic
+        emitter.emitterShape = .sphere
+        emitter.emitterShapeSize = [0.25, 0.25, 0.25]
+        emitter.mainEmitter.color = .evolving(
+            start: .single(UIColor(red: 0.75, green: 1, blue: 0.3, alpha: 1)),
+            end: .single(UIColor(red: 1, green: 0.75, blue: 0.2, alpha: 0))
+        )
+        emitter.mainEmitter.birthRate = 900
+        emitter.mainEmitter.lifeSpan = 0.9
+        emitter.speed = 0.9
+        emitter.timing = .once(warmUp: nil, emit: .init(duration: 0.3))
+        let entity = Entity()
+        entity.components.set(emitter)
+        entity.position = point
+        flight.addChild(entity)
+        sparkles = entity
+    }
 
     private func swap(to dressed: MountainAthleteRig) {
         rig?.root.removeFromParent()
@@ -162,7 +185,7 @@ final class UnlockRevealStage {
         let turn = simd_quatf(angle: 0.38, axis: [0, 1, 0])
         let local: SIMD3<Float> = switch (item.slot, item.carry) {
         case (.carry, .overhead): [0, 1.95, 0.05]
-        case (.carry, .tray): [-0.22, 1.35, 0.4]
+        case (.carry, .tray): [-0.48, 1.62, 0.12]
         case (.carry, _): [-0.19, 1.5, -0.03]
         case (.head, _): [0, 1.6, 0]
         case (.costume, _): [0, 1.35, 0]

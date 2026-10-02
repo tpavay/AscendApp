@@ -34,9 +34,26 @@ enum MountainHauntedProps {
             ghost.position = [side * (kerbSide + 2.4), 2.3, -0.8]
             ghost.orientation = simd_quatf(angle: -side * 0.7, axis: [0, 1, 0])
             ghost.components.set(OpacityComponent(opacity: 0.72))
+            ghost.name = ghostName
             post.addChild(ghost)
         }
         return post
+    }
+
+    static let ghostName = "haunted-ghost"
+    private static let ghostHeight: Float = 2.3
+
+    /// Lets every ghost in view drift: a slow bob and a little sway, each on its own phase so a
+    /// row of them never moves in step.
+    static func drift(_ ghosts: [Entity], at time: TimeInterval) {
+        for (index, ghost) in ghosts.enumerated() {
+            let phase = time * 1.1 + Double(index) * 1.7
+            // Each ghost faces in toward the stairs from whichever side it hangs on.
+            let side: Float = ghost.position.x >= 0 ? 1 : -1
+            ghost.position.y = ghostHeight + Float(sin(phase)) * 0.18
+            ghost.orientation = simd_quatf(angle: -side * 0.7 + Float(cos(phase * 0.4)) * 0.3, axis: [0, 1, 0])
+                * simd_quatf(angle: Float(sin(phase * 0.6)) * 0.12, axis: [0, 0, 1])
+        }
     }
 
     /// Dresses a gate inside the stretch: a lantern on each pillar cap, one lit orange and one

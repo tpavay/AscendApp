@@ -347,12 +347,12 @@ struct UnlockTests {
         #expect(UnlockEventProgress(event: Self.halloween, items: [halloweenNight], climbs: [on30th, on31st], visited: true, calendar: Self.utc).earned == [.emberTrainers])
     }
 
-    /// Only the giants go overhead and the chocolate bar and pie are carried like a tray; everything else rides the
+    /// Only the giants go overhead and the chocolate bar, cornucopia and pie are carried like a tray; everything else rides the
     /// shoulder, where the race camera behind the climber can see it.
     @Test
     func onlyTheGiantsArePressedOverhead() {
         #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .overhead } == [.pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant])
-        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .tray } == [.chocolateBar, .pumpkinPie])
+        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .tray } == [.chocolateBar, .cornucopia, .pumpkinPie])
     }
 
     /// The hands reach the item where the item sits: the shoulder hand comes over the crown from

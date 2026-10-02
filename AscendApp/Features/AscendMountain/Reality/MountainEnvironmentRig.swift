@@ -187,6 +187,10 @@ final class MountainEnvironmentRig {
             entity.position = frame.renderPosition
             entity.orientation = simd_quatf(angle: frame.heading, axis: [0, 1, 0])
         }
+        if hauntedSteps != nil {
+            let ghosts = markerEntities.values.flatMap { $0.children.filter { $0.name == MountainHauntedProps.ghostName } }
+            MountainHauntedProps.drift(ghosts, at: Date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 10_000))
+        }
     }
 
     /// How far behind the climber a gate still thins while the camera is up: past the stairs a
