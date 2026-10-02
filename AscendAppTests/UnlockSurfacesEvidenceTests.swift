@@ -97,6 +97,66 @@ struct UnlockSurfacesEvidenceTests {
         }
     }
 
+    /// The build reaches a climber mid-October, after three climbs saved on a build that had no
+    /// unlocks at all, one of them a live climb stopped short. On the first open of the new build
+    /// all three count: three climbs, 25,000 steps, three days. The intro says what they already
+    /// earned rather than leaving it to be found, and the Locker has those items ready to wear.
+    @Test
+    func climbsSavedBeforeTheUpdateCountOnTheFirstOpen() async throws {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let context = container.mainContext
+        let stoppedShort = Workout(date: try Self.october(1), duration: 900, steps: 4_000, floors: 200, source: .headphoneMotion)
+        stoppedShort.sourceMetadata = #"{"stopReason":"user_stopped","climbTargetStepCount":12000,"targetStepCount":12000}"#
+        for climb in [stoppedShort,
+                      Workout(date: try Self.october(2), duration: 1_800, steps: 9_000, floors: 450, source: .headphoneMotion),
+                      Workout(date: try Self.october(3), duration: 2_400, steps: 12_000, floors: 600, source: .headphoneMotion)] {
+            context.insert(climb)
+        }
+        try context.save()
+
+        // First launch of the new build: nothing remembered, the open recorded, the climbs counted.
+        let unlocks = try Self.freshDevice(retiring: [])
+        let firstOpen = try Self.october(5)
+        unlocks.recordVisit(userId: Self.userId, now: firstOpen)
+        let progress = try #require(unlocks.refresh(userId: Self.userId, modelContext: context, now: firstOpen).first)
+        #expect(progress.climbs == 3)
+        #expect(progress.steps == 25_000)
+        #expect(progress.climbedDays.count == 3)
+        let creditedByClimbing: Set<AthleteGear> = [.pumpkinGhost, .witchHat, .chocolateBar, .pumpkinMidnight]
+        #expect(unlocks.earned == creditedByClimbing.union([.pumpkinClassic]), "\(unlocks.earned)")
+
+        let event = try #require(unlocks.catalog.events.first { $0.id == "halloween-2026" })
+        let introSize = CGSize(width: 402, height: 2_000)
+        try await RenderedScreen.host(
+            UnlockEventIntroView(event: event, items: unlocks.catalog.items(earnedIn: event), look: .starting(for: .man),
+                                 earned: unlocks.earned, onCarry: { _ in }, onClose: {})
+                .frame(width: introSize.width, height: introSize.height),
+            size: introSize,
+            settle: .turns(40)
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("already earned") }
+            #expect(copy.contains("your october climbs already earned 4 more"), "the intro says what earlier climbs earned: \(copy)")
+            try screen.photograph(named: "unlock-update-midmonth-intro")
+        }
+
+        let lockerSize = CGSize(width: 402, height: 1_900)
+        try await RenderedScreen.host(
+            LockerView(userId: Self.userId, store: Self.looks(wearing: nil), unlocks: unlocks)
+                .modelContainer(container)
+                .frame(width: lockerSize.width, height: lockerSize.height),
+            size: lockerSize,
+            settle: .turns(40)
+        ) { screen in
+            let cards = try await Self.cards(on: screen) { $0["Midnight Pumpkin"] != nil }
+            // The Locker opens on carried items; the Witch Hat is on the head tab, and earned above.
+            for item in creditedByClimbing where item.slot == .carry {
+                #expect(cards[item.title] == "Earned", "\(item.title) is earned by the climbs from before the update: \(cards)")
+            }
+            #expect(cards["Heirloom Pumpkin"] == "Locked", "five climbs is still two away: \(cards)")
+            try screen.photograph(named: "unlock-update-midmonth-locker")
+        }
+    }
+
     /// The Giant Pumpkin retired on October 20: a climber who passes 50,000 steps only after
     /// that day is never offered it, and one who passed it before keeps it on a fresh phone,
     /// earned back from the climbs restored there.

@@ -16,6 +16,12 @@ struct UnlockEventIntroView: View {
         items.first { $0.earn.metric == .visits }
     }
 
+    /// Items the climber's climbs this event earned before this first open, for a climber who
+    /// was already climbing when the event reached their phone.
+    private var earnedByClimbing: [UnlockItem] {
+        ladder.filter { earned.contains($0.shape) }
+    }
+
     private var ladder: [UnlockItem] {
         items.filter { $0.earn.metric != .visits }
             .sorted { (Self.order($0.earn.metric), $0.earn.threshold) < (Self.order($1.earn.metric), $1.earn.threshold) }
@@ -68,6 +74,12 @@ struct UnlockEventIntroView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
+                        if !earnedByClimbing.isEmpty {
+                            Text(UnlockCopy.alreadyEarned(earnedByClimbing.count, in: event))
+                                .font(.montserratBold(size: 15))
+                                .foregroundStyle(Color.accent)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         Text("CLIMB IN \(event.monthName.uppercased()) TO EARN MORE")
                             .font(.montserratBold(size: 11))
                             .tracking(1.2)

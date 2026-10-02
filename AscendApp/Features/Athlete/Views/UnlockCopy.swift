@@ -23,6 +23,13 @@ enum UnlockCopy {
         }
     }
 
+    /// What a climber's climbs this event earned before they first saw it: "Your October climbs
+    /// already earned 3 more. They're marked below and waiting in the Locker."
+    static func alreadyEarned(_ count: Int, in event: UnlockEvent) -> String {
+        let amount = count == 1 ? "1 more" : "\(count) more"
+        return "Your \(event.monthName) climbs already earned \(amount). They're marked below and waiting in the Locker."
+    }
+
     /// "4 CLIMBS · 12,400 STEPS".
     static func tally(_ progress: UnlockEventProgress) -> String {
         let climbs = progress.climbs == 1 ? "1 CLIMB" : "\(progress.climbs) CLIMBS"

@@ -347,6 +347,9 @@ struct MainTabView: View {
         let unlocks = UnlockStore.shared
         await unlocks.refreshCatalogIfNeeded()
         unlocks.recordVisit(userId: userId)
+        // Credit every climb already saved this event, including ones from before this build, so the
+        // intro shows what they earned rather than a ladder that is all locked.
+        unlocks.refresh(userId: userId, modelContext: modelContext)
         guard introEvent == nil, recapCoordinator.story == nil, isPeriodRecapEligible(userId: userId),
               let event = unlocks.pendingIntro(userId: userId) else { return }
         _ = await AthleteLookStore.shared.load(userId: userId)

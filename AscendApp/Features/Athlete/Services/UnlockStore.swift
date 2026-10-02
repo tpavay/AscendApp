@@ -5,7 +5,8 @@ import SwiftData
 /// The unlock catalogue in force, and which items the signed-in climber has earned.
 ///
 /// Event items are derived, never granted: an item is earned when the climbs the climber
-/// finished in Ascend during its event reach its threshold, counted from the local store - which
+/// saved in Ascend during its event reach its threshold - every climb saved with progress counts,
+/// a live climb stopped short of the top as much as one that reached it, counted from the local store - which
 /// a reinstall restores from the climber's cloud backup, so a new phone earns the same climbing
 /// items back. The visit item is the exception: opening Ascend is remembered only on the device
 /// for the signed-in account, so after a sign-out or reinstall only a climb in the event earns it
@@ -132,7 +133,7 @@ final class UnlockStore {
         return progress
     }
 
-    /// What one finished climb did for the event it fell in: where the climber stood once it was
+    /// What one saved climb did for the event it fell in: where the climber stood once it was
     /// done, and anything that climb itself earned, so a reopened summary reads as it did at the
     /// finish. Nil when the climb fell outside every event.
     func outcome(of workout: Workout, userId: String, modelContext: ModelContext, calendar: Calendar = .current) -> UnlockClimbOutcome? {
@@ -191,14 +192,16 @@ final class UnlockStore {
     }
 }
 
-/// What one finished climb did for its event.
+/// What one saved climb did for its event.
 struct UnlockClimbOutcome: Equatable, Sendable {
     let progress: UnlockEventProgress
     let newlyEarned: [AthleteGear]
 }
 
-/// The climbs an event counts: the ones Ascend recorded inside its days. Bounded by the event,
-/// never by the climber's whole history.
+/// The climbs an event counts: every one Ascend recorded and saved with progress inside its days,
+/// finished or stopped short - a live climb ended early, a routine stopped partway, a session
+/// recovered after the app was closed. A climb with no steps is not progress and never counts.
+/// Bounded by the event, never by the climber's whole history.
 enum UnlockClimbQuery {
     static func climbs(in event: UnlockEvent, calendar: Calendar, modelContext: ModelContext) throws -> [UnlockEventProgress.Climb] {
         guard let interval = event.interval(in: calendar) else { return [] }
@@ -206,7 +209,7 @@ enum UnlockClimbQuery {
         let start = interval.start, end = interval.end
         var descriptor = FetchDescriptor<Workout>(
             predicate: #Predicate<Workout> { workout in
-                workout.sourceRawValue == source && workout.date >= start && workout.date < end
+                workout.sourceRawValue == source && workout.steps > 0 && workout.date >= start && workout.date < end
             }
         )
         descriptor.propertiesToFetch = [\.id, \.date, \.steps]

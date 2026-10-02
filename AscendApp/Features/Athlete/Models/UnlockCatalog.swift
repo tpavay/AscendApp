@@ -191,11 +191,11 @@ struct UnlockItem: Decodable, Equatable, Hashable, Sendable {
         enum Metric: String, Decodable, Sendable {
             /// Opening Ascend during the event: the item everybody who shows up gets.
             case visits
-            /// Climbs finished in Ascend.
+            /// Climbs saved in Ascend with progress, finished or not.
             case climbs
-            /// Different days with a finished climb: every day of October is 31.
+            /// Different days with a saved climb: every day of October is 31.
             case days
-            /// A climb finished on one day of the event, counted from 1: Halloween itself is 31.
+            /// A climb saved on one day of the event, counted from 1: Halloween itself is 31.
             case onDay
             /// Steps those climbs added up to.
             case steps

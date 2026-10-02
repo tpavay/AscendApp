@@ -343,12 +343,12 @@ struct LockerView: View {
         let threshold = item.earn.threshold
         switch item.earn.metric {
         case .visits: return "Open Ascend in \(event.monthName)."
-        case .climbs: return threshold == 1 ? "Finish a climb in \(event.monthName)." : "Finish \(threshold) climbs in \(event.monthName)."
+        case .climbs: return threshold == 1 ? "Climb once in \(event.monthName)." : "Climb \(threshold) times in \(event.monthName)."
         case .days: return threshold == event.dayCount() ? "Climb every day of \(event.monthName)." : "Climb on \(threshold) different days in \(event.monthName)."
         case .steps: return "Climb \(threshold.formatted()) steps in \(event.monthName)."
         case .onDay:
             let day = event.date(ofDay: threshold)?.formatted(.dateTime.month(.wide).day()) ?? "that day"
-            return "Finish a climb on \(day)."
+            return "Climb on \(day)."
         }
     }
 

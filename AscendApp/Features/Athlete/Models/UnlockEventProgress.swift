@@ -1,6 +1,6 @@
 import Foundation
 
-/// How far a climber has come in one event: the climbs they finished during it and the steps
+/// How far a climber has come in one event: the climbs they saved during it and the steps
 /// those climbs added up to, and which of its items that has earned. Pure, so the ladder is
 /// tested without a store.
 struct UnlockEventProgress: Equatable, Sendable {
@@ -9,9 +9,9 @@ struct UnlockEventProgress: Equatable, Sendable {
     let items: [UnlockItem]
     let climbs: Int
     let steps: Int
-    /// Which of the event's days, counted from 1, had a finished climb.
+    /// Which of the event's days, counted from 1, had a saved climb.
     let climbedDays: Set<Int>
-    /// Different calendar days with a finished climb.
+    /// Different calendar days with a saved climb.
     var days: Int { climbedDays.count }
     /// Whether the climber has opened Ascend during the event.
     let visited: Bool

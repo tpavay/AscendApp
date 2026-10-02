@@ -181,6 +181,38 @@ struct UnlockTests {
 
     // MARK: - Ladder
 
+    /// Any climb saved with progress counts, whether it reached the top or not: a live climb
+    /// stopped short at 4,000 of the climb's 12,000 steps and saved advances the climbs, steps and
+    /// days ladders exactly as a finished one would. A climb with no steps is not progress.
+    @Test
+    func everyClimbSavedWithProgressCountsFinishedOrNot() throws {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let context = container.mainContext
+        let stoppedShort = Workout(date: Self.date(10, 6), duration: 900, steps: 4_000, floors: 200, source: .headphoneMotion)
+        stoppedShort.sourceMetadata = #"{"stopReason":"user_stopped","climbTargetStepCount":12000,"targetStepCount":12000}"#
+        let finished = Workout(date: Self.date(10, 8), duration: 2_400, steps: 12_000, floors: 600, source: .headphoneMotion)
+        let noProgress = Workout(date: Self.date(10, 10), duration: 30, steps: 0, floors: 0, source: .headphoneMotion)
+        [stoppedShort, finished, noProgress].forEach(context.insert)
+        try context.save()
+
+        let climbs = try UnlockClimbQuery.climbs(in: Self.halloween, calendar: Self.utc, modelContext: context)
+        #expect(Set(climbs.map(\.id)) == [stoppedShort.id, finished.id], "the stopped climb counts and the empty one does not")
+
+        let ladder = [
+            Self.item(.pumpkinGhost, .climbs, 2),
+            Self.item(.pumpkinMidnight, .steps, 16_000),
+            Self.item(.witchHat, .days, 2)
+        ]
+        let progress = UnlockEventProgress(event: Self.halloween, items: ladder, climbs: climbs, visited: false, calendar: Self.utc)
+        #expect(progress.climbs == 2)
+        #expect(progress.steps == 16_000)
+        #expect(progress.earned == [.pumpkinGhost, .pumpkinMidnight, .witchHat], "the stopped climb's steps and day count toward the ladder")
+
+        let alone = try UnlockClimbQuery.climbs(in: Self.halloween, calendar: Self.utc, modelContext: context).filter { $0.id == stoppedShort.id }
+        #expect(UnlockEventProgress(event: Self.halloween, items: [Self.item(.pumpkinGhost, .climbs, 1)], climbs: alone, visited: false, calendar: Self.utc).earned == [.pumpkinGhost],
+                "one stopped-short climb on its own is a climb")
+    }
+
     @Test
     func climbsAndStepsInsideTheEventEarnTheirRungs() {
         let climbs = [
@@ -439,8 +471,9 @@ struct UnlockTests {
         #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .tray } == [.chocolateBar, .cornucopia, .pumpkinPie])
     }
 
-    /// The hands reach the item where the item sits: the shoulder hand comes over the crown from
-    /// outside, and both hands take a giant's sides.
+    /// The hands reach the item where the item sits: the shoulder hand cups it from outside, the
+    /// palm on its flank and the fingers reaching up over its crown, and both hands take a giant's
+    /// sides.
     @Test
     func theHandsHoldTheItemWhereItSits() throws {
         let shoulder = MountainCarryHold(carry: .shoulder, height: 0.2, halfWidth: 0.14)
@@ -448,8 +481,10 @@ struct UnlockTests {
         let seat = shoulder.seat(chest: SIMD3(0, 1.3, 0), chestTurn: turn, rightShoulder: SIMD3(-0.17, 1.45, 0))
         #expect(seat.y > 1.45, "it sits on top of the shoulder")
         let rightHand = try #require(shoulder.wrist(side: 1, seat: seat, chestTurn: turn))
-        #expect(rightHand.y > seat.y + 0.18, "the hand is over the crown")
-        #expect(rightHand.x < seat.x, "and comes from outside")
+        #expect(rightHand.x < seat.x - shoulder.body.halfWidth, "the palm is on the outside of the item")
+        #expect((seat.y...seat.y + shoulder.body.top).contains(rightHand.y), "level with its body")
+        let fingers = try #require(shoulder.fingers(side: 1, seat: seat, chestTurn: turn))
+        #expect(fingers.y > seat.y + shoulder.body.top, "the fingers reach up over the crown")
         #expect(shoulder.wrist(side: 0, seat: seat, chestTurn: turn) == nil, "the other arm keeps swinging")
 
         let giant = MountainCarryHold(carry: .overhead, height: 0.45, halfWidth: 0.34)

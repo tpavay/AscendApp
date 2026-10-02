@@ -2,7 +2,7 @@ import FirebaseAuth
 import SwiftData
 import SwiftUI
 
-/// The unlock moment on a finished climb's summary: the item this climb earned, with a button to
+/// The unlock moment on a saved climb's summary: the item this climb earned, with a button to
 /// carry it, or - when it earned nothing - how far the climber is from the next one. Draws
 /// nothing for a climb outside every event.
 struct UnlockFinishCard: View {
