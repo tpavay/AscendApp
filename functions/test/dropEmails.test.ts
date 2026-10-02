@@ -115,8 +115,8 @@ test("requirements use the redesign's bare counts", () => {
     ["days", 1, "1 day"],
     ["days", 7, "7 days"],
     ["days", 31, "31 days"],
-    ["onDay", 31, "Climb on Oct 31"],
-    ["onDay", 1, "Climb on Oct 1"],
+    ["onDay", 31, "Oct 31"],
+    ["onDay", 1, "Oct 1"],
     ["steps", 10000, "10K steps"],
     ["steps", 12500, "12,500 steps"],
   ];

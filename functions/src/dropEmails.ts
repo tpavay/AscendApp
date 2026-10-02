@@ -330,7 +330,7 @@ function compactCount(value: number): string {
 /**
  * The requirement wording the approved Halloween redesign shows on the
  * October page for a catalogue item - bare counts ("5 climbs", "10K steps",
- * "31 days", "Climb on Oct 31"), never "save", "do" or "every day" - so the
+ * "31 days", "Oct 31"), never "save", "do" or "every day" - so the
  * email can be checked against what the app will say. The redesign
  * (`data/ascend-mountain-art-direction/halloween-build-handoff.md` in the
  * firstmate home, section 4.1) supersedes `UnlockCopy.requirement`'s older
@@ -364,7 +364,7 @@ export function catalogueRequirement(
       month: "short",
       timeZone: "UTC",
     });
-    return `Climb on ${label}`;
+    return label;
   }
   default:
     return null;
