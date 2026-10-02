@@ -66,6 +66,9 @@ final class MountainRigFactory {
     private var tags: [TagKey: Tag] = [:]
     private var tagLoads: Set<TagKey> = []
     private var materials: [MaterialKey: any RealityKit.Material] = [:]
+    /// Unlocked kit prints, made once each.
+    private var prints: [AthleteGear: TextureResource] = [:]
+    private var printLoads: Set<AthleteGear> = []
     /// Resources that failed to load: drawn without rather than asked for every frame.
     private var failed: Set<String> = []
 
@@ -95,6 +98,13 @@ final class MountainRigFactory {
             for texture in missing { startTexture(texture.name, semantic: texture.semantic) }
             return nil
         }
+        if case .athlete(let look) = request.style {
+            let missingPrints = printsMissing(for: look)
+            guard missingPrints.isEmpty else {
+                for item in missingPrints { Task { await preparePrint(item) } }
+                return nil
+            }
+        }
         let tagKey = TagKey(label: request.label, accent: MountainAthleteRig.tagAccent(for: request.style))
         guard request.label.isEmpty || tags[tagKey] != nil else {
             startTag(tagKey)
@@ -108,6 +118,9 @@ final class MountainRigFactory {
     func rig(_ request: Request) async throws -> MountainAthleteRig {
         let figure = try await athletes.figure(for: request.look)
         let mesh = try await mesh(for: figure)
+        for item in printsMissing(for: request.look) {
+            await preparePrint(item)
+        }
         for texture in textureNames(for: figure, request: request) where textures[texture.name] == nil && !failed.contains(texture.name) {
             _ = try? await load(texture.name, semantic: texture.semantic)
         }
@@ -116,7 +129,7 @@ final class MountainRigFactory {
         }
         let parts = parts(figure: figure, mesh: mesh, request: request)
         // A standing athlete is posed once, so what it wears has to be made before it stands.
-        for item in parts.gear {
+        for item in parts.gear where item.isWornShape {
             _ = await gear.prepare(item)
         }
         return try MountainAthleteRig(parts: parts, gearLibrary: gear)
@@ -145,7 +158,8 @@ final class MountainRigFactory {
             switch style {
             case .athlete(let look):
                 let set = figure.textures(forSlot: MountainAthleteRig.texturesKey(forSlot: slot, look: look))
-                let textures = [set?.baseColor, set?.normal, set?.roughness].map { $0 ?? "-" }.joined(separator: "|")
+                let print = UnlockStore.shared.isEnabled ? MountainKitPrint.item(forSlot: slot, look: look) : nil
+                let textures = ([set?.baseColor, set?.normal, set?.roughness].map { $0 ?? "-" } + [print?.rawValue ?? "-"]).joined(separator: "|")
                 key = MaterialKey(slot: slot, textures: textures, tint: MountainAthleteRig.tint(forSlot: slot, look: look, textures: set), ghostly: false)
             case .ghost(let color):
                 key = MaterialKey(slot: "", textures: "", tint: color, ghostly: true)
@@ -161,6 +175,9 @@ final class MountainRigFactory {
     }
 
     private func material(for slot: String, look: AthleteLook, figure: MountainAthleteFigure) -> PhysicallyBasedMaterial {
+        if UnlockStore.shared.isEnabled, let item = MountainKitPrint.item(forSlot: slot, look: look) {
+            return kitMaterial(item)
+        }
         let textureSet = figure.textures(forSlot: MountainAthleteRig.texturesKey(forSlot: slot, look: look))
         var material = PhysicallyBasedMaterial()
         material.metallic = .init(floatLiteral: 0)
@@ -185,6 +202,40 @@ final class MountainRigFactory {
             material.roughness = .init(floatLiteral: roughness)
         }
         return material
+    }
+
+    /// Unlocked kit in place of the picked colour: its print, if it has one, and its glow.
+    private func kitMaterial(_ item: AthleteGear) -> PhysicallyBasedMaterial {
+        var material = PhysicallyBasedMaterial()
+        material.metallic = .init(floatLiteral: 0)
+        material.roughness = .init(floatLiteral: 0.7)
+        let tint = MountainKitPrint.tint(item).uiColor
+        if let print = prints[item] {
+            material.baseColor = .init(tint: tint, texture: .init(print))
+        } else {
+            material.baseColor = .init(tint: tint)
+        }
+        let glow = MountainKitPrint.glow(item)
+        if glow > 0 {
+            material.emissiveColor = .init(color: tint)
+            material.emissiveIntensity = glow
+        }
+        return material
+    }
+
+    /// Makes a kit item's print once; a rig wearing it waits for it like any other texture.
+    private func preparePrint(_ item: AthleteGear) async {
+        guard prints[item] == nil, !printLoads.contains(item), let image = MountainKitPrint.image(item) else { return }
+        printLoads.insert(item)
+        defer { printLoads.remove(item) }
+        if let texture = try? await TextureResource(image: image, withName: nil, options: .init(semantic: .color)) {
+            prints[item] = texture
+        }
+    }
+
+    private func printsMissing(for look: AthleteLook) -> [AthleteGear] {
+        guard UnlockStore.shared.isEnabled else { return [] }
+        return [look.tank, look.shorts].compactMap { $0 }.filter { prints[$0] == nil && MountainKitPrint.image($0) != nil }
     }
 
     /// Every name is drawn once, off the main actor, with the plane it is shown on.

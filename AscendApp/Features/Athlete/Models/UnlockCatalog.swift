@@ -126,6 +126,11 @@ struct UnlockEvent: Decodable, Equatable, Hashable, Identifiable, Sendable {
         return DateInterval(start: start, end: end)
     }
 
+    /// The calendar day of the event's `day`th day, counted from 1.
+    func date(ofDay day: Int, calendar: Calendar = .current) -> Date? {
+        interval(in: calendar).flatMap { calendar.date(byAdding: .day, value: day - 1, to: $0.start) }
+    }
+
     /// How many days the event runs: 31 for October.
     func dayCount(calendar: Calendar = .current) -> Int? {
         guard let interval = interval(in: calendar) else { return nil }
@@ -166,6 +171,8 @@ struct UnlockItem: Decodable, Equatable, Hashable, Sendable {
             case climbs
             /// Different days with a finished climb: every day of October is 31.
             case days
+            /// A climb finished on one day of the event, counted from 1: Halloween itself is 31.
+            case onDay
             /// Steps those climbs added up to.
             case steps
         }

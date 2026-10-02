@@ -13,7 +13,8 @@ final class FirestoreAthleteLookRepository: AthleteLookRepository, Sendable {
     static let shared = FirestoreAthleteLookRepository()
 
     /// Bump when the stored shape changes; `firestore.rules` accepts a range, never one number.
-    /// 2 added the optional unlocked items: `carry`, `head` and `costume`.
+    /// 2 added the optional unlocked items, one field per slot: `carry`, `head`, `costume`,
+    /// `tank`, `shorts` and `trainers`.
     static let schemaVersion = 2
 
     private let db: Firestore
@@ -85,7 +86,10 @@ final class FirestoreAthleteLookRepository: AthleteLookRepository, Sendable {
             muscle: muscle,
             carry: item(in: .carry),
             head: item(in: .head),
-            costume: item(in: .costume)
+            costume: item(in: .costume),
+            tank: item(in: .tank),
+            shorts: item(in: .shorts),
+            trainers: item(in: .trainers)
         )
     }
 

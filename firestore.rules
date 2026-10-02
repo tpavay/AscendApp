@@ -1355,6 +1355,9 @@ service cloud.firestore {
           "carry",
           "head",
           "costume",
+          "tank",
+          "shorts",
+          "trainers",
           "updatedAt"
         ]) &&
         request.resource.data.keys().hasAll([
@@ -1389,6 +1392,9 @@ service cloud.firestore {
         ]) &&
         (!("head" in request.resource.data) || request.resource.data.head in ["witch_hat", "pumpkin_head"]) &&
         (!("costume" in request.resource.data) || request.resource.data.costume in ["ghost_sheet"]) &&
+        (!("tank" in request.resource.data) || request.resource.data.tank in ["spiderweb_tank", "pumpkin_stripe_tank"]) &&
+        (!("shorts" in request.resource.data) || request.resource.data.shorts in ["witching_shorts"]) &&
+        (!("trainers" in request.resource.data) || request.resource.data.trainers in ["glow_trainers", "ember_trainers"]) &&
         request.resource.data.updatedAt is timestamp &&
         request.resource.data.updatedAt == request.time;
     }

@@ -72,6 +72,7 @@ struct TelemetryScreenCatalogTests {
         "measurement_system_settings": "MeasurementSystemSelectionView",
         "app_icon_settings": "AppIconSelectionView",
         "unlock_event_intro": "UnlockEventIntroView",
+        "locker": "LockerView",
         "integrations": "IntegrationsView",
         "contact_us": "ContactUsView",
         "contact_form": "ContactFormView",

@@ -60,9 +60,12 @@ enum MountainHauntedProps {
             gate.addChild(light)
 
             if let web = web {
-                let corner = ModelEntity(mesh: .generatePlane(width: 0.7, height: 0.7), materials: [web])
-                corner.position = [side * (span - 0.58), lintelBottom - 0.35, depth / 2 + 0.02]
-                corner.orientation = simd_quatf(angle: side < 0 ? 0 : .pi / 2, axis: [0, 0, 1])
+                // The web fills the corner between the pillar and the lintel, its spokes meeting
+                // in the corner itself.
+                let reach: Float = 1.15
+                let corner = ModelEntity(mesh: .generatePlane(width: reach, height: reach), materials: [web])
+                corner.position = [side * (span - 0.23 - reach / 2), lintelBottom - reach / 2, depth / 2 + 0.02]
+                corner.orientation = simd_quatf(angle: side < 0 ? 0 : -.pi / 2, axis: [0, 0, 1])
                 gate.addChild(corner)
             }
         }
@@ -98,37 +101,48 @@ enum MountainHauntedProps {
         return spider
     }
 
-    /// A spider web in one corner, white silk on nothing, drawn once.
+    /// A spider web in one corner, white silk on nothing, drawn once: spokes fanning from the
+    /// corner and a spiral sagging between them, finest toward the middle.
     private static let web: UnlitMaterial? = {
-        let size = 512
+        let size = 1024
         guard let context = CGContext(
             data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpace(name: CGColorSpace.sRGB)!,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
-        // Spokes from the top-left corner, then sagging threads across them.
+        context.setShouldAntialias(true)
+        context.setLineCap(.round)
         let corner = CGPoint(x: 0, y: CGFloat(size))
-        context.setStrokeColor(CGColor(srgbRed: 0.92, green: 0.92, blue: 0.95, alpha: 0.85))
-        context.setLineWidth(3)
-        let spokes = 7
+        let reach = CGFloat(size) * 0.98
+        let spokes = 11
+        func point(_ angle: CGFloat, _ radius: CGFloat) -> CGPoint {
+            CGPoint(x: corner.x + cos(angle) * radius, y: corner.y + sin(angle) * radius)
+        }
+        // Spokes from the corner, very slightly uneven, as a spider spins them.
+        var angles: [CGFloat] = []
         for spoke in 0...spokes {
-            let angle = -CGFloat.pi / 2 * CGFloat(spoke) / CGFloat(spokes)
+            let wobble: CGFloat = (spoke * 7) % 5 == 0 ? 0.1 : 0
+            angles.append(-CGFloat.pi / 2 * (CGFloat(spoke) + wobble) / CGFloat(spokes))
+        }
+        context.setStrokeColor(CGColor(srgbRed: 0.93, green: 0.93, blue: 0.97, alpha: 0.85))
+        context.setLineWidth(3)
+        for angle in angles {
             context.move(to: corner)
-            context.addLine(to: CGPoint(x: corner.x + cos(angle) * CGFloat(size) * 1.1, y: corner.y + sin(angle) * CGFloat(size) * 1.1))
+            context.addLine(to: point(angle, reach))
         }
         context.strokePath()
+        // The spiral: each turn a little further out, each thread sagging toward the corner.
         context.setLineWidth(2)
-        for ring in 1...6 {
-            let radius = CGFloat(ring) * CGFloat(size) / 6.5
-            for spoke in 0..<spokes {
-                let a0 = -CGFloat.pi / 2 * CGFloat(spoke) / CGFloat(spokes)
-                let a1 = -CGFloat.pi / 2 * CGFloat(spoke + 1) / CGFloat(spokes)
-                let start = CGPoint(x: corner.x + cos(a0) * radius, y: corner.y + sin(a0) * radius)
-                let end = CGPoint(x: corner.x + cos(a1) * radius, y: corner.y + sin(a1) * radius)
-                let mid = CGPoint(x: corner.x + cos((a0 + a1) / 2) * radius * 0.9, y: corner.y + sin((a0 + a1) / 2) * radius * 0.9)
-                context.move(to: start)
-                context.addQuadCurve(to: end, control: mid)
+        context.setStrokeColor(CGColor(srgbRed: 0.93, green: 0.93, blue: 0.97, alpha: 0.7))
+        var radius = CGFloat(size) * 0.07
+        while radius < reach * 0.95 {
+            for (a0, a1) in zip(angles, angles.dropFirst()) {
+                let r0 = radius, r1 = radius * 1.012
+                context.move(to: point(a0, r0))
+                context.addQuadCurve(to: point(a1, r1), control: point((a0 + a1) / 2, (r0 + r1) / 2 * 0.93))
+                radius = r1
             }
+            radius *= 1.06
         }
         context.strokePath()
         guard let image = context.makeImage(),

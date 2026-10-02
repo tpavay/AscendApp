@@ -87,6 +87,19 @@
       }
     },
     {
+      "id": "spiderweb_tank",
+      "slot": "tank",
+      "shape": "spiderweb_tank",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "climbs",
+        "threshold": 15
+      }
+    },
+    {
       "id": "ghost_sheet",
       "slot": "costume",
       "shape": "ghost_sheet",
@@ -100,6 +113,32 @@
       }
     },
     {
+      "id": "witching_shorts",
+      "slot": "shorts",
+      "shape": "witching_shorts",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "days",
+        "threshold": 7
+      }
+    },
+    {
+      "id": "pumpkin_stripe_tank",
+      "slot": "tank",
+      "shape": "pumpkin_stripe_tank",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "days",
+        "threshold": 15
+      }
+    },
+    {
       "id": "pumpkin_head",
       "slot": "head",
       "shape": "pumpkin_head",
@@ -109,6 +148,19 @@
         "path": "event",
         "event": "halloween-2026",
         "metric": "days",
+        "threshold": 31
+      }
+    },
+    {
+      "id": "ember_trainers",
+      "slot": "trainers",
+      "shape": "ember_trainers",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "onDay",
         "threshold": 31
       }
     },
@@ -136,6 +188,19 @@
         "event": "halloween-2026",
         "metric": "steps",
         "threshold": 50000
+      }
+    },
+    {
+      "id": "glow_trainers",
+      "slot": "trainers",
+      "shape": "glow_trainers",
+      "rarity": "elite",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "steps",
+        "threshold": 75000
       }
     },
     {

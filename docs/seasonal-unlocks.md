@@ -3,15 +3,16 @@
 October (Halloween) and November (Thanksgiving) are the first instance of Ascend's unlock system: items a climber earns by climbing and carries or wears up Ascend Mountain.
 Earned only, never bought, cosmetic only, and drawn for everyone who races with you.
 
-An athlete has three slots (`AthleteGear.Slot`): an item carried on the right shoulder or pressed overhead (`carry`), one on the head (`head`), and a costume over the whole athlete (`costume`).
-Each is stored under its slot's name on `users/{uid}/athlete_look/current`, and `firestore.rules` lists the items each slot accepts.
+An athlete has six slots (`AthleteGear.Slot`): an item carried on the right shoulder, pressed overhead or held out like a tray (`carry`), one on the head (`head`), a costume over the whole athlete (`costume`), and kit worn in place of the colours the climber picked (`tank`, `shorts`, `trainers`).
+Carried, head and costume items are shapes of their own riding the skeleton; kit is the athlete's own body redrawn (`MountainKitPrint`): the tank carries clean texture coordinates and takes a tiled print, while the shorts' are cut across seams and the trainers have none, so theirs is a colour that glows.
+Each slot is stored under its own name on `users/{uid}/athlete_look/current`, and `firestore.rules` lists the items each slot accepts.
 
 ## What a climber sees
 
 - The first open during an event shows `UnlockEventIntroView`: the item everybody gets for opening Ascend that month, revealed on the climber's own athlete (`UnlockRevealView`: the athlete faces you, the item bursts in, hovers, and lands where it is worn), and the ladder of what climbing earns.
   It is shown once per event per account, after the period recap and never over it (`MainTabView.presentUnlockIntroIfNeeded`).
 - Every climb finished during an event shows `UnlockFinishCard` on the summary: the item that climb earned, revealed the same way, with EQUIP ON YOUR ATHLETE, or how far the next item is.
-- The athlete editor gains an UNLOCKS row (`AthleteCarryPicker`) with every item of every event that has opened, earned or locked with what earns it; tapping an earned item puts it on, tapping it again takes it off.
+- The Locker (`LockerView`, opened from the athlete editor) holds every item of every event that has opened, by where it goes - carry, head, costume, kit, feet - earned ones ready to wear and the rest showing how far the climber is; tapping an earned item puts it on, tapping it again takes it off.
 - What an athlete has on is drawn on the climber's athlete and on every rival wearing something (`MountainAthleteRig.wear`).
 - During Halloween the first steps of every climb are the haunted stretch (below).
 
@@ -24,7 +25,7 @@ One file, hosted beside the climb catalogue and bundled as a fallback:
 
 Each event has an id, a title ("Halloween"), a month name ("October") and its days (`startsOn`, `endsBefore`, read in the climber's own time zone).
 Each item names the shape it is drawn as, its slot, a rarity, a status (`hidden`, `live`, `retired`) and how it is earned (`path: event`, the event id, `metric` of `visits`, `climbs`, `days` or `steps`, and a threshold).
-`days` counts different days with a finished climb, so a threshold of the event's length is "every day".
+`days` counts different days with a finished climb, so a threshold of the event's length is "every day"; `onDay` is a climb on one day of the event, counted from 1, so 31 is Halloween itself.
 An event may also carry a `theme`, how it dresses the mountain.
 
 Without a build, the file can move an event's dates, change a threshold, or switch a shipped item live ("ship dark, drop live").

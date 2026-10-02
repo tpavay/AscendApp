@@ -18,7 +18,18 @@ struct UnlockEventIntroView: View {
 
     private var ladder: [UnlockItem] {
         items.filter { $0.earn.metric != .visits }
-            .sorted { ($0.earn.metric == .climbs ? 0 : 1, $0.earn.threshold) < ($1.earn.metric == .climbs ? 0 : 1, $1.earn.threshold) }
+            .sorted { (Self.order($0.earn.metric), $0.earn.threshold) < (Self.order($1.earn.metric), $1.earn.threshold) }
+    }
+
+    /// Climbs first, then days, then steps: the order a month earns them in.
+    private static func order(_ metric: UnlockItem.Earn.Metric) -> Int {
+        switch metric {
+        case .visits: 0
+        case .climbs: 1
+        case .days: 2
+        case .onDay: 3
+        case .steps: 4
+        }
     }
 
     var body: some View {

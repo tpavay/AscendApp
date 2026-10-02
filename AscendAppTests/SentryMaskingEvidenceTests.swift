@@ -219,9 +219,11 @@ struct SentryMaskingEvidenceTests {
     /// Builds its world inside `body`, so every hosting gets a scene controller of its own. One
     /// `AscendMountainRealityView` value hosted twice shares its `@State` controller, which the
     /// first hosting's `onDisappear` has already stopped, and the second window stays black.
+    /// Undressed whatever the date, so October's night stretch never decides whether the scene
+    /// is bright enough to have drawn; the mask does not depend on what the scene shows.
     private struct FreshMountain: View {
         var body: some View {
-            AscendMountainRealityView(seed: MountainCourse.ascendMountainSeed, stepSource: { 1_200 })
+            AscendMountainRealityView(seed: MountainCourse.ascendMountainSeed, stepSource: { 1_200 }, themeSource: { nil })
         }
     }
 

@@ -99,23 +99,39 @@ final class UnlockRevealStage {
         before.unequip(item.slot)
         var after = before
         after.equip(item)
-        guard let made = try? await rigs.rig(.init(look: before, style: .athlete(before), label: "", castsLight: true)),
-              let prepared = await gear.prepare(item) else { return }
+        guard let made = try? await rigs.rig(.init(look: before, style: .athlete(before), label: "", castsLight: true)) else { return }
         made.stand()
         rig?.root.removeFromParent()
         athleteHolder.addChild(made.root)
         rig = made
 
+        // Kit is the athlete's own body redrawn, so it arrives as a second athlete swapped in
+        // when the burst peaks; a shape flies in and lands.
+        var dressed: MountainAthleteRig?
+        if !item.isWornShape {
+            dressed = try? await rigs.rig(.init(look: after, style: .athlete(after), label: "", castsLight: true))
+            dressed?.stand()
+        }
         guard animated else {
-            made.wear(after.gear)
-            made.stand()
+            if let dressed {
+                swap(to: dressed)
+            } else {
+                made.wear(after.gear)
+                made.stand()
+            }
             return
         }
         flying?.removeFromParent()
-        let entity = ModelEntity(mesh: prepared.mesh, materials: prepared.materials)
+        let entity: ModelEntity
+        if item.isWornShape, let prepared = await gear.prepare(item) {
+            entity = ModelEntity(mesh: prepared.mesh, materials: prepared.materials)
+        } else {
+            entity = ModelEntity()
+        }
         entity.scale = .zero
         flight.addChild(entity)
         flying = entity
+        pendingRig = dressed
         burst?.removeFromParent()
         if let made = await Self.makeBurst() {
             made.position = Self.hoverPoint(for: item)
@@ -125,6 +141,14 @@ final class UnlockRevealStage {
         }
         elapsed = 0
         playing = (item, after.gear, Self.landing(for: item))
+    }
+
+    private var pendingRig: MountainAthleteRig?
+
+    private func swap(to dressed: MountainAthleteRig) {
+        rig?.root.removeFromParent()
+        athleteHolder.addChild(dressed.root)
+        rig = dressed
     }
 
     /// Where the item hovers before it settles: above and a little in front of the athlete.
@@ -138,9 +162,13 @@ final class UnlockRevealStage {
         let turn = simd_quatf(angle: 0.38, axis: [0, 1, 0])
         let local: SIMD3<Float> = switch (item.slot, item.carry) {
         case (.carry, .overhead): [0, 1.95, 0.05]
+        case (.carry, .tray): [-0.22, 1.35, 0.4]
         case (.carry, _): [-0.19, 1.5, -0.03]
         case (.head, _): [0, 1.6, 0]
         case (.costume, _): [0, 1.35, 0]
+        case (.tank, _): [0, 1.3, 0.15]
+        case (.shorts, _): [0, 0.95, 0.15]
+        case (.trainers, _): [0.1, 0.1, 0.15]
         }
         return turn.act(local)
     }
@@ -174,8 +202,13 @@ final class UnlockRevealStage {
             flying.removeFromParent()
             self.flying = nil
             spotlight.light.intensity = 0
-            rig?.wear(playing.worn)
-            rig?.stand()
+            if let pendingRig {
+                swap(to: pendingRig)
+                self.pendingRig = nil
+            } else {
+                rig?.wear(playing.worn)
+                rig?.stand()
+            }
             self.playing = nil
         }
         if let burst {

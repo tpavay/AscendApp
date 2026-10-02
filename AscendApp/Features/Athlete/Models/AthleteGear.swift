@@ -15,6 +15,11 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
     case witchHat = "witch_hat"
     case pumpkinHead = "pumpkin_head"
     case ghostSheet = "ghost_sheet"
+    case spiderwebTank = "spiderweb_tank"
+    case pumpkinStripeTank = "pumpkin_stripe_tank"
+    case witchingShorts = "witching_shorts"
+    case glowTrainers = "glow_trainers"
+    case emberTrainers = "ember_trainers"
     // Thanksgiving
     case harvestGourd = "harvest_gourd"
     case cornucopia
@@ -33,12 +38,25 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
         case head
         /// Over the whole athlete.
         case costume
+        /// The tank, the shorts and the trainers: kit printed or lit for the season, worn in
+        /// place of the kit colour the climber picked.
+        case tank
+        case shorts
+        case trainers
+    }
+
+    /// Whether the item is a shape of its own on the athlete, rather than kit drawn on the body.
+    var isWornShape: Bool {
+        [.carry, .head, .costume].contains(slot)
     }
 
     var slot: Slot {
         switch self {
         case .witchHat, .pumpkinHead: .head
         case .ghostSheet: .costume
+        case .spiderwebTank, .pumpkinStripeTank: .tank
+        case .witchingShorts: .shorts
+        case .glowTrainers, .emberTrainers: .trainers
         default: .carry
         }
     }
@@ -49,11 +67,14 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
     enum Carry: String, Sendable {
         case shoulder
         case overhead
+        /// Flat on the right palm, forearm level, like a waiter's tray: a pie.
+        case tray
     }
 
     var carry: Carry {
         switch self {
         case .pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant: .overhead
+        case .pumpkinPie: .tray
         default: .shoulder
         }
     }
@@ -70,6 +91,11 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
         case .witchHat: "Witch Hat"
         case .pumpkinHead: "Pumpkin Head"
         case .ghostSheet: "Ghost Sheet"
+        case .spiderwebTank: "Spiderweb Tank"
+        case .pumpkinStripeTank: "Pumpkin Stripe Tank"
+        case .witchingShorts: "Witching Hour Shorts"
+        case .glowTrainers: "Glow Trainers"
+        case .emberTrainers: "Ember Trainers"
         case .harvestGourd: "Harvest Gourd"
         case .cornucopia: "Cornucopia"
         case .roastTurkey: "Roast Turkey"

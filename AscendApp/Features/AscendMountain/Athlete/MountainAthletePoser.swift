@@ -30,11 +30,13 @@ struct MountainCarryHold: Equatable, Sendable {
     var height: Double
     var halfWidth: Double
 
-    /// Where the item rests: on top of the right shoulder, or above the head on both hands.
+    /// Where the item rests: on top of the right shoulder, above the head on both hands, or out in
+    /// front on the right palm.
     func seat(chest: SIMD3<Double>, chestTurn: simd_quatd, rightShoulder: SIMD3<Double>) -> SIMD3<Double> {
         switch carry {
         case .shoulder: rightShoulder + chestTurn.act(SIMD3(0.015, 0.075, -0.03))
         case .overhead: chest + chestTurn.act(SIMD3(0, 0.55, 0.04))
+        case .tray: rightShoulder + chestTurn.act(SIMD3(-0.05, -0.1, 0.4))
         }
     }
 
@@ -47,6 +49,8 @@ struct MountainCarryHold: Equatable, Sendable {
         case (.shoulder, 1): return seat + chestTurn.act(SIMD3(-halfWidth * 0.62, height * 1.02, 0.03))
         case (.shoulder, _): return nil
         case (.overhead, _): return seat + chestTurn.act(SIMD3(sign * halfWidth * 0.9, height * 0.3, 0.02))
+        case (.tray, 1): return seat + chestTurn.act(SIMD3(0, -0.035, -0.08))
+        case (.tray, _): return nil
         }
     }
 
@@ -57,6 +61,8 @@ struct MountainCarryHold: Equatable, Sendable {
         case (.shoulder, 1): return seat + chestTurn.act(SIMD3(halfWidth * 0.1, height * 0.82, 0.02))
         case (.shoulder, _): return nil
         case (.overhead, _): return seat + chestTurn.act(SIMD3(0, height * 0.55, 0))
+        case (.tray, 1): return seat + chestTurn.act(SIMD3(0, -0.035, 0.12))
+        case (.tray, _): return nil
         }
     }
 
@@ -67,6 +73,7 @@ struct MountainCarryHold: Equatable, Sendable {
         switch carry {
         case .shoulder: return chestTurn.act(SIMD3(sign, -0.5, -0.15))
         case .overhead: return chestTurn.act(SIMD3(sign, -0.35, -0.25))
+        case .tray: return chestTurn.act(SIMD3(sign * 0.3, -1, -0.4))
         }
     }
 }

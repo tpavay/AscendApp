@@ -65,14 +65,14 @@ struct UnlockTests {
     }
 
     /// October's ladder: the open, climbs up to twenty, every day of the month, and steps up to a
-    /// hundred thousand - and something to wear on the head and over the body, not only carried.
+    /// hundred thousand - and something for every slot, not only carried.
     @Test
     func halloweenHasALongLadderAndOutfits() throws {
         let catalog = HostedUnlockCatalogRepository.bundledCatalog()
         let event = try #require(catalog.event(id: "halloween-2026"))
         let items = catalog.items(earnedIn: event)
-        #expect(Set(items.map(\.shape.slot)) == [.carry, .head, .costume])
-        let everyDay = try #require(items.first { $0.earn.metric == .days })
+        #expect(Set(items.map(\.shape.slot)) == Set(AthleteGear.Slot.allCases))
+        let everyDay = try #require(items.first { $0.earn.metric == .days && $0.earn.threshold == event.dayCount() })
         #expect(everyDay.earn.threshold == event.dayCount())
         #expect(UnlockCopy.requirement(everyDay, in: event) == "EVERY DAY")
         #expect(items.map(\.earn.threshold).max() == 100_000)
@@ -280,7 +280,7 @@ struct UnlockTests {
 
     /// Every item is a few thousand triangles at most, shared by everyone who carries it, so a
     /// pack of carriers costs less than one more athlete.
-    @Test(arguments: AthleteGear.allCases)
+    @Test(arguments: AthleteGear.allCases.filter(\.isWornShape))
     func everyItemIsCheapAndRestsOnItsSeat(gear: AthleteGear) {
         let model = MountainGearModel.model(for: gear)
         #expect(model.triangleCount > 0)
@@ -317,11 +317,39 @@ struct UnlockTests {
         }
     }
 
-    /// Only the giants go overhead; everything else rides the shoulder, where the race camera
-    /// behind the climber can see it.
+    /// Kit is the athlete's own body redrawn: a print on the tank, a colour that glows on the
+    /// shorts and trainers, and never a shape of its own.
+    @Test
+    func kitIsDrawnOnTheBody() {
+        let kit = AthleteGear.allCases.filter { !$0.isWornShape }
+        #expect(Set(kit.map(\.slot)) == [.tank, .shorts, .trainers])
+        #expect(kit.allSatisfy { MountainGearModel.model(for: $0).parts.isEmpty })
+        #expect(kit.filter { $0.slot == .tank }.allSatisfy { MountainKitPrint.image($0) != nil })
+        #expect(kit.filter { $0.slot != .tank }.allSatisfy { MountainKitPrint.glow($0) > 0 })
+        var look = AthleteLook.starting(for: .man)
+        look.equip(.spiderwebTank)
+        look.equip(.emberTrainers)
+        #expect(MountainKitPrint.item(forSlot: "top", look: look) == .spiderwebTank)
+        #expect(MountainKitPrint.item(forSlot: "shoe", look: look) == .emberTrainers)
+        #expect(MountainKitPrint.item(forSlot: "bottom", look: look) == nil)
+    }
+
+    /// Climbing on one named day earns its item: Halloween is the 31st of October.
+    @Test
+    func aClimbOnHalloweenEarnsItsItem() {
+        let halloweenNight = Self.item(.emberTrainers, .onDay, 31)
+        let on31st = UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 31, 21), steps: 2_000)
+        let on30th = UnlockEventProgress.Climb(id: UUID(), date: Self.date(10, 30, 21), steps: 2_000)
+        #expect(UnlockEventProgress(event: Self.halloween, items: [halloweenNight], climbs: [on30th], visited: true, calendar: Self.utc).earned.isEmpty)
+        #expect(UnlockEventProgress(event: Self.halloween, items: [halloweenNight], climbs: [on30th, on31st], visited: true, calendar: Self.utc).earned == [.emberTrainers])
+    }
+
+    /// Only the giants go overhead and the pie is carried like a tray; everything else rides the
+    /// shoulder, where the race camera behind the climber can see it.
     @Test
     func onlyTheGiantsArePressedOverhead() {
         #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .overhead } == [.pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant])
+        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .tray } == [.pumpkinPie])
     }
 
     /// The hands reach the item where the item sits: the shoulder hand comes over the crown from

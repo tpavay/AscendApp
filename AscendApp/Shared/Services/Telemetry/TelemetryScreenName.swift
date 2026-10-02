@@ -109,6 +109,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case measurementSystemSettings = "measurement_system_settings"
     case appIconSettings = "app_icon_settings"
     case unlockEventIntro = "unlock_event_intro"
+    case locker
     case integrations
     case contactUs = "contact_us"
     case contactForm = "contact_form"
@@ -190,6 +191,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .measurementSystemSettings: "MeasurementSystemSelectionView"
         case .appIconSettings: "AppIconSelectionView"
         case .unlockEventIntro: "UnlockEventIntroView"
+        case .locker: "LockerView"
         case .integrations: "IntegrationsView"
         case .contactUs: "ContactUsView"
         case .contactForm: "ContactFormView"

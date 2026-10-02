@@ -12,6 +12,7 @@ struct AthleteEditorView: View {
     @State private var unlocks = UnlockStore.shared
     /// Each opened event's climbs and steps so far, read once the editor opens.
     @State private var eventProgress: [UnlockEventProgress] = []
+    @State private var showingLocker = false
 
     /// Called once the look is saved, before the editor closes.
     var onSaved: () -> Void = {}
@@ -46,12 +47,8 @@ struct AthleteEditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if unlocks.isEnabled, !eventProgress.isEmpty {
-                        section("UNLOCKS") {
-                            AthleteCarryPicker(
-                                progress: eventProgress,
-                                earned: unlocks.earned,
-                                look: $model.draft
-                            )
+                        section("LOCKER") {
+                            lockerEntry
                         }
                     }
                     section("BODY") {
@@ -132,6 +129,13 @@ struct AthleteEditorView: View {
         .background(Color.black)
         .preferredColorScheme(.dark)
         .trackOnce(screen: .athleteEditor)
+        .fullScreenCover(isPresented: $showingLocker, onDismiss: {
+            // The Locker saves the athlete itself; what it put on joins this draft so a save
+            // here does not take it off again.
+            model.adoptGear(from: store.current)
+        }) {
+            LockerView(userId: authVM.user?.uid, store: store)
+        }
         .task(id: authVM.user?.uid) {
             if let userId = authVM.user?.uid, unlocks.isEnabled {
                 await unlocks.refreshCatalogIfNeeded()
@@ -139,6 +143,45 @@ struct AthleteEditorView: View {
             }
             await loadSavedLook()
         }
+    }
+
+    /// What the athlete has on from the Locker, and the way in.
+    private var lockerEntry: some View {
+        let catalogueItems = eventProgress.flatMap(\.items)
+        let earnedCount = catalogueItems.filter { unlocks.earned.contains($0.shape) }.count
+        return Button {
+            showingLocker = true
+        } label: {
+            HStack(spacing: 12) {
+                HStack(spacing: -10) {
+                    ForEach(model.draft.gear.isEmpty ? Array(catalogueItems.prefix(3).map(\.shape)) : model.draft.gear) { item in
+                        Image(item.thumbnailName)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 40, height: 40)
+                            .padding(3)
+                            .background(Circle().fill(Color(red: 0.12, green: 0.12, blue: 0.14)))
+                    }
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("OPEN THE LOCKER")
+                        .font(.montserratBold(size: 13))
+                        .tracking(0.8)
+                        .foregroundStyle(.white)
+                    Text("\(earnedCount) of \(catalogueItems.count) earned")
+                        .font(.montserratMedium(size: 11))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.06)))
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.isEditable)
     }
 
     private var header: some View {

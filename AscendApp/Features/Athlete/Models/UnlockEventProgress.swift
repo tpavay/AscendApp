@@ -9,8 +9,10 @@ struct UnlockEventProgress: Equatable, Sendable {
     let items: [UnlockItem]
     let climbs: Int
     let steps: Int
+    /// Which of the event's days, counted from 1, had a finished climb.
+    let climbedDays: Set<Int>
     /// Different calendar days with a finished climb.
-    let days: Int
+    var days: Int { climbedDays.count }
     /// Whether the climber has opened Ascend during the event.
     let visited: Bool
 
@@ -21,12 +23,12 @@ struct UnlockEventProgress: Equatable, Sendable {
         let steps: Int
     }
 
-    init(event: UnlockEvent, items: [UnlockItem], climbs: Int, steps: Int, days: Int, visited: Bool) {
+    init(event: UnlockEvent, items: [UnlockItem], climbs: Int, steps: Int, climbedDays: Set<Int>, visited: Bool) {
         self.event = event
         self.items = items
         self.climbs = climbs
         self.steps = steps
-        self.days = days
+        self.climbedDays = climbedDays
         self.visited = visited
     }
 
@@ -38,7 +40,9 @@ struct UnlockEventProgress: Equatable, Sendable {
             items: items,
             climbs: counted.count,
             steps: counted.reduce(0) { $0 + max($1.steps, 0) },
-            days: Set(counted.map { calendar.startOfDay(for: $0.date) }).count,
+            climbedDays: Set(counted.compactMap { climb in
+                event.interval(in: calendar).flatMap { calendar.dateComponents([.day], from: $0.start, to: calendar.startOfDay(for: climb.date)).day }.map { $0 + 1 }
+            }),
             visited: visited || !counted.isEmpty
         )
     }
@@ -49,12 +53,20 @@ struct UnlockEventProgress: Equatable, Sendable {
         case .climbs: climbs
         case .days: days
         case .steps: steps
+        case .onDay: 0
+        }
+    }
+
+    func isEarned(_ item: UnlockItem) -> Bool {
+        switch item.earn.metric {
+        case .onDay: climbedDays.contains(item.earn.threshold)
+        default: value(of: item.earn.metric) >= item.earn.threshold
         }
     }
 
     /// The items this event's climbing has earned.
     var earned: [AthleteGear] {
-        items.filter { value(of: $0.earn.metric) >= $0.earn.threshold }.map(\.shape)
+        items.filter(isEarned).map(\.shape)
     }
 
     /// The next item on each climbing ladder and how much is left to earn it, climbs first.

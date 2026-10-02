@@ -115,10 +115,14 @@ struct AthleteLook: Codable, Hashable, Sendable {
     var carry: AthleteGear? = nil
     var head: AthleteGear? = nil
     var costume: AthleteGear? = nil
+    /// Kit worn over the colours picked above: a printed tank or shorts, lit trainers.
+    var tank: AthleteGear? = nil
+    var shorts: AthleteGear? = nil
+    var trainers: AthleteGear? = nil
 
     /// Every item the athlete has on.
     var gear: [AthleteGear] {
-        [carry, head, costume].compactMap { $0 }
+        AthleteGear.Slot.allCases.compactMap(wearing)
     }
 
     /// The item in `slot`, if any.
@@ -127,6 +131,9 @@ struct AthleteLook: Codable, Hashable, Sendable {
         case .carry: carry
         case .head: head
         case .costume: costume
+        case .tank: tank
+        case .shorts: shorts
+        case .trainers: trainers
         }
     }
 
@@ -136,6 +143,9 @@ struct AthleteLook: Codable, Hashable, Sendable {
         case .carry: carry = item
         case .head: head = item
         case .costume: costume = item
+        case .tank: tank = item
+        case .shorts: shorts = item
+        case .trainers: trainers = item
         }
     }
 
@@ -145,6 +155,9 @@ struct AthleteLook: Codable, Hashable, Sendable {
         case .carry: carry = nil
         case .head: head = nil
         case .costume: costume = nil
+        case .tank: tank = nil
+        case .shorts: shorts = nil
+        case .trainers: trainers = nil
         }
     }
 

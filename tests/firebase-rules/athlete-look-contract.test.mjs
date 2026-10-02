@@ -128,6 +128,12 @@ test('a look wears at most one unlocked item per slot, and only ones the app dra
     await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, head })));
   }
   await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'pumpkin_giant', head: 'witch_hat', costume: 'ghost_sheet' })));
+  await assertSucceeds(setDoc(lookRef(owner), look({
+    schemaVersion: 2, tank: 'spiderweb_tank', shorts: 'witching_shorts', trainers: 'ember_trainers',
+  })));
+  await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, tank: 'pumpkin_stripe_tank', trainers: 'glow_trainers' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, tank: 'glow_trainers' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, shorts: 'spiderweb_tank' })));
   // Each slot takes only its own items.
   await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, head: 'pumpkin_giant' })));
   await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'witch_hat' })));

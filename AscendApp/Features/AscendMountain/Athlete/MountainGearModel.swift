@@ -115,6 +115,9 @@ struct MountainGearModel: Sendable {
         case .witchHat: witchHat()
         case .pumpkinHead: pumpkinHead()
         case .ghostSheet: ghostSheet()
+        case .spiderwebTank, .pumpkinStripeTank, .witchingShorts, .glowTrainers, .emberTrainers:
+            // Kit is drawn on the athlete's own body (`MountainKitPrint`), not as a shape.
+            MountainGearModel(parts: [])
         case .harvestGourd: gourd()
         case .cornucopia: cornucopia()
         case .roastTurkey: turkey(skin: .color(roastBrown, roughness: 0.32))
@@ -273,7 +276,8 @@ struct MountainGearModel: Sendable {
             let t = Float(i) / Float(count - 1)
             return max(1 - t * 0.97, 0.03)
         }
-        let horn = MountainGearGeometry.tube(path: path, radius: 0.1, taper: taper, sides: 14)
+        // Open at the mouth, so its inside is drawn too.
+        let horn = MountainGearGeometry.tube(path: path, radius: 0.1, taper: taper, sides: 14).doubleSided()
         let fruit = MountainGearGeometry.sphere(radius: 0.05, segments: 12).transformed(translation: SIMD3(0.035, 0.085, 0.15))
         let orange = MountainGearGeometry.sphere(radius: 0.045, segments: 12).transformed(translation: SIMD3(-0.04, 0.075, 0.155))
         var grapes = MountainGearGeometry()

@@ -92,7 +92,7 @@ final class MountainAthleteRig {
     }
 
     private func refreshWorn() {
-        for slot in AthleteGear.Slot.allCases {
+        for slot in AthleteGear.Slot.allCases where [.carry, .head, .costume].contains(slot) {
             let item = wanted.first { $0.slot == slot }
             guard worn[slot]?.gear != item else { continue }
             guard let item else {
@@ -399,6 +399,9 @@ final class MountainAthleteRig {
                 item.entity.transform = Transform(scale: .one, rotation: head.turn.float, translation: SIMD3<Float>(head.position))
             case .costume:
                 item.entity.transform = Transform(scale: .one, rotation: chest.turn.float, translation: SIMD3<Float>(neck.position))
+            case .tank, .shorts, .trainers:
+                // Kit is drawn on the body's own materials, never worn as a shape.
+                break
             }
         }
     }

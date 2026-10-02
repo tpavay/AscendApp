@@ -37,6 +37,8 @@ final class MountainSceneController {
     private let markerSource: @MainActor () -> [MountainMarker]
     private let elapsedSource: (@MainActor () -> TimeInterval)?
     private let athleteLook: @MainActor () -> AthleteLook
+    /// How the running event dresses the mountain, read once as the scene is built.
+    private let themeSource: @MainActor () -> UnlockEvent.Theme?
     private let rigs: MountainRigFactory
     /// Which climbers are drawn this frame, and how present each is.
     private var pack: MountainPack
@@ -131,8 +133,10 @@ final class MountainSceneController {
         packLimits: MountainPack.Limits = .init(),
         packReport: (@MainActor (MountainPack.Drawn) -> Void)? = nil,
         journeySource: @escaping @MainActor () -> Int = { 0 },
-        cameraTuning: MountainSceneDirector.CameraTuning = .standard
+        cameraTuning: MountainSceneDirector.CameraTuning = .standard,
+        themeSource: @escaping @MainActor () -> UnlockEvent.Theme? = { UnlockStore.shared.runningTheme() }
     ) {
+        self.themeSource = themeSource
         self.seed = seed
         self.cameraTuning = cameraTuning
         self.worldSource = worldSource
@@ -190,7 +194,7 @@ final class MountainSceneController {
         let look = athleteLook()
         do {
             var dressed = try worldSource()
-            if let theme = UnlockStore.shared.runningTheme(), theme.style == .haunted {
+            if let theme = themeSource(), theme.style == .haunted {
                 dressed = MountainHauntedStretch.dress(dressed, from: journeySource(), length: theme.steps)
                 // The stretch's props are drawn from shared meshes the first frame they stand.
                 _ = await MountainGearLibrary.shared.prepare(.pumpkinLantern)
