@@ -39,8 +39,10 @@ An item whose shape, slot or way of earning a build does not know is skipped by 
 ## How an item is earned
 
 The climber's own phone counts it, from Ascend-recorded climbs (`WorkoutSource.headphoneMotion`) inside the event's days (`UnlockClimbQuery`, bounded by the event, never the whole history).
-A reinstall restores those climbs from the cloud backup, so a new phone earns the same items back.
+A reinstall restores those climbs from the cloud backup, so a new phone earns the same climbing items back.
 Opening Ascend during an event earns its `visits` item (`UnlockStore.recordVisit`).
+That visit is remembered only on this device for the signed-in account, so the open-app item is scoped to the device and the account session: after a sign-out or a reinstall it comes back only from a climb in the event, since any climb in the event also counts as a visit.
+A climber who opened Ascend during October but never climbed, then signs out or reinstalls after the event, loses the Pumpkin; keeping it would need the visit stored on the account, which `users/{uid}/athlete_look/current`'s key list does not allow without a rules change.
 What was earned is remembered on the device per account (`UnlockStore.earnedKey`) and cleared on sign-out, so an unlock outlives a later change to an event's dates.
 
 This is a deliberate first step.

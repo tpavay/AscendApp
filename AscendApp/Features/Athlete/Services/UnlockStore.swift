@@ -6,8 +6,10 @@ import SwiftData
 ///
 /// Event items are derived, never granted: an item is earned when the climbs the climber
 /// finished in Ascend during its event reach its threshold, counted from the local store - which
-/// a reinstall restores from the climber's cloud backup, so a new phone earns the same items
-/// back. What has been earned is also remembered on the device for the signed-in account, so an
+/// a reinstall restores from the climber's cloud backup, so a new phone earns the same climbing
+/// items back. The visit item is the exception: opening Ascend is remembered only on the device
+/// for the signed-in account, so after a sign-out or reinstall only a climb in the event earns it
+/// again. What has been earned is also remembered on the device for the signed-in account, so an
 /// unlock outlives a catalogue that later moves an event's dates. Nothing earned is taken away.
 ///
 /// The general unlock plan moves deciding who earned what to the server; until it does, an event
@@ -129,8 +131,9 @@ final class UnlockStore {
         return progress
     }
 
-    /// What one finished climb did for the event it fell in: where the climber stands now, and
-    /// anything that climb itself earned. Nil when the climb fell outside every event.
+    /// What one finished climb did for the event it fell in: where the climber stood once it was
+    /// done, and anything that climb itself earned, so a reopened summary reads as it did at the
+    /// finish. Nil when the climb fell outside every event.
     func outcome(of workout: Workout, userId: String, modelContext: ModelContext, calendar: Calendar = .current) -> UnlockClimbOutcome? {
         guard isEnabled,
               let event = catalog.events.first(where: { $0.contains(workout.date, calendar: calendar) }),
@@ -139,8 +142,9 @@ final class UnlockStore {
         guard !items.isEmpty else { return nil }
         load(userId: userId)
         let wasVisited = visited.contains(event.id)
-        let after = UnlockEventProgress(event: event, items: items, climbs: climbs, visited: wasVisited, calendar: calendar)
-        let before = UnlockEventProgress(event: event, items: items, climbs: climbs.filter { $0.id != workout.id }, visited: wasVisited, calendar: calendar)
+        let upToThisClimb = climbs.filter { $0.date <= workout.date }
+        let after = UnlockEventProgress(event: event, items: items, climbs: upToThisClimb, visited: wasVisited, calendar: calendar)
+        let before = UnlockEventProgress(event: event, items: items, climbs: upToThisClimb.filter { $0.id != workout.id }, visited: wasVisited, calendar: calendar)
         remember(after.earned, for: userId)
         return UnlockClimbOutcome(progress: after, newlyEarned: after.newlyEarned(since: before))
     }

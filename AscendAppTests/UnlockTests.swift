@@ -281,6 +281,29 @@ struct UnlockTests {
         #expect(store.outcome(of: september, userId: "climber", modelContext: context, calendar: Self.utc) == nil)
     }
 
+    /// A summary reopened after later climbs reads as it did at the finish: it counts only the
+    /// climbs up to it, and is credited only with what it earned itself.
+    @Test
+    func aReopenedClimbReadsAsItDidAtTheFinish() throws {
+        let container = try RetainedModelContainer.inMemory(for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self)
+        let context = container.mainContext
+        let climbs = (1...5).map { day in
+            Workout(date: Self.date(10, day), duration: 1_200, steps: 6_000, floors: 150, source: .headphoneMotion)
+        }
+        climbs.forEach(context.insert)
+        try context.save()
+
+        let (store, _) = store()
+        let first = try #require(store.outcome(of: climbs[0], userId: "climber", modelContext: context, calendar: Self.utc))
+        #expect(first.progress.climbs == 1)
+        #expect(first.progress.steps == 6_000)
+        #expect(first.newlyEarned == [.pumpkinClassic, .pumpkinGhost])
+
+        let fifth = try #require(store.outcome(of: climbs[4], userId: "climber", modelContext: context, calendar: Self.utc))
+        #expect(fifth.progress.climbs == 5)
+        #expect(fifth.newlyEarned == [.pumpkinHeirloom, .pumpkinMidnight])
+    }
+
     // MARK: - Drawing
 
     /// Every item is a few thousand triangles at most, shared by everyone who carries it, so a
