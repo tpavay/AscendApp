@@ -48,7 +48,7 @@ Every climb saved with progress counts toward `climbs`, `days`, `onDay` and `ste
 A climb with no steps is not progress and never counts (`UnlockClimbQuery`).
 Climbs saved before the climber had this build count too: progress is derived from every climb in the local store inside the event's days, never from a tally that starts at install, so a climber who updates mid-October gets every October climb already saved, on every ladder, the first time the new build opens.
 That first open recounts before the event intro shows, and the intro says what those climbs already earned ("Your October climbs already earned 4 more.") with those rungs marked earned, rather than leaving them to be found later.
-`days` counts different days with a saved climb, so a threshold of the event's length is "every day"; `onDay` is a climb on one day of the event, counted from 1, so 31 is Halloween itself.
+`days` counts different days with a saved climb and every page reads its threshold as a bare count ("20 days"); `onDay` is a climb on one day of the event, counted from 1, so 31 is Halloween itself.
 An event may also carry a `theme`, how it dresses the mountain, and a `showcase`, the ids of the three items its Home card shows (its first three items when absent).
 
 Without a build, the file can move an event's dates, change a threshold, or switch a shipped item live ("ship dark, drop live").

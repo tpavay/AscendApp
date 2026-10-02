@@ -282,6 +282,32 @@ struct UnlockSurfacesEvidenceTests {
         }
     }
 
+    /// Pumpkin Head takes twenty days in October, not every day of the month, and its item view
+    /// says so in the rule and in how many days are left to climb.
+    @Test
+    func pumpkinHeadTakesTwentyDaysInOctober() async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [])
+        let event = try #require(unlocks.catalog.event(id: "halloween-2026"))
+        let progress = try #require(unlocks.refresh(userId: Self.userId, modelContext: container.mainContext).first)
+        let item = try #require(unlocks.catalog.items(earnedIn: event).first { $0.shape == .pumpkinHead })
+        let size = CGSize(width: 402, height: 874)
+        try await RenderedScreen.host(
+            UnlockItemView(item: item, event: event, progress: progress, unlocks: unlocks, looks: Self.looks(wearing: nil), userId: { Self.userId }) {}
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+                .frame(width: size.width, height: size.height),
+            size: size,
+            settle: .turns(80)
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("start climbing") }
+            for line in ["pumpkin head", "20 days in october", "locked", "3 of 20 days", "17 to go", "start climbing"] {
+                #expect(copy.contains(line), "\(line): \(copy)")
+            }
+            #expect(!copy.contains("31 days"), "\(copy)")
+            try screen.photograph(named: "halloween-item-locked-pumpkin_head")
+        }
+    }
+
     // MARK: - Your Athlete
 
     /// The gear rows inside Your Athlete: what is owned, NEW on what has not been looked at, an
