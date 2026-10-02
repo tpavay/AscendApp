@@ -100,6 +100,14 @@ final class MountainGearLibrary {
             glow.blending = .transparent(opacity: .init(floatLiteral: 1))
             materials[paint] = glow
             return glow
+        case .ghostSheet:
+            material.roughness = .init(floatLiteral: 0.92)
+            material.baseColor = .init(tint: MountainGearModel.sheetWhite.uiColor)
+            if let texture = await Self.texture(MountainGearArt.ghostSheet()) {
+                material.baseColor = .init(tint: .white, texture: .init(texture))
+            }
+            // A faint sheen of its own, so the sheet still reads white on a dark stretch.
+            material.emissiveColor = .init(color: UIColor(white: 0.16, alpha: 1))
         case .gourdStripes:
             material.roughness = .init(floatLiteral: 0.5)
             if let texture = await Self.texture(MountainGearArt.gourdStripes()) {
@@ -120,34 +128,54 @@ final class MountainGearLibrary {
 /// carried. Drawn with y up, the way a lathe's texture v runs up the shape, and u once round with
 /// the item's front at the middle.
 enum MountainGearArt {
-    private static func faceShapes(width: CGFloat, height: CGFloat) -> [CGPath] {
+    private static func faceShapes(_ face: MountainGearModel.PumpkinSkin.Face, width: CGFloat, height: CGFloat) -> [CGPath] {
         func point(_ u: CGFloat, _ v: CGFloat) -> CGPoint { CGPoint(x: u * width, y: v * height) }
-        var shapes: [CGPath] = []
-        for side in [-1.0, 1.0] as [CGFloat] {
-            let eye = CGMutablePath()
-            let cx = 0.5 + side * 0.058
-            eye.move(to: point(cx - 0.034, 0.585))
-            eye.addLine(to: point(cx + 0.034, 0.585))
-            eye.addLine(to: point(cx + side * 0.012, 0.7))
-            eye.closeSubpath()
-            shapes.append(eye)
+        func polygon(_ points: [(CGFloat, CGFloat)]) -> CGPath {
+            let path = CGMutablePath()
+            path.addLines(between: points.map { point($0.0, $0.1) })
+            path.closeSubpath()
+            return path
         }
-        let nose = CGMutablePath()
-        nose.move(to: point(0.484, 0.5))
-        nose.addLine(to: point(0.516, 0.5))
-        nose.addLine(to: point(0.5, 0.555))
-        nose.closeSubpath()
-        shapes.append(nose)
-        let mouth = CGMutablePath()
-        mouth.move(to: point(0.405, 0.44))
-        // The upper lip with two teeth hanging down, then a grin with one tooth standing up.
-        let upper: [(CGFloat, CGFloat)] = [(0.44, 0.415), (0.455, 0.415), (0.462, 0.385), (0.478, 0.385), (0.485, 0.41),
-                                           (0.515, 0.41), (0.522, 0.385), (0.538, 0.385), (0.545, 0.415), (0.56, 0.415), (0.595, 0.44)]
-        let lower: [(CGFloat, CGFloat)] = [(0.565, 0.35), (0.52, 0.325), (0.512, 0.35), (0.496, 0.35), (0.49, 0.322), (0.44, 0.34)]
-        for (u, v) in upper + lower { mouth.addLine(to: point(u, v)) }
-        mouth.closeSubpath()
-        shapes.append(mouth)
-        return shapes
+        switch face {
+        case .classic:
+            var shapes: [CGPath] = []
+            for side in [-1.0, 1.0] as [CGFloat] {
+                let cx = 0.5 + side * 0.058
+                shapes.append(polygon([(cx - 0.034, 0.585), (cx + 0.034, 0.585), (cx + side * 0.012, 0.7)]))
+            }
+            shapes.append(polygon([(0.484, 0.5), (0.516, 0.5), (0.5, 0.555)]))
+            // The upper lip with two teeth hanging down, then a grin with one tooth standing up.
+            shapes.append(polygon([(0.405, 0.44), (0.44, 0.415), (0.455, 0.415), (0.462, 0.385), (0.478, 0.385), (0.485, 0.41),
+                                   (0.515, 0.41), (0.522, 0.385), (0.538, 0.385), (0.545, 0.415), (0.56, 0.415), (0.595, 0.44),
+                                   (0.565, 0.35), (0.52, 0.325), (0.512, 0.35), (0.496, 0.35), (0.49, 0.322), (0.44, 0.34)]))
+            return shapes
+        case .hollow:
+            return [
+                CGPath(ellipseIn: CGRect(origin: point(0.428, 0.56), size: CGSize(width: 0.05 * width, height: 0.15 * height)), transform: nil),
+                CGPath(ellipseIn: CGRect(origin: point(0.522, 0.56), size: CGSize(width: 0.05 * width, height: 0.15 * height)), transform: nil),
+                CGPath(ellipseIn: CGRect(origin: point(0.479, 0.33), size: CGSize(width: 0.042 * width, height: 0.15 * height)), transform: nil)
+            ]
+        case .grin:
+            var shapes: [CGPath] = []
+            for side in [-1.0, 1.0] as [CGFloat] {
+                let cx = 0.5 + side * 0.06
+                shapes.append(polygon([(cx - side * 0.04, 0.6), (cx + side * 0.04, 0.66), (cx + side * 0.028, 0.57)]))
+            }
+            // A wide crescent: the top lip runs straight with square teeth hanging from it, the
+            // bottom lip is a smooth arc well below them, so the outline never crosses itself.
+            var grin: [(CGFloat, CGFloat)] = [(0.39, 0.49)]
+            for tooth in 0..<4 {
+                let u = 0.445 + CGFloat(tooth) * 0.03
+                grin += [(u, 0.47), (u, 0.43), (u + 0.016, 0.43), (u + 0.016, 0.47)]
+            }
+            grin += [(0.61, 0.49)]
+            for step in 1..<12 {
+                let t = CGFloat(step) / 12
+                grin.append((0.61 - 0.22 * t, 0.49 - 0.15 * sin(t * .pi)))
+            }
+            shapes.append(polygon(grin))
+            return shapes
+        }
     }
 
     private static func context(width: Int, height: Int) -> CGContext? {
@@ -179,9 +207,9 @@ enum MountainGearArt {
         if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: shade, locations: [0, 0.25, 0.75, 1]) {
             context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: height), options: [])
         }
-        if skin.glow != nil {
+        if let face = skin.face {
             context.setFillColor(CGColor(srgbRed: 0.12, green: 0.05, blue: 0.0, alpha: 1))
-            for shape in faceShapes(width: CGFloat(width), height: CGFloat(height)) {
+            for shape in faceShapes(face, width: CGFloat(width), height: CGFloat(height)) {
                 context.addPath(shape)
                 context.fillPath()
             }
@@ -191,13 +219,31 @@ enum MountainGearArt {
 
     /// Candlelight through the carved face, clear everywhere else.
     static func pumpkinGlow(_ skin: MountainGearModel.PumpkinSkin) -> CGImage? {
-        guard let glow = skin.glow else { return nil }
+        guard let glow = skin.glow, let face = skin.face else { return nil }
         let width = 512, height = 256
         guard let context = context(width: width, height: height) else { return nil }
         context.setFillColor(cgColor(glow))
-        for shape in faceShapes(width: CGFloat(width), height: CGFloat(height)) {
+        for shape in faceShapes(face, width: CGFloat(width), height: CGFloat(height)) {
             context.addPath(shape)
             context.fillPath()
+        }
+        return context.makeImage()
+    }
+
+    /// White cloth, a little darker in its folds, with two eye holes cut at the front of the head.
+    static func ghostSheet() -> CGImage? {
+        let width = 512, height = 512
+        guard let context = context(width: width, height: height) else { return nil }
+        for x in 0..<width {
+            let fold = 0.5 + 0.5 * sin(Double(x) / Double(width) * 2 * .pi * 10)
+            let shade = 0.9 + 0.08 * fold
+            context.setFillColor(CGColor(srgbRed: shade, green: shade, blue: shade * 0.98, alpha: 1))
+            context.fill(CGRect(x: x, y: 0, width: 1, height: height))
+        }
+        context.setFillColor(CGColor(srgbRed: 0.04, green: 0.04, blue: 0.05, alpha: 1))
+        // The sheet's texture runs top to bottom, so the eyes sit near v = 0.15, at the face.
+        for u in [0.468, 0.532] {
+            context.fillEllipse(in: CGRect(x: (u - 0.018) * Double(width), y: 0.12 * Double(height), width: 0.036 * Double(width), height: 0.06 * Double(height)))
         }
         return context.makeImage()
     }

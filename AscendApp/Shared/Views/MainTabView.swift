@@ -155,7 +155,7 @@ struct MainTabView: View {
                     guard let userId = authVM.user?.uid else { return }
                     Task {
                         do {
-                            try await AthleteLookStore.shared.carry(item, userId: userId)
+                            try await AthleteLookStore.shared.equip(item, userId: userId)
                         } catch {
                             TelemetryManager.shared.recordError(error, context: .firestore, code: "athlete_look_save_failed")
                         }

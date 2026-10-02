@@ -8,7 +8,7 @@ struct UnlockEventIntroView: View {
     let items: [UnlockItem]
     let look: AthleteLook
     let earned: Set<AthleteGear>
-    /// Carries the visit item and closes.
+    /// Equips the visit item and closes.
     let onCarry: (AthleteGear) -> Void
     let onClose: () -> Void
 
@@ -39,7 +39,7 @@ struct UnlockEventIntroView: View {
                     .padding(.top, 28)
 
                     if let visitItem {
-                        AthletePreviewView(look: carrying(visitItem.shape), framing: .fullBody)
+                        UnlockRevealView(look: look, item: visitItem.shape)
                             .frame(height: 300)
                             .frame(maxWidth: .infinity)
                             .background(RadialGradient(colors: [Color(red: 0.2, green: 0.1, blue: 0.02), .black],
@@ -48,7 +48,7 @@ struct UnlockEventIntroView: View {
                             Text("YOUR \(visitItem.shape.title.uppercased()) IS IN")
                                 .font(.montserratBold(size: 18))
                                 .foregroundStyle(.white)
-                            Text("Opening Ascend in \(event.monthName) earned it. Carry it up the mountain.")
+                            Text("Opening Ascend in \(event.monthName) earned it. Equip it on your athlete and carry it up the mountain.")
                                 .font(.montserratMedium(size: 14))
                                 .foregroundStyle(.white.opacity(0.7))
                                 .multilineTextAlignment(.center)
@@ -80,7 +80,7 @@ struct UnlockEventIntroView: View {
                     Button {
                         onCarry(visitItem.shape)
                     } label: {
-                        Text("CARRY IT")
+                        Text("EQUIP ON YOUR ATHLETE")
                             .font(.montserratBold(size: 14))
                             .tracking(1.1)
                             .foregroundStyle(.black)
@@ -112,12 +112,6 @@ struct UnlockEventIntroView: View {
         .trackOnce(screen: .unlockEventIntro)
     }
 
-    private func carrying(_ shape: AthleteGear) -> AthleteLook {
-        var look = look
-        look.carry = shape
-        return look
-    }
-
     private var endsLine: String {
         let calendar = Calendar.current
         guard let end = event.interval(in: calendar)?.end,
@@ -137,7 +131,7 @@ struct UnlockEventIntroView: View {
                 Text(item.shape.title.uppercased())
                     .font(.montserratBold(size: 14))
                     .foregroundStyle(.white)
-                Text(UnlockCopy.requirement(item))
+                Text(UnlockCopy.requirement(item, in: event))
                     .font(.montserratMedium(size: 12))
                     .foregroundStyle(.white.opacity(0.6))
             }

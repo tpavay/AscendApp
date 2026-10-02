@@ -53,9 +53,15 @@ final class UnlockStore {
     /// Whether unlockable items are shown, offered and drawn at all.
     var isEnabled: Bool { isFlagEnabled() }
 
-    /// The item a look is drawn carrying: none while unlocks are switched off.
-    func drawnCarry(for look: AthleteLook) -> AthleteGear? {
-        isEnabled ? look.carry : nil
+    /// The items a look is drawn wearing: none while unlocks are switched off.
+    func drawnGear(for look: AthleteLook) -> [AthleteGear] {
+        isEnabled ? look.gear : []
+    }
+
+    /// How the running event dresses the mountain, if it does: none while unlocks are off.
+    func runningTheme(now: Date = .now, calendar: Calendar = .current) -> UnlockEvent.Theme? {
+        guard isEnabled else { return nil }
+        return catalog.events.first { $0.contains(now, calendar: calendar) }?.theme
     }
 
     /// Fetches the hosted catalogue once per launch, so an event can move without a build.

@@ -70,6 +70,30 @@ struct AthleteLookTests {
         #expect(read.body == look.body)
     }
 
+    /// One item per slot, each stored under its slot's name; an item stored in the wrong slot is
+    /// not drawn there.
+    @Test
+    func eachSlotIsStoredUnderItsOwnName() throws {
+        var look = AthleteLook.starting(for: .woman)
+        look.equip(.pumpkinGiant)
+        look.equip(.witchHat)
+        look.equip(.ghostSheet)
+        var payload = FirestoreAthleteLookRepository.payload(for: look)
+        #expect(payload["carry"] as? String == "pumpkin_giant")
+        #expect(payload["head"] as? String == "witch_hat")
+        #expect(payload["costume"] as? String == "ghost_sheet")
+        #expect(FirestoreAthleteLookRepository.look(from: payload) == look)
+        #expect(look.gear == [.pumpkinGiant, .witchHat, .ghostSheet])
+
+        look.equip(.pumpkinHead)
+        #expect(look.head == .pumpkinHead, "a second hat replaces the first")
+        look.unequip(.costume)
+        #expect(look.costume == nil)
+
+        payload["head"] = "pumpkin_giant"
+        #expect(try #require(FirestoreAthleteLookRepository.look(from: payload)).head == nil)
+    }
+
     @Test
     func aLookWithAnOptionThisBuildDoesNotOfferIsNotGuessedAt() {
         var payload = FirestoreAthleteLookRepository.payload(for: .starting(for: nil))

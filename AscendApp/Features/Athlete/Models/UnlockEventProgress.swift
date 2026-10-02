@@ -9,6 +9,8 @@ struct UnlockEventProgress: Equatable, Sendable {
     let items: [UnlockItem]
     let climbs: Int
     let steps: Int
+    /// Different calendar days with a finished climb.
+    let days: Int
     /// Whether the climber has opened Ascend during the event.
     let visited: Bool
 
@@ -19,11 +21,12 @@ struct UnlockEventProgress: Equatable, Sendable {
         let steps: Int
     }
 
-    init(event: UnlockEvent, items: [UnlockItem], climbs: Int, steps: Int, visited: Bool) {
+    init(event: UnlockEvent, items: [UnlockItem], climbs: Int, steps: Int, days: Int, visited: Bool) {
         self.event = event
         self.items = items
         self.climbs = climbs
         self.steps = steps
+        self.days = days
         self.visited = visited
     }
 
@@ -35,6 +38,7 @@ struct UnlockEventProgress: Equatable, Sendable {
             items: items,
             climbs: counted.count,
             steps: counted.reduce(0) { $0 + max($1.steps, 0) },
+            days: Set(counted.map { calendar.startOfDay(for: $0.date) }).count,
             visited: visited || !counted.isEmpty
         )
     }
@@ -43,6 +47,7 @@ struct UnlockEventProgress: Equatable, Sendable {
         switch metric {
         case .visits: visited ? 1 : 0
         case .climbs: climbs
+        case .days: days
         case .steps: steps
         }
     }
@@ -54,7 +59,7 @@ struct UnlockEventProgress: Equatable, Sendable {
 
     /// The next item on each climbing ladder and how much is left to earn it, climbs first.
     var nextItems: [(item: UnlockItem, remaining: Int)] {
-        [UnlockItem.Earn.Metric.climbs, .steps].compactMap { metric in
+        [UnlockItem.Earn.Metric.climbs, .days, .steps].compactMap { metric in
             items
                 .filter { $0.earn.metric == metric && value(of: metric) < $0.earn.threshold }
                 .min { $0.earn.threshold < $1.earn.threshold }

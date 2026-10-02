@@ -6,7 +6,11 @@
       "title": "Halloween",
       "monthName": "October",
       "startsOn": "2026-10-01",
-      "endsBefore": "2026-11-01"
+      "endsBefore": "2026-11-01",
+      "theme": {
+        "style": "haunted",
+        "steps": 5000
+      }
     },
     {
       "id": "thanksgiving-2026",
@@ -44,6 +48,19 @@
       }
     },
     {
+      "id": "witch_hat",
+      "slot": "head",
+      "shape": "witch_hat",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "climbs",
+        "threshold": 3
+      }
+    },
+    {
       "id": "pumpkin_heirloom",
       "slot": "carry",
       "shape": "pumpkin_heirloom",
@@ -70,6 +87,32 @@
       }
     },
     {
+      "id": "ghost_sheet",
+      "slot": "costume",
+      "shape": "ghost_sheet",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "climbs",
+        "threshold": 20
+      }
+    },
+    {
+      "id": "pumpkin_head",
+      "slot": "head",
+      "shape": "pumpkin_head",
+      "rarity": "legendary",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "days",
+        "threshold": 31
+      }
+    },
+    {
       "id": "pumpkin_midnight",
       "slot": "carry",
       "shape": "pumpkin_midnight",
@@ -93,6 +136,19 @@
         "event": "halloween-2026",
         "metric": "steps",
         "threshold": 50000
+      }
+    },
+    {
+      "id": "pumpkin_giant_lantern",
+      "slot": "carry",
+      "shape": "pumpkin_giant_lantern",
+      "rarity": "legendary",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "halloween-2026",
+        "metric": "steps",
+        "threshold": 100000
       }
     },
     {

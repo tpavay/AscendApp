@@ -121,16 +121,16 @@ final class AthleteLookStore {
         cache(look, for: userId)
     }
 
-    /// Saves the climber's look carrying `item`, once their saved look has been read so the rest
-    /// of it is not replaced by this device's copy or the starting athlete.
-    func carry(_ item: AthleteGear?, userId: String) async throws {
-        guard await load(userId: userId) else { throw CarryError.lookUnread }
+    /// Saves the climber's look wearing `item` in its slot, once their saved look has been read
+    /// so the rest of it is not replaced by this device's copy or the starting athlete.
+    func equip(_ item: AthleteGear, userId: String) async throws {
+        guard await load(userId: userId) else { throw EquipError.lookUnread }
         var look = current
-        look.carry = item
+        look.equip(item)
         try await save(look, userId: userId)
     }
 
-    enum CarryError: Error {
+    enum EquipError: Error {
         case lookUnread
     }
 

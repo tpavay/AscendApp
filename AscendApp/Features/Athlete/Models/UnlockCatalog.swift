@@ -66,6 +66,33 @@ struct UnlockEvent: Decodable, Equatable, Hashable, Identifiable, Sendable {
     /// The first day of the event, and the first day after it, in the climber's own calendar.
     let startsOn: Day
     let endsBefore: Day
+    /// How the event dresses Ascend Mountain, if it does.
+    var theme: Theme? = nil
+
+    /// A look the mountain wears during an event, over the first steps of every climb.
+    struct Theme: Decodable, Equatable, Hashable, Sendable {
+        enum Style: String, Decodable, Sendable {
+            /// Night, lanterns, ghosts, webs: October.
+            case haunted
+        }
+
+        /// Nil for a style a later build added, which this build leaves undrawn.
+        let style: Style?
+        let steps: Int
+
+        init(style: Style?, steps: Int) {
+            self.style = style
+            self.steps = steps
+        }
+
+        private enum CodingKeys: String, CodingKey { case style, steps }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            style = (try? container.decode(String.self, forKey: .style)).flatMap(Style.init(rawValue:))
+            steps = max(try container.decode(Int.self, forKey: .steps), 0)
+        }
+    }
 
     /// A calendar day, `YYYY-MM-DD`, read in the climber's time zone: a climb at 11pm on
     /// October 31 counts for Halloween wherever it is climbed.
@@ -99,6 +126,12 @@ struct UnlockEvent: Decodable, Equatable, Hashable, Identifiable, Sendable {
         return DateInterval(start: start, end: end)
     }
 
+    /// How many days the event runs: 31 for October.
+    func dayCount(calendar: Calendar = .current) -> Int? {
+        guard let interval = interval(in: calendar) else { return nil }
+        return calendar.dateComponents([.day], from: interval.start, to: interval.end).day
+    }
+
     func contains(_ date: Date, calendar: Calendar = .current) -> Bool {
         guard let interval = interval(in: calendar) else { return false }
         return date >= interval.start && date < interval.end
@@ -108,10 +141,7 @@ struct UnlockEvent: Decodable, Equatable, Hashable, Identifiable, Sendable {
 /// One thing a climber can unlock: the shape it is drawn as, the slot it goes in, and what
 /// earns it.
 struct UnlockItem: Decodable, Equatable, Hashable, Sendable {
-    enum Slot: String, Decodable, Sendable {
-        /// Held in the arms up the mountain.
-        case carry
-    }
+    typealias Slot = AthleteGear.Slot
 
     enum Status: String, Decodable, Sendable {
         /// Shipped in the build but not offered yet.
@@ -134,6 +164,8 @@ struct UnlockItem: Decodable, Equatable, Hashable, Sendable {
             case visits
             /// Climbs finished in Ascend.
             case climbs
+            /// Different days with a finished climb: every day of October is 31.
+            case days
             /// Steps those climbs added up to.
             case steps
         }
@@ -172,6 +204,9 @@ struct UnlockItem: Decodable, Equatable, Hashable, Sendable {
         earn = try container.decode(Earn.self, forKey: .earn)
         guard earn.threshold > 0 else {
             throw DecodingError.dataCorruptedError(forKey: .earn, in: container, debugDescription: "A threshold must be positive")
+        }
+        guard shape.slot == slot else {
+            throw DecodingError.dataCorruptedError(forKey: .slot, in: container, debugDescription: "\(shape.rawValue) is not worn in \(slot.rawValue)")
         }
     }
 }

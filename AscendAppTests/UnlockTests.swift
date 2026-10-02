@@ -59,9 +59,23 @@ struct UnlockTests {
         for event in catalog.events {
             let items = catalog.items(earnedIn: event)
             #expect(items.filter { $0.earn.metric == .visits }.count == 1, "\(event.id) gives one item for opening Ascend")
-            #expect(items.count == 6)
         }
         #expect(Set(catalog.items.map(\.shape)) == Set(AthleteGear.allCases))
+        #expect(Set(catalog.items.map(\.id)).count == catalog.items.count)
+    }
+
+    /// October's ladder: the open, climbs up to twenty, every day of the month, and steps up to a
+    /// hundred thousand - and something to wear on the head and over the body, not only carried.
+    @Test
+    func halloweenHasALongLadderAndOutfits() throws {
+        let catalog = HostedUnlockCatalogRepository.bundledCatalog()
+        let event = try #require(catalog.event(id: "halloween-2026"))
+        let items = catalog.items(earnedIn: event)
+        #expect(Set(items.map(\.shape.slot)) == [.carry, .head, .costume])
+        let everyDay = try #require(items.first { $0.earn.metric == .days })
+        #expect(everyDay.earn.threshold == event.dayCount())
+        #expect(UnlockCopy.requirement(everyDay, in: event) == "EVERY DAY")
+        #expect(items.map(\.earn.threshold).max() == 100_000)
     }
 
     /// A newer catalogue can name shapes, slots and ways of earning this build has never heard of;
@@ -75,7 +89,8 @@ struct UnlockTests {
           {"id": "b", "shape": "snowman", "slot": "carry", "status": "live", "earn": {"path": "event", "event": "e", "metric": "climbs", "threshold": 1}},
           {"id": "c", "shape": "pumpkin_ghost", "slot": "hat", "status": "live", "earn": {"path": "event", "event": "e", "metric": "climbs", "threshold": 1}},
           {"id": "d", "shape": "pumpkin_ghost", "slot": "carry", "status": "live", "earn": {"path": "streak", "event": "e", "metric": "weeks", "threshold": 4}},
-          {"id": "e", "shape": "pumpkin_ghost", "slot": "carry", "status": "hidden", "earn": {"path": "event", "event": "e", "metric": "steps", "threshold": 0}}
+          {"id": "e", "shape": "pumpkin_ghost", "slot": "carry", "status": "hidden", "earn": {"path": "event", "event": "e", "metric": "steps", "threshold": 0}},
+          {"id": "f", "shape": "witch_hat", "slot": "carry", "status": "live", "earn": {"path": "event", "event": "e", "metric": "climbs", "threshold": 1}}
          ]}
         """
         let catalog = try JSONDecoder().decode(UnlockCatalog.self, from: Data(json.utf8))
@@ -120,6 +135,21 @@ struct UnlockTests {
         #expect(progress.nextItems.map(\.item.shape) == [.pumpkinHeirloom, .pumpkinGiant])
         #expect(progress.nextItems.map(\.remaining) == [3, 23_000])
         #expect(UnlockCopy.nextLines(progress) == ["3 more climbs to the Heirloom Pumpkin", "23,000 more steps to the Giant Pumpkin"])
+    }
+
+    /// Every day of October means thirty-one different days with a finished climb; two climbs on
+    /// one day count once.
+    @Test
+    func daysCountDifferentDaysNotClimbs() {
+        let everyDay = Self.item(.pumpkinHead, .days, 3)
+        let climbs = [Self.date(10, 1, 8), Self.date(10, 1, 20), Self.date(10, 2), Self.date(10, 4)].map {
+            UnlockEventProgress.Climb(id: UUID(), date: $0, steps: 3_000)
+        }
+        let progress = UnlockEventProgress(event: Self.halloween, items: [everyDay], climbs: climbs, visited: false, calendar: Self.utc)
+        #expect(progress.days == 3)
+        #expect(progress.earned == [.pumpkinHead])
+        let short = UnlockEventProgress(event: Self.halloween, items: [everyDay], climbs: Array(climbs.prefix(3)), visited: false, calendar: Self.utc)
+        #expect(UnlockCopy.nextLines(short) == ["1 more day climbing to the Pumpkin Head"])
     }
 
     @Test
@@ -193,11 +223,11 @@ struct UnlockTests {
         enabled = false
         var look = AthleteLook.starting(for: .man)
         look.carry = .pumpkinClassic
-        #expect(store.drawnCarry(for: look) == nil)
+        #expect(store.drawnGear(for: look).isEmpty)
         #expect(store.pendingIntro(userId: "climber", now: Self.date(10, 5), calendar: Self.utc) == nil)
 
         enabled = true
-        #expect(store.drawnCarry(for: look) == .pumpkinClassic)
+        #expect(store.drawnGear(for: look) == [.pumpkinClassic])
         #expect(store.earned == [.pumpkinClassic])
     }
 
@@ -256,7 +286,9 @@ struct UnlockTests {
         #expect(model.triangleCount > 0)
         #expect(model.triangleCount < 6_000)
         let lowest = model.parts.flatMap(\.geometry.positions).map(\.y).min() ?? 0
-        #expect(lowest > -0.06, "an item rests on its seat rather than hanging through it")
+        if gear.slot == .carry {
+            #expect(lowest > -0.06, "a carried item rests on its seat rather than hanging through it")
+        }
         for part in model.parts {
             #expect(part.geometry.normals.count == part.geometry.positions.count)
             #expect(part.geometry.uvs.count == part.geometry.positions.count)
@@ -267,7 +299,7 @@ struct UnlockTests {
     @Test
     func onlyTheCarvedPumpkinsGlow() {
         let glowing = AthleteGear.allCases.filter { MountainGearModel.model(for: $0).glow != nil }
-        #expect(glowing == [.pumpkinLantern, .pumpkinMidnight])
+        #expect(glowing == [.pumpkinGhost, .pumpkinLantern, .pumpkinMidnight, .pumpkinGiantLantern, .pumpkinHead])
         #expect(MountainGearModel.PumpkinSkin.midnight.glow == MountainColor(hex: "#86D30A"), "the midnight pumpkin glows Ascend lime")
     }
 
@@ -289,7 +321,7 @@ struct UnlockTests {
     /// behind the climber can see it.
     @Test
     func onlyTheGiantsArePressedOverhead() {
-        #expect(AthleteGear.allCases.filter { $0.carry == .overhead } == [.pumpkinGiant, .turkeyGiant])
+        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .overhead } == [.pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant])
     }
 
     /// The hands reach the item where the item sits: the shoulder hand comes over the crown from
@@ -311,5 +343,41 @@ struct UnlockTests {
         let right = try #require(giant.wrist(side: 1, seat: overhead, chestTurn: turn))
         #expect(left.x > 0.25 && right.x < -0.25, "a hand on each side")
         #expect(abs(left.y - right.y) < 1e-9)
+    }
+}
+
+/// October's haunted stretch: the world it dresses, and only the steps it names.
+struct MountainHauntedStretchTests {
+    @Test
+    func theStretchIsNightOverItsStepsAndTheMountainAsBeforeEitherSide() throws {
+        let world = try MountainWorld.bundled()
+        let dressed = MountainHauntedStretch.dress(world, from: 1_000, length: 5_000)
+        #expect(dressed.haunted == 1_000..<6_000)
+        for steps in [1_000.0, 3_500, 5_999] {
+            #expect(dressed.regions.region(atSteps: steps).environment.sky == MountainHauntedStretch.sky)
+            #expect(dressed.regions.region(atSteps: steps).environment.terrain == world.regions.region(atSteps: steps).environment.terrain,
+                    "the slopes keep their shape; only the light and colour change")
+        }
+        for steps in [999.0, 6_000, 40_000] {
+            #expect(dressed.regions.region(atSteps: steps).environment == world.regions.region(atSteps: steps).environment)
+        }
+    }
+
+    @Test
+    func lanternsLineOnlyTheStretch() throws {
+        let dressed = MountainHauntedStretch.dress(try MountainWorld.bundled(), from: 0, length: 5_000)
+        let inside = dressed.markers(near: 2_000).filter { $0.design == MountainHauntedStretch.lanternDesign }
+        #expect(!inside.isEmpty)
+        #expect(inside.allSatisfy { $0.step % MountainHauntedStretch.lanternEvery == 0 })
+        #expect(!inside.contains { $0.step % 100 == 0 }, "the step posts and gates keep their own places")
+        #expect(dressed.markers(near: 8_000).filter { $0.design == MountainHauntedStretch.lanternDesign }.isEmpty)
+    }
+
+    /// Halloween dresses the mountain; Thanksgiving does not.
+    @Test
+    func onlyHalloweenDressesTheMountain() throws {
+        let catalog = HostedUnlockCatalogRepository.bundledCatalog()
+        #expect(catalog.event(id: "halloween-2026")?.theme == UnlockEvent.Theme(style: .haunted, steps: 5_000))
+        #expect(catalog.event(id: "thanksgiving-2026")?.theme == nil)
     }
 }

@@ -1,15 +1,19 @@
 # Seasonal unlocks
 
-October (Halloween) and November (Thanksgiving) are the first instance of Ascend's unlock system: items a climber earns by climbing and carries up Ascend Mountain.
+October (Halloween) and November (Thanksgiving) are the first instance of Ascend's unlock system: items a climber earns by climbing and carries or wears up Ascend Mountain.
 Earned only, never bought, cosmetic only, and drawn for everyone who races with you.
+
+An athlete has three slots (`AthleteGear.Slot`): an item carried on the right shoulder or pressed overhead (`carry`), one on the head (`head`), and a costume over the whole athlete (`costume`).
+Each is stored under its slot's name on `users/{uid}/athlete_look/current`, and `firestore.rules` lists the items each slot accepts.
 
 ## What a climber sees
 
-- The first open during an event shows `UnlockEventIntroView`: the item everybody gets for opening Ascend that month, on the climber's own athlete, and the ladder of what climbing earns.
+- The first open during an event shows `UnlockEventIntroView`: the item everybody gets for opening Ascend that month, revealed on the climber's own athlete (`UnlockRevealView`: the athlete faces you, the item bursts in, hovers, and lands where it is worn), and the ladder of what climbing earns.
   It is shown once per event per account, after the period recap and never over it (`MainTabView.presentUnlockIntroIfNeeded`).
-- Every climb finished during an event shows `UnlockFinishCard` on the summary: the item that climb earned with CARRY IT, or how far the next item is.
-- The athlete editor gains a CARRY row (`AthleteCarryPicker`) with every item of every event that has opened, earned or locked with what earns it.
-- The carried item is drawn on the climber's athlete and on every rival who carries one (`MountainAthleteRig.carry`).
+- Every climb finished during an event shows `UnlockFinishCard` on the summary: the item that climb earned, revealed the same way, with EQUIP ON YOUR ATHLETE, or how far the next item is.
+- The athlete editor gains an UNLOCKS row (`AthleteCarryPicker`) with every item of every event that has opened, earned or locked with what earns it; tapping an earned item puts it on, tapping it again takes it off.
+- What an athlete has on is drawn on the climber's athlete and on every rival wearing something (`MountainAthleteRig.wear`).
+- During Halloween the first steps of every climb are the haunted stretch (below).
 
 ## The catalogue
 
@@ -19,7 +23,9 @@ One file, hosted beside the climb catalogue and bundled as a fallback:
 - Bundled: `AscendApp/Features/Athlete/Resources/unlock-catalog.json`, which must be byte-identical to the hosted file (`UnlockTests.theBundledCatalogueIsTheHostedOne`).
 
 Each event has an id, a title ("Halloween"), a month name ("October") and its days (`startsOn`, `endsBefore`, read in the climber's own time zone).
-Each item names the shape it is drawn as, its slot, a rarity, a status (`hidden`, `live`, `retired`) and how it is earned (`path: event`, the event id, `metric` of `visits`, `climbs` or `steps`, and a threshold).
+Each item names the shape it is drawn as, its slot, a rarity, a status (`hidden`, `live`, `retired`) and how it is earned (`path: event`, the event id, `metric` of `visits`, `climbs`, `days` or `steps`, and a threshold).
+`days` counts different days with a finished climb, so a threshold of the event's length is "every day".
+An event may also carry a `theme`, how it dresses the mountain.
 
 Without a build, the file can move an event's dates, change a threshold, or switch a shipped item live ("ship dark, drop live").
 A new shape needs a build: `AthleteGear` and `MountainGearModel` draw it.
@@ -37,15 +43,22 @@ This is a deliberate first step.
 The general unlock plan moves deciding who earned what to a server job that writes where only the server can, and checks ownership before publishing an outfit.
 Until that exists, `carry` on `users/{uid}/athlete_look/current` is bounded to the known shapes but not to what the climber earned: a cosmetic, so the rule bounds the value rather than the evidence.
 
+## The haunted stretch
+
+Halloween's `theme` (`{"style": "haunted", "steps": 5000}`) dresses the first steps of every climb, starting wherever the climber's journey resumes, so a climber high up the mountain sees it as surely as a new one (`MountainHauntedStretch`).
+The regions inside it keep their slopes and take a night palette and a purple sky; lit jack-o'-lanterns stand on the kerb every ten steps, alternating sides, with a ghost drifting beside one in six; gates inside it carry a lantern on each pillar, one lit orange and one purple, webs in the corners and spiders on threads (`MountainHauntedProps`).
+Changing the length, or dropping the theme, is a catalogue edit.
+
 ## Off switch
 
-`unlocks_enabled` (`RemoteFeatureFlag.unlocks`) hides every unlock surface: no carried item drawn, no intro, no finish card, no editor row.
+`unlocks_enabled` (`RemoteFeatureFlag.unlocks`) hides every unlock surface: nothing worn is drawn, no intro, no finish card, no editor row, no haunted stretch.
 It writes and deletes nothing, and earned items come back with it (`docs/remote-config-kill-switches.md`).
 
 ## Cost on the mountain
 
 Each item is one mesh of a few thousand triangles at most (`UnlockTests.everyItemIsCheapAndRestsOnItsSeat`), made once and shared by every climber carrying it, with no skeleton of its own.
 Only the climber's own glowing item carries a point light (`MountainRigFactory.Request.castsLight`); a rival's carved face glows from an unlit decal.
+The haunted stretch's lanterns and ghosts are the same shared meshes with no lights of their own; only its gates carry two lights each, and at most two gates stand in view.
 
 ## The seasonal app icon
 
@@ -69,7 +82,7 @@ Limits: name 30 characters, short description 50, long description 120.
 
 - Name: October Pumpkin Climbs
 - Short description: Climb in October. Earn pumpkins to carry up.
-- Long description: Open Ascend in October: your pumpkin is in. Climb for the Ghost, Heirloom, Jack-o'-Lantern, Midnight and Giant Pumpkins.
+- Long description: Open Ascend in October: your pumpkin is in. Climb for a witch hat, a ghost sheet, and the Giant Jack-o'-Lantern.
 - Badge: Challenge.
 - Event card and detail art: the race-camera stills of the Giant Pumpkin and the Jack-o'-Lantern.
 

@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// The editor's carry row: every item of every event that has opened, the ones the climber has
-/// earned ready to carry, the rest locked with what earns them. One at a time, or none.
+/// The editor's unlocks row: every item of every event that has opened, the ones the climber has
+/// earned ready to wear, the rest locked with what earns them. One item per slot: tapping an
+/// earned item puts it on, tapping what is on takes it off.
 struct AthleteCarryPicker: View {
     let progress: [UnlockEventProgress]
     let earned: Set<AthleteGear>
-    @Binding var selection: AthleteGear?
+    @Binding var look: AthleteLook
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -24,7 +25,6 @@ struct AthleteCarryPicker: View {
                     }
                     ScrollView(.horizontal) {
                         HStack(spacing: 8) {
-                            noneTile
                             ForEach(event.items, id: \.id) { item in
                                 tile(item, in: event.event)
                             }
@@ -36,38 +36,18 @@ struct AthleteCarryPicker: View {
         }
     }
 
-    private var noneTile: some View {
-        let isSelected = selection == nil
-        return Button {
-            selection = nil
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: "hand.raised.slash")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .frame(width: 60, height: 60)
-                Text("NONE")
-                    .font(.montserratBold(size: 10))
-                    .tracking(0.6)
-                    .foregroundStyle(.white.opacity(0.7))
-                Text(" ")
-                    .font(.montserratMedium(size: 9))
-            }
-            .frame(width: 84)
-            .padding(.vertical, 8)
-            .background(tileBackground(selected: isSelected))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Carry nothing")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
     private func tile(_ item: UnlockItem, in event: UnlockEvent) -> some View {
-        let isEarned = earned.contains(item.shape) || selection == item.shape
-        let isSelected = selection == item.shape
+        let isWorn = look.wearing(item.shape.slot) == item.shape
+        let isEarned = earned.contains(item.shape) || isWorn
         return Button {
             guard isEarned else { return }
-            selection = item.shape
+            withAnimation(.smooth(duration: 0.18)) {
+                if isWorn {
+                    look.unequip(item.shape.slot)
+                } else {
+                    look.equip(item.shape)
+                }
+            }
         } label: {
             VStack(spacing: 6) {
                 Image(item.shape.thumbnailName)
@@ -88,8 +68,8 @@ struct AthleteCarryPicker: View {
                     .tracking(0.6)
                     .foregroundStyle(.white.opacity(isEarned ? 0.92 : 0.55))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Text(isEarned ? "EARNED" : UnlockCopy.requirement(item))
+                    .minimumScaleFactor(0.6)
+                Text(isWorn ? "ON" : (isEarned ? "EARNED" : UnlockCopy.requirement(item, in: event)))
                     .font(.montserratMedium(size: 9))
                     .foregroundStyle(isEarned ? Color.accent : .white.opacity(0.45))
                     .lineLimit(1)
@@ -97,21 +77,19 @@ struct AthleteCarryPicker: View {
             }
             .frame(width: 84)
             .padding(.vertical, 8)
-            .background(tileBackground(selected: isSelected))
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.white.opacity(0.06))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(isWorn ? Color.accent : .white.opacity(0.1), lineWidth: isWorn ? 2 : 1)
+                    }
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.shape.title)
-        .accessibilityValue(isEarned ? "Earned" : "Locked. \(UnlockCopy.requirement(item)) in \(event.monthName)")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func tileBackground(selected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(.white.opacity(0.06))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(selected ? Color.accent : .white.opacity(0.1), lineWidth: selected ? 2 : 1)
-            }
+        .accessibilityValue(isWorn ? "On" : (isEarned ? "Earned" : "Locked. \(UnlockCopy.requirement(item, in: event)) in \(event.monthName)"))
+        .accessibilityAddTraits(isWorn ? .isSelected : [])
     }
 }
 
@@ -122,12 +100,16 @@ extension AthleteGear {
 
 /// The words unlock surfaces use, in one place so the editor and the unlock moment agree.
 enum UnlockCopy {
-    /// "10 CLIMBS", "25K STEPS".
-    static func requirement(_ item: UnlockItem) -> String {
+    /// "10 CLIMBS", "25K STEPS", "EVERY DAY".
+    static func requirement(_ item: UnlockItem, in event: UnlockEvent? = nil) -> String {
+        let threshold = item.earn.threshold
         switch item.earn.metric {
-        case .visits: "OPEN ASCEND"
-        case .climbs: item.earn.threshold == 1 ? "1 CLIMB" : "\(item.earn.threshold) CLIMBS"
-        case .steps: "\(compact(item.earn.threshold)) STEPS"
+        case .visits: return "OPEN ASCEND"
+        case .climbs: return threshold == 1 ? "1 CLIMB" : "\(threshold) CLIMBS"
+        case .days:
+            if let event, threshold == event.dayCount() { return "EVERY DAY" }
+            return threshold == 1 ? "1 DAY" : "\(threshold) DAYS"
+        case .steps: return "\(compact(threshold)) STEPS"
         }
     }
 
@@ -143,6 +125,7 @@ enum UnlockCopy {
             let amount = switch next.item.earn.metric {
             case .visits: "Open Ascend"
             case .climbs: next.remaining == 1 ? "1 more climb" : "\(next.remaining) more climbs"
+            case .days: next.remaining == 1 ? "1 more day climbing" : "\(next.remaining) more days climbing"
             case .steps: "\(next.remaining.formatted()) more steps"
             }
             return "\(amount) to the \(next.item.shape.title)"

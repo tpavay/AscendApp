@@ -13,7 +13,7 @@ final class FirestoreAthleteLookRepository: AthleteLookRepository, Sendable {
     static let shared = FirestoreAthleteLookRepository()
 
     /// Bump when the stored shape changes; `firestore.rules` accepts a range, never one number.
-    /// 2 added the optional seasonal `carry`.
+    /// 2 added the optional unlocked items: `carry`, `head` and `costume`.
     static let schemaVersion = 2
 
     private let db: Firestore
@@ -45,19 +45,24 @@ final class FirestoreAthleteLookRepository: AthleteLookRepository, Sendable {
             "muscle": look.muscle.rawValue,
             "updatedAt": FieldValue.serverTimestamp()
         ]
-        if let carry = look.carry {
-            payload["carry"] = carry.rawValue
+        for slot in AthleteGear.Slot.allCases {
+            if let item = look.wearing(slot) {
+                payload[slot.rawValue] = item.rawValue
+            }
         }
         return payload
     }
 
     /// A stored look, or nil when any field is missing or is an option this build does not
-    /// offer - a newer build's choice is drawn as a stand-in rather than guessed at. The carried
-    /// item is the exception: one this build does not know is simply not drawn, and the rest of
-    /// the look still is.
+    /// offer - a newer build's choice is drawn as a stand-in rather than guessed at. Unlocked items
+    /// are the exception: one this build does not know, or one stored in the wrong slot, is simply
+    /// not drawn, and the rest of the look still is.
     static func look(from data: [String: Any]) -> AthleteLook? {
         func option<Option: RawRepresentable>(_ key: String) -> Option? where Option.RawValue == String {
             (data[key] as? String).flatMap(Option.init(rawValue:))
+        }
+        func item(in slot: AthleteGear.Slot) -> AthleteGear? {
+            (data[slot.rawValue] as? String).flatMap(AthleteGear.init(rawValue:)).flatMap { $0.slot == slot ? $0 : nil }
         }
         guard let body: AthleteLook.Body = option("body"),
               let skinTone: AthleteLook.SkinTone = option("skinTone"),
@@ -78,7 +83,9 @@ final class FirestoreAthleteLookRepository: AthleteLookRepository, Sendable {
             shoes: shoes,
             size: size,
             muscle: muscle,
-            carry: option("carry")
+            carry: item(in: .carry),
+            head: item(in: .head),
+            costume: item(in: .costume)
         )
     }
 

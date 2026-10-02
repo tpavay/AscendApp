@@ -115,15 +115,23 @@ test('a value outside the presets is refused, so nothing free-form is ever publi
   await assertFails(setDoc(lookRef(owner), look({ updatedAt: Timestamp.fromMillis(0) })));
 });
 
-test('a look may carry one seasonal item, and only one the app draws', async () => {
+test('a look wears at most one unlocked item per slot, and only ones the app draws', async () => {
   const owner = testEnv.authenticatedContext(ownerId);
   const items = [
     'pumpkin_classic', 'pumpkin_ghost', 'pumpkin_lantern', 'pumpkin_heirloom', 'pumpkin_midnight', 'pumpkin_giant',
-    'harvest_gourd', 'cornucopia', 'roast_turkey', 'pumpkin_pie', 'golden_turkey', 'turkey_giant',
+    'pumpkin_giant_lantern', 'harvest_gourd', 'cornucopia', 'roast_turkey', 'pumpkin_pie', 'golden_turkey', 'turkey_giant',
   ];
   for (const carry of items) {
     await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry })));
   }
+  for (const head of ['witch_hat', 'pumpkin_head']) {
+    await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, head })));
+  }
+  await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'pumpkin_giant', head: 'witch_hat', costume: 'ghost_sheet' })));
+  // Each slot takes only its own items.
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, head: 'pumpkin_giant' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'witch_hat' })));
+  await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, costume: 'witch_hat' })));
   // Carrying nothing is the field's absence, which every earlier build already writes.
   await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2 })));
   await assertFails(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'chainsaw' })));

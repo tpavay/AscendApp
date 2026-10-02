@@ -46,11 +46,11 @@ struct AthleteEditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if unlocks.isEnabled, !eventProgress.isEmpty {
-                        section("CARRY") {
+                        section("UNLOCKS") {
                             AthleteCarryPicker(
                                 progress: eventProgress,
                                 earned: unlocks.earned,
-                                selection: $model.draft.carry
+                                look: $model.draft
                             )
                         }
                     }

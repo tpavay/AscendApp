@@ -25,7 +25,7 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `public_profile_publishing_enabled` | Publishing the public profile mirror, stats, summaries | Republished from local state on the next bootstrap |
 | `champion_recognition_enabled` | Every champion surface - crowns on pictures, the Steps boards' champion strip, the board-coloured podium, past boards. Display only: it writes and deletes nothing | Nothing to defer; the reigning champions show again on the next render after the flag returns |
 | `period_recap_enabled` | Presenting the period recap, and the one client write it adds (`seenAt` on `users/{uid}/recaps`) | Unseen recaps stay unseen on the server and show on the first open after the flag returns |
-| `unlocks_enabled` | Every unlock surface: carried items drawn on the mountain, the unlock moment after a climb, the athlete editor's carry row. Display only: it writes and deletes nothing | Nothing to defer; earned items are offered and drawn again on the next render after the flag returns |
+| `unlocks_enabled` | Every unlock surface: items drawn on athletes, the event intro and the unlock moment after a climb, the athlete editor's unlocks row, and the haunted stretch. Display only: it writes and deletes nothing | Nothing to defer; earned items are offered and drawn again on the next render after the flag returns |
 
 The invariant across all of them: **a blocked path defers its work, it never drops it.**
 The one exception is `step_accuracy_raw_capture_upload_enabled`: its capture lives only in memory until the calibration sheet decides its fate, so there is no pending state to leave behind, and what a blocked climb loses is diagnostic data only.

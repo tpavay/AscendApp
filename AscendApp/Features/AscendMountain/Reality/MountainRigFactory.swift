@@ -18,7 +18,7 @@ final class MountainRigFactory {
         let look: AthleteLook
         let style: MountainAthleteRig.Style
         let label: String
-        /// Whether a glowing carried item lights its surroundings. Only the climber's own athlete
+        /// Whether a glowing item lights its surroundings. Only the climber's own athlete
         /// does: a pack of thirty lanterns would be thirty lights, and a rival's carved face
         /// glows without one.
         var castsLight = false
@@ -45,9 +45,9 @@ final class MountainRigFactory {
         let materials: [any RealityKit.Material]
         let ghostly: Bool
         let tag: Tag?
-        /// The seasonal item the athlete carries; a ghost carries nothing.
-        let carry: AthleteGear?
-        let carryCastsLight: Bool
+        /// The unlocked items the athlete has on; a ghost wears nothing.
+        let gear: [AthleteGear]
+        let gearCastsLight: Bool
     }
 
     /// A name drawn once: its texture on a plane of the right shape.
@@ -115,9 +115,9 @@ final class MountainRigFactory {
             await makeTag(TagKey(label: request.label, accent: MountainAthleteRig.tagAccent(for: request.style)))
         }
         let parts = parts(figure: figure, mesh: mesh, request: request)
-        // A standing athlete is posed once, so what it carries has to be made before it stands.
-        if let carry = parts.carry {
-            _ = await gear.prepare(carry)
+        // A standing athlete is posed once, so what it wears has to be made before it stands.
+        for item in parts.gear {
+            _ = await gear.prepare(item)
         }
         return try MountainAthleteRig(parts: parts, gearLibrary: gear)
     }
@@ -132,8 +132,8 @@ final class MountainRigFactory {
             materials: materials(for: figure, style: request.style),
             ghostly: ghostly,
             tag: tags[TagKey(label: request.label, accent: MountainAthleteRig.tagAccent(for: request.style))],
-            carry: ghostly ? nil : UnlockStore.shared.drawnCarry(for: request.look),
-            carryCastsLight: request.castsLight
+            gear: ghostly ? [] : UnlockStore.shared.drawnGear(for: request.look),
+            gearCastsLight: request.castsLight
         )
     }
 

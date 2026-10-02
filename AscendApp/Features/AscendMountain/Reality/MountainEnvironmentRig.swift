@@ -22,6 +22,9 @@ final class MountainEnvironmentRig {
     private var appliedSkyKey: [Int]?
     private var seaDepth: Float = 400
 
+    /// The steps of October's haunted stretch, whose gates are dressed for it.
+    var hauntedSteps: Range<Int>?
+
     init(resources: MountainEnvironmentResources) throws {
         self.resources = resources
         sky = ModelEntity(mesh: try MountainMeshResource.make(MountainFarGeometry.skyDome(radius: Self.skyRadius)), materials: [UnlitMaterial()])
@@ -220,6 +223,8 @@ final class MountainEnvironmentRig {
             default: .standard
             }
             entity = makeGate(for: marker, proportions: proportions)
+        case .post where marker.design == MountainHauntedStretch.lanternDesign:
+            entity = MountainHauntedProps.lantern(for: marker)
         case .post:
             entity = makePost(for: marker)
         case .line:
@@ -281,6 +286,9 @@ final class MountainEnvironmentRig {
         let face = Self.plaqueFace(width: width, height: width / 2, cornerRadius: 0.06, title: marker.title, subtitle: marker.subtitle)
         face.position = [0, lintelY, lintelDepth / 2 + 0.01]
         gate.addChild(face)
+        if hauntedSteps?.contains(marker.step) == true {
+            MountainHauntedProps.haunt(gate, span: span, pillarTop: pillarTop, lintelBottom: lintelY - proportions.lintelHeight / 2, depth: lintelDepth)
+        }
         return gate
     }
 

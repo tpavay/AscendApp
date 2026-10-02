@@ -11,10 +11,9 @@ struct UnlockFinishCard: View {
     @Environment(\.modelContext) private var modelContext
     @State private var unlocks = UnlockStore.shared
     @State private var outcome: UnlockClimbOutcome?
-    @State private var carrying: AthleteGear?
+    @State private var equipped: AthleteGear?
     @State private var isSaving = false
     @State private var saveFailed = false
-    @State private var appeared = false
 
     var body: some View {
         Group {
@@ -30,10 +29,7 @@ struct UnlockFinishCard: View {
             guard let userId = Auth.auth().currentUser?.uid else { return }
             await unlocks.refreshCatalogIfNeeded()
             outcome = unlocks.outcome(of: workout, userId: userId, modelContext: modelContext)
-            carrying = AthleteLookStore.shared.current.carry
-            withAnimation(.spring(duration: 0.5, bounce: 0.35).delay(0.25)) {
-                appeared = true
-            }
+            equipped = AthleteLookStore.shared.current.gear.first { $0 == outcome?.newlyEarned.last }
         }
     }
 
@@ -43,17 +39,13 @@ struct UnlockFinishCard: View {
                 .font(.montserratBold(size: 11))
                 .tracking(1.4)
                 .foregroundStyle(Color.accent)
-            Image(item.thumbnailName)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 120, height: 120)
-                .scaleEffect(appeared ? 1 : 0.4)
-                .opacity(appeared ? 1 : 0)
-                .accessibilityHidden(true)
+            UnlockRevealView(look: AthleteLookStore.shared.current, item: item)
+                .frame(height: 260)
+                .frame(maxWidth: .infinity)
             Text(item.title.uppercased())
                 .font(.montserratBold(size: 22))
                 .foregroundStyle(.white)
-            Text(carrying == item ? "Your athlete carries it up the mountain." : "Earned. Carry it up the mountain.")
+            Text(equipped == item ? "On your athlete. It goes up the mountain with you." : "Earned. Equip it on your athlete.")
                 .font(.montserratMedium(size: 13))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -63,11 +55,11 @@ struct UnlockFinishCard: View {
                     .foregroundStyle(.white.opacity(0.55))
                     .multilineTextAlignment(.center)
             }
-            if carrying != item {
+            if equipped != item {
                 Button {
                     carry(item)
                 } label: {
-                    Text(isSaving ? "SAVING..." : "CARRY IT")
+                    Text(isSaving ? "SAVING..." : "EQUIP ON YOUR ATHLETE")
                         .font(.montserratBold(size: 13))
                         .tracking(1.1)
                         .foregroundStyle(.black)
@@ -134,8 +126,8 @@ struct UnlockFinishCard: View {
         Task {
             defer { isSaving = false }
             do {
-                try await AthleteLookStore.shared.carry(item, userId: userId)
-                carrying = item
+                try await AthleteLookStore.shared.equip(item, userId: userId)
+                equipped = item
             } catch {
                 saveFailed = true
                 TelemetryManager.shared.recordError(error, context: .firestore, code: "athlete_look_save_failed")

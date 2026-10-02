@@ -67,13 +67,16 @@ struct MountainMarkerSeries: Decodable, Equatable, Sendable {
     let kind: MountainMarker.Kind
     let design: String?
     let subtitle: String?
+    /// The steps the series stands on, or nil for the whole mountain.
+    let range: Range<Int>?
 
-    init(id: String, every: Int, kind: MountainMarker.Kind = .post, design: String? = nil, subtitle: String?) {
+    init(id: String, every: Int, kind: MountainMarker.Kind = .post, design: String? = nil, subtitle: String?, range: Range<Int>? = nil) {
         self.id = id
         self.every = every
         self.kind = kind
         self.design = design
         self.subtitle = subtitle
+        self.range = range
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -110,11 +113,14 @@ struct MountainWorld: Sendable {
     /// Ordered by step.
     let markers: [MountainMarker]
     let markerSeries: [MountainMarkerSeries]
+    /// The steps dressed as October's haunted stretch, if any (`MountainHauntedStretch`).
+    let haunted: Range<Int>?
 
-    init(regions: MountainRegionMap, markers: [MountainMarker], markerSeries: [MountainMarkerSeries] = []) {
+    init(regions: MountainRegionMap, markers: [MountainMarker], markerSeries: [MountainMarkerSeries] = [], haunted: Range<Int>? = nil) {
         self.regions = regions
         self.markers = markers.sorted { $0.step < $1.step }
         self.markerSeries = markerSeries
+        self.haunted = haunted
     }
 
     init(data: Data) throws {
@@ -151,7 +157,8 @@ struct MountainWorld: Sendable {
             let first = max(1, Int((low / Double(series.every)).rounded(.up)))
             let last = Int((high / Double(series.every)).rounded(.down))
             guard first <= last else { continue }
-            for multiple in first...last where taken.insert(multiple * series.every).inserted {
+            for multiple in first...last where series.range.map({ $0.contains(multiple * series.every) }) ?? true
+                && taken.insert(multiple * series.every).inserted {
                 repeated.append(series.marker(at: multiple * series.every))
             }
         }

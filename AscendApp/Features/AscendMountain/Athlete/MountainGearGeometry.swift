@@ -47,6 +47,22 @@ struct MountainGearGeometry: Sendable {
         return kept
     }
 
+    /// The same shape seen from both sides: a second copy facing inward, for cloth whose inside
+    /// shows.
+    func doubleSided() -> MountainGearGeometry {
+        var inside = self
+        inside.normals = normals.map { -$0 }
+        var flipped: [UInt32] = []
+        flipped.reserveCapacity(indices.count)
+        for start in stride(from: 0, to: indices.count, by: 3) {
+            flipped += [indices[start], indices[start + 2], indices[start + 1]]
+        }
+        inside.indices = flipped
+        var both = self
+        both.append(inside)
+        return both
+    }
+
     /// The same shape, larger or smaller about the origin.
     func scaled(by factor: Float) -> MountainGearGeometry {
         var scaled = self

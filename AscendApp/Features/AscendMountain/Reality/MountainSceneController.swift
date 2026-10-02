@@ -189,7 +189,14 @@ final class MountainSceneController {
         let athlete: MountainAthleteRig
         let look = athleteLook()
         do {
-            world = try worldSource()
+            var dressed = try worldSource()
+            if let theme = UnlockStore.shared.runningTheme(), theme.style == .haunted {
+                dressed = MountainHauntedStretch.dress(dressed, from: journeySource(), length: theme.steps)
+                // The stretch's props are drawn from shared meshes the first frame they stand.
+                _ = await MountainGearLibrary.shared.prepare(.pumpkinLantern)
+                _ = await MountainGearLibrary.shared.prepare(.ghostSheet)
+            }
+            world = dressed
             var ground: [MountainTerrainBucket.Surface: MountainScannedMaterial] = [:]
             for surface in MountainTerrainBucket.Surface.allCases {
                 ground[surface] = try? await MountainScannedMaterial.load("ascend-mountain-ground-\(surface)")
@@ -202,6 +209,7 @@ final class MountainSceneController {
             )
             resources = try MountainSceneResources.make()
             far = try MountainEnvironmentRig(resources: environment)
+            far.hauntedSteps = world.haunted
             athlete = try await rigs.rig(.init(look: look, style: .athlete(look), label: "", castsLight: true))
         } catch {
             AppDiagnosticsRecorder.shared.record(
