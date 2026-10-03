@@ -48,8 +48,12 @@ struct HomeView: View {
     @State private var unlocks = UnlockStore.shared
     @State private var openEvent: UnlockEvent?
     @State private var selectedDetailEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
-    @State private var activeJustClimbGoal: JustClimbGoal?
-    @State private var activeJustClimbExperience: JustClimbExperience = .classic
+    /// The Just Climb on screen: the session the START tap began, pushed as the navigation item.
+    /// The live screen is built from this one value. Goal and experience used to be two pieces
+    /// of Home state, and the destination closure read the second one stale on the push - it is
+    /// evaluated with the state Home's last body pass captured - so a climb started on the
+    /// Mountain held a Classic session, which is what the Live Activity then reopened.
+    @State private var activeJustClimbSession: LiveClimbSessionViewModel?
     @State private var showingTodayActivityList = false
     @State private var sheetDetent: BrowseSheetDetent
     @State private var selectedStepTier: ClimbTier?
@@ -62,21 +66,33 @@ struct HomeView: View {
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
 
     private let titleResolver = HomeTodayActivityTitleResolver()
+    /// Builds the session a START tap on the setup sheet begins, once per tap.
+    private let makeJustClimbSession: JustClimbSessionFactory
+
+    typealias JustClimbSessionFactory = @MainActor (JustClimbGoal, JustClimbExperience) -> LiveClimbSessionViewModel
+
+    /// The session the app starts: a live one, counted off this device's own sensors.
+    static let liveJustClimbSession: JustClimbSessionFactory = { goal, experience in
+        LiveClimbSessionViewModel(justClimbGoal: goal, experience: experience, analyticsEntryPoint: .homeDaily)
+    }
 
     /// `initialSheetDetent` is `.compact` in the app: Home opens collapsed to the This
     /// Week line. The evidence suite hosts the other two positions directly, and hands
     /// in a globe view model and an enrichment service built on stubs so a hosted Home
-    /// reads no board and points no process-wide writer at a throwaway store.
+    /// reads no board and points no process-wide writer at a throwaway store, and the
+    /// session a Just Climb starts so a hosted START reaches for no sensor.
     init(
         homeDashboard: HomeDashboardViewModel = HomeDashboardViewModel(),
         tabRouter: TabRouter,
         todayActivity: HomeTodayActivityViewModel = HomeTodayActivityViewModel(),
         globeViewModel: GlobeViewModel = GlobeViewModel(),
         enrichmentService: AppleHealthEnrichmentService = .shared,
-        initialSheetDetent: BrowseSheetDetent = .compact
+        initialSheetDetent: BrowseSheetDetent = .compact,
+        makeJustClimbSession: @escaping JustClimbSessionFactory = HomeView.liveJustClimbSession
     ) {
         self.homeDashboard = homeDashboard
         self.tabRouter = tabRouter
+        self.makeJustClimbSession = makeJustClimbSession
         _todayActivity = State(initialValue: todayActivity)
         _globeViewModel = State(initialValue: globeViewModel)
         _enrichmentService = State(initialValue: enrichmentService)
@@ -178,12 +194,8 @@ struct HomeView: View {
                 effectiveSPM: personalizedClimbSPM
             )
         }
-        .navigationDestination(item: $activeJustClimbGoal) { goal in
-            LiveClimbSessionView(
-                justClimbGoal: goal,
-                experience: activeJustClimbExperience,
-                analyticsEntryPoint: .homeDaily
-            )
+        .navigationDestination(item: $activeJustClimbSession) { session in
+            LiveClimbSessionView(viewModel: session)
         }
         .navigationDestination(item: $openEvent) { event in
             UnlockEventPage(event: event) {
@@ -213,8 +225,7 @@ struct HomeView: View {
             pendingJustClimbGoal = nil
         }) {
             JustClimbSetupSheet(initialGoal: pendingJustClimbGoal) { goal, experience in
-                activeJustClimbExperience = experience
-                activeJustClimbGoal = goal
+                activeJustClimbSession = makeJustClimbSession(goal, experience)
             }
             .presentationDetents([.height(JustClimbSetupSheet.preferredHeight), .medium])
             .presentationDragIndicator(.visible)
