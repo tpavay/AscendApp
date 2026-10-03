@@ -326,6 +326,12 @@ struct MainTabView: View {
         guard let route = LiveClimbActivityRouter.shared.consumePendingRoute() else { return }
         lastRoutedAt = .now
 
+        // The tap usually lands on a climber whose session screen never left: it only brought
+        // Ascend forward. Routing anyway replaces that screen with a second one for the same
+        // session, rebuilt from nothing - the Mountain's scene and its racers, and the page or
+        // tab the climber had chosen - so the screen that is already up is left exactly as it is.
+        guard !LiveClimbActivityCommandCenter.shared.isAnswering(sessionID: route.sessionID) else { return }
+
         tabRouter.select(.home, reason: .appRouting)
         homeNavigationPath = [.liveActivitySession(route.sessionID, route.climbID)]
     }

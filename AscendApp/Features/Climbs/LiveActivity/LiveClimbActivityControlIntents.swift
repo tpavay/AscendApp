@@ -33,6 +33,11 @@ final class LiveClimbActivityCommandCenter {
         handler = nil
     }
 
+    /// Whether that session's own screen is up: it registers as it appears and leaves as it goes.
+    func isAnswering(sessionID: String) -> Bool {
+        self.sessionID == sessionID && handler != nil
+    }
+
     func perform(_ command: LiveClimbActivityCommand) async {
         await handler?(command)
     }
