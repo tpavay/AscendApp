@@ -223,6 +223,7 @@ class AuthenticationViewModel {
                     // reaches, so this is where it goes.
                     FirestoreLiveReplayLeaderboardRepository.shared.clearAccountScopedCaches()
                     AthleteLookStore.shared.clearAccountScopedState()
+                    UnlockStore.shared.clearAccountScopedState()
 
                     self.displayName = ""
                     self.customProfilePictureURL = nil

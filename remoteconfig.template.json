@@ -118,6 +118,13 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops presenting the period recap and writing its seenAt; unseen recaps wait on the server."
+    },
+    "unlocks_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off hides every unlock surface: no carried items drawn, no unlock moment, no editor row. Display only; nothing is written or deleted, and earned items return with the switch."
     }
   },
   "parameterGroups": {},

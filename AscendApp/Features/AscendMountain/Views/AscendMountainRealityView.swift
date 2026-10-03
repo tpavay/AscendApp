@@ -25,7 +25,8 @@ struct AscendMountainRealityView: View {
         journeySource: @escaping @MainActor () -> Int = { 0 },
         cameraTuning: MountainSceneDirector.CameraTuning = .standard,
         packLimits: MountainPack.Limits = .init(),
-        packReport: (@MainActor (MountainPack.Drawn) -> Void)? = nil
+        packReport: (@MainActor (MountainPack.Drawn) -> Void)? = nil,
+        themeSource: @escaping @MainActor () -> UnlockEvent.Theme? = { UnlockStore.shared.runningTheme() }
     ) {
         _controller = State(
             initialValue: MountainSceneController(
@@ -40,7 +41,8 @@ struct AscendMountainRealityView: View {
                 packLimits: packLimits,
                 packReport: packReport,
                 journeySource: journeySource,
-                cameraTuning: cameraTuning
+                cameraTuning: cameraTuning,
+                themeSource: themeSource
             )
         )
     }

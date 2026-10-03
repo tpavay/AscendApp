@@ -12,7 +12,8 @@ export type EmailType =
   | "weekly_recap_active"
   | "weekly_recap_inactive"
   | "monthly_recap_active"
-  | "monthly_recap_inactive";
+  | "monthly_recap_inactive"
+  | "drop_announcement";
 export type EmailJobStatus =
   | "queued"
   | "processing"
@@ -176,13 +177,98 @@ export interface RecapInactivePayload {
   ctaUrl: string;
 }
 
+/**
+ * One unlockable item as a drop email draws it: the app's own item name, the
+ * app's own requirement wording ("10 climbs", "25K steps"), and its
+ * thumbnail on the marketing site. `catalogItemId` is the item's id in the
+ * hosted unlock catalogue, which the send script checks the drop against.
+ */
+export interface DropEmailItem {
+  catalogItemId: string;
+  imagePath: string;
+  name: string;
+  requirement: string;
+}
+
+/**
+ * The free item a group leads with, drawn as a full-width card with a
+ * sentence of its own and a pill (`badge`, "Free").
+ */
+export interface DropEmailLeadItem extends DropEmailItem {
+  badge: string;
+  description: string;
+}
+
+/**
+ * One way of earning, e.g. "Climbs in October": an optional full-width lead
+ * item, then a grid of tiles.
+ */
+export interface DropEmailItemGroup {
+  heading: string;
+  lead?: DropEmailLeadItem;
+  items: DropEmailItem[];
+}
+
+export interface DropEmailFact {
+  label: string;
+  value: string;
+}
+
+export type DropEmailTheme = "halloween";
+
+/**
+ * A picture with the words that stand in for it when it is blocked.
+ */
+export interface DropEmailPicture {
+  alt: string;
+  path: string;
+}
+
+/**
+ * A content drop announcement, carried whole on the job so a new drop is
+ * content rather than code: the renderer draws whatever the payload says.
+ * Picture paths are site-relative, content-hashed names under
+ * `assetBaseUrl` (`scripts/build-drop-email-assets.mjs`), which the sender
+ * checks are deployed before it queues anything.
+ *
+ * The layout is text first: the header band carries the headline as live
+ * text, with `headerArt` beside it and `cobweb` hung in its corner as
+ * decoration; `feature` is the short picture drawn beside `banner`, lower
+ * down.
+ */
+export interface DropEmailPayload {
+  assetBaseUrl: string;
+  banner?: string;
+  /** A smaller line under `banner` that says what it means. */
+  bannerDetail?: string;
+  cobweb?: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  dropId: string;
+  earnHeading: string;
+  eyebrow: string;
+  facts: DropEmailFact[];
+  feature?: DropEmailPicture;
+  groups: DropEmailItemGroup[];
+  headerArt?: DropEmailPicture;
+  headlineLines: string[];
+  intro: string;
+  /** The sender's postal address, drawn in the footer only when set. */
+  postalAddress?: string;
+  preheader: string;
+  subject: string;
+  theme: DropEmailTheme;
+  whyReceived: string;
+}
+
 export type EmailJobPayload =
   | EmptyEmailPayload
   | FirstClimbCompletedPayload
   | FirstAscentClaimedPayload
   | LeaderboardFirstPlacePayload
   | RecapActivePayload
-  | RecapInactivePayload;
+  | RecapInactivePayload
+  | DropEmailPayload;
 
 export interface EmailJobDocument {
   attemptCount: number;

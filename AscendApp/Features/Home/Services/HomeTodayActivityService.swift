@@ -1,7 +1,7 @@
 import Foundation
 @preconcurrency import FirebaseFirestore
 
-/// Reads Home's ON THE GLOBE TODAY feed.
+/// Reads Home's ASCEND ACTIVITY TODAY feed.
 ///
 /// The feed is one server-owned document, so the client holds one listener on it and
 /// never writes it (`firestore.rules`: `home_today_activity`, `allow write: if false`).

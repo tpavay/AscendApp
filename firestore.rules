@@ -1352,6 +1352,11 @@ service cloud.firestore {
           "shoes",
           "size",
           "muscle",
+          "carry",
+          "head",
+          "costume",
+          "shorts",
+          "trainers",
           "updatedAt"
         ]) &&
         request.resource.data.keys().hasAll([
@@ -1377,6 +1382,17 @@ service cloud.firestore {
         request.resource.data.shoes in ["lime", "white", "blue", "pink", "orange", "black"] &&
         request.resource.data.size in ["slim", "regular", "solid", "big"] &&
         request.resource.data.muscle in ["smooth", "some", "defined"] &&
+        // The unlocked items worn, each optional, one per slot (AthleteGear). Earning is the
+        // client's own count of its own climbs: a cosmetic, so the rule bounds the value rather
+        // than the evidence.
+        (!("carry" in request.resource.data) || request.resource.data.carry in [
+          "pumpkin_classic", "pumpkin_ghost", "pumpkin_lantern", "pumpkin_heirloom", "pumpkin_midnight", "pumpkin_giant",
+          "pumpkin_giant_lantern", "candy_corn", "chocolate_bar", "harvest_gourd", "cornucopia", "roast_turkey", "pumpkin_pie", "golden_turkey", "turkey_giant"
+        ]) &&
+        (!("head" in request.resource.data) || request.resource.data.head in ["witch_hat", "pumpkin_head"]) &&
+        (!("costume" in request.resource.data) || request.resource.data.costume in ["ghost_sheet"]) &&
+        (!("shorts" in request.resource.data) || request.resource.data.shorts in ["witching_shorts"]) &&
+        (!("trainers" in request.resource.data) || request.resource.data.trainers in ["glow_trainers", "ember_trainers"]) &&
         request.resource.data.updatedAt is timestamp &&
         request.resource.data.updatedAt == request.time;
     }

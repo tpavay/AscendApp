@@ -333,10 +333,10 @@ private struct PostAuthAthleteScreen: View {
             await store.load(userId: userId)
         }
         .sheet(isPresented: $isEditing) {
-            AthleteEditorView(store: store) {
+            AthleteEditorView(store: store, onSaved: {
                 report(action: "make_it_mine")
                 onContinue()
-            }
+            })
             .appSheetStyle(.large)
         }
     }

@@ -212,16 +212,18 @@ struct SentryMaskingEvidenceTests {
             FreshMountain(),
             FreshMountain().scaleEffect(x: -1, y: 1),
             named: "ascend-mountain",
-            settledWhen: Self.sceneIsDrawn
+            settledWhen: Self.sceneIsDrawnAndStill()
         )
     }
 
     /// Builds its world inside `body`, so every hosting gets a scene controller of its own. One
     /// `AscendMountainRealityView` value hosted twice shares its `@State` controller, which the
     /// first hosting's `onDisappear` has already stopped, and the second window stays black.
+    /// Undressed whatever the date, so October's night stretch never decides whether the scene
+    /// is bright enough to have drawn; the mask does not depend on what the scene shows.
     private struct FreshMountain: View {
         var body: some View {
-            AscendMountainRealityView(seed: MountainCourse.ascendMountainSeed, stepSource: { 1_200 })
+            AscendMountainRealityView(seed: MountainCourse.ascendMountainSeed, stepSource: { 1_200 }, themeSource: { nil })
         }
     }
 
@@ -442,6 +444,25 @@ struct SentryMaskingEvidenceTests {
     /// black placeholder, so the comparison is between two drawn mountains rather than two empty
     /// screens.
     @MainActor
+    /// The scene is drawn and has stopped changing: two polls in a row of the same hosted view
+    /// agree. The masked render fills its region with the average of what is under it, so a
+    /// capture taken while the camera is still easing in or a chunk is still streaming would
+    /// compare two different averages and read as a leak - which a loaded full run did, off by 19
+    /// where the mask holds the pair to 2.
+    private static func sceneIsDrawnAndStill() -> @MainActor (UIView) -> Bool {
+        var previous: (view: ObjectIdentifier, brightness: Double)?
+        return { view in
+            guard sceneIsDrawn(view), let bitmap = try? Bitmap(HierarchyRenderer().render(view: view)) else {
+                previous = nil
+                return false
+            }
+            let brightness = bitmap.meanBrightness()
+            defer { previous = (ObjectIdentifier(view), brightness) }
+            guard let previous, previous.view == ObjectIdentifier(view) else { return false }
+            return abs(previous.brightness - brightness) < 0.25
+        }
+    }
+
     private static func sceneIsDrawn(_ view: UIView) -> Bool {
         guard let marker = view.firstDescendant(of: SentryMaskedRegionView.self),
               !marker.bounds.isEmpty,
@@ -496,6 +517,19 @@ struct SentryMaskingEvidenceTests {
 
         /// The share of a sparse grid of the pixels inside `rect` (in the points of a
         /// view of `size`) whose strongest colour channel is above `threshold`.
+        /// The average of every channel of every fourth pixel, 0 to 255.
+        func meanBrightness() -> Double {
+            var total = 0, count = 0
+            for y in stride(from: 0, to: height, by: 4) {
+                for x in stride(from: 0, to: width, by: 4) {
+                    let offset = (y * width + x) * 4
+                    total += Int(samples[offset]) + Int(samples[offset + 1]) + Int(samples[offset + 2])
+                    count += 3
+                }
+            }
+            return count > 0 ? Double(total) / Double(count) : 0
+        }
+
         func fractionLit(in rect: CGRect, of size: CGSize, above threshold: UInt8) -> Double {
             guard !rect.isNull, !rect.isEmpty, size.width > 0, size.height > 0 else { return 0 }
             let scaleX = CGFloat(width) / size.width

@@ -26,10 +26,35 @@ final class MountainAthleteRig {
     /// the tread.
     private static let footSetback = 0.05
 
+    /// The unlocked items the athlete has on, one per slot, and the ones it was asked to wear:
+    /// they differ for the frames it takes an item to be made.
+    private let gearRoot = Entity()
+    private var worn: [AthleteGear.Slot: Worn] = [:]
+    private var wanted: [AthleteGear] = []
+    private var castsLight = false
+    private let gearJoints: GearJoints?
+    private let gearLibrary: MountainGearLibrary
+    /// The candle inside a glowing item, flickered every frame it is posed.
+    private var candle: PointLight?
+    /// Whether a camera in front of the athlete is watching rather than the race camera behind,
+    /// so a pumpkin pressed overhead turns its carved face forward instead of back.
+    var isFacingViewer = false
+
+    private struct Worn {
+        let gear: AthleteGear
+        let entity: ModelEntity
+        let hold: MountainCarryHold
+
+        /// A giant pumpkin overhead is round about +Y, so only its face moves when it turns.
+        var turnsToViewer: Bool {
+            hold.carry == .overhead && [.pumpkinGiant, .pumpkinGiantLantern].contains(gear)
+        }
+    }
+
     /// A rig from parts `MountainRigFactory` has already prepared, so building one costs a frame
     /// almost nothing: the mesh is shared by every climber of that figure, and every material and
     /// tag is already made.
-    init(parts: MountainRigFactory.Parts) throws {
+    init(parts: MountainRigFactory.Parts, gearLibrary: MountainGearLibrary = .shared) throws {
         guard let poser = MountainAthletePoser(asset: parts.figure.body) else {
             throw MountainAthleteAsset.LoadError.unsupportedFormat("rig is missing a joint the poser needs")
         }
@@ -38,8 +63,78 @@ final class MountainAthleteRig {
         height = Float(parts.figure.body.height)
         model = ModelEntity(mesh: parts.mesh, materials: parts.materials)
         root.addChild(model)
+        root.addChild(gearRoot)
+        gearJoints = GearJoints(body: parts.figure.body)
+        self.gearLibrary = gearLibrary
         dress(parts)
     }
+
+    /// The joints the items ride: the chest a carried item turns with, the right shoulder it
+    /// perches on, the head a hat sits on, and the base of the neck a costume hangs from.
+    private struct GearJoints {
+        let chest: Int
+        let rightShoulder: Int
+        let head: Int
+        let neck: Int
+
+        init?(body: MountainAthleteAsset) {
+            let names = body.joints.map(\.name)
+            guard let chestName = body.roles.spine.last, let chest = names.firstIndex(of: chestName),
+                  body.roles.arms.count == 2, let shoulderName = body.roles.arms[1].first,
+                  let rightShoulder = names.firstIndex(of: shoulderName),
+                  let head = names.firstIndex(of: body.roles.head),
+                  let neck = names.firstIndex(of: body.roles.neck) else { return nil }
+            self.chest = chest
+            self.rightShoulder = rightShoulder
+            self.head = head
+            self.neck = neck
+        }
+
+        var all: [Int] { [chest, rightShoulder, head, neck] }
+    }
+
+    /// Puts the athlete in `gear`, one item per slot. Each item appears the first frame it is made.
+    func wear(_ gear: [AthleteGear]) {
+        wanted = gear
+        refreshWorn()
+    }
+
+    private func refreshWorn() {
+        for slot in AthleteGear.Slot.allCases where [.carry, .head, .costume].contains(slot) {
+            let item = wanted.first { $0.slot == slot }
+            guard worn[slot]?.gear != item else { continue }
+            guard let item else {
+                takeOff(slot)
+                continue
+            }
+            guard let prepared = gearLibrary.ready(item) else { continue }
+            takeOff(slot)
+            let entity = ModelEntity(mesh: prepared.mesh, materials: prepared.materials)
+            if castsLight, let glow = prepared.glow {
+                // A candle inside: it lights the climber's head and shoulder and the stairs round
+                // them, and reaches no further.
+                let light = PointLight()
+                light.light.color = glow.uiColor
+                light.light.intensity = Self.candleIntensity
+                light.light.attenuationRadius = 1.4
+                light.position = [0, Float(prepared.height * 0.45), 0]
+                entity.addChild(light)
+                candle = light
+            }
+            gearRoot.addChild(entity)
+            worn[slot] = Worn(gear: item, entity: entity, hold: MountainCarryHold(carry: item.carry, height: prepared.height, halfWidth: prepared.halfWidth, body: prepared.body))
+        }
+    }
+
+    private func takeOff(_ slot: AthleteGear.Slot) {
+        guard let item = worn.removeValue(forKey: slot) else { return }
+        if let candle, candle.parent == item.entity {
+            self.candle = nil
+        }
+        item.entity.removeFromParent()
+    }
+
+    private static let candleIntensity: Float = 6_000
 
     /// Dresses a rig of the same figure as another climber: their materials, their see-through or
     /// not, their name. Reusing a rig spares the renderer a new skinned model.
@@ -50,6 +145,12 @@ final class MountainAthleteRig {
     }
 
     private func dress(_ parts: MountainRigFactory.Parts) {
+        if castsLight != parts.gearCastsLight {
+            // The items are rebuilt with or without their candle.
+            castsLight = parts.gearCastsLight
+            for slot in AthleteGear.Slot.allCases { takeOff(slot) }
+        }
+        wear(parts.gear)
         baseOpacity = parts.ghostly ? Self.ghostOpacity : 1
         visibility = 1
         applyOpacity()
@@ -87,8 +188,10 @@ final class MountainAthleteRig {
         if opacity >= 0.999 {
             // Opaque drawing is cheaper than blending, and sorts correctly.
             model.components.remove(OpacityComponent.self)
+            gearRoot.components.remove(OpacityComponent.self)
         } else {
             model.components.set(OpacityComponent(opacity: opacity))
+            gearRoot.components.set(OpacityComponent(opacity: opacity))
         }
     }
 
@@ -268,8 +371,50 @@ final class MountainAthleteRig {
             elbowBend: 0.22,
             twist: 0
         )
-        model.jointTransforms = poser.pose(targets).map { local in
+        pose(targets)
+    }
+
+    private func pose(_ targets: MountainAthletePoseTargets) {
+        refreshWorn()
+        var targets = targets
+        targets.carry = worn[.carry]?.hold
+        let local = poser.pose(targets)
+        model.jointTransforms = local.map { local in
             Transform(scale: .one, rotation: local.rotation, translation: local.translation)
+        }
+        if !worn.isEmpty { place(pose: local) }
+        if let candle {
+            // A candle never burns steady.
+            let flicker = Date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1_000)
+            let wobble = 0.82 + 0.1 * sin(flicker * 17) + 0.08 * sin(flicker * 7.3 + 1.1)
+            candle.light.intensity = Self.candleIntensity * Float(wobble)
+        }
+    }
+
+    /// Puts every item where this frame's pose holds it. A carried item rests on the right
+    /// shoulder or on both hands overhead, and turns with the chest rather than the hand so it
+    /// does not spin as the arm moves; a hat rides the head; a costume hangs from the neck.
+    private func place(pose local: [MountainAthletePoser.LocalTransform]) {
+        guard let joints = gearJoints else { return }
+        let frames = poser.frames(of: local, joints: joints.all)
+        let chest = frames[0], rightShoulder = frames[1], head = frames[2], neck = frames[3]
+        for (slot, item) in worn {
+            switch slot {
+            case .carry:
+                let seat = item.hold.seat(chest: chest.position, chestTurn: chest.turn, rightShoulder: rightShoulder.position)
+                var turn = chest.turn.float
+                if isFacingViewer, item.turnsToViewer {
+                    turn *= simd_quatf(angle: -MountainGearModel.pumpkinFaceTurn, axis: [0, 1, 0])
+                }
+                item.entity.transform = Transform(scale: .one, rotation: turn, translation: SIMD3<Float>(seat))
+            case .head:
+                item.entity.transform = Transform(scale: .one, rotation: head.turn.float, translation: SIMD3<Float>(head.position))
+            case .costume:
+                item.entity.transform = Transform(scale: .one, rotation: chest.turn.float, translation: SIMD3<Float>(neck.position))
+            case .shorts, .trainers:
+                // Kit is drawn on the body's own materials, never worn as a shape.
+                break
+            }
         }
     }
 
@@ -297,9 +442,7 @@ final class MountainAthleteRig {
             elbowBend: kinematics.elbowBend,
             twist: kinematics.twist
         )
-        model.jointTransforms = poser.pose(targets).map { local in
-            Transform(scale: .one, rotation: local.rotation, translation: local.translation)
-        }
+        pose(targets)
         root.position = SIMD3<Float>(body.position - origin)
         root.orientation = facing.float
     }

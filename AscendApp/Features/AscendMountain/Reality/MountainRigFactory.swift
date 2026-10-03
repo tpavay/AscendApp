@@ -18,6 +18,10 @@ final class MountainRigFactory {
         let look: AthleteLook
         let style: MountainAthleteRig.Style
         let label: String
+        /// Whether a glowing item lights its surroundings. Only the climber's own athlete
+        /// does: a pack of thirty lanterns would be thirty lights, and a rival's carved face
+        /// glows without one.
+        var castsLight = false
     }
 
     /// A material depends only on its slot's textures and tint, so hundreds of looks share a
@@ -41,6 +45,9 @@ final class MountainRigFactory {
         let materials: [any RealityKit.Material]
         let ghostly: Bool
         let tag: Tag?
+        /// The unlocked items the athlete has on; a ghost wears nothing.
+        let gear: [AthleteGear]
+        let gearCastsLight: Bool
     }
 
     /// A name drawn once: its texture on a plane of the right shape.
@@ -50,6 +57,7 @@ final class MountainRigFactory {
     }
 
     private let athletes: MountainAthleteLibrary
+    private let gear: MountainGearLibrary
     private let bundle: Bundle
     private var meshes: [MountainAthleteFigure.Key: MeshResource] = [:]
     private var meshLoads: [MountainAthleteFigure.Key: Task<MeshResource, any Error>] = [:]
@@ -61,15 +69,16 @@ final class MountainRigFactory {
     /// Resources that failed to load: drawn without rather than asked for every frame.
     private var failed: Set<String> = []
 
-    init(athletes: MountainAthleteLibrary = .shared, bundle: Bundle = .main) {
+    init(athletes: MountainAthleteLibrary = .shared, gear: MountainGearLibrary = .shared, bundle: Bundle = .main) {
         self.athletes = athletes
+        self.gear = gear
         self.bundle = bundle
     }
 
     /// The rig for `request` if everything it needs is ready; otherwise nil, and whatever is
     /// missing starts loading so a later frame can build it.
     func readyRig(_ request: Request) -> MountainAthleteRig? {
-        readyParts(request).flatMap { try? MountainAthleteRig(parts: $0) }
+        readyParts(request).flatMap { try? MountainAthleteRig(parts: $0, gearLibrary: gear) }
     }
 
     /// The parts for `request` if all of them are ready; otherwise nil, and whatever is missing
@@ -105,7 +114,12 @@ final class MountainRigFactory {
         if !request.label.isEmpty {
             await makeTag(TagKey(label: request.label, accent: MountainAthleteRig.tagAccent(for: request.style)))
         }
-        return try MountainAthleteRig(parts: parts(figure: figure, mesh: mesh, request: request))
+        let parts = parts(figure: figure, mesh: mesh, request: request)
+        // A standing athlete is posed once, so what it wears has to be made before it stands.
+        for item in parts.gear where item.isWornShape {
+            _ = await gear.prepare(item)
+        }
+        return try MountainAthleteRig(parts: parts, gearLibrary: gear)
     }
 
     // MARK: - Assembly
@@ -117,7 +131,9 @@ final class MountainRigFactory {
             mesh: mesh,
             materials: materials(for: figure, style: request.style),
             ghostly: ghostly,
-            tag: tags[TagKey(label: request.label, accent: MountainAthleteRig.tagAccent(for: request.style))]
+            tag: tags[TagKey(label: request.label, accent: MountainAthleteRig.tagAccent(for: request.style))],
+            gear: ghostly ? [] : UnlockStore.shared.drawnGear(for: request.look),
+            gearCastsLight: request.castsLight
         )
     }
 
@@ -129,7 +145,8 @@ final class MountainRigFactory {
             switch style {
             case .athlete(let look):
                 let set = figure.textures(forSlot: MountainAthleteRig.texturesKey(forSlot: slot, look: look))
-                let textures = [set?.baseColor, set?.normal, set?.roughness].map { $0 ?? "-" }.joined(separator: "|")
+                let kit = UnlockStore.shared.isEnabled ? MountainKitColor.item(forSlot: slot, look: look) : nil
+                let textures = ([set?.baseColor, set?.normal, set?.roughness].map { $0 ?? "-" } + [kit?.rawValue ?? "-"]).joined(separator: "|")
                 key = MaterialKey(slot: slot, textures: textures, tint: MountainAthleteRig.tint(forSlot: slot, look: look, textures: set), ghostly: false)
             case .ghost(let color):
                 key = MaterialKey(slot: "", textures: "", tint: color, ghostly: true)
@@ -145,6 +162,9 @@ final class MountainRigFactory {
     }
 
     private func material(for slot: String, look: AthleteLook, figure: MountainAthleteFigure) -> PhysicallyBasedMaterial {
+        if UnlockStore.shared.isEnabled, let item = MountainKitColor.item(forSlot: slot, look: look) {
+            return kitMaterial(item)
+        }
         let textureSet = figure.textures(forSlot: MountainAthleteRig.texturesKey(forSlot: slot, look: look))
         var material = PhysicallyBasedMaterial()
         material.metallic = .init(floatLiteral: 0)
@@ -167,6 +187,21 @@ final class MountainRigFactory {
             default: 0.78
             }
             material.roughness = .init(floatLiteral: roughness)
+        }
+        return material
+    }
+
+    /// Unlocked kit in place of the picked colour, glowing on its own.
+    private func kitMaterial(_ item: AthleteGear) -> PhysicallyBasedMaterial {
+        var material = PhysicallyBasedMaterial()
+        material.metallic = .init(floatLiteral: 0)
+        material.roughness = .init(floatLiteral: 0.7)
+        let tint = MountainKitColor.tint(item).uiColor
+        material.baseColor = .init(tint: tint)
+        let glow = MountainKitColor.glow(item)
+        if glow > 0 {
+            material.emissiveColor = .init(color: tint)
+            material.emissiveIntensity = glow
         }
         return material
     }

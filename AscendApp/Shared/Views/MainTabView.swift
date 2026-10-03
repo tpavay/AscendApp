@@ -23,6 +23,9 @@ struct MainTabView: View {
     @State private var offlineHighlightTask: Task<Void, Never>?
     @State private var recoveryDraft: ActiveHeadphoneWorkoutDraft?
     @State private var recapCoordinator = PeriodRecapCoordinator.shared
+    /// The event whose intro is on screen: the first open during Halloween, Thanksgiving, and
+    /// whichever event the unlock catalogue runs next.
+    @State private var introEvent: UnlockEvent?
     @State private var appVersionGateState = AppVersionGateState.shared
     /// When a push, a deep link or a Live Climb resume last routed the app. An open that
     /// arrived with somewhere to go is not interrupted by the recap; the next one shows it.
@@ -88,6 +91,7 @@ struct MainTabView: View {
             consumePendingLiveActivityRouteIfNeeded()
             await presentActiveHeadphoneRecoveryIfNeeded()
             await presentPeriodRecapIfNeeded()
+            await presentUnlockIntroIfNeeded()
         }
         .onChange(of: connectivityService.isConnected) { oldValue, newValue in
             handleConnectivityChange(from: oldValue, to: newValue)
@@ -109,7 +113,12 @@ struct MainTabView: View {
                 // that moment so the recap can stand aside for it.
                 try? await Task.sleep(for: .seconds(1))
                 await presentPeriodRecapIfNeeded()
+                await presentUnlockIntroIfNeeded()
             }
+        }
+        .onChange(of: recapCoordinator.story == nil) { _, isRecapGone in
+            guard isRecapGone else { return }
+            Task { await presentUnlockIntroIfNeeded() }
         }
         .fullScreenCover(
             item: Binding(
@@ -133,6 +142,28 @@ struct MainTabView: View {
                 }
             }
             .onAppear { recapCoordinator.storyDidAppear() }
+        }
+        .fullScreenCover(item: $introEvent) { event in
+            let unlocks = UnlockStore.shared
+            UnlockEventIntroView(
+                event: event,
+                items: unlocks.catalog.items(earnedIn: event),
+                look: AthleteLookStore.shared.current,
+                earned: unlocks.earned,
+                onCarry: { item in
+                    introEvent = nil
+                    guard let userId = authVM.user?.uid else { return }
+                    unlocks.markSeen([item], userId: userId)
+                    Task {
+                        do {
+                            try await AthleteLookStore.shared.equip(item, userId: userId)
+                        } catch {
+                            TelemetryManager.shared.recordError(error, context: .firestore, code: "athlete_look_save_failed")
+                        }
+                    }
+                },
+                onClose: { introEvent = nil }
+            )
         }
         .fullScreenCover(
             isPresented: Binding(
@@ -308,6 +339,24 @@ struct MainTabView: View {
         await recapCoordinator.evaluate(userId: userId, modelContext: modelContext) {
             isPeriodRecapEligible(userId: userId)
         }
+    }
+
+    /// Opening Ascend during an event earns its visit item; the first such open also shows the
+    /// event's intro, once the recap and anything else that owns this open has had its turn.
+    private func presentUnlockIntroIfNeeded() async {
+        guard let userId = authVM.user?.uid else { return }
+        let unlocks = UnlockStore.shared
+        await unlocks.refreshCatalogIfNeeded()
+        unlocks.recordVisit(userId: userId)
+        // Credit every climb already saved this event, including ones from before this build, so the
+        // intro shows what they earned rather than a ladder that is all locked.
+        unlocks.refresh(userId: userId, modelContext: modelContext)
+        guard introEvent == nil, recapCoordinator.story == nil, isPeriodRecapEligible(userId: userId),
+              let event = unlocks.pendingIntro(userId: userId) else { return }
+        _ = await AthleteLookStore.shared.load(userId: userId)
+        guard introEvent == nil, recapCoordinator.story == nil, isPeriodRecapEligible(userId: userId) else { return }
+        unlocks.markIntroSeen(event, userId: userId)
+        introEvent = event
     }
 
     private func isPeriodRecapEligible(userId: String) -> Bool {

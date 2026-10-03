@@ -111,6 +111,51 @@ struct AthleteLook: Codable, Hashable, Sendable {
     var shoes: KitColor
     var size: Size
     var muscle: Muscle
+    /// The unlocked items the athlete has on, one per slot: carried, on the head, a costume.
+    var carry: AthleteGear? = nil
+    var head: AthleteGear? = nil
+    var costume: AthleteGear? = nil
+    /// Kit worn over the colours picked above: shorts and trainers lit for the season.
+    var shorts: AthleteGear? = nil
+    var trainers: AthleteGear? = nil
+
+    /// Every item the athlete has on.
+    var gear: [AthleteGear] {
+        AthleteGear.Slot.allCases.compactMap(wearing)
+    }
+
+    /// The item in `slot`, if any.
+    func wearing(_ slot: AthleteGear.Slot) -> AthleteGear? {
+        switch slot {
+        case .carry: carry
+        case .head: head
+        case .costume: costume
+        case .shorts: shorts
+        case .trainers: trainers
+        }
+    }
+
+    /// Puts `item` on in its slot, replacing whatever was there.
+    mutating func equip(_ item: AthleteGear) {
+        switch item.slot {
+        case .carry: carry = item
+        case .head: head = item
+        case .costume: costume = item
+        case .shorts: shorts = item
+        case .trainers: trainers = item
+        }
+    }
+
+    /// Takes off whatever is in `slot`.
+    mutating func unequip(_ slot: AthleteGear.Slot) {
+        switch slot {
+        case .carry: carry = nil
+        case .head: head = nil
+        case .costume: costume = nil
+        case .shorts: shorts = nil
+        case .trainers: trainers = nil
+        }
+    }
 
     /// The athlete a climber starts with, from the onboarding gender answer (captain, round 8):
     /// the body the answer suggests - body A for any answer that names none - a middle skin tone,

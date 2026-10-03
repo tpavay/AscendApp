@@ -19,6 +19,14 @@ import Testing
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct HomeGlobeSheetEvidenceTests {
+    /// The event Home's sheet carries a card for today, if one is running: the card sits between
+    /// Today's Climb and ASCEND ACTIVITY TODAY while it does.
+    private static var runningEvent: UnlockEvent? {
+        let unlocks = UnlockStore.shared
+        guard unlocks.isEnabled else { return nil }
+        return unlocks.catalog.events.first { $0.contains(.now) && !unlocks.catalog.items(earnedIn: $0).isEmpty }
+    }
+
     @Test
     func theSheetOpensCollapsedToTheThisWeekLine() async throws {
         let screen = try await makeScreen(feed: Self.sampleFeed, detent: .compact)
@@ -28,7 +36,7 @@ struct HomeGlobeSheetEvidenceTests {
 
             // Collapsed: the This Week line is on screen, the rest of the sheet is below the fold.
             #expect(copy.contains("this week"))
-            #expect(!copy.contains("on the globe today"))
+            #expect(!copy.contains("ascend activity today"))
             #expect(!copy.contains("ranked"))
 
             // The globe's chrome: the legend names the tiers on the globe, and Start is reachable.
@@ -47,7 +55,11 @@ struct HomeGlobeSheetEvidenceTests {
             let mediumCopy = try await hosted.copy()
 
             #expect(mediumCopy.contains("today's climb"))
-            #expect(mediumCopy.contains("on the globe today"))
+            if let event = Self.runningEvent {
+                #expect(mediumCopy.contains("\(event.title.lowercased()) is on."), "the running event's card follows Today's Climb: \(mediumCopy)")
+            } else {
+                #expect(mediumCopy.contains("ascend activity today"))
+            }
             try hosted.photograph(named: "home-globe-sheet-medium")
         }
     }
@@ -56,7 +68,8 @@ struct HomeGlobeSheetEvidenceTests {
     func expandedTheSheetCarriesTheThreeRowsThenTheTilesThenTheCatalog() async throws {
         let screen = try await makeScreen(feed: Self.sampleFeed, detent: .expanded)
 
-        try await RenderedScreen.host(screen, settle: .turns(30, interval: .milliseconds(100))) { hosted in
+        // Tall enough to reach the catalog past a running event's card.
+        try await RenderedScreen.host(screen, size: CGSize(width: 402, height: 1_100), settle: .turns(30, interval: .milliseconds(100))) { hosted in
             let expandedCopy = try await hosted.copy()
 
             // Exactly three today rows, newest first, and SEE ALL because the server holds more.
@@ -73,7 +86,7 @@ struct HomeGlobeSheetEvidenceTests {
             #expect(expandedCopy.contains("search climbs"))
             #expect(expandedCopy.contains("browse by steps"))
 
-            let todayIndex = try #require(expandedCopy.range(of: "on the globe today")?.lowerBound)
+            let todayIndex = try #require(expandedCopy.range(of: "ascend activity today")?.lowerBound)
             let rankIndex = try #require(expandedCopy.range(of: "ranked")?.lowerBound)
             let browseIndex = try #require(expandedCopy.range(of: "browse by steps")?.lowerBound)
             #expect(todayIndex < rankIndex)
@@ -116,10 +129,16 @@ struct HomeGlobeSheetEvidenceTests {
         try await RenderedScreen.host(screen, settle: .turns(30, interval: .milliseconds(100))) { hosted in
             let line = try #require(await hosted.frame(ofElementLabelled: "This week:"))
             let card = try #require(await hosted.frame(ofElementLabelled: "Today's climb:"))
-            let texts = try await hosted.texts { texts in
-                texts.contains { $0.text.caseInsensitiveCompare("on the globe today") == .orderedSame }
+            // What follows Today's Climb: a running event's card, else ASCEND ACTIVITY TODAY.
+            let section: CGRect
+            if let event = Self.runningEvent {
+                section = try #require(await hosted.frame(ofElementLabelled: "\(event.title) is on."))
+            } else {
+                let texts = try await hosted.texts { texts in
+                    texts.contains { $0.text.caseInsensitiveCompare("ascend activity today") == .orderedSame }
+                }
+                section = try #require(texts.first { $0.text.caseInsensitiveCompare("ascend activity today") == .orderedSame }?.frame)
             }
-            let section = try #require(texts.first { $0.text.caseInsensitiveCompare("on the globe today") == .orderedSame }?.frame)
 
             // The line's accessibility frame is its glyphs, centred in the 30pt row, and the
             // card's includes the half-point of stroke outside its layout edge. 22pt step
@@ -129,7 +148,7 @@ struct HomeGlobeSheetEvidenceTests {
 
             // The card-to-next-section gap stays at the 22pt step.
             let cardToSection = section.minY - (card.maxY - 0.5)
-            #expect(abs(cardToSection - 22) <= 3, "Today's Climb card to ON THE GLOBE TODAY is \(cardToSection)pt, card \(card) section \(section)")
+            #expect(abs(cardToSection - 22) <= 3, "Today's Climb card to the next section is \(cardToSection)pt, card \(card) section \(section)")
 
             try hosted.photograph(named: "home-globe-sheet-medium-gap")
         }

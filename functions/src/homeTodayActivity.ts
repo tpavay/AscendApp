@@ -1,5 +1,5 @@
 /**
- * Home's ON THE GLOBE TODAY projection.
+ * Home's ASCEND ACTIVITY TODAY projection.
  *
  * One server-owned document, `home_today_activity/global`, holding the most
  * recent uploaded climbs across every session kind - Live Climbs, Just Climbs
@@ -55,7 +55,7 @@ export const HOME_TODAY_ACTIVITY_SCHEMA_VERSION = 1;
  */
 export const HOME_TODAY_ACTIVITY_MAX_ROWS = 24;
 /**
- * How old a row may be under ON THE GLOBE TODAY. A climb the feed first sees
+ * How old a row may be under ASCEND ACTIVITY TODAY. A climb the feed first sees
  * more than a day after it finished is history, not news - a bulk rewrite of
  * old workouts must not publish years-old climbs as "just now" - and a row
  * published more than a day ago is dropped whenever the document is rewritten.

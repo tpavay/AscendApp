@@ -52,6 +52,48 @@ struct AthleteLookTests {
         #expect(FirestoreAthleteLookRepository.look(from: payload) == look)
     }
 
+    /// Carrying nothing writes no field, which every earlier build's document already matches;
+    /// a carried item is its preset id, and one a later build added is simply not drawn.
+    @Test
+    func theCarriedItemIsOptionalAndAnUnknownOneIsDroppedNotTheLook() throws {
+        var look = AthleteLook.starting(for: .man)
+        #expect(FirestoreAthleteLookRepository.payload(for: look)["carry"] == nil)
+
+        look.carry = .pumpkinLantern
+        var payload = FirestoreAthleteLookRepository.payload(for: look)
+        #expect(payload["carry"] as? String == "pumpkin_lantern")
+        #expect(FirestoreAthleteLookRepository.look(from: payload) == look)
+
+        payload["carry"] = "flaming_skull"
+        let read = try #require(FirestoreAthleteLookRepository.look(from: payload))
+        #expect(read.carry == nil)
+        #expect(read.body == look.body)
+    }
+
+    /// One item per slot, each stored under its slot's name; an item stored in the wrong slot is
+    /// not drawn there.
+    @Test
+    func eachSlotIsStoredUnderItsOwnName() throws {
+        var look = AthleteLook.starting(for: .woman)
+        look.equip(.pumpkinGiant)
+        look.equip(.witchHat)
+        look.equip(.ghostSheet)
+        var payload = FirestoreAthleteLookRepository.payload(for: look)
+        #expect(payload["carry"] as? String == "pumpkin_giant")
+        #expect(payload["head"] as? String == "witch_hat")
+        #expect(payload["costume"] as? String == "ghost_sheet")
+        #expect(FirestoreAthleteLookRepository.look(from: payload) == look)
+        #expect(look.gear == [.pumpkinGiant, .witchHat, .ghostSheet])
+
+        look.equip(.pumpkinHead)
+        #expect(look.head == .pumpkinHead, "a second hat replaces the first")
+        look.unequip(.costume)
+        #expect(look.costume == nil)
+
+        payload["head"] = "pumpkin_giant"
+        #expect(try #require(FirestoreAthleteLookRepository.look(from: payload)).head == nil)
+    }
+
     @Test
     func aLookWithAnOptionThisBuildDoesNotOfferIsNotGuessedAt() {
         var payload = FirestoreAthleteLookRepository.payload(for: .starting(for: nil))
