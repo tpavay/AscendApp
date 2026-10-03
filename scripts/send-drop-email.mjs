@@ -50,7 +50,9 @@
  *   gcloud auth application-default login
  *   The target project's processEmailJobs deployed from a build that knows
  *   `drop_announcement`, bound to a TRANSACTIONAL_EMAIL_CONFIG that carries an
- *   unsubscribeSigningKey - without it the worker delivers nothing at all.
+ *   unsubscribeSigningKey - without it the worker delivers nothing at all -
+ *   and whose enabledEmailTypes includes `drop_announcement`, or the worker
+ *   marks every queued drop `skipped`.
  */
 
 import {createRequire} from "node:module";

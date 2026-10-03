@@ -55,6 +55,7 @@ before(() => {
   process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
     provider: "resend",
     apiKey: "re_emulator_only",
+    enabledEmailTypes: "all",
     fromEmail: "hello@updates.ascendstepper.com",
     fromName: "Ascend",
     replyTo: "support@ascendstepper.com",
