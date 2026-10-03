@@ -42,21 +42,26 @@ struct UnlockEventPage: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                ForEach(ladders) { ladder in
-                    ladderSection(ladder)
-                        .padding(.top, 22)
+        // The scroll view runs under the status bar so the header art reaches the top of the
+        // screen, which leaves nothing inside it able to read how tall the status bar is. It is
+        // read out here and handed to the header.
+        GeometryReader { safeAreaGeometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header(topInset: safeAreaGeometry.safeAreaInsets.top)
+                    ForEach(ladders) { ladder in
+                        ladderSection(ladder)
+                            .padding(.top, 22)
+                    }
+                    athleteRow
+                        .padding(.horizontal, 20)
+                        .padding(.top, 24)
                 }
-                athleteRow
-                    .padding(.horizontal, 20)
-                    .padding(.top, 24)
+                .padding(.bottom, 120)
             }
-            .padding(.bottom, 120)
+            .scrollIndicators(.hidden)
+            .ignoresSafeArea(edges: .top)
         }
-        .scrollIndicators(.hidden)
-        .ignoresSafeArea(edges: .top)
         .background(UnlockStyle.pageBackground.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
             startButton
@@ -84,11 +89,29 @@ struct UnlockEventPage: View {
 
     // MARK: - Header
 
-    private var header: some View {
-        ZStack(alignment: .bottomLeading) {
+    private func header(topInset: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(event.title) is on.")
+                .font(.montserratBold(size: 32))
+                .tracking(-0.6)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.6), radius: 10, y: 2)
+                .accessibilityAddTraits(.isHeader)
+            Text("Every climb and every step in \(event.monthName) earns something new.")
+                .font(.montserratBold(size: 12.5))
+                .tracking(-0.1)
+                .foregroundStyle(.white.opacity(0.78))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 300, alignment: .leading)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 6)
+        // Room for the top bar, so a headline grown to an accessibility text size makes the
+        // header taller instead of running under the back button.
+        .padding(.top, topInset + Self.topBarGap + Self.topBarHeight)
+        .frame(maxWidth: .infinity, minHeight: 300, alignment: .bottomLeading)
+        .background {
             headerArt
-                .frame(height: 300)
-                .frame(maxWidth: .infinity)
                 .clipped()
                 .overlay(
                     LinearGradient(
@@ -102,28 +125,17 @@ struct UnlockEventPage: View {
                         endPoint: .bottom
                     )
                 )
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("\(event.title) is on.")
-                    .font(.montserratBold(size: 32))
-                    .tracking(-0.6)
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.6), radius: 10, y: 2)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Every climb and every step in \(event.monthName) earns something new.")
-                    .font(.montserratBold(size: 12.5))
-                    .tracking(-0.1)
-                    .foregroundStyle(.white.opacity(0.78))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 300, alignment: .leading)
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 6)
         }
         .overlay(alignment: .top) {
             topBar
+                .padding(.top, topInset + Self.topBarGap)
         }
     }
+
+    /// The top bar's row is as tall as the back button's tap target and sits this far below the
+    /// status bar.
+    private static let topBarHeight: CGFloat = 44
+    private static let topBarGap: CGFloat = 2
 
     @ViewBuilder
     private var headerArt: some View {
@@ -148,7 +160,7 @@ struct UnlockEventPage: View {
                     .foregroundStyle(.white)
                     .frame(width: 34, height: 34)
                     .background(Circle().fill(.black.opacity(0.5)))
-                    .frame(width: 44, height: 44)
+                    .frame(width: Self.topBarHeight, height: Self.topBarHeight)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -165,8 +177,6 @@ struct UnlockEventPage: View {
                 .overlay(Capsule(style: .continuous).strokeBorder(UnlockStyle.pumpkin.opacity(0.55), lineWidth: 1))
         }
         .padding(.horizontal, 15)
-        .safeAreaPadding(.top)
-        .padding(.top, 2)
     }
 
     // MARK: - Ladders
