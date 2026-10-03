@@ -309,6 +309,20 @@ export function catalogueUrl(projectId) {
 }
 
 /**
+ * The App Store lookup that reports the live version. Apple's CDN caches the
+ * bare URL for about a day (`cache-control: max-age` near 85,000 seconds), so
+ * on release day it kept answering 1.2.1 for hours after 1.2.2 was live and
+ * the send refused a drop that was true. A query parameter no earlier request
+ * carried is a new cache key, so the answer comes from the origin.
+ * @param {number | string} nonce Unique per request.
+ * @return {string} Lookup URL.
+ */
+export function appStoreLookupUrl(nonce = Date.now()) {
+  return `https://itunes.apple.com/lookup?id=${APP_STORE_APP_ID}` +
+    `&country=us&nocache=${encodeURIComponent(nonce)}`;
+}
+
+/**
  * Compares dotted marketing versions numerically ("1.10" > "1.9").
  * @param {string} lhs Version.
  * @param {string} rhs Version.
@@ -409,7 +423,7 @@ async function checkImage(url) {
  * @return {Promise<object>} Check outcome.
  */
 async function checkAppStoreVersion(minimum) {
-  const url = `https://itunes.apple.com/lookup?id=${APP_STORE_APP_ID}&country=us`;
+  const url = appStoreLookupUrl();
   try {
     const response = await fetch(url, {cache: "no-store"});
     const body = await response.json();
