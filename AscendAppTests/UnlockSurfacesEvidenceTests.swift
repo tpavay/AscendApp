@@ -216,6 +216,84 @@ struct UnlockSurfacesEvidenceTests {
         }
     }
 
+    // MARK: - The top bar and the status bar
+
+    /// A phone as a top bar meets it: its size, and how much of the top and bottom the system
+    /// keeps for the status bar, the Dynamic Island and the home indicator.
+    struct PhoneShape: CustomTestStringConvertible, Sendable {
+        let testDescription: String
+        let size: CGSize
+        let top: CGFloat
+        let bottom: CGFloat
+    }
+
+    nonisolated static let phoneShapes = [
+        PhoneShape(testDescription: "Dynamic Island", size: CGSize(width: 402, height: 874), top: 62, bottom: 34),
+        PhoneShape(testDescription: "home button", size: CGSize(width: 375, height: 667), top: 20, bottom: 0)
+    ]
+
+    /// The October page draws its header art under the status bar, and its back button and
+    /// days-left chip still sit below it. 1.2.2 put them 18 points from the top of the screen on
+    /// every phone, which on a Dynamic Island phone is inside the status bar, beside the clock,
+    /// where the back button could not be tapped. The headline stays below them at the largest
+    /// text size too.
+    @Test(arguments: phoneShapes, [DynamicTypeSize.large, .accessibility5])
+    func theOctoberPagesBackButtonSitsBelowTheStatusBar(phone: PhoneShape, textSize: DynamicTypeSize) async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [])
+        let event = try #require(unlocks.catalog.event(id: "halloween-2026"))
+        let controller = UIHostingController(
+            rootView: NavigationStack {
+                UnlockEventPage(event: event, unlocks: unlocks, looks: Self.looks(wearing: .pumpkinClassic), userId: { Self.userId }) {}
+            }
+            .modelContainer(container)
+            .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+            .dynamicTypeSize(textSize)
+        )
+        try await RenderedScreen.host(controller, size: phone.size, settle: .turns(40)) { screen in
+            try await Self.give(controller, theSafeAreaOf: phone, on: screen)
+            let frames = try await Self.frames(on: screen, of: ["Back", "27 DAYS LEFT", "Halloween is on.", "START CLIMBING"])
+            let back = try #require(frames["Back"])
+            let daysLeft = try #require(frames["27 DAYS LEFT"])
+            let headline = try #require(frames["Halloween is on."])
+            let start = try #require(frames["START CLIMBING"])
+            #expect(back.minY >= phone.top, "the back button \(back) is under the \(phone.top) pt status bar")
+            #expect(back.width >= 44 && back.height >= 44, "the back button's tap target is \(back.size)")
+            #expect(back.minX >= 0 && back.maxY <= headline.minY, "the back button \(back) is over the headline \(headline)")
+            #expect(daysLeft.minY >= phone.top, "the days-left chip \(daysLeft) is under the \(phone.top) pt status bar")
+            #expect(abs(daysLeft.midY - back.midY) <= 0.5, "the chip \(daysLeft) shares the back button's row \(back)")
+            #expect(daysLeft.minX >= back.maxX && daysLeft.maxX <= phone.size.width, "the days-left chip \(daysLeft) runs off its row")
+            #expect(start.maxY <= phone.size.height - phone.bottom, "START CLIMBING \(start) is under the home indicator")
+            // A flat page background has no range at all; the stairwell photograph does.
+            let artUnderTheStatusBar = try screen.withPixels { $0.luminanceRange(in: CGRect(x: 0, y: 0, width: phone.size.width, height: phone.top)) }
+            #expect(artUnderTheStatusBar.upperBound - artUnderTheStatusBar.lowerBound > 20, "the header art still runs under the status bar: \(artUnderTheStatusBar)")
+            try screen.photograph(named: "halloween-october-page-top-bar-\(phone.testDescription.lowercased().replacing(" ", with: "-"))-\(textSize)")
+        }
+    }
+
+    /// The item page pushed from a tile keeps its own back button below the status bar too.
+    @Test(arguments: phoneShapes)
+    func anItemPagesBackButtonSitsBelowTheStatusBar(phone: PhoneShape) async throws {
+        let container = try Self.threeEarlyOctoberClimbs()
+        let unlocks = try Self.freshDevice(retiring: [])
+        let event = try #require(unlocks.catalog.event(id: "halloween-2026"))
+        let progress = try #require(unlocks.refresh(userId: Self.userId, modelContext: container.mainContext).first)
+        let item = try #require(unlocks.catalog.items(earnedIn: event).first { $0.shape == .pumpkinGiant })
+        let controller = UIHostingController(
+            rootView: UnlockItemView(item: item, event: event, progress: progress, unlocks: unlocks, looks: Self.looks(wearing: nil), userId: { Self.userId }) {}
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+        )
+        try await RenderedScreen.host(controller, size: phone.size, settle: .turns(60)) { screen in
+            try await Self.give(controller, theSafeAreaOf: phone, on: screen)
+            let frames = try await Self.frames(on: screen, of: ["Back", "START CLIMBING"])
+            let back = try #require(frames["Back"])
+            let start = try #require(frames["START CLIMBING"])
+            #expect(back.minY >= phone.top, "the back button \(back) is under the \(phone.top) pt status bar")
+            #expect(back.width >= 44 && back.height >= 44, "the back button's tap target is \(back.size)")
+            #expect(start.maxY <= phone.size.height - phone.bottom, "START CLIMBING \(start) is under the home indicator")
+        }
+    }
+
     // MARK: - The item view
 
     /// An earned item on the whole athlete, EQUIP, then the banner and EQUIPPED.
@@ -559,6 +637,28 @@ struct UnlockSurfacesEvidenceTests {
         var look = AthleteLook.starting(for: .man)
         if let item { look.equip(item) }
         return AthleteLookStore(repository: SavedLook(look: look), genderSource: { _ in .man }, defaults: UserDefaults(suiteName: "UnlockSurfaces-\(UUID().uuidString)")!)
+    }
+
+    /// Gives the hosted screen `phone`'s safe area on whichever simulator the suite runs, by
+    /// making up the difference from that simulator's own.
+    private static func give(_ controller: UIViewController, theSafeAreaOf phone: PhoneShape, on screen: HostedScreen) async throws {
+        let own = screen.window.safeAreaInsets
+        controller.additionalSafeAreaInsets = UIEdgeInsets(top: phone.top - own.top, left: 0, bottom: phone.bottom - own.bottom, right: 0)
+        try await screen.settle(.turns(20))
+        let insets = controller.view.safeAreaInsets
+        try #require(insets.top == phone.top && insets.bottom == phone.bottom, "the screen was hosted with \(insets), not the \(phone.testDescription) phone's safe area")
+    }
+
+    /// Where each of `labels` sits on screen, in window points, once all of them are there.
+    private static func frames(on screen: HostedScreen, of labels: [String]) async throws -> [String: CGRect] {
+        func read(_ elements: [NSObject]) -> [String: CGRect] {
+            Dictionary(elements.compactMap { element in
+                guard let label = element.accessibilityLabel, labels.contains(label) else { return nil }
+                return (label, screen.window.convert(element.accessibilityFrame, from: nil))
+            }, uniquingKeysWith: { first, _ in first })
+        }
+        let elements = try await screen.elements(reading: 400) { read($0).count == labels.count }
+        return read(elements)
     }
 
     /// Every labelled element on screen with what its value says, by label.
