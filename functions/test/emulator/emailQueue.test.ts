@@ -23,7 +23,10 @@ import {
   onLifecycleEventEmailAutomation,
 } from "../../src/email/automation.js";
 import {processEmailJobs} from "../../src/email/processor.js";
-import {buildEmailJobId} from "../../src/email/queue.js";
+import {
+  buildEmailJobId,
+  enqueueLifecycleEmailIfAllowed,
+} from "../../src/email/queue.js";
 import type {EmailJobDocument} from "../../src/email/types.js";
 
 const EMAIL_JOBS = "email_jobs";
@@ -55,6 +58,7 @@ before(() => {
   process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
     provider: "resend",
     apiKey: "re_emulator_only",
+    enabledEmailTypes: "all",
     fromEmail: "hello@updates.ascendstepper.com",
     fromName: "Ascend",
     replyTo: "support@ascendstepper.com",
@@ -80,6 +84,7 @@ before(() => {
 
 beforeEach(async () => {
   sends = [];
+  setEnabledEmailTypes("all");
   await clearEmailJobs();
 });
 
@@ -158,6 +163,109 @@ test("a retired job in the batch does not stop the live one beside it",
     ], null, 2));
   });
 
+test("a type switched on later delivers only mail queued after the switch",
+  async () => {
+    // Production holds recaps and rating follow-ups back while their
+    // producers keep running. The day a type is switched on, nothing it
+    // produced while it was off may arrive.
+    const lateUid = "climber-2";
+    const lateEmail = "late@example.com";
+    const earlyJobId = buildEmailJobId(buildRatingPromptEmailDedupeKey(uid));
+    const recapJobId = buildEmailJobId(`weekly-recap:2026-W40:${uid}`);
+    await seedUser();
+    await seedUser(lateUid, lateEmail);
+
+    setEnabledEmailTypes(["drop_announcement"]);
+    const earlyEvent = await seedRatingPromptAnswer("yes");
+    await runProducerFor(earlyEvent);
+    const recap = {
+      dedupeKey: `weekly-recap:2026-W40:${uid}`,
+      emailType: "weekly_recap_active" as const,
+      payload: {},
+      recipientEmail,
+      sourceRef: null,
+      uid,
+    };
+    assert.equal(await enqueueLifecycleEmailIfAllowed(db, recap), "queued");
+    await processEmailJobs.run({} as never);
+
+    assert.equal((await readJob(earlyJobId)).status, "skipped");
+    assert.equal((await readJob(recapJobId)).status, "skipped");
+    assert.equal(sends.length, 0);
+
+    setEnabledEmailTypes("all");
+    await processEmailJobs.run({} as never);
+
+    // The worker only ever picks up queued jobs, and nothing requeues a
+    // skipped one.
+    assert.equal(sends.length, 0);
+
+    // A producer firing again for the same climber or the same period finds
+    // its dedupe key already taken, so the held-back mail is not requeued.
+    await runProducerFor(earlyEvent);
+    assert.equal(
+      await enqueueLifecycleEmailIfAllowed(db, recap),
+      "already_queued"
+    );
+    await processEmailJobs.run({} as never);
+
+    for (const jobId of [earlyJobId, recapJobId]) {
+      const held = await readJob(jobId);
+      assert.equal(held.status, "skipped", jobId);
+      assert.equal(held.attemptCount, 0, jobId);
+      assert.equal(held.sentAt, null, jobId);
+    }
+    assert.equal(sends.length, 0);
+
+    // Mail queued after the switch is delivered as usual.
+    const lateEvent = await seedRatingPromptAnswer("yes", lateUid);
+    await runProducerFor(lateEvent, lateUid);
+    await processEmailJobs.run({} as never);
+
+    const late = await readJob(
+      buildEmailJobId(buildRatingPromptEmailDedupeKey(lateUid))
+    );
+    assert.equal(late.status, "sent");
+    assert.equal(sends.length, 1);
+    assert.deepEqual(sends[0].to, [lateEmail]);
+  });
+
+test("a job still waiting when its type is switched on is delivered",
+  async () => {
+    // The setting is read when the worker handles a job, not when the job is
+    // queued. The worker runs every minute, so only a job queued in the
+    // minute before the switch - or a backlog left by a worker that was not
+    // running - is still waiting, and it goes out under the new setting.
+    await seedUser();
+    setEnabledEmailTypes(["drop_announcement"]);
+    await runProducerFor(await seedRatingPromptAnswer("yes"));
+
+    setEnabledEmailTypes("all");
+    await processEmailJobs.run({} as never);
+
+    const job = await readJob(
+      buildEmailJobId(buildRatingPromptEmailDedupeKey(uid))
+    );
+    assert.equal(job.status, "sent");
+    assert.equal(sends.length, 1);
+  });
+
+test("a job still waiting when its type is switched off is never delivered",
+  async () => {
+    await seedUser();
+    await runProducerFor(await seedRatingPromptAnswer("yes"));
+
+    setEnabledEmailTypes(["drop_announcement"]);
+    await processEmailJobs.run({} as never);
+
+    const job = await readJob(
+      buildEmailJobId(buildRatingPromptEmailDedupeKey(uid))
+    );
+    assert.equal(job.status, "skipped");
+    assert.equal(job.sentAt, null);
+    assert.equal(sends.length, 0);
+  });
+
 /**
  * Reduces a stored job to the fields this suite reasons about.
  * @param {string} jobId - Firestore document ID
@@ -197,15 +305,20 @@ async function readJob(jobId: string): Promise<EmailJobDocument> {
  * The recorded consent is part of the seed, not a detail: lifecycle email now
  * requires an explicit yes at both the queue-time and send-time gates, so a
  * climber with no stored decision is one this suite would never mail.
+ * @param {string} climberUid - Climber uid
+ * @param {string} email - Profile address
  * @return {Promise<void>}
  */
-async function seedUser(): Promise<void> {
+async function seedUser(
+  climberUid: string = uid,
+  email: string = recipientEmail
+): Promise<void> {
   const now = admin.firestore.Timestamp.now();
 
-  await db.collection("users").doc(uid).set({email: recipientEmail});
+  await db.collection("users").doc(climberUid).set({email});
   await db
     .collection("users")
-    .doc(uid)
+    .doc(climberUid)
     .collection("communication_preferences")
     .doc("current")
     .set({
@@ -221,14 +334,16 @@ async function seedUser(): Promise<void> {
 /**
  * Records the in-app rating prompt answer the producer listens for.
  * @param {string} response - Prompt answer, "yes" or "no"
+ * @param {string} climberUid - Climber uid
  * @return {Promise<DocumentReference>} Lifecycle event reference
  */
 async function seedRatingPromptAnswer(
-  response: string
+  response: string,
+  climberUid: string = uid
 ): Promise<admin.firestore.DocumentReference> {
   const eventRef = db
     .collection("users")
-    .doc(uid)
+    .doc(climberUid)
     .collection("lifecycle_events")
     .doc(RATING_PROMPT_EVENT_ID);
 
@@ -244,16 +359,31 @@ async function seedRatingPromptAnswer(
 /**
  * Runs the lifecycle-event producer over a written event document.
  * @param {DocumentReference} eventRef - Lifecycle event reference
+ * @param {string} climberUid - Climber uid
  * @return {Promise<void>}
  */
 async function runProducerFor(
-  eventRef: admin.firestore.DocumentReference
+  eventRef: admin.firestore.DocumentReference,
+  climberUid: string = uid
 ): Promise<void> {
   const after = await eventRef.get();
   await onLifecycleEventEmailAutomation.run({
     data: {after},
-    params: {eventId: RATING_PROMPT_EVENT_ID, uid},
+    params: {eventId: RATING_PROMPT_EVENT_ID, uid: climberUid},
   } as never);
+}
+
+/**
+ * Sets which email types this environment delivers, as a new secret version
+ * bound by a deploy would.
+ * @param {"all" | string[]} enabledEmailTypes - The setting
+ * @return {void}
+ */
+function setEnabledEmailTypes(enabledEmailTypes: "all" | string[]): void {
+  process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
+    ...JSON.parse(String(process.env.TRANSACTIONAL_EMAIL_CONFIG)),
+    enabledEmailTypes,
+  });
 }
 
 /**

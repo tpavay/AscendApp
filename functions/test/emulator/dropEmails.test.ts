@@ -48,6 +48,7 @@ before(() => {
   process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
     provider: "resend",
     apiKey: "re_emulator_only",
+    enabledEmailTypes: "all",
     fromEmail: "hello@updates.ascendstepper.com",
     fromName: "Ascend",
     replyTo: "support@ascendstepper.com",
@@ -156,6 +157,59 @@ test("a rerun queues nobody twice, and the worker delivers one email",
       /^<https:\/\/ascendstepper\.com\/api\/unsubscribe\?token=/
     );
     assert.deepEqual(await readDropJobStatus(db, DROP_ID), {sent: 1});
+  });
+
+test("where only drops are enabled, the drop sends and nothing else does",
+  async () => {
+    // Production's shape for the first drop: the recap and rating producers
+    // already run there, and the captain has not decided their mail should
+    // reach climbers. Their jobs sit in the same batch as the drop.
+    const original = process.env.TRANSACTIONAL_EMAIL_CONFIG;
+    process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
+      ...JSON.parse(String(original)),
+      enabledEmailTypes: ["drop_announcement"],
+    });
+    try {
+      await seedClimber("climber-1", true, "climber@example.com");
+      const now = admin.firestore.Timestamp.now();
+      const held = [
+        "weekly_recap_active",
+        "weekly_recap_inactive",
+        "monthly_recap_active",
+        "monthly_recap_inactive",
+        "rating_positive_followup",
+        "rating_negative_feedback",
+      ] as const;
+      for (const type of held) {
+        await db.collection(EMAIL_JOBS).doc(type).set(createQueuedEmailJob(
+          type, "climber@example.com", "hash", `held:${type}`, {}, now,
+          null, "climber-1"
+        ));
+      }
+      const {recipients} = await readDropAudience(db);
+      await enqueueDropEmails(db, payload, recipients);
+
+      await processEmailJobs.run({} as never);
+
+      const drop = await readJob(buildDropDedupeKey(DROP_ID, "climber-1"));
+      assert.equal(drop.status, "sent");
+      assert.equal(sends.length, 1);
+      assert.equal(sends[0].subject, "Halloween on the stair stepper");
+      for (const type of held) {
+        const job = (await db.collection(EMAIL_JOBS).doc(type).get()).data();
+        assert.equal(job?.status, "skipped", type);
+        assert.equal(job?.attemptCount, 0, type);
+        assert.equal(job?.sentAt, null, type);
+      }
+
+      // Skipped is terminal: a later run, or the type being switched on,
+      // never delivers mail that was held back.
+      process.env.TRANSACTIONAL_EMAIL_CONFIG = original;
+      await processEmailJobs.run({} as never);
+      assert.equal(sends.length, 1);
+    } finally {
+      process.env.TRANSACTIONAL_EMAIL_CONFIG = original;
+    }
   });
 
 test("a climber who opts out after queuing is skipped at send time",

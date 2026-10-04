@@ -8,6 +8,7 @@ Ascend's Cloud Functions use the `TRANSACTIONAL_EMAIL_CONFIG` JSON secret for ba
 {
   "provider": "resend",
   "apiKey": "re_xxxxxxxxx",
+  "enabledEmailTypes": "all",
   "feedbackNotificationEmail": "tyler@ascendstepper.com",
   "fromEmail": "hello@updates.ascendstepper.com",
   "fromName": "Ascend",
@@ -27,22 +28,32 @@ Ascend's Cloud Functions use the `TRANSACTIONAL_EMAIL_CONFIG` JSON secret for ba
 
 ### Required fields
 
-`provider`, `apiKey`, `fromEmail`, and `fromName` are required, plus the two below.
+`provider`, `apiKey`, `fromEmail`, and `fromName` are required, plus the three below.
 `getTransactionalEmailConfig()` throws when any is missing or invalid, which fails every transactional send, so set them in each environment's secret *before* deploying functions.
 See CLAUDE.md, Firebase Hosting, for why these two fail loudly rather than defaulting.
 
 - `unsubscribeSigningKey` is **required** and must be at least 32 characters. It signs the HMAC unsubscribe tokens in outgoing email. Rotating it invalidates the unsubscribe links in already-delivered mail, so treat it as long-lived.
 - `websiteUrl` is **required** and must be an https URL. It is the host the unsubscribe link points at, and the trailing slash and fragment are normalized away.
+- `enabledEmailTypes` is **required**: `"all"`, or a list of email types such as `["drop_announcement"]`.
+  It decides which queued email this environment delivers.
+  `processEmailJobs` marks a job of any other type `skipped` and never sends it, even after the type is enabled later.
+  The setting is read when the worker handles a job, so a job still waiting in the queue at the moment of a change follows the new setting.
+  An unknown or misspelt type name fails the config check.
+  An empty list delivers nothing.
+  Admin feedback notifications are not gated by it.
 
 ## Local emulator
 
 Firebase's Cloud Functions emulator can override secret values with `functions/.secret.local`.
 
 ```dotenv
-TRANSACTIONAL_EMAIL_CONFIG={"provider":"resend","apiKey":"re_xxxxxxxxx","fromEmail":"hello@updates.ascendstepper.com","fromName":"Ascend","replyTo":"support@ascendstepper.com","unsubscribeSigningKey":"a-long-random-secret-of-at-least-32-chars","websiteUrl":"https://ascendstepper.com"}
+TRANSACTIONAL_EMAIL_CONFIG={"provider":"resend","apiKey":"re_xxxxxxxxx","enabledEmailTypes":"all","fromEmail":"hello@updates.ascendstepper.com","fromName":"Ascend","replyTo":"support@ascendstepper.com","unsubscribeSigningKey":"a-long-random-secret-of-at-least-32-chars","websiteUrl":"https://ascendstepper.com"}
 ```
 
 ## Deploying the secret
+
+This creates the secret in a project that has none.
+To change a secret that already exists in staging or production, never start from a local file: follow `docs/functions-secret-versions.md`, which builds the new version from the one the deployed functions are bound to and pins it.
 
 Create a local JSON file with the secret payload above, then load it into Secret Manager.
 The CLI version is pinned repo-wide; see `docs/dependency-security.md` before changing it.
