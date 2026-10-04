@@ -37,6 +37,7 @@ See CLAUDE.md, Firebase Hosting, for why these two fail loudly rather than defau
 - `enabledEmailTypes` is **required**: `"all"`, or a list of email types such as `["drop_announcement"]`.
   It decides which queued email this environment delivers.
   `processEmailJobs` marks a job of any other type `skipped` and never sends it, even after the type is enabled later.
+  The setting is read when the worker handles a job, so a job still waiting in the queue at the moment of a change follows the new setting.
   An unknown or misspelt type name fails the config check.
   An empty list delivers nothing.
   Admin feedback notifications are not gated by it.
