@@ -73,7 +73,11 @@ Adding another public endpoint means re-introducing abuse controls that no longe
 ## The delivery outage, and the stale backlog
 Until 2026-10-02 no environment's `TRANSACTIONAL_EMAIL_CONFIG` had an `unsubscribeSigningKey`, so `processEmailJobs` threw on its config assert every minute and no queued email was ever delivered; production held 6 queued jobs dating back to 2026-08-12.
 Dev (version 4) and staging (version 3, pinned) now carry a key, and their `websiteUrl` names their own `https://<project>.web.app` so a non-production unsubscribe link reaches its own endpoint; it used to name the production site.
-Production still has no key. Before adding one, run `scripts/skip-stale-email-jobs.mjs` (dry run, then `--commit`) against production with a cutoff of now, or the worker delivers the whole backlog - months-old recaps - the minute the key binds.
+Production got its key on 2026-10-04 (version 2, pinned), with `enabledEmailTypes` limited to `drop_announcement`: its worker runs, and recaps and rating follow-ups are created on schedule and marked `skipped` until a later secret version enables them.
+The six stale jobs were marked `skipped` first with `scripts/skip-stale-email-jobs.mjs`.
+The Halloween drop was the first email production ever delivered: one test to the founder, then 19 of 19 climbers on 2026-10-04.
+That order is the rule for any environment whose worker has not been running: skip the stale backlog (dry run, then `--commit`, cutoff of now) before the worker can run, or it delivers months-old mail within a minute.
+The same check comes first when enabling a type later - a queued job of that type is delivered the moment the type is on.
 
 ## Champion push
 - `onLeaderboardResultCreatedChampionPush` (`functions/src/championPush.ts`) answers the creation of `leaderboard_results/{resultId}` with one `champion_crowned` push to every uid in `championUserIds`.
