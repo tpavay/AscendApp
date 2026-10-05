@@ -9,6 +9,7 @@ Ascend's Cloud Functions use the `TRANSACTIONAL_EMAIL_CONFIG` JSON secret for ba
   "provider": "resend",
   "apiKey": "re_xxxxxxxxx",
   "enabledEmailTypes": "all",
+  "environmentLabel": "STAGING",
   "feedbackNotificationEmail": "tyler@ascendstepper.com",
   "fromEmail": "hello@updates.ascendstepper.com",
   "fromName": "Ascend",
@@ -28,7 +29,7 @@ Ascend's Cloud Functions use the `TRANSACTIONAL_EMAIL_CONFIG` JSON secret for ba
 
 ### Required fields
 
-`provider`, `apiKey`, `fromEmail`, and `fromName` are required, plus the three below.
+`provider`, `apiKey`, `fromEmail`, and `fromName` are required, plus the three below, and `environmentLabel` everywhere except production.
 `getTransactionalEmailConfig()` throws when any is missing or invalid, which fails every transactional send, so set them in each environment's secret *before* deploying functions.
 See CLAUDE.md, Firebase Hosting, for why these two fail loudly rather than defaulting.
 
@@ -41,13 +42,17 @@ See CLAUDE.md, Firebase Hosting, for why these two fail loudly rather than defau
   An unknown or misspelt type name fails the config check.
   An empty list delivers nothing.
   Admin feedback notifications are not gated by it.
+- `environmentLabel` is **required unless `websiteUrl` is the production site** (`https://ascendstepper.com`), and production leaves it out.
+  It is 2 to 12 upper case letters or digits: `DEV`, `STAGING`.
+  Every message that environment sends is marked in three places: the sender name (`Ascend STAGING`), the subject (`[STAGING] ...`), and a banner at the top of the body and of the plain-text part.
+  Test accounts carry real addresses, and without the marks a recap from dev or staging cannot be told from a production one.
 
 ## Local emulator
 
 Firebase's Cloud Functions emulator can override secret values with `functions/.secret.local`.
 
 ```dotenv
-TRANSACTIONAL_EMAIL_CONFIG={"provider":"resend","apiKey":"re_xxxxxxxxx","enabledEmailTypes":"all","fromEmail":"hello@updates.ascendstepper.com","fromName":"Ascend","replyTo":"support@ascendstepper.com","unsubscribeSigningKey":"a-long-random-secret-of-at-least-32-chars","websiteUrl":"https://ascendstepper.com"}
+TRANSACTIONAL_EMAIL_CONFIG={"provider":"resend","apiKey":"re_xxxxxxxxx","enabledEmailTypes":"all","environmentLabel":"LOCAL","fromEmail":"hello@updates.ascendstepper.com","fromName":"Ascend","replyTo":"support@ascendstepper.com","unsubscribeSigningKey":"a-long-random-secret-of-at-least-32-chars","websiteUrl":"https://ascendstepper.com"}
 ```
 
 ## Deploying the secret

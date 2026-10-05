@@ -37,9 +37,11 @@ const recipientEmail = "climber@example.com";
 const RETIRED_JOB_ID = buildEmailJobId("waitlist-welcome:abc123");
 
 interface StubbedSend {
+  from: string;
   headers: Record<string, string>;
   html: string;
   subject: string;
+  text: string;
   to: string[];
 }
 
@@ -55,16 +57,7 @@ before(() => {
     "FIRESTORE_EMULATOR_HOST is unset - run this through npm run test:emulator"
   );
 
-  process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
-    provider: "resend",
-    apiKey: "re_emulator_only",
-    enabledEmailTypes: "all",
-    fromEmail: "hello@updates.ascendstepper.com",
-    fromName: "Ascend",
-    replyTo: "support@ascendstepper.com",
-    unsubscribeSigningKey: "emulator-unsubscribe-signing-key-0123456789",
-    websiteUrl: "https://ascendstepper.com",
-  });
+  resetEmailConfig();
 
   // The only stubbed edge. Everything between the lifecycle event and this
   // call is the shipped code path.
@@ -84,7 +77,7 @@ before(() => {
 
 beforeEach(async () => {
   sends = [];
-  setEnabledEmailTypes("all");
+  resetEmailConfig();
   await clearEmailJobs();
 });
 
@@ -107,6 +100,10 @@ test("a climber answering the rating prompt still gets their email",
     assert.equal(job.lastErrorCode, null);
     assert.equal(sends.length, 1);
     assert.deepEqual(sends[0].to, [recipientEmail]);
+    // Production: no environment label, so nothing marks the message.
+    assert.equal(sends[0].from, "Ascend <hello@updates.ascendstepper.com>");
+    assert.doesNotMatch(sends[0].subject, /^\[/);
+    assert.doesNotMatch(sends[0].html, /test email/i);
     assert.match(sends[0].html, /\/api\/unsubscribe\?token=/);
     assert.match(
       sends[0].headers["List-Unsubscribe"],
@@ -161,6 +158,37 @@ test("a retired job in the batch does not stop the live one beside it",
         liveJob
       ),
     ], null, 2));
+  });
+
+test("mail from a test environment says so in three places",
+  async () => {
+    // Dev and staging send to test accounts that carry real addresses. What
+    // the provider is handed must be unmistakable: the sender, the subject
+    // and a banner ahead of everything else in the body.
+    process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
+      ...JSON.parse(String(process.env.TRANSACTIONAL_EMAIL_CONFIG)),
+      environmentLabel: "STAGING",
+      websiteUrl: "https://ascend-staging-fa7d5.web.app",
+    });
+    await seedUser();
+    await runProducerFor(await seedRatingPromptAnswer("yes"));
+
+    await processEmailJobs.run({} as never);
+
+    assert.equal(sends.length, 1);
+    assert.equal(
+      sends[0].from,
+      "Ascend STAGING <hello@updates.ascendstepper.com>"
+    );
+    assert.match(sends[0].subject, /^\[STAGING\] /);
+    assert.match(sends[0].html, /<body\b[^>]*><table[^>]*bgcolor="#F5A623"/);
+    assert.match(sends[0].html, /STAGING test email/);
+    assert.match(sends[0].text, /^\[STAGING TEST EMAIL\]/);
+    // The unsubscribe link still goes to this environment's own endpoint.
+    assert.match(
+      sends[0].headers["List-Unsubscribe"],
+      /^<https:\/\/ascend-staging-fa7d5\.web\.app\/api\/unsubscribe/
+    );
   });
 
 test("a type switched on later delivers only mail queued after the switch",
@@ -383,6 +411,24 @@ function setEnabledEmailTypes(enabledEmailTypes: "all" | string[]): void {
   process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
     ...JSON.parse(String(process.env.TRANSACTIONAL_EMAIL_CONFIG)),
     enabledEmailTypes,
+  });
+}
+
+/**
+ * Restores the production-shaped config the suite starts from, so a test
+ * that models another environment cannot leak into the next one.
+ * @return {void}
+ */
+function resetEmailConfig(): void {
+  process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
+    provider: "resend",
+    apiKey: "re_emulator_only",
+    enabledEmailTypes: "all",
+    fromEmail: "hello@updates.ascendstepper.com",
+    fromName: "Ascend",
+    replyTo: "support@ascendstepper.com",
+    unsubscribeSigningKey: "emulator-unsubscribe-signing-key-0123456789",
+    websiteUrl: "https://ascendstepper.com",
   });
 }
 
