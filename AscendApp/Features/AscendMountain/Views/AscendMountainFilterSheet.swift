@@ -197,7 +197,7 @@ struct AscendMountainFilterSheet: View {
     private var footer: some View {
         if directory.didFail {
             Button {
-                Task { await directory.loadMore() }
+                Task { await directory.retry(nearSteps: nearSteps) }
             } label: {
                 Text("Couldn't load climbers. Tap to try again.")
                     .font(.montserratMedium(size: 13))

@@ -27,6 +27,13 @@ enum LeaderboardAnalyticsEvent: TelemetryEvent {
         selectedValue: String
     )
     case demographicFiltersCleared(context: LeaderboardAnalyticsContext)
+    /// A load that did not get the server's standings on the first ask, so the rate of these is
+    /// countable per release. Mirrors the non-fatal recorded under
+    /// `LeaderboardRefreshFailure.errorCode`.
+    case refreshFailed(
+        context: LeaderboardAnalyticsContext,
+        failure: LeaderboardRefreshFailure
+    )
 
     var record: TelemetryRecord {
         switch self {
@@ -60,6 +67,29 @@ enum LeaderboardAnalyticsEvent: TelemetryEvent {
             return TelemetryRecord(
                 name: "leaderboard_filters_cleared",
                 parameters: parameters
+            )
+
+        case .refreshFailed(let context, let failure):
+            return TelemetryRecord(
+                name: LeaderboardRefreshFailure.errorCode,
+                parameters: [
+                    "metric": .string(context.metric.rawValue),
+                    "time_frame": .string(context.timeFrame.rawValue),
+                    "failure_class": .string(failure.failureClass.rawValue),
+                    "error_domain": .string(failure.errorDomain),
+                    "error_code": .int(failure.errorCode),
+                    "forced": .bool(failure.wasForced),
+                    "retry_recovered": .bool(failure.retryRecovered),
+                    "access_reconcile_attempted": .bool(failure.attemptedAccessRecovery),
+                    "resolution": .string(failure.resolution.rawValue),
+                    "network": .string(failure.context.networkInterface.rawValue),
+                    "launch_age": .string(
+                        LeaderboardRefreshFailure.ageBand(seconds: failure.context.secondsSinceLaunch)
+                    ),
+                    "foreground_age": .string(
+                        LeaderboardRefreshFailure.ageBand(seconds: failure.context.secondsSinceForeground)
+                    )
+                ]
             )
         }
     }

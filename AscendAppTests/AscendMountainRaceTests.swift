@@ -500,6 +500,28 @@ struct AscendMountainChosenClimbersTests {
         #expect(!directory.shouldReadOnForSearch(matches: 0))
     }
 
+    /// A list that never loaded has no page to read "more" of, so its retry has to be the first
+    /// load again. It used to call `loadMore`, which refuses to run before a first page exists.
+    @Test
+    func retryingAListThatNeverLoadedReadsItFromTheStart() async {
+        let board = FakeMountainRaceBoard()
+        board.near = [row(id: "a", userId: "climber-a", steps: 1, final: 8_410, duration: 4_000)]
+        board.pages = [
+            MountainRaceBoardPage(rows: [row(id: "b", userId: "climber-b", steps: 1, final: 9_840, duration: 5_000)], next: nil)
+        ]
+        board.failingDirectoryReads = 1
+        let directory = MountainClimberDirectory(board: board, context: context)
+
+        await directory.load(nearSteps: 8_167)
+        #expect(directory.didFail)
+        #expect(directory.everyone.isEmpty)
+
+        await directory.retry(nearSteps: 8_167)
+        #expect(!directory.didFail)
+        #expect(directory.closeToYourBest.map(\.id) == ["a"])
+        #expect(directory.everyone.map(\.id) == ["b"])
+    }
+
     private func moderated(_ rows: [LiveReplayLeaderboardRow]) -> [ModeratedReplayLeaderboardRow] {
         rows.map { CrossUserIdentityAdapter.replayRow($0, blockedUserIds: [], isBlockListHydrated: true) }
     }
@@ -634,6 +656,8 @@ private final class FakeMountainRaceBoard: MountainRaceBoard, @unchecked Sendabl
     var near: [LiveReplayLeaderboardRow] = []
     var pages: [MountainRaceBoardPage] = []
     var failingBestReads: Set<String> = []
+    /// How many of the next page reads fail before one answers.
+    var failingDirectoryReads = 0
     private(set) var bestReads: [String] = []
     private(set) var bucketReads: [String] = []
 
@@ -655,7 +679,11 @@ private final class FakeMountainRaceBoard: MountainRaceBoard, @unchecked Sendabl
     }
 
     func bests(context: LiveReplayLeaderboardContext, after cursor: MountainRaceBoardCursor?, limit: Int) async throws -> MountainRaceBoardPage {
-        pages.isEmpty ? MountainRaceBoardPage(rows: [], next: nil) : pages.removeFirst()
+        if failingDirectoryReads > 0 {
+            failingDirectoryReads -= 1
+            throw ReadFailed()
+        }
+        return pages.isEmpty ? MountainRaceBoardPage(rows: [], next: nil) : pages.removeFirst()
     }
 }
 

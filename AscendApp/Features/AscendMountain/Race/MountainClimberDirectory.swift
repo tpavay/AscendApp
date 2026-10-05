@@ -64,6 +64,19 @@ final class MountainClimberDirectory {
         }
     }
 
+    /// Asks again for whichever read failed.
+    ///
+    /// The first load and a later page fail the same way and show the same control, but
+    /// `loadMore` refuses to run before a first page exists - so the control did nothing for the
+    /// climber whose list never loaded at all, which is the one who most needs it.
+    func retry(nearSteps steps: Int) async {
+        if pagesRead == 0 {
+            await load(nearSteps: steps)
+        } else {
+            await loadMore()
+        }
+    }
+
     /// Whether a search that has found fewer than it could show should read another page.
     func shouldReadOnForSearch(matches: Int) -> Bool {
         canLoadMore && pagesRead < Self.searchPageLimit && matches < Self.pageSize

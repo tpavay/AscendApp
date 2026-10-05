@@ -14,9 +14,18 @@ final class ModerationRepository: ModerationRepositoryProtocol, Sendable {
         blockerUserId: String,
         source: BlockListReadSource
     ) async throws -> [BlockedClimber] {
-        let snapshot = try await blockedCollection(blockerUserId: blockerUserId)
+        let query = blockedCollection(blockerUserId: blockerUserId)
             .order(by: "createdAt", descending: true)
-            .getDocuments(source: Self.firestoreSource(for: source))
+        let snapshot: QuerySnapshot
+        switch source {
+        case .server:
+            // No quiet retry: `ModerationStore.hydrate` already answers an unreachable server
+            // with the cached list at once, and every cross-user identity stays masked until it
+            // does, so two seconds of waiting here is two more seconds of masked names.
+            snapshot = try await query.getServerDocuments(quietRetry: false)
+        case .cache:
+            snapshot = try await query.getDocuments(source: .cache)
+        }
 
         return snapshot.documents.compactMap { document in
             let data = document.data()
@@ -117,15 +126,6 @@ final class ModerationRepository: ModerationRepositoryProtocol, Sendable {
         ]
     }
 
-    private static func firestoreSource(
-        for source: BlockListReadSource
-    ) -> FirestoreSource {
-        switch source {
-        case .server: .server
-        case .cache: .cache
-        }
-    }
-
     private static func isPermissionDenied(_ error: any Error) -> Bool {
         let error = error as NSError
         return error.domain == FirestoreErrorDomain &&
@@ -136,7 +136,7 @@ final class ModerationRepository: ModerationRepositoryProtocol, Sendable {
         _ document: DocumentReference
     ) async -> Bool {
         do {
-            return try await document.getDocument(source: .server).exists
+            return try await document.getServerDocument().exists
         } catch {
             return false
         }

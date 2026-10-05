@@ -426,5 +426,11 @@ private final class CustomKeyRecordingReporter: CrashlyticsReporting, @unchecked
     }
 
     func log(_ message: String) {}
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
+    func record(
+        error: Error,
+        context: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {}
 }

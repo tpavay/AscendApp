@@ -159,7 +159,8 @@ Build the new version from the deployed binding and pin it; `docs/functions-secr
 
 ## When a comp half-worked
 
-Symptom: the person gets past the paywall and every server-guarded screen fails ("Leaderboard stalled", permission errors on climbs and profile).
+Symptom: the person gets past the paywall and every server-guarded screen fails ("Leaderboard stalled" or a board under `Ascend couldn't confirm your access. Pull to retry.`, permission errors on climbs and profile).
+That access line is the Leaderboards tab reporting a refused read; it has already asked `reconcileAppAccess` once by the time it shows, so it means the server would not derive a grant, and Sentry holds the refusal under `ascend_error_code:leaderboard_refresh_failed`.
 
 `users/{uid}/entitlement_status/app_access` is written on **every** webhook delivery, while `users/{uid}/entitlements/app_access` is written only for an allowlisted product. So:
 

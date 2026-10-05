@@ -51,7 +51,7 @@ final class FirestoreMountainRaceFilterRepository: MountainRaceFilterRepository,
     private func chosenOnServer(userId: String) async throws -> [String] {
         let snapshot = try await collection(userId: userId)
             .order(by: "createdAt")
-            .getDocuments(source: .server)
+            .getServerDocuments()
         return snapshot.documents.compactMap { document in
             guard let climberId = document.data()["climberUid"] as? String,
                   climberId == document.documentID else { return nil }

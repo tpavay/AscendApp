@@ -18,6 +18,9 @@ struct AscendApp: App {
     private let launchFailure: AppLaunchFailure?
 
     init() {
+        // Touched first so "seconds since launch" on a recorded failure counts from here rather
+        // than from whichever screen happened to ask first.
+        _ = AppActivityClock.shared
         let startupFailure = Self.configureFirebase() ?? Self.unreplacedMonetizationKeysFailure()
         let containerResult = Self.createModelContainer()
 

@@ -237,6 +237,32 @@ Ordering is the whole game. Every delete in `firestore.rules` is gated on `isOwn
 - Fail fast on user-initiated network actions when there is no network path - don't wait for request timeouts to tell the user they're offline.
 - Connectivity is *not* the same as request success. Online requests can still time out, hit backend errors, or return partial data. Features decide the user-facing response (retry button, cache fallback, error message), but the mechanics - timeout policy, retry logic, error categorization - belong in shared request infrastructure. If you find yourself implementing the same network error pattern in a second feature, extract it into the shared layer rather than duplicating it.
 
+## Reads that need the server's answer
+
+A Firestore read with source `.server` is the only kind a healthy phone can fail on its own.
+The SDK marks itself offline after a single failed attempt to open its listen stream (`kMaxWatchStreamFailures = 1` in the pinned 11.15.0), and from then until it reconnects every forced read fails immediately with `unavailable` (14), while an ordinary read is quietly answered from the device's copy.
+`NetworkConnectivityService` watches the network path, not Firestore's stream, so the app believes it is connected the whole time.
+A network handoff is enough: the stream runs on gRPC with its own DNS and TLS, separate from `URLSession`, and can drop alone.
+
+`AscendApp/Shared/Services/ServerRead/` is the shared request infrastructure the Connectivity section above asks for, and it is the only place the app hands the SDK `source: .server`.
+
+- `getServerDocuments()`, `getServerDocument()` and `getServerAggregation()` return the server's answer or throw, with one quiet retry about two seconds after an unreachable-class failure.
+  Use them wherever a stale copy would be wrong rather than merely old: the base of a write diff, a rank built from several counts, a "seen" flag, a standing about to be frozen.
+  An aggregation has no cached form at all.
+- `ServerPreferredRead.run` with `.cacheFallback` additionally hands back the device's copy with `isFromCache` set once the server has given no answer.
+  Use it only where the feature then tells the climber the value is not current; the Leaderboards tab is the worked example.
+- Its `recoverRefusal` hook runs once after a refused read.
+  A paid read passes `RefusedAccessRecovering`, which calls `reconcileAppAccess` for a climber the device believes is entitled, so a missing grant heals on the next read instead of the next launch.
+- The quiet retry is skipped when the app-wide connectivity answer says there is no network path, because nothing two seconds can bring back is missing.
+- `quietRetry: false` is for a caller that already has an immediate, designed answer for an unreachable server.
+  `ModerationStore.hydrate` is the one such caller: it falls back to the cached block list at once, and every cross-user identity stays masked until it does.
+
+`ServerReadFailureClass` sorts a failure into unreachable (14, 4, 1, 13, transport errors, app timeouts), refused (7, 16) or unexpected (everything else, a missing index included).
+Keep them apart in whatever a feature shows and records: a refusal and a dropped stream shared one sentence on the Leaderboards tab, which is why a five-minute blip on 2026-10-03 read as a repeat of the 2026-09-25 outage.
+A new app-side timeout error conforms to `ServerReadTimeoutError` so it classifies as unreachable.
+
+`scripts/test/server-read-contract.test.mjs` fails when a call site passes `source: .server` to the SDK itself.
+
 ## Related
 - Firestore has no fixed shape, so a field change here is *not* a data migration; the local SwiftData store is the one that needs versions and stages, and `ascend-data-migration` covers it.
 - Adding a Firestore field usually also means declaring a new collected data type - see `ascend-privacy-manifest`.

@@ -26,7 +26,13 @@ final class FirebaseCrashlyticsReporter: CrashlyticsReporting, @unchecked Sendab
         Crashlytics.crashlytics().log(message)
     }
 
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {
+    func record(
+        error: Error,
+        context: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {
         var userInfo: [String: Any] = [
             "context": context,
             "error_code": code
