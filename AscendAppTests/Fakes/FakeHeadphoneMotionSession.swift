@@ -18,6 +18,9 @@ final class FakeHeadphoneMotionSession: HeadphoneMotionSessionServicing {
     /// the way a session that was never recording does.
     var stopResult: HeadphoneMotionSessionResult?
     private(set) var startRecordingCallCount = 0
+    /// What the last start was asked to resume from: nil for a fresh session, the recovered
+    /// draft's checkpoint for one restored after the app was killed.
+    private(set) var lastResumeState: HeadphoneMotionSessionResumeState?
 
     func applyStepCorrection(
         correctedSteps: Int,
@@ -46,6 +49,7 @@ final class FakeHeadphoneMotionSession: HeadphoneMotionSessionServicing {
         resumeState: HeadphoneMotionSessionResumeState?
     ) throws {
         startRecordingCallCount += 1
+        lastResumeState = resumeState
         onStartRecording?()
         if let startError {
             throw startError

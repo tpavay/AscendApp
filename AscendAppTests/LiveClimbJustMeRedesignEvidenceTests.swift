@@ -9,9 +9,9 @@ import UIKit
 
 /// Product-level evidence for the Just Me tab's hero-and-centered-grid redesign: a large
 /// centered step count, the summit bar directly beneath it, and a centered grid of medium
-/// stat cards (Elapsed, Current Rank, Pace, then Heart Rate) sitting directly below the bar -
-/// a 2x2 grid with a strap connected, two-and-one without one - all read off the real,
-/// shipping `LiveClimbSessionView` mid-recording, not a redrawn copy.
+/// stat cards (Elapsed, Current Rank, Pace, Floors, then Heart Rate) sitting directly below the
+/// bar - a 2x2 grid without a strap, three over two with one connected - all read off the
+/// real, shipping `LiveClimbSessionView` mid-recording, not a redrawn copy.
 ///
 /// Photographed when `ASCEND_EVIDENCE_DIR` is set, and not drawn otherwise.
 @MainActor
@@ -43,7 +43,7 @@ struct LiveClimbJustMeRedesignEvidenceTests {
 
         #expect(viewModel.isRecording, "the redesigned chrome (photo background, hero, stat grid) only shows while recording")
         #expect(viewModel.mode.targetStepCount == 900)
-        #expect(viewModel.liveHeartRateStatus == nil, "no strap is remembered, so the grid should fold to three boxes")
+        #expect(viewModel.liveHeartRateStatus == nil, "no strap is remembered, so the grid should hold four boxes")
 
         try await RenderedScreen.host(
             LiveClimbSessionView(viewModel: viewModel)
@@ -60,9 +60,11 @@ struct LiveClimbJustMeRedesignEvidenceTests {
             // The Elevation Climbed card is gone entirely - the captain found it not useful.
             #expect(!text.contains("elevation"), "the Elevation Climbed card must be removed: \(text)")
 
-            // The grid folds to three boxes with no strap paired: Elapsed, Current Rank, Pace.
+            // The grid holds four boxes with no strap paired: Elapsed, Current Rank, Pace, Floors.
             #expect(text.contains("elapsed"))
             #expect(text.contains("current rank"))
+            #expect(text.contains("floors"))
+            #expect(text.contains("19"), "300 steps at sixteen a floor is 18.75, which the saved workout rounds to 19: \(text)")
 
             // The word "pace" is gone entirely - each value is labeled directly instead.
             #expect(!text.contains("pace"), "the word \"pace\" must not appear anywhere: \(text)")
@@ -80,19 +82,20 @@ struct LiveClimbJustMeRedesignEvidenceTests {
     }
 
     @Test(
-        "The heart-rate box toggles the grid between three (two-and-one) and four (2x2) cards, at both phone widths",
+        "The stat grid is two by two without a strap and three over two with one, floors on it both ways, at both phone widths",
         arguments: LiveClimbJustMePhotoBackgroundWidthTests.phoneSizes
     )
-    func heartRateBoxTogglesTheGridBetweenThreeAndFourCards(size: CGSize) async throws {
+    func statGridHoldsFloorsWithAndWithoutAStrap(size: CGSize) async throws {
         try await Self.assertStatGrid(at: size, heartRateConnected: false)
         try await Self.assertStatGrid(at: size, heartRateConnected: true)
     }
 
     /// Asserts every box the grid should show at this width/state combination sits inside the
     /// screen's gutter, asserts the heart-rate box's presence matches `heartRateConnected`
-    /// exactly, and asserts the grid's actual shape: Elapsed and Current Rank always share a
-    /// row, Pace sits on the row below - alongside Heart Rate when a strap is connected, or
-    /// alone and horizontally centered (not stretched) when it is not.
+    /// exactly, and asserts the grid's actual shape. Elapsed and Current Rank always share the
+    /// first row and Pace always opens the second, at half the grid's width rather than
+    /// stretched across it. Without a strap Floors sits beside Pace, under Current Rank; with
+    /// one, Heart Rate takes that seat and Floors sits midway between Elapsed and Current Rank.
     private static func assertStatGrid(at size: CGSize, heartRateConnected: Bool) async throws {
         let container = try RetainedModelContainer.inMemory(
             for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self,
@@ -135,6 +138,7 @@ struct LiveClimbJustMeRedesignEvidenceTests {
             (viewModel.liveHeartRateStatus != nil) == heartRateConnected,
             "the view model's own heart-rate status must match the strap fixture before rendering"
         )
+        #expect(viewModel.displayedFloors == 19, "300 steps at sixteen a floor, rounded as the saved workout rounds")
 
         try await RenderedScreen.host(
             LiveClimbSessionView(viewModel: viewModel)
@@ -147,6 +151,7 @@ struct LiveClimbJustMeRedesignEvidenceTests {
                 let hasCore = texts.contains { $0.text == "ELAPSED" }
                     && texts.contains { $0.text == "CURRENT RANK" }
                     && texts.contains { $0.text == "AVERAGE" }
+                    && texts.contains { $0.text == "FLOORS" }
                 return heartRateConnected
                     ? hasCore && texts.contains { $0.text == "HEART RATE" }
                     : hasCore
@@ -157,7 +162,7 @@ struct LiveClimbJustMeRedesignEvidenceTests {
                 allTexts.first { $0.text == label }?.frame
             }
 
-            var alwaysPresent = ["ELAPSED", "CURRENT RANK", "CURRENT", "AVERAGE", "End attempt"]
+            var alwaysPresent = ["ELAPSED", "CURRENT RANK", "CURRENT", "AVERAGE", "FLOORS", "19", "12:34", "End attempt"]
             if heartRateConnected {
                 alwaysPresent.append("HEART RATE")
             }
@@ -174,6 +179,8 @@ struct LiveClimbJustMeRedesignEvidenceTests {
 
             let elapsed = exact("ELAPSED")
             let rank = exact("CURRENT RANK")
+            let floors = exact("FLOORS")
+            let floorsValue = exact("19")
             let paceCurrent = exact("CURRENT")
             let paceAverage = exact("AVERAGE")
             let heartRate = heartRateConnected ? exact("HEART RATE") : nil
@@ -186,48 +193,63 @@ struct LiveClimbJustMeRedesignEvidenceTests {
                 )
             }
 
+            // The floors figure sits over its own label, as every other box's value does.
+            if let floors, let floorsValue {
+                #expect(
+                    abs(floorsValue.midX - floors.midX) < 4 && floorsValue.maxY <= floors.minY + 1,
+                    "the floors figure \(floorsValue.integral) must sit directly over its label \(floors.integral)"
+                )
+            }
+
             // The pace card's true center is the midpoint of its two symmetric columns -
             // "AVERAGE" alone sits right-of-center within the card, so it is not a usable
             // proxy for the whole card's position on its own.
-            if let paceCurrent, let paceAverage {
+            if let paceCurrent, let paceAverage, let elapsed, let rank, let floors {
                 let paceCenterX = (paceCurrent.midX + paceAverage.midX) / 2
                 let paceCenterY = (paceCurrent.midY + paceAverage.midY) / 2
+                // Half the grid's width from one row-two box to the other, whatever the top row holds.
+                let halfGridPitch = screen.bounds.width / 2
 
-                if let elapsed {
+                #expect(
+                    paceCenterY > elapsed.midY,
+                    "Pace (center y \(paceCenterY)) must sit on the row below Elapsed/Rank \(elapsed.integral)"
+                )
+                let paceSpread = paceAverage.midX - paceCurrent.midX
+                #expect(
+                    paceSpread > 0 && paceSpread < halfGridPitch * 0.75,
+                    "the Pace card (label spread \(paceSpread)) must stay one half of the grid wide, not stretch across the row, at \(Int(size.width))pt"
+                )
+                #expect(
+                    paceCenterX < screen.bounds.midX,
+                    "Pace (center x \(paceCenterX)) must open the second row, at \(Int(size.width))pt"
+                )
+
+                if heartRateConnected, let heartRate {
+                    // Three over two: Floors midway between Elapsed and Current Rank, then Pace
+                    // and Heart Rate splitting the row below.
                     #expect(
-                        paceCenterY > elapsed.midY,
-                        "Pace (center y \(paceCenterY)) must sit on the row below Elapsed/Rank \(elapsed.integral)"
+                        abs(floors.midY - elapsed.midY) < 4,
+                        "Floors \(floors.integral) must join Elapsed \(elapsed.integral) on the first row once a strap takes its seat"
                     )
-                }
-
-                if let elapsed, let rank {
-                    let paceSpread = paceAverage.midX - paceCurrent.midX
-                    let columnPitch = rank.midX - elapsed.midX
                     #expect(
-                        paceSpread > 0 && paceSpread < columnPitch * 0.75,
-                        "the Pace card (label spread \(paceSpread)) must match the grid's column width (column pitch \(columnPitch)), not stretch across the row, at \(Int(size.width))pt"
+                        abs(floors.midX - (elapsed.midX + rank.midX) / 2) < 6,
+                        "Floors \(floors.integral) must sit midway between Elapsed \(elapsed.integral) and Current Rank \(rank.integral)"
                     )
-                }
-
-                if heartRateConnected, let heartRate, let elapsed, let rank {
-                    // 2x2: Pace sits under Elapsed's column, Heart Rate under Rank's column.
                     #expect(heartRate.midY > elapsed.midY, "Heart Rate \(heartRate.integral) must sit on the second grid row")
+                    #expect(
+                        abs((paceCenterX + heartRate.midX) / 2 - screen.bounds.midX) < 6,
+                        "Pace (center x \(paceCenterX)) and Heart Rate \(heartRate.integral) must split the second row evenly"
+                    )
+                } else {
+                    // Two by two: Pace under Elapsed's column, Floors under Current Rank's.
+                    #expect(floors.midY > elapsed.midY, "Floors \(floors.integral) must sit on the second grid row")
                     #expect(
                         abs(paceCenterX - elapsed.midX) < 6,
                         "Pace (center x \(paceCenterX)) must align under Elapsed's column \(elapsed.integral)"
                     )
                     #expect(
-                        abs(heartRate.midX - rank.midX) < 6,
-                        "Heart Rate \(heartRate.integral) must align under Current Rank's column \(rank.integral)"
-                    )
-                } else {
-                    // Two-and-one: the lone Pace box is centered, not stretched to fill the row.
-                    // The width pin above already rules out a stretch-to-fill regression (a
-                    // stretched box would still pass a centering-only check); this adds the
-                    // centering itself.
-                    #expect(
-                        abs(paceCenterX - screen.bounds.midX) < 6,
-                        "the lone Pace box (center x \(paceCenterX)) must be horizontally centered, not lopsided, at \(Int(size.width))pt"
+                        abs(floors.midX - rank.midX) < 6,
+                        "Floors \(floors.integral) must align under Current Rank's column \(rank.integral)"
                     )
                 }
             }
@@ -236,7 +258,7 @@ struct LiveClimbJustMeRedesignEvidenceTests {
             #expect(!text.contains("elevation"), "the Elevation Climbed card must stay removed")
             #expect(!text.contains("pace"), "the word \"pace\" must not appear anywhere: \(text)")
             if !heartRateConnected {
-                #expect(!text.contains("heart rate"), "the grid must fold to three boxes with no strap paired")
+                #expect(!text.contains("heart rate"), "no heart-rate box may render with no strap paired")
             }
 
             try screen.photograph(named: "just-me-redesign-stat-grid-\(heartRateConnected ? "hr" : "no-hr")-\(Int(size.width))pt")

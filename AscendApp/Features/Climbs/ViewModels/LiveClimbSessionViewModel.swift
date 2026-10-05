@@ -392,6 +392,8 @@ final class LiveClimbSessionViewModel {
         motionSession.duration
     }
 
+    /// Floors climbed so far, converted exactly as `saveWorkout` converts the finished count,
+    /// so the figure on screen at the last step is the one the saved workout carries.
     var displayedFloors: Int {
         Workout.stepsToFloors(totalRecordedSteps)
     }

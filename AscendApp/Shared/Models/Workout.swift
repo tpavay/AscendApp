@@ -124,7 +124,7 @@ enum DataIntegrityLevel: String, CaseIterable, Codable {
 
 @Model
 class Workout {
-    static let defaultStepsPerFloor = 16
+    static let defaultStepsPerFloor = FloorsClimbed.stepsPerFloor
 
     var id: UUID
     var name: String
@@ -439,8 +439,7 @@ class Workout {
     
     /// Converts steps to floors using Ascend's fixed conversion rate, rounded to whole numbers.
     static func stepsToFloors(_ steps: Int, stepsPerFloor: Int = Workout.defaultStepsPerFloor) -> Int {
-        guard stepsPerFloor > 0 else { return 0 }
-        return Int((Double(steps) / Double(stepsPerFloor)).rounded())
+        FloorsClimbed.count(forSteps: steps, stepsPerFloor: stepsPerFloor)
     }
     
     /// Converts floors to steps using Ascend's fixed conversion rate.
