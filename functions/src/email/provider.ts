@@ -1,4 +1,5 @@
 import {getTransactionalEmailConfig} from "./config";
+import {labelMessageForEnvironment} from "./environmentLabel";
 import type {
   TransactionalEmailDelivery,
   TransactionalEmailMessage,
@@ -128,6 +129,15 @@ export async function sendTransactionalEmail(
   message: TransactionalEmailMessage
 ): Promise<TransactionalEmailDelivery> {
   const config = getTransactionalEmailConfig();
+  const labelled = labelMessageForEnvironment(
+    {
+      fromName: config.fromName,
+      html: message.html,
+      subject: message.subject,
+      text: message.text,
+    },
+    config.environmentLabel
+  );
 
   try {
     const response = await fetch("https://api.resend.com/emails", {
@@ -138,12 +148,12 @@ export async function sendTransactionalEmail(
         "Idempotency-Key": message.idempotencyKey,
       },
       body: JSON.stringify({
-        from: formatSender(config.fromName, config.fromEmail),
+        from: formatSender(labelled.fromName, config.fromEmail),
         headers: buildUnsubscribeHeaders(message.unsubscribeUrl),
-        html: message.html,
+        html: labelled.html,
         reply_to: message.replyTo ?? config.replyTo,
-        subject: message.subject,
-        text: message.text,
+        subject: labelled.subject,
+        text: labelled.text,
         to: message.to,
       }),
     });

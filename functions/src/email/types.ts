@@ -36,6 +36,7 @@ export interface TransactionalEmailConfig {
   provider: TransactionalEmailProvider;
   apiKey: string;
   enabledEmailTypes: EnabledEmailTypes;
+  environmentLabel?: string;
   feedbackNotificationEmail?: string;
   fromEmail: string;
   fromName: string;
