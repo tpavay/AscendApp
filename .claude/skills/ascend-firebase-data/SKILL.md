@@ -261,8 +261,6 @@ A network handoff is enough: the stream runs on gRPC with its own DNS and TLS, s
 Keep them apart in whatever a feature shows and records: a refusal and a dropped stream shared one sentence on the Leaderboards tab, which is why a five-minute blip on 2026-10-03 read as a repeat of the 2026-09-25 outage.
 A new app-side timeout error conforms to `ServerReadTimeoutError` so it classifies as unreachable.
 
-`scripts/test/server-read-contract.test.mjs` fails when a call site passes `source: .server` to the SDK itself.
-
 ## Related
 - Firestore has no fixed shape, so a field change here is *not* a data migration; the local SwiftData store is the one that needs versions and stages, and `ascend-data-migration` covers it.
 - Adding a Firestore field usually also means declaring a new collected data type - see `ascend-privacy-manifest`.

@@ -15,7 +15,6 @@ struct ServerPreferredReadTests {
         #expect(try outcome.result.get() == "server")
         #expect(outcome.isFromCache == false)
         #expect(outcome.failures.isEmpty)
-        #expect(outcome.recoveredFromFailure == false)
         #expect(script.attempts == [.server])
         #expect(script.waits.isEmpty)
     }
@@ -29,7 +28,6 @@ struct ServerPreferredReadTests {
 
         #expect(try outcome.result.get() == "server")
         #expect(outcome.isFromCache == false)
-        #expect(outcome.recoveredFromFailure)
         #expect(outcome.failures.map(\.failureClass) == [.unreachable])
         #expect(script.attempts == [.server, .server])
         #expect(script.waits == [ServerPreferredRead.defaultRetryDelay])
@@ -63,7 +61,6 @@ struct ServerPreferredReadTests {
 
         #expect(try outcome.result.get() == "cached")
         #expect(outcome.isFromCache)
-        #expect(outcome.recoveredFromFailure == false)
         #expect(outcome.failures.count == 2)
         #expect(script.attempts == [.server, .server, .cache])
     }
@@ -112,7 +109,6 @@ struct ServerPreferredReadTests {
         let outcome = await script.run(policy: .cacheFallback, refusalRecovery: .heals)
 
         #expect(try outcome.result.get() == "server")
-        #expect(outcome.recoveredFromFailure)
         #expect(outcome.attemptedRefusalRecovery)
         #expect(script.recoveryCalls == 1)
         #expect(script.attempts == [.server, .server])

@@ -11,10 +11,4 @@ struct ServerPreferredReadOutcome<Value> {
     let failures: [ServerReadFailure]
     /// Whether the caller's refusal recovery ran. It runs at most once per read.
     let attemptedRefusalRecovery: Bool
-
-    /// The server answered, but only after at least one failed attempt.
-    var recoveredFromFailure: Bool {
-        guard case .success = result else { return false }
-        return !isFromCache && !failures.isEmpty
-    }
 }

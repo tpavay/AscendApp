@@ -2,8 +2,7 @@ import Foundation
 @preconcurrency import FirebaseFirestore
 
 // The only place the app passes `source: .server`. Every forced read goes through
-// `ServerPreferredRead`, which owns the quiet retry; `scripts/test/server-read-contract.test.mjs`
-// fails when a call site forces the server on its own.
+// `ServerPreferredRead`, which owns the quiet retry; a call site never forces the server on its own.
 
 extension Query {
     /// The server's documents, never the cache's, with `ServerPreferredRead`'s one quiet retry.
