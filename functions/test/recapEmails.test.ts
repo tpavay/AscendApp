@@ -28,7 +28,7 @@ import {
   weeksSince,
   type StoredRecapActive,
 } from "../src/recapEmails.js";
-import {previousPeriod} from "../src/leaderboardPeriod.js";
+import {currentPeriod, previousPeriod} from "../src/leaderboardPeriod.js";
 import type {CatalogClimb} from "../src/climbDropNotifications.js";
 
 const closedWeek = previousPeriod("weekly", new Date("2026-09-24T00:00:00Z"));
@@ -127,6 +127,61 @@ test("weekly period label is a concrete, dated range with the year", () => {
   // The common case: a week entirely inside one month, e.g. "Sep 15-21, 2026".
   assert.match(label, /^[A-Z][a-z]{2} \d{1,2}-\d{1,2}, \d{4}$/);
 });
+
+test("the weekly recap covers Monday 00:00 UTC to the next Monday 00:00 UTC",
+  () => {
+    // The founder's real week, checked against production on 2026-10-05:
+    // 9,578 steps from climbs on Sep 29 and Oct 3. The recap is sent Monday
+    // 13:00 UTC and composed Monday 00:30 UTC; both must name the same week.
+    const week = previousPeriod("weekly", new Date("2026-10-05T13:00:00Z"));
+
+    assert.equal(week.key, "2026-W40");
+    assert.equal(week.startAt.toISOString(), "2026-09-28T00:00:00.000Z");
+    assert.equal(week.endAt.toISOString(), "2026-10-05T00:00:00.000Z");
+    assert.deepEqual(
+      previousPeriod("weekly", new Date("2026-10-05T00:30:00Z")),
+      week
+    );
+    assert.equal(formatWeeklyPeriodLabel(week), "Sep 28 - Oct 4, 2026");
+
+    // The week a climb counts toward is the week its start instant falls
+    // in, by the same derivation the leaderboard rows use.
+    const weekOf = (instant: string): string =>
+      currentPeriod("weekly", new Date(instant)).key;
+    assert.equal(weekOf("2026-09-27T14:39:23Z"), "2026-W39");
+    assert.equal(weekOf("2026-09-29T12:54:22Z"), "2026-W40");
+    assert.equal(weekOf("2026-10-03T16:47:02Z"), "2026-W40");
+    assert.equal(weekOf("2026-10-05T11:56:33Z"), "2026-W41");
+  });
+
+test("the week's first and last instants are in it, the next instant is not",
+  () => {
+    const weekOf = (instant: string): string =>
+      currentPeriod("weekly", new Date(instant)).key;
+
+    assert.equal(weekOf("2026-09-27T23:59:59.999Z"), "2026-W39");
+    assert.equal(weekOf("2026-09-28T00:00:00.000Z"), "2026-W40");
+    assert.equal(weekOf("2026-10-04T23:59:59.999Z"), "2026-W40");
+    assert.equal(weekOf("2026-10-05T00:00:00.000Z"), "2026-W41");
+  });
+
+test("the week turns over at UTC midnight, whatever the climber's clock says",
+  () => {
+    // Weeks are UTC so every climber is ranked over the same seven days. In
+    // US Central time the week therefore turns over at 7 PM on Sunday: a
+    // climb at 6:59 PM is last week's, one at 7:00 PM is next week's.
+    const weekOf = (instant: string): string =>
+      currentPeriod("weekly", new Date(instant)).key;
+
+    assert.equal(weekOf("2026-10-04T18:59:59-05:00"), "2026-W40");
+    assert.equal(weekOf("2026-10-04T19:00:00-05:00"), "2026-W41");
+    // And the same instants cannot land in different weeks for the send and
+    // for the leaderboard row they are read from.
+    assert.equal(
+      previousPeriod("weekly", new Date("2026-10-05T13:00:00Z")).key,
+      weekOf("2026-10-04T18:59:59-05:00")
+    );
+  });
 
 test("a week straddling a month boundary names both months", () => {
   // 2026-08-31 is a Monday, so that UTC-Monday week runs Aug 31 - Sep 6.

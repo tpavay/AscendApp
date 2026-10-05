@@ -962,45 +962,60 @@ function earnedBadgeArray(value: unknown): RecapEarnedBadge[] {
   return badges;
 }
 
+// The height every stat tile in a grid is given, in pixels of content. It is
+// a floor, not a clamp, set to the tallest tile a phone produces so no tile
+// has to outgrow it and both rows of the grid stay the same size: a caption
+// wrapped onto two lines, and - in a grid that shows any delta chip - a chip
+// wrapped onto two lines under it. Measured on the rendered template at 375
+// points wide, the narrowest current iPhone.
+const RECAP_STAT_TILE_HEIGHT = 76;
+const RECAP_STAT_TILE_HEIGHT_WITH_CHIPS = 124;
+const RECAP_STAT_TILE_GUTTER = 16;
+
 /**
- * Renders one stat card's inline styles.
+ * Renders one stat tile as a table cell.
+ *
+ * The tile is the cell itself, not a box inside one. Cells in a table row
+ * share a height in every mail client, while a box inside a cell is only as
+ * tall as its own text: with the box, "climbs completed" wrapping onto two
+ * lines on a phone left that tile taller than the "week streak" tile beside
+ * it (the weekly recap of 2026-10-05).
  * @param {string} value - Big headline number
  * @param {string} label - Caption below the number
  * @param {RecapDeltaChip | undefined} chip - Optional green delta chip
- * @return {string} Card HTML
+ * @param {number} height - The grid's shared tile height
+ * @return {string} Tile cell HTML
  */
-function renderStatCardHtml(
+function renderStatTileCellHtml(
   value: string,
   label: string,
-  chip: RecapDeltaChip | undefined
+  chip: RecapDeltaChip | undefined,
+  height: number
 ): string {
   const chipHtml = chip ? [
     "<span style=\"display:inline-block;margin-top:10px;padding:4px 10px;",
     `border-radius:8px;background:${RECAP_CHIP_BG};color:`,
     `${BRAND_ACCENT_COLOR};font-size:12px;font-weight:700;">▲ `,
     `${escapeHtml(chip.value)} ${escapeHtml(chip.label)}</span>`,
-  ].join("") : [
-    // Reserves the chip's height so a chip-less card matches its row-mate.
-    "<span aria-hidden=\"true\" style=\"display:inline-block;",
-    "margin-top:10px;padding:4px 10px;font-size:12px;visibility:hidden;\">",
-    "&nbsp;</span>",
-  ].join("");
+  ].join("") : "";
 
   return [
-    `<div style="border:1px solid ${RECAP_BORDER};border-radius:16px;`,
-    `padding:20px;background:${RECAP_CARD_BG};box-shadow:`,
-    `${RECAP_CARD_SHADOW};">`,
+    `<td width="50%" height="${height}" valign="top" `,
+    `style="width:50%;height:${height}px;`,
+    `vertical-align:top;border:1px solid ${RECAP_BORDER};`,
+    `border-radius:16px;padding:20px;background:${RECAP_CARD_BG};`,
+    `box-shadow:${RECAP_CARD_SHADOW};">`,
     `<p style="margin:0;font-size:30px;font-weight:800;color:${RECAP_TEXT};`,
     `line-height:1.1;letter-spacing:-0.01em;">${escapeHtml(value)}</p>`,
-    `<p style="margin:8px 0 0;font-size:13px;color:${RECAP_TEXT_MUTED};">`,
-    `${escapeHtml(label)}</p>`,
+    "<p style=\"margin:8px 0 0;font-size:13px;line-height:1.3;color:",
+    `${RECAP_TEXT_MUTED};">${escapeHtml(label)}</p>`,
     chipHtml,
-    "</div>",
+    "</td>",
   ].join("");
 }
 
 /**
- * Renders the 2x2 stat card grid as an email-safe table.
+ * Renders the 2x2 stat tile grid as an email-safe table.
  * @param {Array<[string, string, RecapDeltaChip | undefined]>} cards -
  *   Exactly four (value, label, chip) tuples
  * @return {string} Grid HTML
@@ -1008,28 +1023,39 @@ function renderStatCardHtml(
 function renderStatGridHtml(
   cards: Array<[string, string, RecapDeltaChip | undefined]>
 ): string {
-  // The gutter sits between the two cards only, so the outer edges stay
+  // Gutters are their own cells and rows, so the tiles' outer edges stay
   // flush with the rank hero and badge boxes above the grid.
-  const cell = (
-    card: [string, string, RecapDeltaChip | undefined],
-    padding: string
-  ): string =>
-    `<td width="50%" style="padding:${padding};vertical-align:top;">` +
-    `${renderStatCardHtml(card[0], card[1], card[2])}</td>`;
-  const left = (card: [string, string, RecapDeltaChip | undefined]) =>
-    cell(card, "0 8px 16px 0");
-  const right = (card: [string, string, RecapDeltaChip | undefined]) =>
-    cell(card, "0 0 16px 8px");
+  const gutter = RECAP_STAT_TILE_GUTTER;
+  const height = cards.some((card) => card[2] !== undefined) ?
+    RECAP_STAT_TILE_HEIGHT_WITH_CHIPS :
+    RECAP_STAT_TILE_HEIGHT;
+  const spacer = "font-size:0;line-height:0;";
+  const gutterCell = `<td width="${gutter}" style="width:${gutter}px;` +
+    `${spacer}">&nbsp;</td>`;
+  const gutterRow = `<tr><td colspan="3" height="${gutter}" ` +
+    `style="height:${gutter}px;${spacer}">&nbsp;</td></tr>`;
+  const row = (
+    left: [string, string, RecapDeltaChip | undefined],
+    right: [string, string, RecapDeltaChip | undefined]
+  ): string => [
+    "<tr>",
+    renderStatTileCellHtml(left[0], left[1], left[2], height),
+    gutterCell,
+    renderStatTileCellHtml(right[0], right[1], right[2], height),
+    "</tr>",
+  ].join("");
 
   return [
     "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" ",
-    "cellpadding=\"0\" border=\"0\"><tr>",
-    left(cards[0]),
-    right(cards[1]),
-    "</tr><tr>",
-    left(cards[2]),
-    right(cards[3]),
-    "</tr></table>",
+    "cellpadding=\"0\" border=\"0\" style=\"border-collapse:separate;",
+    // Fixed layout: the two columns are the same width whatever the numbers
+    // in them, where automatic layout widens the column with the longer one.
+    "table-layout:fixed;\">",
+    row(cards[0], cards[1]),
+    gutterRow,
+    row(cards[2], cards[3]),
+    gutterRow,
+    "</table>",
   ].join("");
 }
 

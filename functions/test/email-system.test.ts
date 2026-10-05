@@ -293,6 +293,59 @@ test("weekly active recap states the period totals in past tense", () => {
   assert.doesNotMatch(rendered.text, /this week/i);
 });
 
+/**
+ * The four stat tiles of a rendered recap, as their opening cell tags.
+ * @param {string} html - Rendered recap HTML
+ * @return {string[]} One opening tag per tile
+ */
+function statTileCells(html: string): string[] {
+  const grid = html.slice(
+    html.indexOf("Your week in review"),
+    html.indexOf("Your activity")
+  );
+  return grid.match(/<td width="50%"[^>]*>/g) ?? [];
+}
+
+test("the four stat tiles are cells of one size", () => {
+  // A tile used to be a box inside a cell, only as tall as its own text. On
+  // a phone "climbs completed" wraps onto two lines, so that tile grew
+  // taller than the "week streak" tile beside it (2026-10-05). A cell shares
+  // its row's height in every mail client; one explicit height shared by
+  // all four keeps the two rows the same size as well.
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    currentStreakWeeks: 2,
+  });
+  const tiles = statTileCells(rendered.html);
+
+  assert.equal(tiles.length, 4);
+  assert.equal(new Set(tiles).size, 1, "every tile cell is styled alike");
+  assert.match(tiles[0], /height="76"/);
+  assert.match(tiles[0], /height:76px/);
+  assert.match(tiles[0], /border-radius:16px/);
+  // Equal widths whatever the numbers: fixed layout, not content-driven.
+  assert.match(rendered.html, /table-layout:fixed/);
+  // No tile box is left inside a cell to size itself.
+  const grid = rendered.html.slice(
+    rendered.html.indexOf("Your week in review"),
+    rendered.html.indexOf("Your activity")
+  );
+  assert.doesNotMatch(grid, /<div/);
+});
+
+test("a delta chip on one tile makes room on all four", () => {
+  const rendered = renderWeeklyRecapActiveEmail({
+    ...baseWeeklyActivePayload,
+    currentStreakWeeks: 2,
+    stepsDelta: {direction: "up", label: "vs last week", value: "1,200"},
+  });
+  const tiles = statTileCells(rendered.html);
+
+  assert.equal(tiles.length, 4);
+  assert.equal(new Set(tiles).size, 1);
+  assert.match(tiles[0], /height="124"/);
+});
+
 test("weekly active recap surfaces deltas and streak", () => {
   const rendered = renderWeeklyRecapActiveEmail({
     ...baseWeeklyActivePayload,
