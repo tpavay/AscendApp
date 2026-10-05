@@ -160,8 +160,9 @@ struct LeaderboardRefreshFailureEvidenceTests {
     /// Hosts the shipping board on `viewModel` in a real window, hands the on-screen copy to
     /// `verify`, and photographs it when this run keeps photographs.
     ///
-    /// Signed out, the view's own `setupAndLoad` returns before it loads anything, so the state
-    /// on screen is exactly the one the refresh above left the view model in.
+    /// The host is signed out whatever session the simulator's keychain holds, so the view's own
+    /// `setupAndLoad` returns before it loads anything and the state on screen is exactly the one
+    /// the refresh above left the view model in.
     private func hostAndPhotograph(
         _ viewModel: LeaderboardViewModel,
         named name: String,
@@ -181,7 +182,7 @@ struct LeaderboardRefreshFailureEvidenceTests {
             NavigationStack {
                 LeaderboardView(initialTimeFrame: .weekly, viewSource: .tab, viewModel: viewModel)
             }
-            .environment(AuthenticationViewModel())
+            .environment(AuthenticationViewModel(observesFirebaseAuth: false))
             .environment(moderationStore)
             .environment(NetworkConnectivityService.shared)
             .environment(TabRouter())
