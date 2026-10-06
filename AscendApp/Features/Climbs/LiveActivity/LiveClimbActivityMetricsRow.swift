@@ -2,6 +2,10 @@ import SwiftUI
 
 /// The row of measurements a Live Activity draws: steps, the standing, and time.
 ///
+/// Floors sit beneath the step count rather than in a column of their own: the
+/// row already asks its values to shrink on a long rank or an hour-long clock,
+/// and a fourth column would be paid for by all three.
+///
 /// The standing column is the one whose height moves - two lines for a plain
 /// rank, three when a rank carries the climber's own history beneath it, a title
 /// over a single small line where nobody else has finished - so the row is
@@ -45,7 +49,11 @@ struct LiveClimbActivityMetricsRow: View {
     }
 
     private var stepsColumn: some View {
-        LiveClimbMetricColumn(title: "Steps", value: state.steps.formatted())
+        LiveClimbMetricColumn(
+            title: "Steps",
+            value: state.steps.formatted(),
+            secondary: state.floorsLabel
+        )
     }
 
     private var standingColumn: some View {

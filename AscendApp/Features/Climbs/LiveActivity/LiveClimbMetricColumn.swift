@@ -11,8 +11,9 @@ struct LiveClimbMetricColumn: View {
     /// Nil where the column has nothing to state and `secondary` carries the
     /// statement alone. A value that could not be resolved is `--`, never nil.
     let value: String?
-    /// A second measurement of a different population, stated beneath the first
-    /// rather than beside it - the same order the in-app panel puts them in.
+    /// A second reading stated beneath the first rather than beside it: the
+    /// climber's own history under a leaderboard placing - the same order the
+    /// in-app panel puts them in - and floors under the step count.
     var secondary: String?
 
     var body: some View {

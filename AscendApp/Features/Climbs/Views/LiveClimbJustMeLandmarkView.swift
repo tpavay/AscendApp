@@ -170,7 +170,12 @@ struct LiveClimbJustMeLandmarkView: View {
         }
     }
 
-    /// Completed steps over the climb's total, with the fraction the landmark is showing.
+    /// Completed steps over the climb's total, with the fraction the landmark is showing and
+    /// the floors those steps come to.
+    ///
+    /// Floors are a second reading of the step count, so they ride its caption line rather than
+    /// taking a row of their own: the column's four rows are sized to fill the tab, and a fifth
+    /// would be paid for by every number on it.
     private func stepsMetric(type: MetricType) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             valueText(viewModel.totalRecordedSteps.formatted(), size: type.heroValue)
@@ -182,14 +187,27 @@ struct LiveClimbJustMeLandmarkView: View {
                     .foregroundStyle(.white.opacity(0.72))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
+            }
 
-                Text(viewModel.totalProgressPercent.formatted() + "%")
-                    .font(.montserratBold(size: type.caption))
-                    .foregroundStyle(Color.accent)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                if viewModel.mode.targetStepCount != nil {
+                    Text(viewModel.totalProgressPercent.formatted() + "%")
+                        .font(.montserratBold(size: type.caption))
+                        .foregroundStyle(Color.accent)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .fixedSize()
+                }
+
+                Text(FloorsClimbed.phrase(viewModel.displayedFloors))
+                    .font(.montserratSemiBold(size: type.caption))
+                    .foregroundStyle(.white.opacity(0.72))
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                    .padding(.top, 2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
             }
+            .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)

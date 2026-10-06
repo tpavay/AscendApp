@@ -364,6 +364,15 @@ private struct LiveReplayLeaderboardRowView: View {
                 .rowContentBounds()
 
             VStack(alignment: .leading, spacing: 3) {
+                // The floors line below is balanced by an unseen twin above, so
+                // the climber's name stays on the row's centre line. The `BEST`
+                // marker flies its flag in the margin over that name, and a name
+                // lifted to make room beneath it took the margin away.
+                if let liveAttemptFloorsText {
+                    liveAttemptFloorsLine(liveAttemptFloorsText)
+                        .hidden()
+                }
+
                 HStack(spacing: 7) {
                     Text(row.identity.displayName)
                         .font(.montserratBold(size: 17))
@@ -399,6 +408,9 @@ private struct LiveReplayLeaderboardRowView: View {
                         .foregroundStyle(secondaryColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
+                        .rowContentBounds()
+                } else if let liveAttemptFloorsText {
+                    liveAttemptFloorsLine(liveAttemptFloorsText)
                         .rowContentBounds()
                 }
             }
@@ -447,6 +459,24 @@ private struct LiveReplayLeaderboardRowView: View {
                 lineColor: primaryColor
             )
         }
+    }
+
+    private func liveAttemptFloorsLine(_ text: String) -> some View {
+        Text(text)
+            .font(.montserratSemiBold(size: 10))
+            .foregroundStyle(liveStatColor)
+            .monospacedDigit()
+            .contentTransition(.numericText())
+            .lineLimit(1)
+    }
+
+    /// Floors for the attempt in progress, converted from the step count this
+    /// row draws so the two can never state different climbs. Only the live
+    /// row carries it: every other row is somebody's finished run, placed by
+    /// its steps alone.
+    private var liveAttemptFloorsText: String? {
+        guard row.isLiveAttempt else { return nil }
+        return FloorsClimbed.phrase(forSteps: row.stepsAtBucket).uppercased()
     }
 
     /// No row draws a rank cell on a board with no leaderboard placing to
@@ -518,5 +548,11 @@ private struct LiveReplayLeaderboardRowView: View {
 
     private var secondaryColor: Color {
         effectiveColorScheme == .dark ? .white.opacity(0.34) : .black.opacity(0.34)
+    }
+
+    /// A reading on the climber's own row, which sits over the progress fill
+    /// and has to stay legible on it where a rival's caption sits on plain ground.
+    private var liveStatColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.62) : .black.opacity(0.58)
     }
 }
