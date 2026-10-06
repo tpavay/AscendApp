@@ -119,7 +119,7 @@ function lifecycleEventName(
     // refundAttributed=true. A distinct Lifetime refund event is deliberately
     // not added: extending the analytics schema is a separate product
     // decision.
-    return "lifetime_purchased";
+    return event.store === "promotional" ? null : "lifetime_purchased";
   default:
     return null;
   }

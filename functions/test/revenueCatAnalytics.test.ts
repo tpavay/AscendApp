@@ -154,6 +154,34 @@ test("a Lifetime purchase is one event with no expiry to report", () => {
   );
 });
 
+test("a promotional Lifetime comp is never exported as a sale", () => {
+  const compConfig: RevenueCatServerConfig = {
+    ...CONFIG,
+    allowedProductIds: [
+      ...CONFIG.allowedProductIds,
+      "rc_promo_app_access_lifetime",
+    ],
+  };
+
+  const analyticsEvent = buildLifecycleAnalyticsEvent(
+    webhookEvent({
+      type: "NON_RENEWING_PURCHASE",
+      productId: "rc_promo_app_access_lifetime",
+      store: "promotional",
+      expirationAtMs: null,
+    }),
+    projection({
+      productId: "rc_promo_app_access_lifetime",
+      expiresAt: null,
+      accessUntil: new Date("9999-12-31T23:59:59.999Z"),
+    }),
+    compConfig,
+    ENVIRONMENT
+  );
+
+  assert.equal(analyticsEvent, null);
+});
+
 test("cancellation remains active and is never relabeled as expiration", () => {
   const analyticsEvent = buildLifecycleAnalyticsEvent(
     webhookEvent({
