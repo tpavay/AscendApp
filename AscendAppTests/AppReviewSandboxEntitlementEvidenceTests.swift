@@ -37,7 +37,7 @@ struct AppReviewSandboxEntitlementEvidenceTests {
             Self.failureAlertMessage(rejected.result),
             "The old filter is what raised the purchase-failure alert; got \(rejected.result)"
         )
-        #expect(alertMessage == "Ascend couldn't confirm your subscription. Check your connection and try again.")
+        #expect(alertMessage == "Ascend couldn't confirm your purchase. Check your connection and try again.")
         #expect(rejected.events.contains("revenuecat_purchase_failed"))
 
         #expect(Self.isPurchased(shipped.result))
@@ -80,7 +80,7 @@ struct AppReviewSandboxEntitlementEvidenceTests {
         #expect(rejected.state == .noPurchasesFound)
         #expect(
             rejected.state.statusMessage
-                == "No active Ascend subscription was found for this Apple ID."
+                == "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
         )
         #expect(rejected.events.contains("revenuecat_restore_not_found"))
 

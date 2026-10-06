@@ -19,96 +19,153 @@ struct NativeSubscriptionPeriod: Equatable, Sendable {
     let unit: Unit
 }
 
-struct NativeSubscriptionProductTerms: Equatable, Sendable {
+struct NativePaywallProductTerms: Equatable, Sendable {
     let productID: String
     let localizedPrice: String
+    let billing: NativePaywallPlan.Billing
     let renewalPeriod: NativeSubscriptionPeriod?
     let freeTrialPeriod: NativeSubscriptionPeriod?
+
+    init(
+        productID: String,
+        localizedPrice: String,
+        billing: NativePaywallPlan.Billing = .subscription,
+        renewalPeriod: NativeSubscriptionPeriod?,
+        freeTrialPeriod: NativeSubscriptionPeriod?
+    ) {
+        self.productID = productID
+        self.localizedPrice = localizedPrice
+        self.billing = billing
+        self.renewalPeriod = renewalPeriod
+        self.freeTrialPeriod = freeTrialPeriod
+    }
 }
 
-enum NativeSubscriptionPlanMapper {
+enum NativePaywallPlanMapper {
     static func plans(
-        from products: [NativeSubscriptionProductTerms],
+        from products: [NativePaywallProductTerms],
         eligibilityByProductID: [String: NativeTrialEligibility],
         yearlyProductID: String,
-        monthlyProductID: String,
+        lifetimeProductID: String,
         locale: Locale = .current,
         bundle: Bundle = .main
-    ) -> [NativeSubscriptionPlan] {
+    ) -> [NativePaywallPlan] {
         let localizedBundle = localizedBundle(for: locale, fallback: bundle)
         let productsByID = Dictionary(
             uniqueKeysWithValues: products.map { ($0.productID, $0) }
         )
 
-        return [yearlyProductID, monthlyProductID].compactMap { productID in
+        return [yearlyProductID, lifetimeProductID].compactMap { productID in
             guard let product = productsByID[productID] else { return nil }
-            let renewalDescription = product.renewalPeriod.map {
-                renewalText(
-                    for: $0,
+            let title = productID == yearlyProductID
+                ? String(
+                    localized: "subscription.plan.annual",
+                    defaultValue: "Annual",
+                    bundle: localizedBundle,
+                    locale: locale
+                )
+                : String(
+                    localized: "subscription.plan.lifetime",
+                    defaultValue: "Lifetime",
+                    bundle: localizedBundle,
+                    locale: locale
+                )
+
+            switch product.billing {
+            case .oneTime:
+                // Nothing a one-time purchase carries can be a trial or a renewal, whatever the
+                // provider reports beside it, so neither is ever read here.
+                return NativePaywallPlan(
+                    id: productID,
+                    title: title,
+                    localizedPrice: product.localizedPrice,
+                    billing: .oneTime,
+                    billingDescription: String(
+                        localized: "subscription.billing.one_time",
+                        defaultValue: "Pay once. No renewal.",
+                        bundle: localizedBundle,
+                        locale: locale
+                    ),
+                    trialDescription: nil
+                )
+            case .subscription:
+                return subscriptionPlan(
+                    id: productID,
+                    title: title,
+                    product: product,
+                    eligibility: eligibilityByProductID[productID],
                     locale: locale,
                     localizedBundle: localizedBundle,
                     fallbackBundle: bundle
                 )
-            } ?? String(
+            }
+        }
+    }
+
+    private static func subscriptionPlan(
+        id: String,
+        title: String,
+        product: NativePaywallProductTerms,
+        eligibility: NativeTrialEligibility?,
+        locale: Locale,
+        localizedBundle: Bundle,
+        fallbackBundle bundle: Bundle
+    ) -> NativePaywallPlan {
+        let renewalDescription = product.renewalPeriod.map {
+            renewalText(
+                for: $0,
+                locale: locale,
+                localizedBundle: localizedBundle,
+                fallbackBundle: bundle
+            )
+        } ?? String(
+            format: String(
+                localized: "subscription.renewal.automatic",
+                defaultValue: "Renews automatically",
+                bundle: localizedBundle,
+                locale: locale
+            )
+        )
+        let trialDescription: String?
+        let trialActionDescription: String?
+        // The trial is promised only when the product carries one and RevenueCat says this Apple
+        // account can still take it: Apple grants one introductory offer per subscription group.
+        if eligibility == .eligible, let freeTrialPeriod = product.freeTrialPeriod {
+            let duration = trialDurationText(
+                for: freeTrialPeriod,
+                locale: locale,
+                bundle: bundle
+            )
+            trialDescription = String(
                 format: String(
-                    localized: "subscription.renewal.automatic",
-                    defaultValue: "Renews automatically",
+                    localized: "subscription.trial.free",
+                    defaultValue: "%@ free",
                     bundle: localizedBundle,
                     locale: locale
-                )
+                ),
+                locale: locale,
+                duration
             )
-            let trialDescription: String?
-            let trialActionDescription: String?
-            if productID == yearlyProductID,
-               eligibilityByProductID[productID] == .eligible,
-               let freeTrialPeriod = product.freeTrialPeriod {
-                let duration = trialDurationText(
-                    for: freeTrialPeriod,
-                    locale: locale,
-                    bundle: bundle
-                )
-                trialDescription = String(
-                    format: String(
-                        localized: "subscription.trial.free",
-                        defaultValue: "%@ free",
-                        bundle: localizedBundle,
-                        locale: locale
-                    ),
-                    locale: locale,
-                    duration
-                )
-                trialActionDescription = trialActionText(
-                    for: freeTrialPeriod,
-                    duration: duration,
-                    locale: locale,
-                    bundle: localizedBundle
-                )
-            } else {
-                trialDescription = nil
-                trialActionDescription = nil
-            }
-
-            return NativeSubscriptionPlan(
-                id: productID,
-                title: productID == yearlyProductID
-                    ? String(
-                        localized: "subscription.plan.annual",
-                        defaultValue: "Annual",
-                        bundle: localizedBundle,
-                        locale: locale
-                    )
-                    : String(
-                        localized: "subscription.plan.monthly",
-                        defaultValue: "Monthly",
-                        bundle: localizedBundle,
-                        locale: locale
-                    ),
-                localizedPrice: product.localizedPrice,
-                renewalDescription: renewalDescription,
-                trialDescription: trialDescription,
-                trialActionDescription: trialActionDescription
+            trialActionDescription = trialActionText(
+                for: freeTrialPeriod,
+                duration: duration,
+                locale: locale,
+                bundle: localizedBundle
             )
+        } else {
+            trialDescription = nil
+            trialActionDescription = nil
         }
+
+        return NativePaywallPlan(
+            id: id,
+            title: title,
+            localizedPrice: product.localizedPrice,
+            billing: .subscription,
+            billingDescription: renewalDescription,
+            trialDescription: trialDescription,
+            trialActionDescription: trialActionDescription
+        )
     }
 
     private static func renewalText(
@@ -170,6 +227,14 @@ enum NativeSubscriptionPlanMapper {
             return String(
                 localized: "subscription.trial.action.seven_day",
                 defaultValue: "Start 7-day free trial",
+                bundle: bundle,
+                locale: locale
+            )
+        }
+        if period.value == 1, period.unit == .month {
+            return String(
+                localized: "subscription.trial.action.one_month",
+                defaultValue: "Start 1-month free trial",
                 bundle: bundle,
                 locale: locale
             )

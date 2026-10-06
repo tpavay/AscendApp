@@ -21,7 +21,10 @@ import {
   reconcileAppAccessForUser,
   UnknownFirebaseUserError,
 } from "../src/revenueCat/reconciliation";
-import {buildAppAccessProjection} from "../src/revenueCat/subscriber";
+import {
+  buildAppAccessProjection,
+  HttpRevenueCatSubscriberClient,
+} from "../src/revenueCat/subscriber";
 import type {
   LifecycleAnalyticsEvent,
   RevenueCatAnalyticsEnvironment,
@@ -49,6 +52,10 @@ const CONFIG: RevenueCatServerConfig = {
   appId: "app123",
   entitlementId: "app_access",
   allowedProductIds: ["ascend_yearly", "ascend_monthly"],
+};
+const LIFETIME_CONFIG: RevenueCatServerConfig = {
+  ...CONFIG,
+  allowedProductIds: [...CONFIG.allowedProductIds, "ascend_lifetime"],
 };
 const ANALYTICS_ENVIRONMENT: RevenueCatAnalyticsEnvironment = {
   appEnvironment: "production",
@@ -365,6 +372,124 @@ test("an unrelated active product cannot activate a different entitlement", () =
 
   assert.equal(projection.isActive, false);
   assert.equal(projection.productId, null);
+});
+
+test("a Lifetime purchase grants access that never expires", async () => {
+  // RevenueCat reports a non-consumable under `non_subscriptions`, leaves
+  // `subscriptions` empty, and gives the entitlement no expiry at all.
+  const subscriberClient = new HttpRevenueCatSubscriberClient(
+    LIFETIME_CONFIG.apiKey,
+    async () => new Response(JSON.stringify({
+      request_date_ms: NOW_MS,
+      subscriber: {
+        entitlements: {
+          app_access: {
+            expires_date: null,
+            grace_period_expires_date: null,
+            product_identifier: "ascend_lifetime",
+            purchase_date: "2026-08-05T11:59:00Z",
+          },
+        },
+        non_subscriptions: {
+          ascend_lifetime: [{
+            id: "0a1b2c3d4e",
+            is_sandbox: false,
+            purchase_date: "2026-08-05T11:59:00Z",
+            store: "app_store",
+          }],
+        },
+        subscriptions: {},
+      },
+    }), {status: 200})
+  );
+  const store = new InMemoryEntitlementStore();
+
+  assert.equal(await processRevenueCatWebhookEvent(
+    lifetimePurchaseEvent(),
+    "lifetime-payload-sha256",
+    {
+      store,
+      subscriberClient,
+      userVerifier: new StubUserVerifier(),
+      config: LIFETIME_CONFIG,
+      analyticsEnvironment: ANALYTICS_ENVIRONMENT,
+      now: () => NOW,
+    }
+  ), "processed");
+
+  const projection = store.projections.get("firebase-user-1");
+  assert.equal(projection?.isActive, true);
+  assert.equal(projection?.productId, "ascend_lifetime");
+  assert.equal(projection?.expiresAt, null);
+  assert.equal(
+    projection?.accessUntil.toISOString(),
+    "9999-12-31T23:59:59.999Z"
+  );
+  assert.equal(projection?.sourceEventType, "NON_RENEWING_PURCHASE");
+  assert.deepEqual(
+    [...store.analyticsEvents.values()].map((event) => [
+      event.eventName,
+      event.productId,
+      event.entitlementActive,
+      event.effectiveExpirationAtMs,
+    ]),
+    [["lifetime_purchased", "ascend_lifetime", true, null]]
+  );
+});
+
+test("a Lifetime purchase the environment does not allowlist grants nothing", () => {
+  const projection = buildAppAccessProjection(
+    "firebase-user-1",
+    subscriberResponse({productId: "ascend_lifetime", expiresDate: null}),
+    CONFIG,
+    lifetimePurchaseEvent(),
+    NOW
+  );
+
+  assert.equal(projection.isActive, false);
+  assert.equal(projection.productId, null);
+  assert.equal(projection.accessUntil.getTime(), 0);
+});
+
+test("a refunded Lifetime purchase loses access on the next event", async () => {
+  const store = new InMemoryEntitlementStore();
+  const subscriberClient = new CountingSubscriberClient(
+    subscriberResponse({productId: "ascend_lifetime", expiresDate: null})
+  );
+  const dependencies = {
+    store,
+    subscriberClient,
+    userVerifier: new StubUserVerifier(),
+    config: LIFETIME_CONFIG,
+    analyticsEnvironment: ANALYTICS_ENVIRONMENT,
+    now: () => NOW,
+  };
+  await processRevenueCatWebhookEvent(
+    lifetimePurchaseEvent(),
+    "lifetime-payload-sha256",
+    dependencies
+  );
+  assert.equal(store.projections.get("firebase-user-1")?.isActive, true);
+
+  // Apple's refund removes the entitlement from the subscriber outright.
+  subscriberClient.response = {
+    requestDateMs: NOW_MS + 60_000,
+    subscriber: {entitlements: {}, subscriptions: {}},
+  };
+  await processRevenueCatWebhookEvent(
+    lifetimePurchaseEvent({
+      id: "event-refund",
+      type: "CANCELLATION",
+      eventTimestampMs: NOW_MS + 60_000,
+      lifecycleReason: "customer_support",
+    }),
+    "refund-payload-sha256",
+    dependencies
+  );
+
+  const refunded = store.projections.get("firebase-user-1");
+  assert.equal(refunded?.isActive, false);
+  assert.equal(refunded?.accessUntil.getTime(), 0);
 });
 
 test("a duplicate event is idempotent and re-fetches RevenueCat only once", async () => {
@@ -822,6 +947,17 @@ function webhookEvent(
     lifecycleReason: null,
     ...overrides,
   };
+}
+
+function lifetimePurchaseEvent(
+  overrides: Partial<RevenueCatWebhookEvent> = {}
+): RevenueCatWebhookEvent {
+  return webhookEvent({
+    type: "NON_RENEWING_PURCHASE",
+    productId: "ascend_lifetime",
+    expirationAtMs: null,
+    ...overrides,
+  });
 }
 
 function subscriberResponse(options: {

@@ -254,13 +254,14 @@ Full access, no purchase needed:
   Backup codes: [CODE] [CODE] [CODE]
 This account already holds the app_access entitlement and goes straight in.
 
-Subscription flow, for reviewing the purchase:
+Purchase flow, for reviewing the subscription and the Lifetime purchase:
   Email: [UNENTITLED GOOGLE ADDRESS]
   Password: [PASSWORD]
   Backup codes: [CODE] [CODE] [CODE]
-No entitlement. After onboarding it reaches the subscription gate: an annual
-plan with a seven-day free trial, or a monthly plan charged immediately.
-Restore Purchases is on that gate and in Settings > Subscription.
+No entitlement. After onboarding it reaches the paywall: an annual plan with
+a one-month free trial, or Lifetime, a one-time purchase with no trial and no
+renewal.
+Restore Purchases is on that paywall and in Settings > Purchases.
 
 2. THE HARDWARE, AND THE DEMO VIDEO
 

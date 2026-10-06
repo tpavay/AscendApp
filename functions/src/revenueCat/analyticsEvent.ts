@@ -112,6 +112,16 @@ function lifecycleEventName(
       "subscription_refunded" : "subscription_expired";
   case "PRODUCT_CHANGE":
     return "subscription_product_changed";
+  case "NON_RENEWING_PURCHASE":
+    // A one-time purchase has no trial, renewal or expiry to report later.
+    // A Lifetime refund arrives as a CANCELLATION with reason
+    // customer_support and is exported as subscription_cancelled with
+    // refundAttributed=true. A distinct Lifetime refund event is deliberately
+    // not added: extending the analytics schema is a separate product
+    // decision. A comp is delivered the same way from the promotional store
+    // and its allowlisted rc_promo_ product passes the gate, so it is
+    // dropped here rather than counted as a paid Lifetime sale.
+    return event.store === "promotional" ? null : "lifetime_purchased";
   default:
     return null;
   }

@@ -299,7 +299,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
         #expect(records[1].parameters["error_type"] == TelemetryValue.string("no_active_entitlement"))
-        #expect(Self.presentedMessage(for: result) == "Ascend couldn't confirm your subscription. Check your connection and try again.")
+        #expect(Self.presentedMessage(for: result) == "Ascend couldn't confirm your purchase. Check your connection and try again.")
     }
 
     @Test
@@ -439,7 +439,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         }
         #expect(
             RevenueCatPurchaseControllerError.noPurchasesFound.localizedDescription
-                == "No active Ascend subscription was found for this Apple ID."
+                == "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
         )
     }
 
@@ -716,7 +716,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(published.isEmpty)
         #expect(
             Self.restoreResultErrorMessage(for: result)
-                == "No active Ascend subscription was found for this Apple ID."
+                == "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
         )
         #expect(harness.sink.records.map(\.name).contains("revenuecat_restore_completed") == false)
         #expect(harness.sink.records.map(\.name).contains("paywall_restore_completed") == false)
@@ -729,7 +729,7 @@ struct PaywallPurchaseAnalyticsContractTests {
             (
                 .inactive,
                 "revenuecat_restore_not_found",
-                "No active Ascend subscription was found for this Apple ID."
+                "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
             ),
             (.unknown, "revenuecat_restore_failed", "Restore Failed")
         ]
@@ -879,7 +879,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(terminal?.parameters["price"] == nil)
     }
 
-    private static let noPurchasesCopy = "No active Ascend subscription was found for this Apple ID."
+    private static let noPurchasesCopy = "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
 
     /// Failure copy is about the operation, never about what the climber owns - an unresolved
     /// restore is not evidence of a lapsed or absent subscription.

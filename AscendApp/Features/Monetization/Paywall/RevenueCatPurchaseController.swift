@@ -9,7 +9,8 @@ import SuperwallKit
 /// Superwall renders `errorDescription` verbatim in its purchase-failure alert, and Ascend's own
 /// account-settings and app-access-gate restore surfaces render the matching copy. Superwall's
 /// *restore*-failure alert is the exception: it presents `options.paywalls.restoreFailed` and
-/// discards the error it was handed, so `noPurchasesFound` never reaches a climber on the paywall.
+/// discards the error it was handed, so `noPurchasesFound` never reaches a climber on the paywall -
+/// `SuperwallPaywallPresenter.makeOptions` writes that alert's copy instead.
 enum RevenueCatPurchaseControllerError: LocalizedError {
     case missingStoreKitProduct
     case monetizationUnavailable
@@ -23,9 +24,9 @@ enum RevenueCatPurchaseControllerError: LocalizedError {
         case .monetizationUnavailable:
             return "Ascend could not reach the App Store. Check your connection and try again."
         case .entitlementUnconfirmed:
-            return "Ascend couldn't confirm your subscription. Check your connection and try again."
+            return "Ascend couldn't confirm your purchase. Check your connection and try again."
         case .noPurchasesFound:
-            return "No active Ascend subscription was found for this Apple ID."
+            return "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
         }
     }
 }

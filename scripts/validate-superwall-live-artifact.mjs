@@ -41,15 +41,12 @@ for (const [environment, configurationName] of selected) {
   }
 
   const apiKey = settingValue(configuration.buildSettings, "ASCEND_SUPERWALL_API_KEY")?.trim();
-  const yearlyProductID = settingValue(
-    configuration.buildSettings,
-    "ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"
-  );
-  const monthlyProductID = settingValue(
-    configuration.buildSettings,
+  const sellableProductIDs = [
+    "ASCEND_REVENUECAT_YEARLY_PRODUCT_ID",
+    "ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID",
     "ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID"
-  );
-  if (!apiKey || !yearlyProductID || !monthlyProductID) {
+  ].map((name) => settingValue(configuration.buildSettings, name)?.trim());
+  if (!apiKey || sellableProductIDs.some((productID) => !productID)) {
     console.error(`${environment}: missing embedded monetization build settings.`);
     failed = true;
     continue;
@@ -71,7 +68,7 @@ for (const [environment, configurationName] of selected) {
       staticConfig,
       runtimeStore,
       placement,
-      expectedProductIDs: [yearlyProductID, monthlyProductID],
+      sellableProductIDs,
       expectedEntitlementID: "app_access"
     });
 

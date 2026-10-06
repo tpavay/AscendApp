@@ -391,7 +391,7 @@ private final class HostedHarness {
         MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test",
         MonetizationConfiguration.superwallAPIKeyInfoKey: "pk_test",
         MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "ascend_staging_yearly",
-        MonetizationConfiguration.revenueCatMonthlyProductIDInfoKey: "ascend_staging_monthly",
+        MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "ascend_staging_lifetime",
         MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
     ])
 
@@ -551,7 +551,7 @@ private final class HostedEntitlementService: EntitlementServicing {
 }
 
 @MainActor
-private final class HostedNativeProvider: NativeSubscriptionProviding {
-    func loadPlans() async throws -> [NativeSubscriptionPlan] { [] }
+private final class HostedNativeProvider: NativePaywallPlanProviding {
+    func loadPlans() async throws -> [NativePaywallPlan] { [] }
     func purchase(planID: String) async -> PurchaseResult { .cancelled }
 }

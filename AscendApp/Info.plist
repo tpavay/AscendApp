@@ -12,8 +12,8 @@
 	<string>$(ASCEND_USE_REVENUECAT_TEST_STORE)</string>
 	<key>AscendRevenueCatYearlyProductID</key>
 	<string>$(ASCEND_REVENUECAT_YEARLY_PRODUCT_ID)</string>
-	<key>AscendRevenueCatMonthlyProductID</key>
-	<string>$(ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID)</string>
+	<key>AscendRevenueCatLifetimeProductID</key>
+	<string>$(ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID)</string>
 	<key>AscendSuperwallAPIKey</key>
 	<string>$(ASCEND_SUPERWALL_API_KEY)</string>
 	<key>AscendSuperwallTestMode</key>

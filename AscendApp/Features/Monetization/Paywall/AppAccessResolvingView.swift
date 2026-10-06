@@ -26,14 +26,14 @@ struct AppAccessResolvingView: View {
         VStack(spacing: 16) {
             AscendLoadingIndicator()
 
-            Text("Checking your subscription access")
+            Text("Checking your access")
                 .font(.montserratMedium(size: 15))
                 .foregroundStyle(.white.opacity(0.68))
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 28)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Checking your subscription access.")
+        .accessibilityLabel("Checking your access.")
         .accessibilityIdentifier("appAccessResolvingLoading")
     }
 
@@ -53,7 +53,7 @@ struct AppAccessResolvingView: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.82)
 
-                Text("Ascend could not reach your subscription. Check your connection and try again.")
+                Text("Ascend could not confirm your access. Check your connection and try again.")
                     .font(.montserratMedium(size: 15))
                     .foregroundStyle(.white.opacity(0.68))
                     .lineSpacing(4)
@@ -74,7 +74,7 @@ struct AppAccessResolvingView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Checks your subscription again.")
+                .accessibilityHint("Checks your access again.")
 
                 Button(action: onSignOut) {
                     Text("Sign Out")

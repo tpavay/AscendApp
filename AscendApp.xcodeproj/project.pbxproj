@@ -580,6 +580,7 @@
 				ASCEND_MIXPANEL_PROJECT_ID = 4051102;
 				ASCEND_MIXPANEL_TOKEN = 36831ac2161d11cfdf314804f32651aa;
 				ASCEND_REVENUECAT_API_KEY = appl_KljWLRCYwBqgmGsWDGKOeZoeuqP;
+				ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID = ascend_staging_lifetime;
 				ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID = ascend_staging_monthly;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
 				ASCEND_REVENUECAT_YEARLY_PRODUCT_ID = ascend_staging_yearly;
@@ -765,6 +766,7 @@
 				ASCEND_MIXPANEL_PROJECT_ID = 4032860;
 				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
 				ASCEND_REVENUECAT_API_KEY = "";
+				ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID = ascend_staging_lifetime;
 				ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID = ascend_staging_monthly;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
 				ASCEND_REVENUECAT_YEARLY_PRODUCT_ID = ascend_staging_yearly;
@@ -824,6 +826,7 @@
 				ASCEND_MIXPANEL_PROJECT_ID = 4051100;
 				ASCEND_MIXPANEL_TOKEN = 5f9f773f6c7ffb1cfc671a31204180f7;
 				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
+				ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID = ascend_lifetime;
 				ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID = ascend_monthly;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
 				ASCEND_REVENUECAT_YEARLY_PRODUCT_ID = ascend_yearly;
@@ -1217,7 +1220,7 @@
 			repositoryURL = "https://github.com/superwall/Superwall-iOS";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 4.15.3;
+				minimumVersion = 4.17.0;
 			};
 		};
 		9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */ = {

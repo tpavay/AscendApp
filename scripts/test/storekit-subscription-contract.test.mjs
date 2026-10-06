@@ -19,7 +19,7 @@ const billingAccessTestsURL = new URL(
   import.meta.url
 );
 
-test("StoreKit catalog keeps the annual trial and monthly plan truthful", async () => {
+test("StoreKit catalog keeps the annual trial, the monthly plan and Lifetime truthful", async () => {
   const catalog = JSON.parse(await readFile(configurationURL, "utf8"));
   const subscriptions = catalog.subscriptionGroups.flatMap(
     (group) => group.subscriptions
@@ -35,15 +35,29 @@ test("StoreKit catalog keeps the annual trial and monthly plan truthful", async 
   const monthly = subscriptions.find(
     (subscription) => subscription.productID === "ascend_staging_monthly"
   );
+  // The catalog mirrors the offer production sells, so the fallback paywall is tested against
+  // the trial length and prices a climber actually sees.
   assert.equal(annual.recurringSubscriptionPeriod, "P1Y");
+  assert.equal(annual.displayPrice, "29.99");
   assert.deepEqual(annual.introductoryOffer, {
     internalID: "0F6EC9A8-A75E-43EF-9C9E-554000000001",
     numberOfPeriods: 1,
     paymentMode: "free",
-    subscriptionPeriod: "P1W"
+    subscriptionPeriod: "P1M"
   });
   assert.equal(monthly.recurringSubscriptionPeriod, "P1M");
   assert.equal(monthly.introductoryOffer, undefined);
+
+  // Lifetime is bought once: a non-consumable outside every subscription group, with no period
+  // and no introductory offer for anything to read a trial or a renewal from.
+  assert.deepEqual(
+    catalog.products.map((product) => [product.productID, product.type, product.displayPrice]),
+    [["ascend_staging_lifetime", "NonConsumable", "49.99"]]
+  );
+  const [lifetime] = catalog.products;
+  assert.equal(lifetime.introductoryOffer, undefined);
+  assert.equal(lifetime.recurringSubscriptionPeriod, undefined);
+  assert.deepEqual(catalog.nonRenewingSubscriptions, []);
 });
 
 test("shared Staging Test action uses Staging and the committed StoreKit catalog", async () => {
@@ -61,6 +75,7 @@ test("StoreKitTest suite uses direct session mutations instead of timed renewals
   const source = await readFile(lifecycleTestsURL, "utf8");
   for (const testName of [
     "annualAndMonthlyProductsCanCompleteTransactions",
+    "lifetimeIsBoughtOnceBesideASubscriptionAndNeverExpires",
     "cancellationDisablesRenewalWithoutRevokingCurrentTransaction",
     "renewalExpirationAndRefundProduceDistinctLifecycleEvidence"
   ]) {

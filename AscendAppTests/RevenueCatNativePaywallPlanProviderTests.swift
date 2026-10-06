@@ -3,15 +3,15 @@ import Testing
 @testable import AscendApp
 
 @MainActor
-struct RevenueCatNativeSubscriptionProviderTests {
+struct RevenueCatNativePaywallPlanProviderTests {
     @Test
     func missingRevenueCatConfigurationFailsBeforeAnySingletonAccess() async {
         let coordinator = NativeProviderCoordinatorStub()
         var configurationChecks = 0
-        let provider = RevenueCatNativeSubscriptionProvider(
+        let provider = RevenueCatNativePaywallPlanProvider(
             configuration: MonetizationConfiguration(infoDictionary: [
                 MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "annual",
-                MonetizationConfiguration.revenueCatMonthlyProductIDInfoKey: "monthly"
+                MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "lifetime"
             ]),
             coordinator: { coordinator },
             isPurchasesConfigured: {
@@ -23,7 +23,7 @@ struct RevenueCatNativeSubscriptionProviderTests {
         do {
             _ = try await provider.loadPlans()
             Issue.record("An unconfigured provider must not attempt to load plans")
-        } catch let error as RevenueCatNativeSubscriptionProviderError {
+        } catch let error as RevenueCatNativePaywallPlanProviderError {
             #expect(error == .notConfigured)
         } catch {
             Issue.record("Unexpected typed failure: \(error)")
@@ -34,7 +34,7 @@ struct RevenueCatNativeSubscriptionProviderTests {
             Issue.record("An unconfigured provider must fail purchase recoverably")
             return
         }
-        #expect(error is RevenueCatNativeSubscriptionProviderError)
+        #expect(error is RevenueCatNativePaywallPlanProviderError)
         #expect(configurationChecks == 2)
     }
 }

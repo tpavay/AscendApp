@@ -58,7 +58,7 @@ export function validateSuperwallArtifact({
   staticConfig,
   runtimeStore,
   placement,
-  expectedProductIDs,
+  sellableProductIDs,
   expectedEntitlementID
 }) {
   const errors = [];
@@ -76,12 +76,22 @@ export function validateSuperwallArtifact({
     .map((product) => product.store_product?.product_identifier)
     .filter(Boolean)
     .sort();
-  const configuredProductIDs = [...expectedProductIDs].sort();
+  const sellable = [...sellableProductIDs].sort();
 
-  if (!sameValues(actualProductIDs, configuredProductIDs)) {
+  // The build's catalog is an upper bound, never an exact set. The hosted paywall changes without
+  // a release, and a product Apple has not approved yet cannot be on it at all, so demanding
+  // equality would refuse the very archive that has to ship before that product can be offered.
+  // What must never happen is a paywall selling something this build's backend does not trust.
+  if (actualProductIDs.length === 0) {
+    errors.push("Active paywall offers no products.");
+  }
+  const unknownProductIDs = actualProductIDs.filter(
+    (productID) => !sellable.includes(productID)
+  );
+  if (unknownProductIDs.length > 0) {
     errors.push(
-      `Active paywall products are [${actualProductIDs.join(", ")}], expected ` +
-        `[${configuredProductIDs.join(", ")}].`
+      `Active paywall offers [${unknownProductIDs.join(", ")}], which this build's catalog ` +
+        `[${sellable.join(", ")}] does not contain.`
     );
   }
 

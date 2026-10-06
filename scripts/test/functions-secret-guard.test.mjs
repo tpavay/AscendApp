@@ -290,7 +290,11 @@ test("the required products are derived from the app's own configuration", () =>
   assert.equal(production.entitlementId, "app_access");
   assert.deepEqual(
     production.products.map((entry) => entry.productId),
-    ["ascend_monthly", "ascend_yearly", PROMO]
+    ["ascend_lifetime", "ascend_monthly", "ascend_yearly", PROMO]
+  );
+  assert.match(
+    production.products.find((entry) => entry.productId === "ascend_lifetime").reasons.join(),
+    /Release build sells it \(ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID\)/
   );
   assert.match(
     production.products.find((entry) => entry.productId === PROMO).reasons.join(),
@@ -304,7 +308,7 @@ test("the required products are derived from the app's own configuration", () =>
   const staging = requiredAllowlistFloor({projectId: STAGING, ...repository});
   assert.deepEqual(
     staging.products.map((entry) => entry.productId),
-    ["ascend_staging_monthly", "ascend_staging_yearly"]
+    ["ascend_staging_lifetime", "ascend_staging_monthly", "ascend_staging_yearly"]
   );
 });
 
@@ -557,28 +561,37 @@ test("the comp product is required in production even when nobody holds a comp",
 });
 
 test("every product a live grant holds is required, and an expired grant holds nothing", () => {
+  // The staging build sells nothing promotional, so only the live grants can require this one.
   const stagingFloor = requiredAllowlistFloor({projectId: STAGING, ...repository});
   const required = requiredProducts(stagingFloor, [
-    {uid: "a", productId: "ascend_staging_lifetime", accessUntil: LIFETIME},
-    {uid: "b", productId: "ascend_staging_lifetime", accessUntil: null},
+    {uid: "a", productId: PROMO, accessUntil: LIFETIME},
+    {uid: "b", productId: PROMO, accessUntil: null},
     {uid: "c", productId: "rc_promo_app_access_weekly", accessUntil: "2026-09-01T00:00:00Z"},
   ], NOW);
   assert.deepEqual(required.map((entry) => entry.productId), [
     "ascend_staging_lifetime",
     "ascend_staging_monthly",
     "ascend_staging_yearly",
+    PROMO,
   ]);
-  assert.deepEqual(required[0].reasons, ["2 live app_access grants hold it"]);
+  assert.deepEqual(
+    required.find((entry) => entry.productId === PROMO).reasons,
+    ["2 live app_access grants hold it"]
+  );
 
   const {errors} = evaluateAllowlistInvariant({
     projectId: STAGING,
     version: "3",
-    payloadText: revenueCatConfig(["ascend_staging_monthly", "ascend_staging_yearly"]),
+    payloadText: revenueCatConfig([
+      "ascend_staging_lifetime",
+      "ascend_staging_monthly",
+      "ascend_staging_yearly",
+    ]),
     entitlementId: "app_access",
     required,
   });
   assert.equal(errors.length, 1);
-  assert.match(errors[0], /does not allowlist ascend_staging_lifetime, which 2 live app_access grants hold it/);
+  assert.match(errors[0], /does not allowlist rc_promo_app_access_lifetime, which 2 live app_access grants hold it/);
 });
 
 test("an entitlement or allowlist the functions cannot use is refused without quoting it", () => {
@@ -775,7 +788,9 @@ test("pinning a version does not excuse an allowlist that drops a live product",
 
 // Version 5 drops a product version 4 allowlists that nothing sells, no comp
 // uses and no live grant holds, so only the superset check can see it.
-const V5 = revenueCatConfig(["ascend_monthly", "ascend_yearly", PROMO]);
+const RETIRED = "ascend_weekly";
+const V4_WITH_RETIRED = revenueCatConfig([...JSON.parse(V4).allowedProductIds, RETIRED]);
+const V5 = revenueCatConfig(JSON.parse(V4).allowedProductIds);
 
 function supersetPreflight({acknowledgement, payloads} = {}) {
   const pins = {[REVENUECAT_SECRET]: 5, TRANSACTIONAL_EMAIL_CONFIG: 1};
@@ -790,7 +805,7 @@ function supersetPreflight({acknowledgement, payloads} = {}) {
         TRANSACTIONAL_EMAIL_CONFIG: {version: "1", state: "ENABLED"},
         STRAVA_SERVER_CONFIG: {version: "2", state: "ENABLED"},
       },
-      payloads: payloads ?? {[`${REVENUECAT_SECRET}@4`]: V4, [`${REVENUECAT_SECRET}@5`]: V5},
+      payloads: payloads ?? {[`${REVENUECAT_SECRET}@4`]: V4_WITH_RETIRED, [`${REVENUECAT_SECRET}@5`]: V5},
     }),
     repository: {...repository, manifestText: manifestWith(PRODUCTION, pins)},
     snapshotPath: null,
@@ -806,33 +821,33 @@ test("a pinned version that drops a product the bound version allowlists is refu
   assert.equal(capture.errors().length, 2);
   assert.match(
     capture.errors()[0],
-    /REVENUECAT_SERVER_CONFIG version 5 in ascend-prod-9c8f2 drops ascend_lifetime, which bound version 4 allowlists\.[\s\S]*acknowledge the drop for the pinned version in functions\/secret-versions\.json/
+    /REVENUECAT_SERVER_CONFIG version 5 in ascend-prod-9c8f2 drops ascend_weekly, which bound version 4 allowlists\.[\s\S]*acknowledge the drop for the pinned version in functions\/secret-versions\.json/
   );
   assertNoSecretValues(capture.text());
 });
 
 test("an acknowledged drop deploys with a notice naming it", async () => {
   const {exitCode, capture} = await supersetPreflight({
-    acknowledgement: {[REVENUECAT_SECRET]: {version: 5, productIds: ["ascend_lifetime"]}},
+    acknowledgement: {[REVENUECAT_SECRET]: {version: 5, productIds: [RETIRED]}},
   });
   assert.equal(exitCode, EXIT.safe, capture.text());
   assert.match(
     capture.text(),
-    /notice: REVENUECAT_SERVER_CONFIG version 5 in ascend-prod-9c8f2 drops ascend_lifetime, which bound version 4 allowlists; functions\/secret-versions\.json acknowledges that drop for version 5\./
+    /notice: REVENUECAT_SERVER_CONFIG version 5 in ascend-prod-9c8f2 drops ascend_weekly, which bound version 4 allowlists; functions\/secret-versions\.json acknowledges that drop for version 5\./
   );
 });
 
 test("an acknowledgement for a product the pinned version does not drop is refused as stale", async () => {
   const {exitCode, capture} = await supersetPreflight({
-    acknowledgement: {[REVENUECAT_SECRET]: {version: 5, productIds: ["ascend_lifetime", "ascend_monthly"]}},
+    acknowledgement: {[REVENUECAT_SECRET]: {version: 5, productIds: [RETIRED, "ascend_monthly"]}},
   });
   assert.equal(exitCode, EXIT.unsafe, capture.text());
   assert.equal(capture.errors().length, 2);
   assert.match(capture.errors()[0], /acknowledges dropping ascend_monthly from REVENUECAT_SERVER_CONFIG version 5[\s\S]*stale\. Remove it\./);
-  assert.match(capture.text(), /notice: [^\n]*drops ascend_lifetime[^\n]*acknowledges that drop/);
+  assert.match(capture.text(), /notice: [^\n]*drops ascend_weekly[^\n]*acknowledges that drop/);
 
   const stale = await supersetPreflight({
-    acknowledgement: {[REVENUECAT_SECRET]: {version: 4, productIds: ["ascend_lifetime"]}},
+    acknowledgement: {[REVENUECAT_SECRET]: {version: 4, productIds: [RETIRED]}},
   });
   assert.equal(stale.exitCode, EXIT.unverified);
   assert.match(stale.capture.errors()[0], /acknowledges drops from version 4, but REVENUECAT_SERVER_CONFIG is pinned to version 5/);

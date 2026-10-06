@@ -18,7 +18,7 @@ final class RestorePurchasesViewModel {
             case .noPurchasesFound:
                 // The conclusive negative is stated once, verbatim, and carries no second line -
                 // a paraphrased heading above it would be a second way of saying the same thing.
-                return "No active Ascend subscription was found for this Apple ID."
+                return "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
             case .failed:
                 return "Restore Failed"
             }

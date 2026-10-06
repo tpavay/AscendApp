@@ -9,7 +9,7 @@ struct SettingsReorganizationContractTests {
             "sectionView(title: \"Profile\"",
             "sectionView(title: \"Notifications\"",
             "sectionView(title: \"Preferences\"",
-            "sectionView(title: \"Subscription\"",
+            "sectionView(title: \"Purchases\"",
             "sectionView(title: \"Support\"",
             "sectionView(title: \"Privacy\""
         ]

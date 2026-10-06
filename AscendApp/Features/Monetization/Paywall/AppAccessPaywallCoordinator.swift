@@ -23,13 +23,13 @@ final class AppAccessPaywallCoordinator {
     typealias Sleep = @Sendable (Duration) async throws -> Void
 
     private(set) var phase: AppAccessGatePhase
-    private(set) var plans: [NativeSubscriptionPlan] = []
+    private(set) var plans: [NativePaywallPlan] = []
     private(set) var selectedPlanID: String?
     private(set) var statusMessage: String?
     private(set) var restoreState: AppAccessRestoreState = .idle
 
     private let monetizationManager: MonetizationManager
-    private let nativeProvider: any NativeSubscriptionProviding
+    private let nativeProvider: any NativePaywallPlanProviding
     private let restoreService: AppAccessRestoreService
     /// Returns whether the onboarding step behind the paywall actually reopened, so the gate
     /// never leaves a climber on a hosted paywall that is already gone.
@@ -64,12 +64,12 @@ final class AppAccessPaywallCoordinator {
 
     init(
         monetizationManager: MonetizationManager,
-        nativeProvider: (any NativeSubscriptionProviding)? = nil,
+        nativeProvider: (any NativePaywallPlanProviding)? = nil,
         restoreService: AppAccessRestoreService? = nil,
         telemetry: TelemetryManager = .shared,
         initialPhase: AppAccessGatePhase = .openingHosted,
         initialRestoreState: AppAccessRestoreState = .idle,
-        initialPlans: [NativeSubscriptionPlan] = [],
+        initialPlans: [NativePaywallPlan] = [],
         initialStatusMessage: String? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
@@ -79,7 +79,7 @@ final class AppAccessPaywallCoordinator {
         nativeLoadSleep: @escaping Sleep = { try await Task.sleep(for: $0) }
     ) {
         self.monetizationManager = monetizationManager
-        self.nativeProvider = nativeProvider ?? RevenueCatNativeSubscriptionProvider(
+        self.nativeProvider = nativeProvider ?? RevenueCatNativePaywallPlanProvider(
             configuration: monetizationManager.configuration,
             coordinator: { monetizationManager }
         )
@@ -127,7 +127,7 @@ final class AppAccessPaywallCoordinator {
         phase == .nativeReady
     }
 
-    var selectedPlan: NativeSubscriptionPlan? {
+    var selectedPlan: NativePaywallPlan? {
         guard let selectedPlanID else { return nil }
         return plans.first { $0.id == selectedPlanID }
     }
@@ -232,7 +232,7 @@ final class AppAccessPaywallCoordinator {
         let revision = accessCheckRevision
         accessCheckTask?.cancel()
         phase = .verifying
-        statusMessage = "Checking your subscription access."
+        statusMessage = "Checking your access."
         accessCheckTask = Task { @MainActor [weak self, monetizationManager] in
             let refresh = await monetizationManager.refreshEntitlements(
                 force: true,
@@ -264,7 +264,7 @@ final class AppAccessPaywallCoordinator {
         selectedPlanID = nil
         restoreState = .idle
         phase = .openingHosted
-        statusMessage = "Opening subscription options."
+        statusMessage = "Opening plans."
         start()
     }
 
@@ -324,7 +324,7 @@ final class AppAccessPaywallCoordinator {
     private func presentHosted(source: String) {
         guard let identity = monetizationManager.identityGeneration else {
             phase = .failed
-            statusMessage = "Ascend is still confirming your account. Try subscription options again when the account check finishes."
+            statusMessage = "Ascend is still confirming your account. Load plans again when the account check finishes."
             return
         }
         recordCurrentGateTerminal(
@@ -343,7 +343,7 @@ final class AppAccessPaywallCoordinator {
         nativeLoadTask?.cancel()
         nativeLoadTask = nil
         phase = .openingHosted
-        statusMessage = "Opening subscription options."
+        statusMessage = "Opening plans."
         watchdogTask?.cancel()
         watchdogTask = Task { @MainActor [weak self, sleep, hostedOpeningDeadline] in
             do {
@@ -356,7 +356,7 @@ final class AppAccessPaywallCoordinator {
                   self.monetizationManager.identityGeneration == identity else { return }
             self.monetizationManager.cancelPaywallPresentation()
             self.beginNativeFallback(
-                message: "Subscription options took too long to open. Choose a plan below.",
+                message: "Plans took too long to open. Choose a plan below.",
                 presentationRevision: revision,
                 presentationIdentity: identity,
                 reason: .watchdogTimeout
@@ -439,7 +439,7 @@ final class AppAccessPaywallCoordinator {
                 // leave the gate with no controls at all - not even the account-deletion route
                 // Guideline 5.1.1(v) requires. Recovery, never the native plan list.
                 phase = .backUnavailable
-                statusMessage = "Ascend couldn't reopen the previous step. Try subscription options again, restore, manage your subscription, or contact support."
+                statusMessage = "Ascend couldn't reopen the previous step. Load plans again, restore, manage your subscription, or contact support."
                 return
             }
             recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
@@ -447,7 +447,7 @@ final class AppAccessPaywallCoordinator {
             // The climber asked to delete their account, not to shop. Deliberately never falls
             // through to the native plan list, and deliberately does not move the phase: the
             // deletion dialog covers the gate, and a phase change here would announce
-            // "Loading subscription options." over that dialog to a VoiceOver climber.
+            // "Loading plans." over that dialog to a VoiceOver climber.
             // `accountDeletionDialogDismissed()` answers what happens if they back out.
             watchdogTask?.cancel()
             recordGateTerminal(
@@ -470,7 +470,7 @@ final class AppAccessPaywallCoordinator {
         case .skipped:
             watchdogTask?.cancel()
             beginNativeFallback(
-                message: "Subscription options could not open. Choose a plan below.",
+                message: "Plans could not open. Choose a plan below.",
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
                 reason: .hostedSkipped
@@ -478,7 +478,7 @@ final class AppAccessPaywallCoordinator {
         case .failed:
             watchdogTask?.cancel()
             beginNativeFallback(
-                message: "Subscription options could not open. Choose a plan below.",
+                message: "Plans could not open. Choose a plan below.",
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
                 reason: .hostedError
@@ -538,7 +538,7 @@ final class AppAccessPaywallCoordinator {
                 entitlementActive: self.entitlementPresence
             )
             self.phase = .failed
-            self.statusMessage = "Subscription options took too long to load. Try again, restore purchases, manage your subscription, or contact support."
+            self.statusMessage = "Plans took too long to load. Try again, restore purchases, manage your subscription, or contact support."
         }
         nativeLoadTask = Task { @MainActor [weak self, nativeProvider] in
             do {
@@ -572,12 +572,7 @@ final class AppAccessPaywallCoordinator {
                     entitlementActive: self.entitlementPresence
                 )
                 self.phase = .nativeReady
-                if loadedPlans.count == 1, let title = loadedPlans.first?.title {
-                    self.statusMessage = "\(title) is available. Cancel anytime in Apple subscriptions."
-                } else {
-                    let choices = loadedPlans.map(\.title).formatted(.list(type: .and))
-                    self.statusMessage = "Choose from \(choices). Cancel anytime in Apple subscriptions."
-                }
+                self.statusMessage = Self.plansReadyMessage(for: loadedPlans)
             } catch is CancellationError {
                 return
             } catch {
@@ -597,6 +592,32 @@ final class AppAccessPaywallCoordinator {
                 self.phase = .failed
                 self.statusMessage = "Plans are unavailable right now. Check your connection, restore, or contact support."
             }
+        }
+    }
+
+    /// Names what is on offer and, for a plan that renews, how the climber gets out of it.
+    ///
+    /// Cancellation is promised only for a plan that renews, and by name once a one-time purchase
+    /// sits beside it: "Cancel anytime" over a Lifetime card would describe a charge that cannot
+    /// be cancelled. Each card already carries its own terms, so this stays one short line - at an
+    /// accessibility text size a longer one pushes the plans themselves off the first screen.
+    nonisolated static func plansReadyMessage(for plans: [NativePaywallPlan]) -> String {
+        let offer = plans.count == 1
+            ? "\(plans[0].title) is available."
+            : "Choose from \(plans.map(\.title).formatted(.list(type: .and)))."
+        let renewing = plans.filter { $0.billing == .subscription }.map(\.title)
+        let sellsOneTimePurchase = plans.contains { $0.billing == .oneTime }
+
+        switch (renewing.isEmpty, sellsOneTimePurchase) {
+        case (false, false):
+            return "\(offer) Cancel anytime in Apple subscriptions."
+        case (false, true):
+            let renewingNames = renewing.formatted(.list(type: .and))
+            return "\(offer) Cancel \(renewingNames) anytime in Apple subscriptions."
+        case (true, true):
+            return "\(offer) One payment. No renewal."
+        case (true, false):
+            return offer
         }
     }
 

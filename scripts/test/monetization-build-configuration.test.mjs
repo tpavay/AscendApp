@@ -51,6 +51,10 @@ async function monetizationConfigurations() {
         buildSettings,
         "ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"
       ),
+      revenueCatLifetimeProductID: requiredSetting(
+        buildSettings,
+        "ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID"
+      ),
       revenueCatMonthlyProductID: requiredSetting(
         buildSettings,
         "ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID"
@@ -143,10 +147,13 @@ test("app access and launch products are explicit and safe in every environment"
   assert.equal(release.allowsUnentitledAppAccess, "NO");
 
   assert.equal(debug.revenueCatYearlyProductID, "ascend_staging_yearly");
+  assert.equal(debug.revenueCatLifetimeProductID, "ascend_staging_lifetime");
   assert.equal(debug.revenueCatMonthlyProductID, "ascend_staging_monthly");
   assert.equal(staging.revenueCatYearlyProductID, "ascend_staging_yearly");
+  assert.equal(staging.revenueCatLifetimeProductID, "ascend_staging_lifetime");
   assert.equal(staging.revenueCatMonthlyProductID, "ascend_staging_monthly");
   assert.equal(release.revenueCatYearlyProductID, "ascend_yearly");
+  assert.equal(release.revenueCatLifetimeProductID, "ascend_lifetime");
   assert.equal(release.revenueCatMonthlyProductID, "ascend_monthly");
 });
 
@@ -157,7 +164,7 @@ test("Info.plist resolves the selected build settings for runtime configuration"
     ["AscendRevenueCatTestAPIKey", "ASCEND_REVENUECAT_TEST_API_KEY"],
     ["AscendUseRevenueCatTestStore", "ASCEND_USE_REVENUECAT_TEST_STORE"],
     ["AscendRevenueCatYearlyProductID", "ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"],
-    ["AscendRevenueCatMonthlyProductID", "ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID"],
+    ["AscendRevenueCatLifetimeProductID", "ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID"],
     ["AscendSuperwallAPIKey", "ASCEND_SUPERWALL_API_KEY"],
     ["AscendSuperwallTestMode", "ASCEND_SUPERWALL_TEST_MODE"],
     ["AscendAllowsUnentitledAppAccess", "ASCEND_ALLOWS_UNENTITLED_APP_ACCESS"]
@@ -170,6 +177,10 @@ test("Info.plist resolves the selected build settings for runtime configuration"
       new RegExp(`<key>${infoKey}<\\/key>\\s*<string>\\$\\(${escapedBuildSetting}\\)<\\/string>`)
     );
   }
+
+  // Monthly stays a build setting because it is still on sale and the deploy guards read it from
+  // there, but no Ascend paywall sells it, so the app is handed no key for it.
+  assert.doesNotMatch(infoPlist, /ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID/);
 });
 
 test("the placeholder prefix is identical on the build gate and in the app", async () => {
