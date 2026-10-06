@@ -118,7 +118,9 @@ function lifecycleEventName(
     // customer_support and is exported as subscription_cancelled with
     // refundAttributed=true. A distinct Lifetime refund event is deliberately
     // not added: extending the analytics schema is a separate product
-    // decision.
+    // decision. A comp is delivered the same way from the promotional store
+    // and its allowlisted rc_promo_ product passes the gate, so it is
+    // dropped here rather than counted as a paid Lifetime sale.
     return event.store === "promotional" ? null : "lifetime_purchased";
   default:
     return null;
