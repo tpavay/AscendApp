@@ -217,10 +217,10 @@ private final class OnboardingReopenSpy {
 }
 
 @MainActor
-private final class BackNativeProviderSpy: NativeSubscriptionProviding {
+private final class BackNativeProviderSpy: NativePaywallPlanProviding {
     private(set) var loadCount = 0
 
-    func loadPlans() async throws -> [NativeSubscriptionPlan] {
+    func loadPlans() async throws -> [NativePaywallPlan] {
         loadCount += 1
         return []
     }

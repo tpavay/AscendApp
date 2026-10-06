@@ -115,6 +115,45 @@ test("every server lifecycle transition has its own event name", () => {
   }
 });
 
+test("a Lifetime purchase is one event with no expiry to report", () => {
+  const lifetimeConfig: RevenueCatServerConfig = {
+    ...CONFIG,
+    allowedProductIds: [...CONFIG.allowedProductIds, "ascend_lifetime"],
+  };
+  const purchase = webhookEvent({
+    type: "NON_RENEWING_PURCHASE",
+    productId: "ascend_lifetime",
+    expirationAtMs: null,
+  });
+  const lifetimeProjection = projection({
+    productId: "ascend_lifetime",
+    expiresAt: null,
+    accessUntil: new Date("9999-12-31T23:59:59.999Z"),
+  });
+
+  const analyticsEvent = buildLifecycleAnalyticsEvent(
+    purchase,
+    lifetimeProjection,
+    lifetimeConfig,
+    ENVIRONMENT
+  );
+
+  assert.equal(analyticsEvent?.eventName, "lifetime_purchased");
+  assert.equal(analyticsEvent?.productId, "ascend_lifetime");
+  assert.equal(analyticsEvent?.entitlementActive, true);
+  assert.equal(analyticsEvent?.effectiveExpirationAtMs, null);
+  // An environment that does not trust the product exports nothing for it.
+  assert.equal(
+    buildLifecycleAnalyticsEvent(
+      purchase,
+      lifetimeProjection,
+      CONFIG,
+      ENVIRONMENT
+    ),
+    null
+  );
+});
+
 test("cancellation remains active and is never relabeled as expiration", () => {
   const analyticsEvent = buildLifecycleAnalyticsEvent(
     webhookEvent({

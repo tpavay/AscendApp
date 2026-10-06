@@ -6,7 +6,7 @@ struct AppAccessPaywallPlaceholderView: View {
 
     private let initialPhase: AppAccessGatePhase
     private let initialRestoreState: AppAccessRestoreState
-    private let initialPlans: [NativeSubscriptionPlan]
+    private let initialPlans: [NativePaywallPlan]
     private let initialStatusMessage: String?
     private let automaticallyStarts: Bool
     private let accountDeletionDismissalRevision: UInt
@@ -18,7 +18,7 @@ struct AppAccessPaywallPlaceholderView: View {
     init(
         initialPhase: AppAccessGatePhase = .openingHosted,
         initialRestoreState: AppAccessRestoreState = .idle,
-        initialPlans: [NativeSubscriptionPlan] = [],
+        initialPlans: [NativePaywallPlan] = [],
         initialStatusMessage: String? = nil,
         automaticallyStarts: Bool = true,
         accountDeletionDismissalRevision: UInt = 0,
@@ -78,7 +78,7 @@ private struct AppAccessPaywallContentView: View {
         manager: MonetizationManager,
         initialPhase: AppAccessGatePhase,
         initialRestoreState: AppAccessRestoreState,
-        initialPlans: [NativeSubscriptionPlan],
+        initialPlans: [NativePaywallPlan],
         initialStatusMessage: String?,
         automaticallyStarts: Bool,
         accountDeletionDismissalRevision: UInt,
@@ -156,7 +156,7 @@ private struct AppAccessPaywallContentView: View {
             // backing out of it has to put the climber back on it. That unrenders the control the
             // climber came from, so focus is only restored when the gate is staying put.
             if coordinator.accountDeletionDialogDismissed() {
-                AccessibilityNotification.Announcement("Reopening subscription options.").post()
+                AccessibilityNotification.Announcement("Reopening plans.").post()
             } else {
                 focusedControl = .deleteAccount
             }
@@ -263,9 +263,9 @@ private struct AppAccessPaywallContentView: View {
                 .foregroundStyle(.black.opacity(0.9))
                 .frame(maxWidth: .infinity, minHeight: 54)
                 .background(Color.ascendAccent, in: .rect(cornerRadius: 10))
-                .accessibilityHint("Checks your subscription access without starting another purchase.")
+                .accessibilityHint("Checks your access without starting another purchase.")
             } else if coordinator.phase == .failed || coordinator.phase == .backUnavailable {
-                Button("Try Subscription Options Again") {
+                Button("Load Plans Again") {
                     coordinator.retryHosted()
                 }
                 .font(.montserratBold(size: 16))
@@ -278,7 +278,7 @@ private struct AppAccessPaywallContentView: View {
         }
     }
 
-    private func planButton(_ plan: NativeSubscriptionPlan) -> some View {
+    private func planButton(_ plan: NativePaywallPlan) -> some View {
         let isSelected = coordinator.selectedPlanID == plan.id
         return Button {
             coordinator.selectPlan(plan.id)
@@ -309,7 +309,7 @@ private struct AppAccessPaywallContentView: View {
                             .font(.montserratSemiBold(size: 14))
                             .foregroundStyle(Color.ascendAccent)
                     }
-                    Text(plan.renewalDescription)
+                    Text(plan.billingDescription)
                         .font(.montserratMedium(size: 13))
                         .foregroundStyle(.white.opacity(0.66))
                 }
@@ -326,7 +326,7 @@ private struct AppAccessPaywallContentView: View {
         .buttonStyle(.plain)
         .disabled(coordinator.disablesPurchase)
         .accessibilityLabel(
-            [plan.title, plan.localizedPrice, plan.trialDescription, plan.renewalDescription]
+            [plan.title, plan.localizedPrice, plan.trialDescription, plan.billingDescription]
                 .compactMap { $0 }
                 .joined(separator: ", ")
         )
@@ -428,9 +428,9 @@ private struct AppAccessPaywallContentView: View {
     private var title: String {
         switch coordinator.phase {
         case .openingHosted, .hostedPresented:
-            return "Loading subscription options"
+            return "Loading plans"
         case .loadingNative:
-            return "Loading subscription options"
+            return "Loading plans"
         case .nativeReady, .failed:
             return "Choose your Ascend plan"
         case .backUnavailable:
@@ -438,7 +438,7 @@ private struct AppAccessPaywallContentView: View {
         case .purchasing:
             return "Opening Apple checkout"
         case .verifying, .verificationUnavailable:
-            return "Checking your subscription access"
+            return "Checking your access"
         case .pendingApproval:
             return "Approval is pending"
         case .accessConfirmed:
@@ -459,19 +459,19 @@ private struct AppAccessPaywallContentView: View {
     private func announcePhase(_ phase: AppAccessGatePhase) {
         let announcement: String? = switch phase {
         case .loadingNative:
-            "Loading subscription options."
+            "Loading plans."
         case .purchasing:
             "Apple checkout is opening."
         case .pendingApproval:
             "Apple approval is pending. Do not purchase again."
         case .verifying:
-            "Checking your subscription access."
+            "Checking your access."
         case .verificationUnavailable:
             "Payment may still be processing. Do not purchase again."
         case .accessConfirmed:
             "Access confirmed. Opening Ascend."
         case .failed:
-            coordinator.statusMessage ?? "Subscription options are unavailable."
+            coordinator.statusMessage ?? "Plans are unavailable."
         case .backUnavailable:
             coordinator.statusMessage ?? "Ascend couldn't reopen the previous step."
         case .openingHosted, .hostedPresented, .nativeReady:

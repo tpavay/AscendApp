@@ -2,16 +2,16 @@ import Foundation
 import RevenueCat
 import SuperwallKit
 
-enum RevenueCatNativeSubscriptionProviderError: LocalizedError, Equatable {
+enum RevenueCatNativePaywallPlanProviderError: LocalizedError, Equatable {
     case notConfigured
 
     var errorDescription: String? {
-        "Subscription options are unavailable right now. Try again in a moment."
+        "Plans are unavailable right now. Try again in a moment."
     }
 }
 
 @MainActor
-final class RevenueCatNativeSubscriptionProvider: NativeSubscriptionProviding {
+final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
     private let configuration: MonetizationConfiguration
     private let coordinator: @MainActor () -> any PaywallPurchaseCoordinating
     private let executor: RevenueCatPurchaseExecutor
@@ -46,9 +46,9 @@ final class RevenueCatNativeSubscriptionProvider: NativeSubscriptionProviding {
         )
     }
 
-    func loadPlans() async throws -> [NativeSubscriptionPlan] {
+    func loadPlans() async throws -> [NativePaywallPlan] {
         guard isPurchasesConfigured() else {
-            throw RevenueCatNativeSubscriptionProviderError.notConfigured
+            throw RevenueCatNativePaywallPlanProviderError.notConfigured
         }
         let expectedProductIDs = Set(configuration.launchProductIDs)
         let offerings = try? await Purchases.shared.offerings()
@@ -90,11 +90,11 @@ final class RevenueCatNativeSubscriptionProvider: NativeSubscriptionProviding {
             }
         )
 
-        return NativeSubscriptionPlanMapper.plans(
+        return NativePaywallPlanMapper.plans(
             from: productTerms,
             eligibilityByProductID: eligibilityByProductID,
             yearlyProductID: configuration.revenueCatYearlyProductID,
-            monthlyProductID: configuration.revenueCatMonthlyProductID
+            lifetimeProductID: configuration.revenueCatLifetimeProductID
         )
     }
 
@@ -102,7 +102,7 @@ final class RevenueCatNativeSubscriptionProvider: NativeSubscriptionProviding {
         guard isPurchasesConfigured() else {
             return executor.failPurchaseBeforeRevenueCatCall(
                 productID: planID,
-                error: RevenueCatNativeSubscriptionProviderError.notConfigured,
+                error: RevenueCatNativePaywallPlanProviderError.notConfigured,
                 errorType: .configuration
             )
         }
@@ -131,18 +131,19 @@ final class RevenueCatNativeSubscriptionProvider: NativeSubscriptionProviding {
         }
     }
 
-    private static func productTerms(
+    static func productTerms(
         from product: RevenueCat.StoreProduct
-    ) -> NativeSubscriptionProductTerms {
+    ) -> NativePaywallProductTerms {
         let freeTrialPeriod = product.introductoryDiscount.flatMap { discount in
             discount.paymentMode == .freeTrial
                 ? nativePeriod(from: discount.subscriptionPeriod)
                 : nil
         }
 
-        return NativeSubscriptionProductTerms(
+        return NativePaywallProductTerms(
             productID: product.productIdentifier,
             localizedPrice: product.localizedPriceString,
+            billing: product.productCategory == .subscription ? .subscription : .oneTime,
             renewalPeriod: product.subscriptionPeriod.map(nativePeriod(from:)),
             freeTrialPeriod: freeTrialPeriod
         )

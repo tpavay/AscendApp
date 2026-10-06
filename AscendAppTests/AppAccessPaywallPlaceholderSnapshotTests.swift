@@ -51,19 +51,25 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
 
     @Test
     func evidenceNamesOnlyTheActuallyLoadedSinglePlanAndUsesItsTruthfulAction() async throws {
-        let catalogs: [(String, [NativeSubscriptionPlan], String, String)] = [
-            ("annual-only", [snapshotAnnualPlan], "Annual is available", "Start 7-day free trial"),
-            ("monthly-only", [snapshotMonthlyPlan], "Monthly is available", "Subscribe with Apple")
+        let catalogs: [(String, [NativePaywallPlan], String, String, [String])] = [
+            (
+                "annual-only", [snapshotAnnualPlan], "Annual is available",
+                "Start 1-month free trial", ["Lifetime", "Pay once", "One payment"]
+            ),
+            (
+                "lifetime-only", [snapshotLifetimePlan], "Lifetime is available",
+                "Buy Lifetime", ["Annual", "free trial", "Renews", "Cancel anytime", "Subscribe"]
+            )
         ]
 
-        for (id, plans, status, action) in catalogs {
+        for (id, plans, status, action, forbidden) in catalogs {
             let scenario = GateScenario(
                 id: id,
                 phase: .nativeReady,
-                status: "\(status). Cancel anytime in Apple subscriptions.",
+                status: AppAccessPaywallCoordinator.plansReadyMessage(for: plans),
                 expectedHeadline: "Choose your Ascend plan",
                 reachableLabels: [status, plans[0].title, action, "Restore Purchases"],
-                forbiddenLabels: plans[0].id == "annual" ? ["Monthly"] : ["Annual", "free trial"],
+                forbiddenLabels: forbidden,
                 includesRecovery: true
             )
             try await render(
@@ -100,7 +106,7 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
     private func render(
         scenario: GateScenario,
         restoreState: AppAccessRestoreState,
-        plans: [NativeSubscriptionPlan],
+        plans: [NativePaywallPlan],
         surface: EvidenceSurface,
         evidenceName: String
     ) async throws {
@@ -266,24 +272,28 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
     }
 }
 
-private let snapshotAnnualPlan = NativeSubscriptionPlan(
+private let snapshotAnnualPlan = NativePaywallPlan(
     id: "annual",
     title: "Annual",
-    localizedPrice: "$49.99",
-    renewalDescription: "Renews annually",
-    trialDescription: "7 days free",
-    trialActionDescription: "Start 7-day free trial"
+    localizedPrice: "$29.99",
+    billingDescription: "Renews annually",
+    trialDescription: "1 month free",
+    trialActionDescription: "Start 1-month free trial"
 )
 
-private let snapshotMonthlyPlan = NativeSubscriptionPlan(
-    id: "monthly",
-    title: "Monthly",
-    localizedPrice: "$7.99",
-    renewalDescription: "Renews monthly",
+private let snapshotLifetimePlan = NativePaywallPlan(
+    id: "lifetime",
+    title: "Lifetime",
+    localizedPrice: "$49.99",
+    billing: .oneTime,
+    billingDescription: "Pay once. No renewal.",
     trialDescription: nil
 )
 
-private let snapshotPlans = [snapshotAnnualPlan, snapshotMonthlyPlan]
+private let snapshotPlans = [snapshotAnnualPlan, snapshotLifetimePlan]
+private let snapshotPlansReadyStatus = AppAccessPaywallCoordinator.plansReadyMessage(
+    for: snapshotPlans
+)
 private let recoveryLabels = [
     "Manage Subscription", "Terms", "Privacy", "Support", "Delete account", "Sign Out"
 ]
@@ -299,17 +309,17 @@ private struct GateScenario {
 }
 
 private let gateScenarios: [GateScenario] = [
-    .init(id: "opening", phase: .openingHosted, status: nil, expectedHeadline: "Loading subscription options", reachableLabels: ["Loading subscription options"], forbiddenLabels: ["Subscribe", "Restore Purchases"], includesRecovery: false),
-    .init(id: "hosted", phase: .hostedPresented, status: nil, expectedHeadline: "Loading subscription options", reachableLabels: ["Loading subscription options"], forbiddenLabels: ["Subscribe", "Restore Purchases"], includesRecovery: false),
-    .init(id: "loading-native", phase: .loadingNative, status: nil, expectedHeadline: "Loading subscription options", reachableLabels: ["Loading subscription options", "Restore Purchases"], forbiddenLabels: ["Annual", "Monthly", "Subscribe with Apple"], includesRecovery: true),
-    .init(id: "native-ready", phase: .nativeReady, status: "Choose from Annual and Monthly. Cancel anytime in Apple subscriptions.", expectedHeadline: "Choose your Ascend plan", reachableLabels: ["Annual", "Monthly", "Start 7-day free trial", "Restore Purchases"], forbiddenLabels: [], includesRecovery: true),
-    .init(id: "purchasing", phase: .purchasing, status: "Complete your purchase in Apple checkout.", expectedHeadline: "Opening Apple checkout", reachableLabels: ["Opening Apple checkout", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple", "Start 7-day free trial"], includesRecovery: true),
-    .init(id: "verifying", phase: .verifying, status: nil, expectedHeadline: "Checking your subscription access", reachableLabels: ["Checking your subscription access", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple", "RevenueCat"], includesRecovery: true),
-    .init(id: "verification", phase: .verificationUnavailable, status: "Payment may still be processing. Do not purchase again.", expectedHeadline: "Checking your subscription access", reachableLabels: ["Check Access", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple", "RevenueCat"], includesRecovery: true),
+    .init(id: "opening", phase: .openingHosted, status: nil, expectedHeadline: "Loading plans", reachableLabels: ["Loading plans"], forbiddenLabels: ["Subscribe", "Restore Purchases"], includesRecovery: false),
+    .init(id: "hosted", phase: .hostedPresented, status: nil, expectedHeadline: "Loading plans", reachableLabels: ["Loading plans"], forbiddenLabels: ["Subscribe", "Restore Purchases"], includesRecovery: false),
+    .init(id: "loading-native", phase: .loadingNative, status: nil, expectedHeadline: "Loading plans", reachableLabels: ["Loading plans", "Restore Purchases"], forbiddenLabels: ["Annual", "Lifetime", "Subscribe with Apple"], includesRecovery: true),
+    .init(id: "native-ready", phase: .nativeReady, status: snapshotPlansReadyStatus, expectedHeadline: "Choose your Ascend plan", reachableLabels: ["Annual", "Lifetime", "Pay once. No renewal.", "Start 1-month free trial", "Restore Purchases"], forbiddenLabels: [], includesRecovery: true),
+    .init(id: "purchasing", phase: .purchasing, status: "Complete your purchase in Apple checkout.", expectedHeadline: "Opening Apple checkout", reachableLabels: ["Opening Apple checkout", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple", "Start 1-month free trial"], includesRecovery: true),
+    .init(id: "verifying", phase: .verifying, status: nil, expectedHeadline: "Checking your access", reachableLabels: ["Checking your access", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple", "RevenueCat"], includesRecovery: true),
+    .init(id: "verification", phase: .verificationUnavailable, status: "Payment may still be processing. Do not purchase again.", expectedHeadline: "Checking your access", reachableLabels: ["Check Access", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple", "RevenueCat"], includesRecovery: true),
     .init(id: "pending", phase: .pendingApproval, status: "Apple approval is pending. Do not purchase again.", expectedHeadline: "Approval is pending", reachableLabels: ["Check Access", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple"], includesRecovery: true),
     .init(id: "confirmed", phase: .accessConfirmed, status: nil, expectedHeadline: "Access confirmed", reachableLabels: ["Access confirmed", "Opening Ascend"], forbiddenLabels: ["Subscribe", "Restore", "Delete account", "Sign Out"], includesRecovery: false),
-    .init(id: "failed", phase: .failed, status: "Subscription options took too long to load. Try again.", expectedHeadline: "Choose your Ascend plan", reachableLabels: ["Try Subscription Options Again", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple"], includesRecovery: true),
-    .init(id: "back-unavailable", phase: .backUnavailable, status: "Ascend couldn't reopen the previous step. Try subscription options again, restore, manage your subscription, or contact support.", expectedHeadline: "Couldn't go back", reachableLabels: ["Try Subscription Options Again", "Restore Purchases", "Delete account"], forbiddenLabels: ["Choose your Ascend plan", "Subscribe with Apple"], includesRecovery: true)
+    .init(id: "failed", phase: .failed, status: "Plans took too long to load. Try again.", expectedHeadline: "Choose your Ascend plan", reachableLabels: ["Load Plans Again", "Restore Purchases"], forbiddenLabels: ["Subscribe with Apple"], includesRecovery: true),
+    .init(id: "back-unavailable", phase: .backUnavailable, status: "Ascend couldn't reopen the previous step. Load plans again, restore, manage your subscription, or contact support.", expectedHeadline: "Couldn't go back", reachableLabels: ["Load Plans Again", "Restore Purchases", "Delete account"], forbiddenLabels: ["Choose your Ascend plan", "Subscribe with Apple"], includesRecovery: true)
 ]
 
 private struct RestoreScenario {
@@ -325,14 +335,14 @@ private struct RestoreScenario {
                 status: nil,
                 expectedHeadline: "Access confirmed",
                 reachableLabels: ["Access confirmed", "Opening Ascend"],
-                forbiddenLabels: ["Restore", "Try Subscription Options Again", "Subscribe"],
+                forbiddenLabels: ["Restore", "Load Plans Again", "Subscribe"],
                 includesRecovery: false
             )
         }
         return GateScenario(
             id: id,
             phase: .nativeReady,
-            status: "Choose from Annual and Monthly. Cancel anytime in Apple subscriptions.",
+            status: snapshotPlansReadyStatus,
             expectedHeadline: "Choose your Ascend plan",
             reachableLabels: [expectedButtonOrSuccess] + (state.statusMessage.map { [$0] } ?? []),
             forbiddenLabels: ["Restore Failed"],
@@ -405,7 +415,7 @@ private struct AccountDeletionFocusHarness: View {
             AppAccessPaywallPlaceholderView(
                 initialPhase: .failed,
                 initialPlans: snapshotPlans,
-                initialStatusMessage: "Subscription options are unavailable.",
+                initialStatusMessage: "Plans are unavailable.",
                 automaticallyStarts: false,
                 accountDeletionDismissalRevision: dismissalRevision,
                 onAccountDeletionFocusRestored: probe.record,

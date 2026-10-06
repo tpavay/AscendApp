@@ -65,7 +65,8 @@ First Ascent slot. This is the core retention loop.
 ## Monetization (relevant to onboarding)
 
 **Hard paywall, no freemium tier.**
-Two paths unlock the same access: **$49.99/year** with a seven-day free trial, or **$9.99/month** charged immediately with no trial.
+Two paths unlock the same access: **$29.99/year** with a one-month free trial, or **Lifetime**, one payment with no trial and no renewal, sold from 1.2.3.
+$9.99/month stays on sale in App Store Connect, but no Ascend paywall offers it.
 There is no weekly product.
 Onboarding is a **conversion funnel that ends at a hard paywall**, not a tutorial.
 

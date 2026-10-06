@@ -165,14 +165,14 @@ struct MonetizationConfigurationTests {
         let configuration = MonetizationConfiguration(
             infoDictionary: [
                 MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "ascend_yearly",
-                MonetizationConfiguration.revenueCatMonthlyProductIDInfoKey: "ascend_monthly"
+                MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "ascend_lifetime"
             ]
         )
 
         #expect(configuration.revenueCatEntitlementID == "app_access")
         #expect(configuration.revenueCatOfferingID == "default")
         #expect(configuration.revenueCatYearlyProductID == "ascend_yearly")
-        #expect(configuration.revenueCatMonthlyProductID == "ascend_monthly")
+        #expect(configuration.revenueCatLifetimeProductID == "ascend_lifetime")
         #expect(SuperwallPlacement.onboardingPaywall.rawValue == "onboarding_paywall")
         #expect(SuperwallPlacement.appLaunchHardGate.rawValue == "app_launch_hard_gate")
         #expect(SuperwallPlacement.appAccessGate.rawValue == "app_access_gate")
@@ -184,15 +184,15 @@ struct MonetizationConfigurationTests {
             infoDictionary: [
                 MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_staging_key",
                 MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "ascend_staging_yearly",
-                MonetizationConfiguration.revenueCatMonthlyProductIDInfoKey: "ascend_staging_monthly"
+                MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "ascend_staging_lifetime"
             ]
         )
 
         let complete = configuration.auditOffering(
-            expectedOfferingProductIDs: ["ascend_staging_yearly", "ascend_staging_monthly"],
+            expectedOfferingProductIDs: ["ascend_staging_yearly", "ascend_staging_lifetime"],
             currentOfferingID: "default"
         )
-        let missingMonthly = configuration.auditOffering(
+        let missingLifetime = configuration.auditOffering(
             expectedOfferingProductIDs: ["ascend_staging_yearly"],
             currentOfferingID: "default"
         )
@@ -204,13 +204,13 @@ struct MonetizationConfigurationTests {
         #expect(configuration.shouldAuditLaunchOffering)
         #expect(complete.isLaunchCatalogComplete)
         #expect(complete.missingProductIDs.isEmpty)
-        #expect(missingMonthly.isLaunchCatalogComplete == false)
-        #expect(missingMonthly.missingProductIDs == ["ascend_staging_monthly"])
+        #expect(missingLifetime.isLaunchCatalogComplete == false)
+        #expect(missingLifetime.missingProductIDs == ["ascend_staging_lifetime"])
         #expect(missingOffering.isLaunchCatalogComplete == false)
         #expect(missingOffering.hasExpectedOffering == false)
         #expect(
             missingOffering.missingProductIDs
-                == ["ascend_staging_yearly", "ascend_staging_monthly"]
+                == ["ascend_staging_yearly", "ascend_staging_lifetime"]
         )
     }
 
@@ -220,14 +220,14 @@ struct MonetizationConfigurationTests {
             infoDictionary: [
                 MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_staging_key",
                 MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "ascend_staging_yearly",
-                MonetizationConfiguration.revenueCatMonthlyProductIDInfoKey: "ascend_staging_monthly"
+                MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "ascend_staging_lifetime"
             ]
         )
         let release = MonetizationConfiguration(
             infoDictionary: [
                 MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_production_key",
                 MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "ascend_yearly",
-                MonetizationConfiguration.revenueCatMonthlyProductIDInfoKey: "ascend_monthly"
+                MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "ascend_lifetime"
             ]
         )
 
@@ -246,7 +246,7 @@ struct MonetizationConfigurationTests {
         )
 
         let audit = configuration.auditOffering(
-            expectedOfferingProductIDs: ["ascend_staging_yearly", "ascend_staging_monthly"],
+            expectedOfferingProductIDs: ["ascend_staging_yearly", "ascend_staging_lifetime"],
             currentOfferingID: "default"
         )
 
@@ -266,7 +266,7 @@ struct MonetizationConfigurationTests {
             infoDictionary: [
                 MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_production_key",
                 MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "ascend_yearly",
-                MonetizationConfiguration.revenueCatMonthlyProductIDInfoKey: "ascend_monthly"
+                MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "ascend_lifetime"
             ],
             allowsRevenueCatTestStore: false
         )
@@ -279,7 +279,7 @@ struct MonetizationConfigurationTests {
         )
 
         #expect(audit.isLaunchCatalogComplete == false)
-        #expect(audit.missingProductIDs == ["ascend_monthly"])
+        #expect(audit.missingProductIDs == ["ascend_lifetime"])
     }
 
     @Test
@@ -305,12 +305,12 @@ struct MonetizationConfigurationTests {
         let configuration = MonetizationConfiguration(
             infoDictionary: [
                 MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "ascend_yearly",
-                MonetizationConfiguration.revenueCatMonthlyProductIDInfoKey: "ascend_monthly"
+                MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "ascend_lifetime"
             ]
         )
 
         let experiment = configuration.auditOffering(
-            expectedOfferingProductIDs: ["ascend_yearly", "ascend_monthly"],
+            expectedOfferingProductIDs: ["ascend_yearly", "ascend_lifetime"],
             currentOfferingID: "launch_test_b"
         )
 

@@ -35,6 +35,7 @@ const EVENT_NAMES = new Set<LifecycleAnalyticsEventName>([
   "subscription_expired",
   "subscription_refunded",
   "subscription_product_changed",
+  "lifetime_purchased",
 ]);
 
 export class FirestoreAnalyticsOutboxStore

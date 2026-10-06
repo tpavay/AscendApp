@@ -37,10 +37,51 @@ test("the iOS integration names the final RevenueCat contract", async () => {
   );
   assert.match(
     configuration,
-    /revenueCatMonthlyProductIDInfoKey = "AscendRevenueCatMonthlyProductID"/
+    /revenueCatLifetimeProductIDInfoKey = "AscendRevenueCatLifetimeProductID"/
   );
   assert.doesNotMatch(configuration, /revenueCatYearlyProductID: String =/);
-  assert.doesNotMatch(configuration, /revenueCatMonthlyProductID: String =/);
+  assert.doesNotMatch(configuration, /revenueCatLifetimeProductID: String =/);
+});
+
+test("the app's own paywall sells Annual and Lifetime, and never Monthly", async () => {
+  const configuration = await source("configuration");
+
+  // The same list is what the launch audit expects of the RevenueCat offering, so the paywall
+  // and the audit cannot name different catalogs.
+  assert.match(
+    configuration,
+    /var launchProductIDs: \[String\] \{\s*\[revenueCatYearlyProductID, revenueCatLifetimeProductID\]\s*\}/
+  );
+  assert.match(configuration, /missingProductIDs: launchProductIDs\.filter/);
+  assert.doesNotMatch(configuration, /MonthlyProductID/);
+});
+
+test("a one-time purchase is described as one payment and never as a trial or a renewal", async () => {
+  const [strings, plan, mapper] = await Promise.all([
+    readFile(pathFromRoot("AscendApp/en.lproj/Localizable.strings"), "utf8"),
+    readFile(
+      pathFromRoot("AscendApp/Features/Monetization/Paywall/NativePaywallPlan.swift"),
+      "utf8"
+    ),
+    readFile(
+      pathFromRoot("AscendApp/Features/Monetization/Paywall/NativePaywallPlanMapper.swift"),
+      "utf8"
+    )
+  ]);
+
+  assert.match(strings, /"subscription\.plan\.lifetime" = "Lifetime";/);
+  assert.match(strings, /"subscription\.billing\.one_time" = "Pay once\. No renewal\.";/);
+  assert.match(strings, /"subscription\.action\.buy_lifetime" = "Buy Lifetime";/);
+  assert.doesNotMatch(strings, /"subscription\.plan\.monthly"/);
+  assert.match(plan, /case oneTime/);
+
+  const oneTimeBranch = mapper.slice(
+    mapper.indexOf("case .oneTime:"),
+    mapper.indexOf("case .subscription:")
+  );
+  assert.ok(oneTimeBranch.length > 0);
+  assert.match(oneTimeBranch, /trialDescription: nil/);
+  assert.doesNotMatch(oneTimeBranch, /freeTrialPeriod|renewalPeriod|eligib/i);
 });
 
 test("the hosted paywall defaults to the annual trial and binds the final products", async () => {
@@ -147,22 +188,35 @@ test("launch paywall claims only implemented leaderboard competition", async () 
   assert.doesNotMatch(controlledLaunchCopy, /personalized climbing plan/i);
 });
 
-test("public and legal copy describe the exact annual and immediate monthly offers", async () => {
+test("public and legal copy describe the annual trial, Lifetime, and the monthly plan still on sale", async () => {
   const [website, terms] = await Promise.all([source("website"), source("terms")]);
 
-  assert.match(website, /7-day free trial on the \$49\.99\/year plan/);
-  assert.match(website, /\$9\.99\/month plan is charged immediately and has no trial/);
-  assert.match(terms, /seven-day free trial for eligible Apple accounts, then \$49\.99 per year/);
+  assert.match(website, /1-month free trial on the \$29\.99\/year plan/);
+  assert.match(website, /1-month free trial on the yearly plan/);
+  assert.doesNotMatch(website, /7-day free trial|\$49\.99\/year/);
+  assert.match(terms, /one-month free trial for eligible Apple accounts, then \$29\.99 per year/);
   assert.match(
     terms,
-    /not eligible for the free trial, the annual plan is charged \$49\.99 at confirmation of purchase/
+    /not eligible for the free trial, the annual plan is charged \$29\.99 at confirmation of purchase/
   );
   assert.match(terms, /\$9\.99 is charged immediately[\s\S]*with no free trial/);
   assert.match(terms, /free trial applies only to the annual plan/);
   assert.match(terms, /once per Apple account or Family Sharing group/);
+  assert.doesNotMatch(terms, /seven-day free trial|\$49\.99 per year/);
+
+  // Lifetime carries no price here: it is read from the App Store at purchase, and the terms
+  // only have to say what kind of charge it is.
+  const lifetime = terms.match(/<li><strong>Lifetime:<\/strong>([\s\S]*?)<\/li>/)?.[1];
+  assert.ok(lifetime, "the terms must describe the Lifetime purchase");
+  assert.match(lifetime, /one payment at the price shown on the purchase screen/);
+  assert.match(lifetime, /not a subscription/);
+  assert.match(lifetime, /no free trial/);
+  assert.match(lifetime, /does not renew/);
+  assert.match(lifetime, /does not cancel a subscription you already hold/);
+  assert.doesNotMatch(lifetime, /\$\d/);
 });
 
-test("active guidance contains two launch products and no stale commerce offer", async () => {
+test("active guidance names the plans Ascend sells and no stale commerce offer", async () => {
   const guidanceNames = [
     "setup",
     "onboardingGuide",
@@ -173,16 +227,17 @@ test("active guidance contains two launch products and no stale commerce offer",
   const guidance = (await Promise.all(guidanceNames.map(source))).join("\n");
 
   for (const expected of [
-    "$49.99/year",
-    "$9.99/month",
+    "$29.99/year",
     "ascend_yearly",
+    "ascend_lifetime",
     "ascend_monthly",
     "Entitlement: `app_access`",
-    "current offering `default`",
+    "Current offering: `default`",
     "$rc_annual",
-    "$rc_monthly",
+    "$rc_lifetime",
     "product reference `yearly`",
-    "product reference `monthly`"
+    "product reference `lifetime`",
+    "Pay once. No renewal."
   ]) {
     assert.match(guidance, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -191,6 +246,17 @@ test("active guidance contains two launch products and no stale commerce offer",
     guidance,
     /\$12\.99|\$24\.99|monthly\/weekly|monthly or weekly|weekly,? TBD|one-time offer/i
   );
+
+  // The two documents that state the current offer must not still state the 1.0 one as current.
+  const [setup, projectMemory] = await Promise.all([source("setup"), source("projectMemory")]);
+  const launchOffer = setup.slice(
+    setup.indexOf("## Launch Offer"),
+    setup.indexOf("## Lifetime")
+  );
+  assert.match(launchOffer, /\| Annual \| `ascend_yearly` \|[^\n]*`\$29\.99\/year`[^\n]*One month/);
+  assert.match(launchOffer, /\| Lifetime \| `ascend_lifetime` \| Non-consumable[^\n]*\| None \|/);
+  assert.match(projectMemory, /`\$29\.99\/year` with a one-month free trial, or Lifetime/);
+  assert.doesNotMatch(projectMemory, /\$49\.99\/year|seven-day free trial, or/);
 });
 
 test("the separate discount page is not deployable", async () => {

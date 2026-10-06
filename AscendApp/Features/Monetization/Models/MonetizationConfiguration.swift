@@ -13,7 +13,7 @@ struct MonetizationConfiguration: Equatable {
     static let revenueCatTestAPIKeyInfoKey = "AscendRevenueCatTestAPIKey"
     static let revenueCatUseTestStoreInfoKey = "AscendUseRevenueCatTestStore"
     static let revenueCatYearlyProductIDInfoKey = "AscendRevenueCatYearlyProductID"
-    static let revenueCatMonthlyProductIDInfoKey = "AscendRevenueCatMonthlyProductID"
+    static let revenueCatLifetimeProductIDInfoKey = "AscendRevenueCatLifetimeProductID"
     static let superwallAPIKeyInfoKey = "AscendSuperwallAPIKey"
     static let superwallTestModeInfoKey = "AscendSuperwallTestMode"
     static let allowsUnentitledAppAccessInfoKey = "AscendAllowsUnentitledAppAccess"
@@ -21,8 +21,8 @@ struct MonetizationConfiguration: Equatable {
     // accepting an empty expected catalog.
     private static let unconfiguredYearlyProductID =
         "UNCONFIGURED_ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"
-    private static let unconfiguredMonthlyProductID =
-        "UNCONFIGURED_ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID"
+    private static let unconfiguredLifetimeProductID =
+        "UNCONFIGURED_ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID"
 
     /// Mirrored by `PLACEHOLDER_API_KEY_PREFIX` in
     /// `scripts/lib/monetization-build-settings.mjs`, which gates staging and
@@ -42,7 +42,7 @@ struct MonetizationConfiguration: Equatable {
     let revenueCatEntitlementID: String
     let revenueCatOfferingID: String
     let revenueCatYearlyProductID: String
-    let revenueCatMonthlyProductID: String
+    let revenueCatLifetimeProductID: String
     let isRevenueCatTestStoreEnabled: Bool
     let isSuperwallTestModeEnabled: Bool
     let allowsUnentitledAppAccess: Bool
@@ -61,8 +61,11 @@ struct MonetizationConfiguration: Equatable {
         revenueCatAPIKey != nil && superwallAPIKey != nil
     }
 
+    /// The plans Ascend's own paywall sells, in the order it lists them: the annual subscription and
+    /// the one-time Lifetime purchase. Monthly is still on sale in App Store Connect and still
+    /// unlocks `app_access`, but this paywall does not sell it, so nothing here names it.
     var launchProductIDs: [String] {
-        [revenueCatYearlyProductID, revenueCatMonthlyProductID]
+        [revenueCatYearlyProductID, revenueCatLifetimeProductID]
     }
 
     var shouldAuditLaunchOffering: Bool {
@@ -104,9 +107,9 @@ struct MonetizationConfiguration: Equatable {
         revenueCatYearlyProductID = Self.normalizedString(
             infoDictionary[Self.revenueCatYearlyProductIDInfoKey]
         ) ?? Self.unconfiguredYearlyProductID
-        revenueCatMonthlyProductID = Self.normalizedString(
-            infoDictionary[Self.revenueCatMonthlyProductIDInfoKey]
-        ) ?? Self.unconfiguredMonthlyProductID
+        revenueCatLifetimeProductID = Self.normalizedString(
+            infoDictionary[Self.revenueCatLifetimeProductIDInfoKey]
+        ) ?? Self.unconfiguredLifetimeProductID
         isRevenueCatTestStoreEnabled = shouldUseRevenueCatTestStore
         isSuperwallTestModeEnabled =
             Self.normalizedBool(infoDictionary[Self.superwallTestModeInfoKey]) ?? false

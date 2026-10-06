@@ -112,6 +112,10 @@ function lifecycleEventName(
       "subscription_refunded" : "subscription_expired";
   case "PRODUCT_CHANGE":
     return "subscription_product_changed";
+  case "NON_RENEWING_PURCHASE":
+    // A one-time purchase has no trial, renewal or expiry to report later,
+    // so this is the only lifecycle row a Lifetime sale ever produces.
+    return "lifetime_purchased";
   default:
     return null;
   }

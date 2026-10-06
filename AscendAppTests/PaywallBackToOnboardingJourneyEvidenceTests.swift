@@ -311,10 +311,10 @@ private final class PlacementRecorder {
 }
 
 @MainActor
-private final class JourneyNativeProviderSpy: NativeSubscriptionProviding {
+private final class JourneyNativeProviderSpy: NativePaywallPlanProviding {
     private(set) var loadCount = 0
 
-    func loadPlans() async throws -> [NativeSubscriptionPlan] {
+    func loadPlans() async throws -> [NativePaywallPlan] {
         loadCount += 1
         return []
     }

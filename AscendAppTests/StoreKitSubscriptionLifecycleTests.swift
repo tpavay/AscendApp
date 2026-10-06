@@ -2,10 +2,11 @@ import Foundation
 import StoreKitTest
 import Testing
 
-@Suite(.serialized)
+@Suite(.serialized, .usesStoreKitTestSession)
 struct StoreKitSubscriptionLifecycleTests {
     private let annualProductID = "ascend_staging_yearly"
     private let monthlyProductID = "ascend_staging_monthly"
+    private let lifetimeProductID = "ascend_staging_lifetime"
 
     @Test
     func annualAndMonthlyProductsCanCompleteTransactions() async throws {
@@ -20,6 +21,26 @@ struct StoreKitSubscriptionLifecycleTests {
         session.clearTransactions()
         _ = try await session.buyProduct(identifier: monthlyProductID)
         #expect(session.allTransactions().contains { $0.productIdentifier == monthlyProductID })
+    }
+
+    @Test
+    func lifetimeIsBoughtOnceBesideASubscriptionAndNeverExpires() async throws {
+        // Lifetime sits outside the subscription group, so it does not replace an annual purchase
+        // the way monthly does: a climber can hold both, and only the subscription has an end.
+        let session = try makeSession()
+        defer { cleanUp(session) }
+        _ = try await session.buyProduct(identifier: annualProductID)
+        _ = try await session.buyProduct(identifier: lifetimeProductID)
+
+        let annual = try #require(
+            session.allTransactions().first { $0.productIdentifier == annualProductID }
+        )
+        let lifetime = try #require(
+            session.allTransactions().first { $0.productIdentifier == lifetimeProductID }
+        )
+        #expect(annual.expirationDate != nil)
+        #expect(lifetime.expirationDate == nil)
+        #expect(lifetime.cancelDate == nil)
     }
 
     @Test

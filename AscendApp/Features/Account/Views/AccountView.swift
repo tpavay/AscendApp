@@ -40,7 +40,7 @@ struct AccountView: View {
                 sectionView(title: "Profile", options: profileOptions)
                 sectionView(title: "Notifications", options: notificationOptions)
                 sectionView(title: "Preferences", options: preferenceOptions)
-                sectionView(title: "Subscription", options: subscriptionOptions)
+                sectionView(title: "Purchases", options: purchaseOptions)
                 sectionView(title: "Support", options: supportOptions)
                 sectionView(title: "Privacy", options: privacyOptions)
                 sectionView(title: "Developer", options: developerOptions)
@@ -207,7 +207,10 @@ struct AccountView: View {
         return options
     }
 
-    private var subscriptionOptions: [SettingsOption] {
+    /// `Manage Subscription` stays for everyone, a Lifetime owner included: a climber who bought
+    /// Lifetime from the gate while a lapsed subscription was in billing retry still has that
+    /// subscription to cancel, and this row is the only route to it inside Ascend.
+    private var purchaseOptions: [SettingsOption] {
         [
             SettingsOption(
                 icon: .settingsManageSubscription,

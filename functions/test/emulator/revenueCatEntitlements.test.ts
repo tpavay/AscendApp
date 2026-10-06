@@ -574,6 +574,63 @@ test("an older unrelated document cannot starve a real expiry behind it", async 
   assert.equal((await unrelated.get()).exists, true);
 });
 
+test("a Lifetime grant has no expiry, survives the sweep, and exports once", async () => {
+  // A non-consumable never expires, so its grant carries no expiresAt and the
+  // far-future accessUntil the sweep's `<= now` query can never reach.
+  const event: RevenueCatWebhookEvent = {
+    ...webhookEvent("lifetime-event"),
+    type: "NON_RENEWING_PURCHASE",
+    productId: "ascend_lifetime",
+    expirationAtMs: null,
+  };
+  const lifetime: AppAccessProjection = {
+    ...projection(event, NOW.getTime()),
+    productId: "ascend_lifetime",
+    expiresAt: null,
+    accessUntil: new Date("9999-12-31T23:59:59.999Z"),
+  };
+  const purchased: LifecycleAnalyticsEvent = {
+    ...analyticsEvent(event),
+    eventName: "lifetime_purchased",
+    productId: "ascend_lifetime",
+    effectiveExpirationAtMs: null,
+  };
+  await store.claimEvent(event, "lifetime-payload", NOW);
+  await store.completeEvent(
+    event,
+    "lifetime-payload",
+    [lifetime],
+    [purchased],
+    NOW
+  );
+
+  const grant = db.doc(`users/${uid}/entitlements/app_access`);
+  const stored = await grant.get();
+  assert.equal(stored.exists, true);
+  assert.equal(stored.get("productId"), "ascend_lifetime");
+  assert.equal(stored.get("expiresAt"), null);
+  assert.equal(
+    stored.get("accessUntil").toDate().toISOString(),
+    "9999-12-31T23:59:59.999Z"
+  );
+
+  const aCenturyLater = new Date("2126-08-05T12:00:00.000Z");
+  assert.equal(await expireRevenueCatAccessGrants(db, aCenturyLater), 0);
+  assert.equal((await grant.get()).exists, true);
+
+  // The outbox refuses any event name it does not list, so the claim is what
+  // proves a Lifetime sale reaches the analytics export at all.
+  const claims = await new FirestoreAnalyticsOutboxStore(db).claimDue(NOW);
+  assert.deepEqual(
+    claims.map((claim) => [
+      claim.event.eventName,
+      claim.event.productId,
+      claim.event.effectiveExpirationAtMs,
+    ]),
+    [["lifetime_purchased", "ascend_lifetime", null]]
+  );
+});
+
 function webhookEvent(id: string): RevenueCatWebhookEvent {
   return {
     id,

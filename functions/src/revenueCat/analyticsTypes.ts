@@ -8,7 +8,8 @@ export type LifecycleAnalyticsEventName =
   | "subscription_billing_issue"
   | "subscription_expired"
   | "subscription_refunded"
-  | "subscription_product_changed";
+  | "subscription_product_changed"
+  | "lifetime_purchased";
 
 export interface RevenueCatAnalyticsEnvironment {
   firebaseProjectId: string;

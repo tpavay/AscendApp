@@ -1,5 +1,5 @@
 "subscription.plan.annual" = "Annual";
-"subscription.plan.monthly" = "Monthly";
+"subscription.plan.lifetime" = "Lifetime";
 "subscription.renewal.every" = "Renews every %@";
 "subscription.renewal.annual" = "Renews annually";
 "subscription.renewal.monthly" = "Renews monthly";
@@ -7,5 +7,8 @@
 "subscription.trial.free" = "%@ free";
 "subscription.trial.action" = "Start %@ free trial";
 "subscription.trial.action.seven_day" = "Start 7-day free trial";
+"subscription.trial.action.one_month" = "Start 1-month free trial";
 "subscription.action.subscribe" = "Subscribe with Apple";
+"subscription.action.buy_lifetime" = "Buy Lifetime";
+"subscription.billing.one_time" = "Pay once. No renewal.";
 "subscription.period.generic" = "billing period";

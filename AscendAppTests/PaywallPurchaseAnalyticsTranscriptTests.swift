@@ -226,7 +226,7 @@ private extension PaywallPurchaseAnalyticsTranscriptTests {
             ),
             PurchaseSituation(
                 title: "store reports done but app_access never went active",
-                climberSees: "\"Ascend couldn't confirm your subscription.\" Still locked.",
+                climberSees: "\"Ascend couldn't confirm your purchase.\" Still locked.",
                 refresh: .refreshed(.inactive),
                 expectedStream: ["revenuecat_purchase_started", "revenuecat_purchase_failed"],
                 expectedTerminal: "revenuecat_purchase_failed",
@@ -234,7 +234,7 @@ private extension PaywallPurchaseAnalyticsTranscriptTests {
             ),
             PurchaseSituation(
                 title: "entitlement refresh times out mid sign-in",
-                climberSees: "\"Ascend couldn't confirm your subscription.\" Access unresolved.",
+                climberSees: "\"Ascend couldn't confirm your purchase.\" Access unresolved.",
                 refresh: .unavailable(.refreshTimedOut),
                 expectedStream: ["revenuecat_purchase_started", "revenuecat_purchase_failed"],
                 expectedTerminal: "revenuecat_purchase_failed",
@@ -253,13 +253,13 @@ private extension PaywallPurchaseAnalyticsTranscriptTests {
             ),
             RestoreSituation(
                 title: "taps Restore with nothing ever purchased",
-                climberSees: "\"No active Ascend subscription was found for this Apple ID.\" Still locked.",
+                climberSees: "\"No active Ascend subscription or Lifetime purchase was found for this Apple ID.\" Still locked.",
                 restoredState: .inactive,
                 expectedStream: ["revenuecat_restore_started", "revenuecat_restore_not_found"]
             ),
             RestoreSituation(
                 title: "restore resolves some other entitlement, not app_access",
-                climberSees: "\"No active Ascend subscription was found for this Apple ID.\" Still locked.",
+                climberSees: "\"No active Ascend subscription or Lifetime purchase was found for this Apple ID.\" Still locked.",
                 restoredState: .active(["legacy_beta"]),
                 expectedStream: ["revenuecat_restore_started", "revenuecat_restore_not_found"]
             ),
@@ -435,7 +435,7 @@ private extension PaywallPurchaseAnalyticsTranscriptTests {
         case .restored:
             return "restored - Ascend unlocked"
         case .notFound:
-            return "notFound - shown: \"No active Ascend subscription was found for this Apple ID.\""
+            return "notFound - shown: \"No active Ascend subscription or Lifetime purchase was found for this Apple ID.\""
         case .failed(let error):
             return "failed - shown: \"\(error.localizedDescription)\""
         }
