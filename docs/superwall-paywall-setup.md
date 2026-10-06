@@ -76,7 +76,8 @@ Miss the third and the paywall clears while every server-guarded screen fails, e
 ### Rollout order
 
 1. App Store Connect: set `ascend_lifetime` to its launch price and replace its review screenshot with a real capture of the Lifetime paywall.
-   It was still listed at `$89.99` when read on 2026-10-06.
+   It was listed at `$89.99` when first read on 2026-10-06 and at `$49.99` in the United States when read again at about 19:00 UTC, still `READY_TO_SUBMIT`.
+   The App Store Connect API reports that a review screenshot is uploaded, not what it shows, so the capture itself still has to be checked by eye.
 2. RevenueCat: attach `ascend_lifetime` to `app_access` and add it to the `default` offering as `$rc_lifetime`.
    Do the same for `ascend_staging_lifetime` in the staging project.
 3. Make Lifetime reachable for App Review without putting it on any hosted paywall, because Apple reviews a purchase it can find.
@@ -102,8 +103,8 @@ Read-only, through the App Store Connect API, the public Superwall static config
 - Superwall: production paywall `232372` and staging paywall `249435` each still register that environment's annual and monthly products, and neither registers Lifetime.
 - Server allowlists: the version each project's functions are bound to already allowlists that environment's Lifetime product (`ascend-prod-9c8f2` version 4, `ascend-staging-fa7d5` version 2).
 - Not measured: whether RevenueCat has either Lifetime product attached to `app_access` or in the `default` offering.
-- `node scripts/validate-superwall-live-artifact.mjs production` failed on this date with `Purchase action ... does not close after purchase completion`.
-  That step gates the production archive, so the live paywall has to be repaired in the Superwall editor before 1.2.3 can deploy.
+- `node scripts/validate-superwall-live-artifact.mjs production` failed earlier on this date with `Purchase action ... does not close after purchase completion`, and passed when re-run twice at about 18:55 UTC during the 1.2.3 release pre-flight against paywall `232372`, runtime document `4b-Uit9i1kHEL6kVnajl9`, still offering `ascend_monthly` and `ascend_yearly` only.
+  That step gates the production archive, so re-run it immediately before approving the deploy: the paywall is edited in the Superwall editor without a release, and a pass is only true of the artifact that was live when it ran.
 
 ### Audited on July 27, 2026
 
