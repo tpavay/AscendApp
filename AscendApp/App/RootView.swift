@@ -107,6 +107,7 @@ struct RootView: View {
             observeColdLaunchSession()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            AppActivityClock.shared.recordWillEnterForeground()
             appSessionTelemetryCoordinator.recordWillEnterForeground(
                 rootRoute: rootRoute,
                 authenticationState: authVM.authenticationState

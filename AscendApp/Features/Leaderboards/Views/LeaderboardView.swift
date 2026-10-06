@@ -26,14 +26,17 @@ struct LeaderboardView: View {
         case top
     }
 
+    /// - Parameter viewModel: Supplied only by a hosted test, so the shipping board can be put
+    ///   into a failed-refresh state without a server. The app always takes the default.
     @MainActor
     init(
         initialTimeFrame: LeaderboardTimeFrame = .weekly,
-        viewSource: LeaderboardAnalyticsEvent.ViewSource
+        viewSource: LeaderboardAnalyticsEvent.ViewSource,
+        viewModel: LeaderboardViewModel? = nil
     ) {
         self.viewSource = viewSource
 
-        let vm = LeaderboardViewModel()
+        let vm = viewModel ?? LeaderboardViewModel()
         vm.selectedTimeFrame = initialTimeFrame
         _viewModel = State(initialValue: vm)
     }
@@ -76,8 +79,10 @@ struct LeaderboardView: View {
 
                         if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
                             StatusBannerView(
-                                message: error,
-                                style: .warning
+                                message: error.keepingFinalSentenceUnbroken,
+                                // The warning style draws a no-signal glyph. A refused read is
+                                // not a connection problem, so it does not wear one.
+                                style: viewModel.refreshIssue == .refused ? .error : .warning
                             )
                             .padding(.horizontal, 20)
                             .padding(.bottom, 16)
@@ -690,7 +695,7 @@ struct LeaderboardView: View {
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(primaryTextColor)
 
-            Text(message)
+            Text(message.keepingFinalSentenceUnbroken)
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(.red)
                 .multilineTextAlignment(.center)

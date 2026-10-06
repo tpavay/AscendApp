@@ -83,7 +83,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let snapshot = try await db
             .collection("live_replay_leaderboards")
             .whereField("contextType", isEqualTo: LiveReplayLeaderboardContextType.liveClimb.rawValue)
-            .getDocuments(source: .server)
+            .getServerDocuments()
 
         var counts: [String: Int] = [:]
         for document in snapshot.documents {
@@ -101,7 +101,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     func fetchSummary(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary {
-        let snapshot = try await leaderboardDocument(context: context).getDocument(source: .server)
+        let snapshot = try await leaderboardDocument(context: context).getServerDocument()
         guard let data = snapshot.data() else {
             return .empty
         }
@@ -268,7 +268,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             context: context,
             workoutId: resolvedWorkoutId
         )
-        .getDocument(source: .server)
+        .getServerDocument()
 
         guard let data = snapshot.data(),
               let rank = intValue(for: "rank", in: data),
@@ -308,7 +308,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             userId: uid,
             workoutId: resolvedWorkoutId
         )
-        .getDocument(source: .server)
+        .getServerDocument()
 
         guard let data = snapshot.data(),
               let rawState = stringValue(for: "state", in: data),
@@ -335,7 +335,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     func fetchCurrentUserBestCompletion(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayCurrentUserCompletion? {
-        guard let uid = Auth.auth().currentUser?.uid else {
+        guard Auth.auth().currentUser != nil else {
             return nil
         }
 
@@ -388,7 +388,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
 
         let snapshot = try await finisherDocument(context: context, userId: uid)
-            .getDocument(source: .server)
+            .getServerDocument()
         guard let data = snapshot.data(),
               let globalCompletionOrder = intValue(for: "globalCompletionOrder", in: data) else {
             return nil
@@ -400,6 +400,13 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             bestCompletionDurationSeconds: doubleValue(for: "bestCompletionDurationSeconds", in: data),
             updatedAt: timestampValue(for: "updatedAt", in: data)
         )
+    }
+
+    private func completionRows(_ query: Query, forceRefresh: Bool) async throws -> QuerySnapshot {
+        if forceRefresh {
+            return try await query.getServerDocuments()
+        }
+        return try await query.getDocuments(source: .default)
     }
 
     func fetchCompletionLeaderboard(
@@ -425,10 +432,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
         query = query.limit(to: resolvedLimit)
 
-        let source: FirestoreSource = forceRefresh ? .server : .default
-
         async let summary = fetchSummary(context: context)
-        async let rowSnapshot = query.getDocuments(source: source)
+        async let rowSnapshot = completionRows(query, forceRefresh: forceRefresh)
 
         let resolvedSummary = try await summary
         let resolvedCompletedCount: Int
@@ -739,7 +744,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
                 .limit(to: limit)
         }
 
-        let snapshot = try await query.getDocuments(source: .server)
+        let snapshot = try await query.getServerDocuments()
         return snapshot.documents.compactMap { document in
             parseRow(
                 id: document.documentID,
@@ -791,7 +796,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             bucketIndex: bucketIndex
         )
         .document(ghost.row.id)
-        .getDocument(source: .server)
+        .getServerDocument()
         .data()
 
         guard let atThisBucket else { return nil }
@@ -865,7 +870,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let snapshot = try await liveRaceEntries(context: context, bucketIndex: 0)
             .whereField("userId", isEqualTo: userId)
             .limit(to: 1)
-            .getDocuments(source: .server)
+            .getServerDocuments()
         let ghost = snapshot.documents.lazy.compactMap { document -> OwnGhost? in
             guard let row = self.parseRow(
                 id: document.documentID,
@@ -1038,7 +1043,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             direction: direction
         )
         .limit(to: limit)
-        .getDocuments(source: .server)
+        .getServerDocuments()
 
         return snapshot.documents.compactMap { document in
             parseRow(
@@ -1064,7 +1069,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             direction: .ahead
         )
         .count
-        .getAggregation(source: .server)
+        .getServerAggregation()
         return snapshot.count.intValue
     }
 
@@ -1213,7 +1218,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let query = liveRaceEntries(context: context, bucketIndex: bucketIndex)
             .whereField("stepsAtBucket", isGreaterThanOrEqualTo: currentSteps)
 
-        let snapshot = try await query.count.getAggregation(source: .server)
+        let snapshot = try await query.count.getServerAggregation()
         return snapshot.count.intValue
     }
 
@@ -1224,7 +1229,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     ) async throws -> Int {
         let query = entriesCollection(context: context, bucketIndex: bucketIndex)
 
-        let snapshot = try await query.count.getAggregation(source: .server)
+        let snapshot = try await query.count.getServerAggregation()
         return snapshot.count.intValue
     }
 
@@ -1236,7 +1241,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     ) async throws -> Int {
         let snapshot = try await finishersCollection(context: context)
             .count
-            .getAggregation(source: .server)
+            .getServerAggregation()
         return snapshot.count.intValue
     }
 
@@ -1274,7 +1279,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             ? entries.whereField(metric.field, isGreaterThan: rankingValue)
             : entries.whereField(metric.field, isLessThan: rankingValue)
 
-        let snapshot = try await query.count.getAggregation(source: .server)
+        let snapshot = try await query.count.getServerAggregation()
         return snapshot.count.intValue
     }
 
@@ -1299,7 +1304,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             ? finishers.whereField(metric.finisherBestField, isGreaterThan: rankingValue)
             : finishers.whereField(metric.finisherBestField, isLessThan: rankingValue)
 
-        let snapshot = try await query.count.getAggregation(source: .server)
+        let snapshot = try await query.count.getServerAggregation()
         return snapshot.count.intValue
     }
 
@@ -1321,7 +1326,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
 
         let snapshot = try await finisherDocument(context: context, userId: uid)
-            .getDocument(source: .server)
+            .getServerDocument()
         guard let data = snapshot.data() else {
             return nil
         }
@@ -1348,7 +1353,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
         let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
             .whereField("userId", isEqualTo: uid)
-            .getDocuments(source: .server)
+            .getServerDocuments()
         let metric = context.type.rankingMetric
 
         return snapshot.documents.min { lhs, rhs in
@@ -1368,7 +1373,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let query = entriesCollection(context: context, bucketIndex: 0)
             .whereField(context.type.rankingMetric.field, isEqualTo: rankingValue)
 
-        let snapshot = try await query.count.getAggregation(source: .server)
+        let snapshot = try await query.count.getServerAggregation()
         return snapshot.count.intValue
     }
 
@@ -1391,7 +1396,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
 
         return try await finisherDocument(context: context, userId: uid)
-            .getDocument(source: .server)
+            .getServerDocument()
             .exists
     }
 
@@ -1571,7 +1576,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     }
 
     private func countOf(_ query: Query) async throws -> Int {
-        try await query.count.getAggregation(source: .server).count.intValue
+        try await query.count.getServerAggregation().count.intValue
     }
 
     private func optionalCountRowsAhead(
@@ -1704,7 +1709,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
 
         if isFinisher, let key {
-            knownFinisherClimbers.withLock { $0.insert(key) }
+            knownFinisherClimbers.withLock { _ = $0.insert(key) }
         }
 
         return isFinisher
@@ -2036,7 +2041,7 @@ extension FirestoreLiveReplayLeaderboardRepository: MountainRaceBoard {
         let snapshot = try await liveRaceEntries(context: context, bucketIndex: 0)
             .whereField("userId", isEqualTo: userId)
             .limit(to: 1)
-            .getDocuments(source: .server)
+            .getServerDocuments()
         let viewer = Auth.auth().currentUser?.uid
         return snapshot.documents.lazy.compactMap { document -> MountainRaceBest? in
             guard let row = self.parseRow(id: document.documentID, data: document.data(), currentSteps: 0, currentUserId: viewer) else {
@@ -2049,7 +2054,7 @@ extension FirestoreLiveReplayLeaderboardRepository: MountainRaceBoard {
     func stepsAtBucket(context: LiveReplayLeaderboardContext, entryId: String, bucketIndex: Int) async throws -> Int? {
         let data = try await entriesCollection(context: context, bucketIndex: bucketIndex)
             .document(entryId)
-            .getDocument(source: .server)
+            .getServerDocument()
             .data()
         return data.flatMap { intValue(for: "stepsAtBucket", in: $0) }
     }
@@ -2060,12 +2065,12 @@ extension FirestoreLiveReplayLeaderboardRepository: MountainRaceBoard {
             .whereField("finalSteps", isGreaterThanOrEqualTo: steps)
             .order(by: "finalSteps")
             .limit(to: limit)
-            .getDocuments(source: .server)
+            .getServerDocuments()
         async let below = entries
             .whereField("finalSteps", isLessThan: steps)
             .order(by: "finalSteps", descending: true)
             .limit(to: limit)
-            .getDocuments(source: .server)
+            .getServerDocuments()
         let viewer = Auth.auth().currentUser?.uid
         let documents = try await above.documents.reversed() + below.documents
         return documents.compactMap { parseRow(id: $0.documentID, data: $0.data(), currentSteps: 0, currentUserId: viewer) }
@@ -2084,7 +2089,7 @@ extension FirestoreLiveReplayLeaderboardRepository: MountainRaceBoard {
         if let cursor {
             query = query.start(after: [cursor.finalSteps, cursor.entryId])
         }
-        let documents = try await query.limit(to: limit).getDocuments(source: .server).documents
+        let documents = try await query.limit(to: limit).getServerDocuments().documents
         let viewer = Auth.auth().currentUser?.uid
         let rows = documents.compactMap { parseRow(id: $0.documentID, data: $0.data(), currentSteps: 0, currentUserId: viewer) }
         let next = documents.count == limit ? rows.last.map { MountainRaceBoardCursor(finalSteps: $0.finalSteps, entryId: $0.id) } : nil

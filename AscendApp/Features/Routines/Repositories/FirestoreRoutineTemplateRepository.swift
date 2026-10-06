@@ -11,7 +11,7 @@ final class FirestoreRoutineTemplateRepository: RoutineTemplateRepository, @unch
     func fetchPublishedTemplates() async throws -> [RemoteRoutineTemplate] {
         let snapshot = try await db.collection("routine_templates")
             .whereField("status", isEqualTo: "published")
-            .getDocuments(source: .server)
+            .getServerDocuments()
 
         return snapshot.documents
             .compactMap { parseTemplate(documentId: $0.documentID, data: $0.data()) }
