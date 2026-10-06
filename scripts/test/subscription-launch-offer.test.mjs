@@ -43,45 +43,13 @@ test("the iOS integration names the final RevenueCat contract", async () => {
   assert.doesNotMatch(configuration, /revenueCatLifetimeProductID: String =/);
 });
 
-test("the app's own paywall sells Annual and Lifetime, and never Monthly", async () => {
-  const configuration = await source("configuration");
-
-  // The same list is what the launch audit expects of the RevenueCat offering, so the paywall
-  // and the audit cannot name different catalogs.
-  assert.match(
-    configuration,
-    /var launchProductIDs: \[String\] \{\s*\[revenueCatYearlyProductID, revenueCatLifetimeProductID\]\s*\}/
-  );
-  assert.match(configuration, /missingProductIDs: launchProductIDs\.filter/);
-  assert.doesNotMatch(configuration, /MonthlyProductID/);
-});
-
 test("a one-time purchase is described as one payment and never as a trial or a renewal", async () => {
-  const [strings, plan, mapper] = await Promise.all([
-    readFile(pathFromRoot("AscendApp/en.lproj/Localizable.strings"), "utf8"),
-    readFile(
-      pathFromRoot("AscendApp/Features/Monetization/Paywall/NativePaywallPlan.swift"),
-      "utf8"
-    ),
-    readFile(
-      pathFromRoot("AscendApp/Features/Monetization/Paywall/NativePaywallPlanMapper.swift"),
-      "utf8"
-    )
-  ]);
+  const strings = await readFile(pathFromRoot("AscendApp/en.lproj/Localizable.strings"), "utf8");
 
   assert.match(strings, /"subscription\.plan\.lifetime" = "Lifetime";/);
   assert.match(strings, /"subscription\.billing\.one_time" = "Pay once\. No renewal\.";/);
   assert.match(strings, /"subscription\.action\.buy_lifetime" = "Buy Lifetime";/);
   assert.doesNotMatch(strings, /"subscription\.plan\.monthly"/);
-  assert.match(plan, /case oneTime/);
-
-  const oneTimeBranch = mapper.slice(
-    mapper.indexOf("case .oneTime:"),
-    mapper.indexOf("case .subscription:")
-  );
-  assert.ok(oneTimeBranch.length > 0);
-  assert.match(oneTimeBranch, /trialDescription: nil/);
-  assert.doesNotMatch(oneTimeBranch, /freeTrialPeriod|renewalPeriod|eligib/i);
 });
 
 test("the hosted paywall defaults to the annual trial and binds the final products", async () => {

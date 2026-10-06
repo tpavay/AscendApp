@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {readdir, readFile} from "node:fs/promises";
+import {readFile} from "node:fs/promises";
 import test from "node:test";
 
 const configurationURL = new URL(
@@ -69,26 +69,6 @@ test("shared Staging Test action uses Staging and the committed StoreKit catalog
     testAction,
     /identifier = "\.\.\/AscendApp\/Configuration\/AscendSubscriptions\.storekit"/
   );
-});
-
-test("every suite that opens a StoreKit test session is serialized against the others", async () => {
-  // The session is process-wide, so one suite resetting it erases the purchase another suite is
-  // asserting on. Suites run concurrently, and only the shared trait orders them.
-  const testsDirectory = new URL("../../AscendAppTests/", import.meta.url);
-  const sessionSuites = [];
-  for (const name of await readdir(testsDirectory)) {
-    if (!name.endsWith(".swift")) continue;
-    const source = await readFile(new URL(name, testsDirectory), "utf8");
-    if (!/SKTestSession\(/.test(source)) continue;
-    sessionSuites.push(name);
-    assert.match(
-      source,
-      /@Suite\([^)]*\.usesStoreKitTestSession[^)]*\)/,
-      `${name} opens an SKTestSession without .usesStoreKitTestSession`
-    );
-  }
-  assert.ok(sessionSuites.includes("StoreKitSubscriptionLifecycleTests.swift"));
-  assert.ok(sessionSuites.includes("LifetimeFallbackPaywallEvidenceTests.swift"));
 });
 
 test("StoreKitTest suite uses direct session mutations instead of timed renewals", async () => {

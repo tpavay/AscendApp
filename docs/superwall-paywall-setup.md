@@ -79,14 +79,15 @@ Miss the third and the paywall clears while every server-guarded screen fails, e
    It was still listed at `$89.99` when read on 2026-10-06.
 2. RevenueCat: attach `ascend_lifetime` to `app_access` and add it to the `default` offering as `$rc_lifetime`.
    Do the same for `ascend_staging_lifetime` in the staging project.
-3. Make Lifetime reachable for App Review, because Apple reviews a purchase it can find.
-   The native fallback sells it, but that screen only appears when the hosted paywall fails, times out, or is dismissed without a purchase, and a hosted paywall with no close control is never dismissed that way.
-   Either confirm the live hosted paywall can be closed into the fallback, or show the Lifetime paywall to a Superwall audience limited to app version 1.2.3 and later.
+3. Make Lifetime reachable for App Review without putting it on any hosted paywall, because Apple reviews a purchase it can find.
+   App Review and TestFlight see Lifetime only through the native fallback paywall, and that screen only appears when the hosted paywall fails, times out, or is dismissed without a purchase.
+   Confirm the live hosted paywall can be closed into the native fallback, and that the fallback shows Annual and Lifetime.
+   No hosted paywall and no Superwall audience offers Lifetime at this step.
 4. Submit 1.2.3 with `ascend_lifetime` attached to the version, and say in the review notes where Lifetime is (`docs/app-store-racing-repositioning-proposal.md` holds the template).
-5. After Apple approves both: confirm the hosted paywall offers `lifetime` to everyone it should.
+   Set 1.2.3 to release manually, not automatically, until `ascend_lifetime` is approved: Apple reviews the in-app purchase separately and can approve the version while holding the product, and a released build must never reach a climber who could see an unavailable product.
+5. After Apple approves `ascend_lifetime`: add the `lifetime` card to the hosted paywall, then release 1.2.3.
 
-Lifetime must never be offered by a hosted paywall to a released build before Apple approves it, or every tap fails with `productUnavailable`.
-A version-limited audience does not break that rule: until 1.2.3 is released the only people running it are App Review and TestFlight testers, who buy in the sandbox, where a product still in review can be bought.
+Lifetime must never be on a live hosted paywall before Apple approves `ascend_lifetime`, or every tap fails with `productUnavailable`.
 That is also why `scripts/validate-superwall-live-artifact.mjs` treats the build's product ids as an upper bound rather than an exact set: the archive that ships Lifetime has to pass against a paywall that may not offer it yet, and a paywall that drops Monthly without a release has to keep passing.
 What the validator still refuses is a paywall that offers nothing, or one that sells a product the build's backend does not trust.
 
@@ -229,7 +230,7 @@ Do not copy either set of IDs into another environment without first proving tha
 ## Self-Hosted Paywall
 
 This section describes the repository's own paywall page, which still carries the 1.0 Annual and Monthly design at its 1.0 prices.
-The paywall climbers see is built in the Superwall editor, is not this document, and is changed there: adding Lifetime to it is step 4 of the rollout order above.
+The paywall climbers see is built in the Superwall editor, is not this document, and is changed there: adding Lifetime to it is step 5 of the rollout order above.
 
 The only launch paywall page copied into `web/dist` by the Astro build is:
 
@@ -356,7 +357,7 @@ Steps that name Monthly apply only to a paywall that still offers it:
 3. Bind the Lifetime product to `lifetime` and the monthly product, if offered, to `monthly`.
 4. Confirm the paywall benefits say `Compete on global leaderboards`, make no personalized-plan claim, and leave `benefit_1` without a hardcoded landmark count.
 5. Point a self-hosted paywall at `https://ascendstepper.com/superwall/onboarding-paywall` only after the Hosting deployment serves this repository revision.
-6. Confirm Annual is selected when `Try 7 Days Free` is visible.
+6. Confirm Annual is selected when its free-trial headline is visible; the trial length is read from the product and is one month today.
 7. Switch to Monthly and confirm the headline, CTA, price, and legal disclosure all describe an immediate monthly charge with no trial.
 8. Bind every `data-pw-var` in the localized-pricing table to its product value, then preview a non-United States storefront and confirm each price renders in that storefront's currency.
 9. Preview with an Apple account that already used the introductory offer and confirm no annual surface promises a free trial.

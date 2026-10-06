@@ -113,8 +113,12 @@ function lifecycleEventName(
   case "PRODUCT_CHANGE":
     return "subscription_product_changed";
   case "NON_RENEWING_PURCHASE":
-    // A one-time purchase has no trial, renewal or expiry to report later,
-    // so this is the only lifecycle row a Lifetime sale ever produces.
+    // A one-time purchase has no trial, renewal or expiry to report later.
+    // A Lifetime refund arrives as a CANCELLATION with reason
+    // customer_support and is exported as subscription_cancelled with
+    // refundAttributed=true. A distinct Lifetime refund event is deliberately
+    // not added: extending the analytics schema is a separate product
+    // decision.
     return "lifetime_purchased";
   default:
     return null;
