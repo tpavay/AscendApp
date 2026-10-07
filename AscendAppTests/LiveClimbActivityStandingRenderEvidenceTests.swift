@@ -19,7 +19,9 @@ import UIKit
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct LiveClimbActivityStandingRenderEvidenceTests {
-    private static let size = CGSize(width: 360, height: 72)
+    /// Tall enough for the row's third line under the hosting window's top safe area, so the
+    /// photograph shows the whole row rather than cutting the floors and own-history lines.
+    private static let size = CGSize(width: 360, height: 104)
     private static let surfaces: [LiveClimbActivityMetricsRow.Surface] = [.lockScreen, .expandedIsland]
 
     @Test

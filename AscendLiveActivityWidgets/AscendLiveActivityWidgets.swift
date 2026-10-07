@@ -61,13 +61,16 @@ private struct LiveClimbLockScreenView: View {
             LiveClimbPhotoView(urlString: context.state.climbPhotoURLString)
                 .frame(width: 58, height: 58)
 
+            // The column takes the slack itself rather than handing it to a spacer: a spacer
+            // is one more child, so it cost a second 14-point gap before the stop control even
+            // when it had collapsed to nothing - width the metrics row needs on a compact
+            // phone now that floors sit under the step count.
             VStack(alignment: .leading, spacing: 8) {
                 LiveClimbExpandedTitleView(context: context)
 
                 LiveClimbActivityMetricsRow(state: context.state, surface: .lockScreen)
             }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             LiveClimbControlButtons()
         }

@@ -50,7 +50,9 @@
  *   gcloud auth application-default login
  *   The target project's processEmailJobs deployed from a build that knows
  *   `drop_announcement`, bound to a TRANSACTIONAL_EMAIL_CONFIG that carries an
- *   unsubscribeSigningKey - without it the worker delivers nothing at all.
+ *   unsubscribeSigningKey - without it the worker delivers nothing at all -
+ *   and whose enabledEmailTypes includes `drop_announcement`, or the worker
+ *   marks every queued drop `skipped`.
  */
 
 import {createRequire} from "node:module";
@@ -309,6 +311,20 @@ export function catalogueUrl(projectId) {
 }
 
 /**
+ * The App Store lookup that reports the live version. Apple's CDN caches the
+ * bare URL for about a day (`cache-control: max-age` near 85,000 seconds), so
+ * on release day it kept answering 1.2.1 for hours after 1.2.2 was live and
+ * the send refused a drop that was true. A query parameter no earlier request
+ * carried is a new cache key, so the answer comes from the origin.
+ * @param {number | string} nonce Unique per request.
+ * @return {string} Lookup URL.
+ */
+export function appStoreLookupUrl(nonce = Date.now()) {
+  return `https://itunes.apple.com/lookup?id=${APP_STORE_APP_ID}` +
+    `&country=us&nocache=${encodeURIComponent(nonce)}`;
+}
+
+/**
  * Compares dotted marketing versions numerically ("1.10" > "1.9").
  * @param {string} lhs Version.
  * @param {string} rhs Version.
@@ -409,7 +425,7 @@ async function checkImage(url) {
  * @return {Promise<object>} Check outcome.
  */
 async function checkAppStoreVersion(minimum) {
-  const url = `https://itunes.apple.com/lookup?id=${APP_STORE_APP_ID}&country=us`;
+  const url = appStoreLookupUrl();
   try {
     const response = await fetch(url, {cache: "no-store"});
     const body = await response.json();

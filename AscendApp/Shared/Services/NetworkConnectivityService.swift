@@ -26,6 +26,9 @@ final class NetworkConnectivityService: WorkoutSyncConnectivityProviding {
     private(set) var isConnected = true
     private(set) var isExpensive = false
     private(set) var isConstrained = false
+    /// Read by diagnostics when a failure is recorded, never by a view, so a handoff between
+    /// links does not invalidate anything on screen.
+    @ObservationIgnored private(set) var interfaceKind: NetworkInterfaceKind = .other
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -44,5 +47,6 @@ final class NetworkConnectivityService: WorkoutSyncConnectivityProviding {
         isConnected = path.status == .satisfied
         isExpensive = path.isExpensive
         isConstrained = path.isConstrained
+        interfaceKind = NetworkInterfaceKind(path: path)
     }
 }

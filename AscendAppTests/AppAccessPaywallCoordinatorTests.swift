@@ -81,11 +81,11 @@ struct AppAccessPaywallCoordinatorTests {
 
         provider.completePlanLoad(
             with: [
-                NativeSubscriptionPlan(
+                NativePaywallPlan(
                     id: "stale_product",
                     title: "Stale",
                     localizedPrice: "$0.00",
-                    renewalDescription: "Stale provider result.",
+                    billingDescription: "Stale provider result.",
                     trialDescription: nil
                 )
             ]
@@ -125,7 +125,7 @@ struct AppAccessPaywallCoordinatorTests {
                 id: "stale",
                 title: "Stale",
                 localizedPrice: "$0",
-                renewalDescription: "Stale",
+                billingDescription: "Stale",
                 trialDescription: nil
             )],
             at: 0
@@ -153,7 +153,7 @@ struct AppAccessPaywallCoordinatorTests {
 
         harness.coordinator.restore()
         await restorer.waitUntilStarted()
-        harness.coordinator.selectPlan("ascend_staging_monthly")
+        harness.coordinator.selectPlan("ascend_staging_lifetime")
         harness.coordinator.purchaseSelectedPlan()
 
         #expect(harness.coordinator.restoreState == .restoring)
@@ -204,6 +204,86 @@ struct AppAccessPaywallCoordinatorTests {
 
         #expect(harness.coordinator.disablesPurchase)
         #expect(!harness.coordinator.showsPurchaseControls)
+
+        harness.coordinator.entitlementDidChange(.active(["app_access"]))
+        #expect(harness.coordinator.phase == .accessConfirmed)
+    }
+
+    @Test
+    func theFallbackOffersAnnualFirstThenLifetimeAndSaysWhatEachCommitsTo() async {
+        let harness = makeHarness()
+        await openNativePlans(harness)
+
+        #expect(harness.coordinator.plans.map(\.title) == ["Annual", "Lifetime"])
+        #expect(harness.coordinator.selectedPlanID == "ascend_staging_yearly")
+        #expect(
+            harness.coordinator.statusMessage
+                == "Choose from Annual and Lifetime. Cancel Annual anytime in Apple subscriptions."
+        )
+    }
+
+    @Test
+    func cancellationIsPromisedOnlyForAPlanThatRenews() {
+        let annual = NativePaywallPlan(
+            id: "annual",
+            title: "Annual",
+            localizedPrice: "$29.99",
+            billingDescription: "Renews annually",
+            trialDescription: nil
+        )
+        let lifetime = NativePaywallPlan(
+            id: "lifetime",
+            title: "Lifetime",
+            localizedPrice: "$49.99",
+            billing: .oneTime,
+            billingDescription: "Pay once. No renewal.",
+            trialDescription: nil
+        )
+
+        #expect(
+            AppAccessPaywallCoordinator.plansReadyMessage(for: [annual])
+                == "Annual is available. Cancel anytime in Apple subscriptions."
+        )
+        let lifetimeOnly = AppAccessPaywallCoordinator.plansReadyMessage(for: [lifetime])
+        #expect(lifetimeOnly == "Lifetime is available. One payment. No renewal.")
+        #expect(!lifetimeOnly.localizedCaseInsensitiveContains("cancel"))
+        #expect(!lifetimeOnly.localizedCaseInsensitiveContains("trial"))
+    }
+
+    @Test
+    func buyingLifetimeFromTheFallbackPurchasesTheLifetimeProductAndOpensTheApp() async {
+        let provider = CoordinatorNativeProvider(automaticPurchaseResult: .purchased)
+        let harness = makeHarness(provider: provider)
+        await openNativePlans(harness)
+
+        harness.coordinator.selectPlan("ascend_staging_lifetime")
+        #expect(harness.coordinator.selectedPlan?.purchaseActionTitle == "Buy Lifetime")
+        harness.coordinator.purchaseSelectedPlan()
+        await provider.waitUntilPurchaseCount(1)
+        await waitUntil { harness.coordinator.phase == .accessConfirmed }
+
+        #expect(provider.purchasedPlanIDs == ["ascend_staging_lifetime"])
+        #expect(harness.coordinator.statusMessage == "Access confirmed. Opening Ascend.")
+        #expect(harness.coordinator.disablesPurchase)
+    }
+
+    @Test
+    func aLifetimeChargeRevenueCatCannotConfirmNeverInvitesASecondPurchase() async {
+        // A one-time purchase cannot be bought twice by accident and refunded by cancelling, so
+        // an unconfirmed Lifetime charge has to leave the gate with no purchase control at all.
+        let provider = CoordinatorNativeProvider(
+            automaticPurchaseResult: .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
+        )
+        let harness = makeHarness(provider: provider)
+        await openNativePlans(harness)
+
+        harness.coordinator.selectPlan("ascend_staging_lifetime")
+        harness.coordinator.purchaseSelectedPlan()
+        await provider.waitUntilPurchaseCount(1)
+        await waitUntil { harness.coordinator.phase == .verificationUnavailable }
+
+        #expect(!harness.coordinator.showsPurchaseControls)
+        #expect(harness.coordinator.statusMessage?.contains("Do not purchase again") == true)
 
         harness.coordinator.entitlementDidChange(.active(["app_access"]))
         #expect(harness.coordinator.phase == .accessConfirmed)
@@ -446,8 +526,8 @@ struct AppAccessPaywallCoordinatorTests {
                 MonetizationConfiguration.superwallAPIKeyInfoKey: "pk_test",
                 MonetizationConfiguration.revenueCatYearlyProductIDInfoKey:
                     "ascend_staging_yearly",
-                MonetizationConfiguration.revenueCatMonthlyProductIDInfoKey:
-                    "ascend_staging_monthly",
+                MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey:
+                    "ascend_staging_lifetime",
                 MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
             ]
         )
@@ -475,12 +555,13 @@ private struct CoordinatorHarness {
 }
 
 @MainActor
-private final class CoordinatorNativeProvider: NativeSubscriptionProviding {
+private final class CoordinatorNativeProvider: NativePaywallPlanProviding {
     private(set) var loadCount = 0
     private(set) var purchaseCount = 0
+    private(set) var purchasedPlanIDs: [String] = []
     private let suspendsPlanLoad: Bool
     private let automaticPurchaseResult: PurchaseResult?
-    private var loadContinuations: [CheckedContinuation<[NativeSubscriptionPlan], Never>] = []
+    private var loadContinuations: [CheckedContinuation<[NativePaywallPlan], Never>] = []
     private var purchaseContinuation: CheckedContinuation<PurchaseResult, Never>?
     private var loadObservers: [CheckedContinuation<Void, Never>] = []
     private var purchaseObservers: [CheckedContinuation<Void, Never>] = []
@@ -493,7 +574,7 @@ private final class CoordinatorNativeProvider: NativeSubscriptionProviding {
         self.automaticPurchaseResult = automaticPurchaseResult
     }
 
-    func loadPlans() async throws -> [NativeSubscriptionPlan] {
+    func loadPlans() async throws -> [NativePaywallPlan] {
         loadCount += 1
         loadObservers.forEach { $0.resume() }
         loadObservers = []
@@ -503,6 +584,7 @@ private final class CoordinatorNativeProvider: NativeSubscriptionProviding {
 
     func purchase(planID: String) async -> PurchaseResult {
         purchaseCount += 1
+        purchasedPlanIDs.append(planID)
         purchaseObservers.forEach { $0.resume() }
         purchaseObservers = []
         if let automaticPurchaseResult { return automaticPurchaseResult }
@@ -520,7 +602,7 @@ private final class CoordinatorNativeProvider: NativeSubscriptionProviding {
     }
 
     func completePlanLoad(
-        with plans: [NativeSubscriptionPlan]? = nil,
+        with plans: [NativePaywallPlan]? = nil,
         at index: Int = 0
     ) {
         guard loadContinuations.indices.contains(index) else { return }
@@ -533,18 +615,19 @@ private final class CoordinatorNativeProvider: NativeSubscriptionProviding {
     }
 
     private static let plans = [
-        NativeSubscriptionPlan(
+        NativePaywallPlan(
             id: "ascend_staging_yearly",
             title: "Annual",
-            localizedPrice: "$49.99",
-            renewalDescription: "$49.99 per year until cancelled.",
-            trialDescription: "7 days free, then $49.99 per year."
+            localizedPrice: "$29.99",
+            billingDescription: "Renews annually",
+            trialDescription: "1 month free"
         ),
-        NativeSubscriptionPlan(
-            id: "ascend_staging_monthly",
-            title: "Monthly",
-            localizedPrice: "$9.99",
-            renewalDescription: "$9.99 per month until cancelled.",
+        NativePaywallPlan(
+            id: "ascend_staging_lifetime",
+            title: "Lifetime",
+            localizedPrice: "$49.99",
+            billing: .oneTime,
+            billingDescription: "Pay once. No renewal.",
             trialDescription: nil
         )
     ]

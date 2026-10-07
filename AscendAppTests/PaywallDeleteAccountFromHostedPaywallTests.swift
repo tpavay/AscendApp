@@ -302,17 +302,17 @@ private final class RegisteringPaywallPresenterSpy: PaywallPresenting {
 }
 
 @MainActor
-private final class DeleteAccountNativeProviderSpy: NativeSubscriptionProviding {
+private final class DeleteAccountNativeProviderSpy: NativePaywallPlanProviding {
     private(set) var loadCount = 0
 
-    func loadPlans() async throws -> [NativeSubscriptionPlan] {
+    func loadPlans() async throws -> [NativePaywallPlan] {
         loadCount += 1
         return [
-            NativeSubscriptionPlan(
+            NativePaywallPlan(
                 id: "ascend_staging_yearly",
                 title: "Annual",
                 localizedPrice: "$49.99",
-                renewalDescription: "Renews yearly.",
+                billingDescription: "Renews yearly.",
                 trialDescription: nil
             )
         ]

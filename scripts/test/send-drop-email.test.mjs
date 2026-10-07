@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  APP_STORE_APP_ID,
   PRODUCTION_PROJECT_ID,
+  appStoreLookupUrl,
   catalogueUrl,
   compareVersions,
   defaultAssetBaseUrl,
@@ -82,6 +84,18 @@ test("app versions compare numerically", () => {
   assert.ok(compareVersions("1.2.1", "1.2.2") < 0);
   assert.ok(compareVersions("1.10", "1.9") > 0);
   assert.ok(compareVersions("1.2", "1.2.0") === 0);
+});
+
+test("the App Store lookup never reuses a cached answer", () => {
+  // The bare URL is cached for about a day, so on release day it reports the
+  // previous version long after the new one is live.
+  const first = new URL(appStoreLookupUrl(1));
+  const second = new URL(appStoreLookupUrl(2));
+  assert.equal(first.origin + first.pathname, "https://itunes.apple.com/lookup");
+  assert.equal(first.searchParams.get("id"), APP_STORE_APP_ID);
+  assert.equal(first.searchParams.get("country"), "us");
+  assert.notEqual(first.href, second.href);
+  assert.ok(new URL(appStoreLookupUrl()).searchParams.get("nocache"));
 });
 
 test("the stale skip needs a zoned cutoff and commits only when told", () => {

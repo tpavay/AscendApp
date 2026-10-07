@@ -4,6 +4,7 @@ import {
   assertTransactionalEmailConfig,
   getMarketingWebsiteUrl,
   getUnsubscribeSigningKey,
+  isEmailTypeEnabled,
   transactionalEmailConfig,
 } from "./config";
 import {renderEmailContentForJob} from "./catalog";
@@ -252,6 +253,19 @@ async function processClaimedJob(
   job: EmailJobDocument,
   nowTimestamp: admin.firestore.Timestamp
 ): Promise<JobOutcome> {
+  // An environment delivers only the types its secret enables, so a type can
+  // ship in code, and its producer can run, before anyone has decided it
+  // should reach climbers there. Terminal rather than left queued: a recap
+  // held back must never arrive weeks late the day its type is switched on.
+  if (!isEmailTypeEnabled(job.type)) {
+    await markJobSkipped(jobRef, nowTimestamp);
+    console.log("processEmailJobs skipped disabled type", {
+      jobId: jobRef.id,
+      type: job.type,
+    });
+    return "skipped";
+  }
+
   // Re-read the preference the job was queued under: a retrying job can be
   // hours old, and the user may have unsubscribed in the meantime. A read
   // failure throws rather than falling through to a send, leaving the job

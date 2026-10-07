@@ -145,7 +145,7 @@ npx -y firebase-tools@15.22.1 use          # prints the active alias/project
 ```
 
 Identifiers differ per environment, so a document ID, a product ID or a count from one says nothing about another.
-Staging subscription products are `ascend_staging_yearly` / `ascend_staging_monthly`; production is `ascend_yearly` / `ascend_monthly` (`docs/superwall-paywall-setup.md` is the authority).
+Staging products are `ascend_staging_yearly` / `ascend_staging_lifetime` / `ascend_staging_monthly`; production is `ascend_yearly` / `ascend_lifetime` / `ascend_monthly` (`docs/superwall-paywall-setup.md` is the authority).
 Always name the environment in the answer; the wrapper prints it on every line.
 
 ## Where things live

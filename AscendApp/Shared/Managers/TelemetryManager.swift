@@ -396,7 +396,8 @@ final class TelemetryManager: @unchecked Sendable {
         _ error: Error,
         context: ErrorContext,
         code: String,
-        additionalInfo: [String: String]? = nil
+        additionalInfo: [String: String]? = nil,
+        severity: TelemetryErrorSeverity = .error
     ) {
         deliveryLane.withLock {
             guard lock.withLock(\.isCollectionEnabled) else { return }
@@ -404,7 +405,8 @@ final class TelemetryManager: @unchecked Sendable {
                 error,
                 context: context,
                 code: code,
-                additionalInfo: additionalInfo
+                additionalInfo: additionalInfo,
+                severity: severity
             )
         }
     }
@@ -426,7 +428,8 @@ final class TelemetryManager: @unchecked Sendable {
                 error,
                 context: context,
                 code: code,
-                additionalInfo: additionalInfo
+                additionalInfo: additionalInfo,
+                severity: .error
             )
             return true
         }
@@ -438,13 +441,15 @@ private extension TelemetryManager {
         _ error: Error,
         context: ErrorContext,
         code: String,
-        additionalInfo: [String: String]?
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
     ) {
         crashlyticsReporter.record(
             error: error,
             context: context.rawValue,
             code: code,
-            additionalInfo: additionalInfo
+            additionalInfo: additionalInfo,
+            severity: severity
         )
     }
 

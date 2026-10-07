@@ -11,7 +11,10 @@ import {
   assertTransactionalEmailConfig,
   DEFAULT_MARKETING_WEBSITE_URL,
   getMarketingWebsiteUrl,
+  getTransactionalEmailConfig,
+  isEmailTypeEnabled,
 } from "../src/email/config";
+import {EMAIL_TYPES} from "../src/email/types";
 import {renderUnsubscribePage} from "../src/email/unsubscribe";
 import {
   buildNextCommunicationPreferences,
@@ -249,10 +252,17 @@ test("resubscribing re-opens lifecycle email sends", () => {
 const VALID_CONFIG = {
   provider: "resend",
   apiKey: "re_test",
+  enabledEmailTypes: "all",
+  environmentLabel: "STAGING",
   fromEmail: "hello@updates.ascendstepper.com",
   fromName: "Ascend",
   unsubscribeSigningKey: SIGNING_KEY,
   websiteUrl: "https://staging.ascendstepper.com",
+};
+const PRODUCTION_CONFIG = {
+  ...VALID_CONFIG,
+  environmentLabel: undefined,
+  websiteUrl: DEFAULT_MARKETING_WEBSITE_URL,
 };
 
 test("the configured host drives customer-facing email links", () => {
@@ -305,6 +315,10 @@ test("a mis-ordered deploy trips the send precondition", () => {
     {...VALID_CONFIG, unsubscribeSigningKey: "too-short"},
     {...VALID_CONFIG, websiteUrl: undefined},
     {...VALID_CONFIG, apiKey: undefined},
+    {...VALID_CONFIG, enabledEmailTypes: undefined},
+    {...VALID_CONFIG, enabledEmailTypes: "everything"},
+    {...VALID_CONFIG, enabledEmailTypes: ["drop_announcment"]},
+    {...VALID_CONFIG, enabledEmailTypes: ["drop_announcement", 7]},
   ]) {
     withTransactionalEmailConfig(broken, () => {
       assert.throws(
@@ -313,6 +327,85 @@ test("a mis-ordered deploy trips the send precondition", () => {
       );
     });
   }
+});
+
+// =============================================================================
+// Environment Label
+// =============================================================================
+
+test("the production site needs no environment label", () => {
+  withTransactionalEmailConfig(PRODUCTION_CONFIG, () => {
+    assert.doesNotThrow(() => assertTransactionalEmailConfig());
+    assert.equal(getTransactionalEmailConfig().environmentLabel, undefined);
+  });
+});
+
+test("any other site must say which environment it is", () => {
+  // Test accounts carry real addresses. A dev or staging secret with no
+  // label would send recaps nobody can tell from production's, which is
+  // how a test email was reported as a production failure on 2026-10-05.
+  withTransactionalEmailConfig(
+    {...VALID_CONFIG, environmentLabel: undefined},
+    () => assert.throws(
+      () => assertTransactionalEmailConfig(),
+      /environmentLabel is required/
+    )
+  );
+  withTransactionalEmailConfig(VALID_CONFIG, () => {
+    assert.equal(getTransactionalEmailConfig().environmentLabel, "STAGING");
+  });
+});
+
+test("an environment label is short, upper case and free of markup", () => {
+  for (const environmentLabel of ["staging", "S", "<b>DEV</b>", "DEV 1", 7]) {
+    withTransactionalEmailConfig(
+      {...VALID_CONFIG, environmentLabel},
+      () => assert.throws(
+        () => assertTransactionalEmailConfig(),
+        /environmentLabel must be/,
+        String(environmentLabel)
+      )
+    );
+  }
+});
+
+// =============================================================================
+// Enabled Email Types
+// =============================================================================
+
+test("an environment that enables every type delivers every type", () => {
+  withTransactionalEmailConfig(VALID_CONFIG, () => {
+    assert.equal(isEmailTypeEnabled("drop_announcement"), true);
+    assert.equal(isEmailTypeEnabled("weekly_recap_active"), true);
+  });
+});
+
+test("an environment delivers only the types its secret lists", () => {
+  // Production's shape for the first drop: the recap and rating producers
+  // already run there, and none of their mail may reach a climber.
+  withTransactionalEmailConfig(
+    {...VALID_CONFIG, enabledEmailTypes: ["drop_announcement"]},
+    () => {
+      assert.equal(isEmailTypeEnabled("drop_announcement"), true);
+      for (const type of EMAIL_TYPES) {
+        if (type !== "drop_announcement") {
+          assert.equal(isEmailTypeEnabled(type), false, type);
+        }
+      }
+      // A job left over from a build that knew a type this one does not.
+      assert.equal(isEmailTypeEnabled("waitlist_welcome"), false);
+    }
+  );
+});
+
+test("an empty list delivers nothing, and is a valid setting", () => {
+  withTransactionalEmailConfig(
+    {...VALID_CONFIG, enabledEmailTypes: []},
+    () => {
+      assert.doesNotThrow(() => assertTransactionalEmailConfig());
+      assert.equal(isEmailTypeEnabled("drop_announcement"), false);
+    }
+  );
 });
 
 // =============================================================================

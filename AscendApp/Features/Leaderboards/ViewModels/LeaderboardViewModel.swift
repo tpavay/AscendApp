@@ -16,10 +16,17 @@ final class LeaderboardViewModel {
     var isLoading = false
     var errorMessage: String?
     var isOffline = false
+    /// Why the board is not current, while `errorMessage` says so. The view reads it to choose
+    /// how the line is drawn: a refusal is not a connection problem and must not look like one.
+    private(set) var refreshIssue: LeaderboardNetworkIssue?
 
     private let service: LeaderboardService
-    private let repository = LeaderboardRepository.shared
+    private let repository: any LeaderboardStatsReading
     private let sessionCache: LeaderboardSessionCache
+    private let accessRecovery: any RefusedAccessRecovering
+    private let telemetry: TelemetryManager
+    private let failureContext: @MainActor () -> ServerReadFailureContext
+    private let quietRetryDelay: Duration
     private let pageSize = 25
     private let networkTimeoutSeconds = LeaderboardRefreshPolicy.networkTimeoutSeconds
     private let defaultFetchLimit = 100
@@ -33,10 +40,20 @@ final class LeaderboardViewModel {
 
     init(
         sessionCache: LeaderboardSessionCache = .shared,
-        service: LeaderboardService = .shared
+        service: LeaderboardService = .shared,
+        repository: any LeaderboardStatsReading = LeaderboardRepository.shared,
+        accessRecovery: any RefusedAccessRecovering = MonetizationManager.shared,
+        telemetry: TelemetryManager = .shared,
+        failureContext: @escaping @MainActor () -> ServerReadFailureContext = ServerReadFailureContext.current,
+        quietRetryDelay: Duration = ServerPreferredRead.defaultRetryDelay
     ) {
         self.sessionCache = sessionCache
         self.service = service
+        self.repository = repository
+        self.accessRecovery = accessRecovery
+        self.telemetry = telemetry
+        self.failureContext = failureContext
+        self.quietRetryDelay = quietRetryDelay
     }
 
     func configure(userId: String, displayName: String?, modelContext: ModelContext) {
@@ -104,9 +121,10 @@ final class LeaderboardViewModel {
         isNetworkConnected: Bool
     ) async {
         isLoading = true
-        errorMessage = nil
-        isOffline = false
 
+        // The line over a stale board stays up while this runs. It says the board is not
+        // current, and a refresh in flight has not made it current; it clears when one lands.
+        //
         // Refresh publishes nothing. The server derives standings from the workouts
         // the app already backs up, so pulling to refresh is a re-read - and the
         // climber's own numbers are already on screen from the local display cache
@@ -126,10 +144,6 @@ final class LeaderboardViewModel {
         await loadCurrentUserProfileIfNeeded(userId: userId)
 
         isLoading = leaderboardEntries.isEmpty
-        if forceRefresh {
-            errorMessage = nil
-            isOffline = false
-        }
 
         let fetchLimit = requiredFetchLimit
         if forceRefresh == false,
@@ -142,9 +156,10 @@ final class LeaderboardViewModel {
             if isNetworkConnected == false {
                 // A warm session cache is still stale data with no connection behind it.
                 // Serving it silently tells the climber the board is current when it is not.
-                handleCachedFallbackError(URLError(.notConnectedToInternet))
+                showStaleBoard(.offline)
             } else {
                 errorMessage = nil
+                refreshIssue = nil
                 isOffline = false
             }
             isLoading = false
@@ -169,32 +184,25 @@ final class LeaderboardViewModel {
                 if cacheStats.isEmpty {
                     leaderboardEntries = []
                     userStanding = unrankedStanding(for: userId)
-                    handleError(URLError(.notConnectedToInternet), context: "load")
+                    showEmptyBoard(.offline)
                 } else {
                     apply(stats: reconciledStats, userId: userId)
-                    handleCachedFallbackError(URLError(.notConnectedToInternet))
+                    showStaleBoard(.offline)
                 }
                 isLoading = false
                 return
             } catch {
                 leaderboardEntries = []
                 userStanding = unrankedStanding(for: userId)
-                handleError(URLError(.notConnectedToInternet), context: "load")
+                showEmptyBoard(.offline)
                 isLoading = false
                 return
             }
         }
 
-        do {
-            let source: FirestoreSource = forceRefresh ? .server : .default
-            let stats = try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
-                try await self.repository.fetchLeaderboard(
-                    metric: self.selectedMetric,
-                    timeFrame: self.selectedTimeFrame,
-                    limit: fetchLimit,
-                    source: source
-                )
-            }
+        let outcome = await readStandings(forceRefresh: forceRefresh, fetchLimit: fetchLimit)
+
+        if !outcome.isFromCache, case .success(let stats) = outcome.result {
             let reconciledStats = reconcileCurrentUserStats(stats, userId: userId)
             await sessionCache.setDetailEntries(
                 reconciledStats,
@@ -204,56 +212,119 @@ final class LeaderboardViewModel {
             )
             apply(stats: reconciledStats, userId: userId)
             errorMessage = nil
+            refreshIssue = nil
             isOffline = false
-        } catch {
-            if let cachedStats = await sessionCache.detailEntries(
-                for: selectedMetric,
-                timeFrame: selectedTimeFrame,
-                minimumLimit: fetchLimit
-            ) {
-                let reconciledStats = reconcileCurrentUserStats(cachedStats, userId: userId)
-                if cachedStats.isEmpty {
-                    leaderboardEntries = []
-                    userStanding = unrankedStanding(for: userId)
-                    handleError(error, context: "load")
-                } else {
-                    apply(stats: reconciledStats, userId: userId)
-                    handleCachedFallbackError(error)
-                }
-                isLoading = false
-                return
-            }
+            recordRefreshFailure(in: outcome, resolution: .recovered, wasForced: forceRefresh)
+            isLoading = false
+            return
+        }
 
-            do {
-                let cacheStats = try await repository.fetchLeaderboard(
-                    metric: selectedMetric,
-                    timeFrame: selectedTimeFrame,
-                    limit: fetchLimit,
-                    source: .cache
-                )
-                let reconciledStats = reconcileCurrentUserStats(cacheStats, userId: userId)
-                await sessionCache.setDetailEntries(
-                    reconciledStats,
-                    for: selectedMetric,
-                    timeFrame: selectedTimeFrame,
-                    limit: fetchLimit
-                )
-                if cacheStats.isEmpty {
-                    leaderboardEntries = []
-                    userStanding = unrankedStanding(for: userId)
-                    handleError(error, context: "load")
-                } else {
-                    apply(stats: reconciledStats, userId: userId)
-                    handleCachedFallbackError(error)
-                }
-            } catch {
-                leaderboardEntries = []
-                userStanding = unrankedStanding(for: userId)
-                handleError(error, context: "load")
-            }
+        // The server gave no answer. Show the newest standings this device still holds - this
+        // session's last good load, else the copy on disk - and say they are not current. A
+        // stale copy is deliberately not written back to the session cache: the next ordinary
+        // load would serve it as fresh and never ask the server again.
+        let issue = outcome.failures.last.map { LeaderboardNetworkIssue.classify($0.error) } ?? .unexpected
+        let sessionStats = await sessionCache.detailEntries(
+            for: selectedMetric,
+            timeFrame: selectedTimeFrame,
+            minimumLimit: fetchLimit
+        )
+        let deviceStats = outcome.isFromCache ? try? outcome.result.get() : nil
+        let staleStats = [sessionStats, deviceStats].compactMap { $0 }.first { !$0.isEmpty }
+
+        if let staleStats {
+            apply(stats: reconcileCurrentUserStats(staleStats, userId: userId), userId: userId)
+            showStaleBoard(issue)
+            recordRefreshFailure(in: outcome, resolution: .staleBoard, wasForced: forceRefresh)
+        } else {
+            leaderboardEntries = []
+            userStanding = unrankedStanding(for: userId)
+            showEmptyBoard(issue)
+            recordRefreshFailure(in: outcome, resolution: .emptyBoard, wasForced: forceRefresh)
         }
 
         isLoading = false
+    }
+
+    /// Reads the standings through the one shared server-preferred read.
+    ///
+    /// An ordinary load asks with the SDK's default source, which already answers from the
+    /// device's copy while Firestore's stream is down, so it has nothing to wait for. A pull to
+    /// refresh insists on the server and is the only read a dropped stream can fail - so it is
+    /// the only one that earns the quiet retry.
+    private func readStandings(
+        forceRefresh: Bool,
+        fetchLimit: Int
+    ) async -> ServerPreferredReadOutcome<[FirestoreLeaderboardStats]> {
+        let repository = repository
+        let metric = selectedMetric
+        let timeFrame = selectedTimeFrame
+        let timeoutSeconds = networkTimeoutSeconds
+        let accessRecovery = accessRecovery
+
+        return await ServerPreferredRead.run(
+            policy: ServerPreferredReadPolicy(
+                retryDelay: quietRetryDelay,
+                retriesUnreachable: forceRefresh,
+                fallsBackToCache: true
+            ),
+            // Only a forced read consults this, and a read is only forced once the view has
+            // passed the app-wide connectivity answer in as connected.
+            hasNetworkPath: { true },
+            recoverRefusal: {
+                await accessRecovery.recoverRefusedAccess(userInitiated: forceRefresh)
+            },
+            read: { attempt in
+                switch attempt {
+                case .server:
+                    let source: FirestoreSource = forceRefresh ? .server : .default
+                    return try await withLeaderboardTimeout(seconds: timeoutSeconds) {
+                        try await repository.fetchLeaderboard(
+                            metric: metric,
+                            timeFrame: timeFrame,
+                            limit: fetchLimit,
+                            source: source
+                        )
+                    }
+                case .cache:
+                    return try await repository.fetchLeaderboard(
+                        metric: metric,
+                        timeFrame: timeFrame,
+                        limit: fetchLimit,
+                        source: .cache
+                    )
+                }
+            }
+        )
+    }
+
+    /// One non-fatal and one analytics event per load that failed at least one server attempt,
+    /// recovered or not. Without both, neither incident behind this path left a record.
+    private func recordRefreshFailure(
+        in outcome: ServerPreferredReadOutcome<[FirestoreLeaderboardStats]>,
+        resolution: LeaderboardRefreshFailure.Resolution,
+        wasForced: Bool
+    ) {
+        guard let lastFailure = outcome.failures.last else { return }
+
+        let failure = LeaderboardRefreshFailure(
+            lastFailure: lastFailure,
+            failedAttemptCount: outcome.failures.count,
+            wasForced: wasForced,
+            attemptedAccessRecovery: outcome.attemptedRefusalRecovery,
+            resolution: resolution,
+            context: failureContext()
+        )
+        telemetry.recordError(
+            lastFailure.error,
+            context: .firestore,
+            code: LeaderboardRefreshFailure.errorCode,
+            additionalInfo: failure.diagnosticInfo,
+            severity: failure.severity
+        )
+        telemetry.track(
+            LeaderboardAnalyticsEvent.refreshFailed(context: analyticsContext, failure: failure)
+        )
     }
 
     func loadMoreEntriesIfNeeded(currentEntryID: String) {
@@ -506,33 +577,15 @@ final class LeaderboardViewModel {
         value < 10 ? "0\(value)" : "\(value)"
     }
 
-    private func handleCachedFallbackError(_ error: Error) {
-        switch LeaderboardNetworkIssue.classify(error) {
-        case .offline:
-            isOffline = true
-            errorMessage = nil
-        case .slowConnection:
-            isOffline = false
-            errorMessage = "Latest changes may take a moment to appear."
-        case .other:
-            isOffline = false
-            errorMessage = "Showing cached data. Latest refresh failed."
-        }
+    private func showStaleBoard(_ issue: LeaderboardNetworkIssue) {
+        isOffline = issue == .offline
+        errorMessage = issue.staleBoardMessage
+        refreshIssue = issue
     }
 
-    private func handleError(_ error: Error, context: String) {
-        switch LeaderboardNetworkIssue.classify(error) {
-        case .offline:
-            isOffline = true
-            errorMessage = "You're offline. Pull to retry."
-        case .slowConnection:
-            isOffline = false
-            errorMessage = "Leaderboard request timed out. Pull to retry."
-        case .other:
-            isOffline = false
-            errorMessage = context == "load"
-                ? "Couldn’t load this leaderboard right now."
-                : "Couldn’t refresh this leaderboard right now."
-        }
+    private func showEmptyBoard(_ issue: LeaderboardNetworkIssue) {
+        isOffline = issue == .offline
+        errorMessage = issue.emptyBoardMessage
+        refreshIssue = issue
     }
 }

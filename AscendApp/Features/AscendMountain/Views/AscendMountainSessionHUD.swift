@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The live Ascend Mountain read-out over the 3D world: the step count large enough to read
-/// from a stair-stepper console, and one row of pace, time and heart rate (spec 4, 20, 43).
+/// from a stair-stepper console, and one row of pace, time, floors and heart rate (spec 4, 20, 43).
 ///
 /// Every number is the session's own - `LiveClimbSessionViewModel` stays the authority - so
 /// this screen can never disagree with Classic. Where the climber stands is not here: it is the
@@ -12,7 +12,17 @@ struct AscendMountainSessionHUD: View {
     let debugState: MountainDebugState?
     let crowd: MountainCrowdCounts?
 
+    private static let statSpacing: CGFloat = 10
+    /// Clear space kept between a stat's value and the sides of its box.
+    private static let statInset: CGFloat = 6
+
     var body: some View {
+        GeometryReader { proxy in
+            readOut(width: proxy.size.width)
+        }
+    }
+
+    private func readOut(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             stepsHero
 
@@ -34,7 +44,7 @@ struct AscendMountainSessionHUD: View {
                     .frame(maxWidth: .infinity)
             }
 
-            statRow
+            statRow(width: width)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -79,25 +89,60 @@ struct AscendMountainSessionHUD: View {
         return nil
     }
 
-    private var statRow: some View {
-        HStack(spacing: 10) {
-            stat(value: viewModel.currentPaceDisplay, label: "SPM")
-            stat(value: viewModel.elapsedClock, label: "ELAPSED")
-            if let heartRate = viewModel.liveHeartRateStatus, case .connected(let beatsPerMinute, _) = heartRate {
-                stat(value: beatsPerMinute.formatted(), label: "BPM")
+    /// One row of boxes, every value at one size: the largest at which the widest reading any of
+    /// them takes fits a box (`LiveClimbMetricFontSizing`). A strap adds a fourth box, and on a
+    /// compact phone that is narrower than a clock at full size - letting each value shrink on
+    /// its own left the row's numbers at different sizes and its boxes at different heights.
+    private func statRow(width: CGFloat) -> some View {
+        let beatsPerMinute = connectedBeatsPerMinute
+        let boxCount: CGFloat = beatsPerMinute == nil ? 3 : 4
+        let boxWidth = (width - Self.statSpacing * (boxCount - 1)) / boxCount
+        let valueSize = LiveClimbMetricFontSizing.fittedSize(
+            for: [
+                LiveClimbMetricFontSizing.paceTemplate,
+                LiveClimbMetricFontSizing.elapsedTemplate,
+                LiveClimbMetricFontSizing.template(
+                    for: Workout.stepsToFloors(viewModel.mode.targetStepCount ?? 99_999).formatted()
+                ),
+            ],
+            width: boxWidth - Self.statInset * 2,
+            maximum: 30
+        )
+
+        return HStack(spacing: Self.statSpacing) {
+            stat(value: viewModel.currentPaceDisplay, label: "SPM", valueSize: valueSize)
+            stat(value: viewModel.elapsedClock, label: "ELAPSED", valueSize: valueSize)
+            stat(value: viewModel.displayedFloors.formatted(), label: "FLOORS", valueSize: valueSize)
+            if let beatsPerMinute {
+                stat(value: beatsPerMinute.formatted(), label: "BPM", valueSize: valueSize)
             }
         }
     }
 
-    private func stat(value: String, label: String) -> some View {
+    private var connectedBeatsPerMinute: Int? {
+        guard case .connected(let beatsPerMinute, _) = viewModel.liveHeartRateStatus else { return nil }
+        return beatsPerMinute
+    }
+
+    /// The value is set at a fixed point size rather than a Dynamic Type-relative one because it
+    /// is already the largest its box holds. The shrink allowance is only a fallback for a
+    /// reading longer than its template - an hour-long clock - and the hidden digit holds the
+    /// line's height while it applies, so that box stays level with its neighbours.
+    private func stat(value: String, label: String, valueSize: CGFloat) -> some View {
         VStack(spacing: 2) {
-            Text(value)
-                .font(.montserratBold(size: 30))
-                .monospacedDigit()
-                .contentTransition(.numericText())
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            Text("8")
+                .hidden()
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    Text(value)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .padding(.horizontal, Self.statInset)
+                }
+                .font(.custom(LiveClimbMetricFontSizing.valueFontName, fixedSize: valueSize))
 
             Text(label)
                 .font(.montserratBold(size: 11))

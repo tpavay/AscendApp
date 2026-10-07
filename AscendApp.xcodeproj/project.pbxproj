@@ -580,6 +580,7 @@
 				ASCEND_MIXPANEL_PROJECT_ID = 4051102;
 				ASCEND_MIXPANEL_TOKEN = 36831ac2161d11cfdf314804f32651aa;
 				ASCEND_REVENUECAT_API_KEY = appl_KljWLRCYwBqgmGsWDGKOeZoeuqP;
+				ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID = ascend_staging_lifetime;
 				ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID = ascend_staging_monthly;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
 				ASCEND_REVENUECAT_YEARLY_PRODUCT_ID = ascend_staging_yearly;
@@ -616,7 +617,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -765,6 +766,7 @@
 				ASCEND_MIXPANEL_PROJECT_ID = 4032860;
 				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
 				ASCEND_REVENUECAT_API_KEY = "";
+				ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID = ascend_staging_lifetime;
 				ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID = ascend_staging_monthly;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
 				ASCEND_REVENUECAT_YEARLY_PRODUCT_ID = ascend_staging_yearly;
@@ -802,7 +804,7 @@
 					"@executable_path/Frameworks",
 				);
 				MAPBOX_ACCESS_TOKEN = "";
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -824,6 +826,7 @@
 				ASCEND_MIXPANEL_PROJECT_ID = 4051100;
 				ASCEND_MIXPANEL_TOKEN = 5f9f773f6c7ffb1cfc671a31204180f7;
 				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
+				ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID = ascend_lifetime;
 				ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID = ascend_monthly;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
 				ASCEND_REVENUECAT_YEARLY_PRODUCT_ID = ascend_yearly;
@@ -860,7 +863,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -884,7 +887,7 @@
 				DEVELOPMENT_TEAM = QWGVB7TN4T;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -903,7 +906,7 @@
 				DEVELOPMENT_TEAM = QWGVB7TN4T;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -922,7 +925,7 @@
 				DEVELOPMENT_TEAM = QWGVB7TN4T;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -949,7 +952,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev.LiveClimbWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -981,7 +984,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.LiveClimbWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1015,7 +1018,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging.LiveClimbWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1050,7 +1053,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev.watch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -1082,7 +1085,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.watch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1116,7 +1119,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.2;
+				MARKETING_VERSION = 1.2.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging.watch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1217,7 +1220,7 @@
 			repositoryURL = "https://github.com/superwall/Superwall-iOS";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 4.15.3;
+				minimumVersion = 4.17.0;
 			};
 		};
 		9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */ = {

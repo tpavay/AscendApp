@@ -54,7 +54,7 @@ enum AppAccessRestoreState: CaseIterable, Equatable, Sendable {
         case .idle, .restoring, .restored:
             return nil
         case .noPurchasesFound:
-            return "No active Ascend subscription was found for this Apple ID."
+            return "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
         case .offline:
             return "Ascend is offline. Reconnect, then try Restore Purchases again."
         case .timedOut:

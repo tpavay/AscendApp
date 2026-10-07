@@ -257,11 +257,11 @@ struct LockedOutSubscriberRecoveryContractTests {
         )
         #expect(!account.contains("account/subscriptions"))
 
-        let section = try #require(account.range(of: "private var subscriptionOptions"))
+        let section = try #require(account.range(of: "private var purchaseOptions"))
         let body = String(account[section.lowerBound...].prefix(700))
         let manageIndex = try #require(body.range(of: "Manage Subscription")).lowerBound
         let restoreIndex = try #require(body.range(of: "Restore Purchases")).lowerBound
-        #expect(manageIndex < restoreIndex, "Managing the plan leads the Subscription section")
+        #expect(manageIndex < restoreIndex, "Managing the plan leads the Purchases section")
     }
 
     private var projectRoot: URL {

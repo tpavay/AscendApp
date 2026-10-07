@@ -656,13 +656,9 @@ Recommended paywall structure:
    - `Claim First Ascents`
    - `Track records and trends`
    - `Sync and protect your climb history`
-4. Plan selector:
-   - Yearly highlighted and selected by default: `$49.99/year`
-   - Yearly trial copy: `7 days free, then $49.99/year`
-   - Monthly: `$9.99/month, charged immediately`
-5. CTA:
-   - Yearly selected: `Try 7 Days Free`
-   - Monthly selected: `Subscribe for $9.99/month`
+4. Plan selector: Yearly, highlighted and selected by default, beside Lifetime.
+   Prices, trials, and per-plan copy are owned by `docs/superwall-paywall-setup.md`.
+5. CTA: follows the selected plan; trial and renewal language belong to Yearly only.
 6. Footer:
    - `Restore Purchase`
    - `Terms`

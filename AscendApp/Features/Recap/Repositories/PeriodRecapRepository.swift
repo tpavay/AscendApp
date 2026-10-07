@@ -27,7 +27,7 @@ final class PeriodRecapRepository: PeriodRecapReading, Sendable {
             .whereField("seenAt", isEqualTo: NSNull())
             .order(by: "periodEndAt", descending: true)
             .limit(to: max(limit, 0))
-            .getDocuments(source: .server)
+            .getServerDocuments()
         return snapshot.documents.compactMap {
             PeriodRecapParser.recap(id: $0.documentID, data: $0.data())
         }
@@ -54,7 +54,7 @@ final class PeriodRecapRepository: PeriodRecapReading, Sendable {
                 .whereField("periodEndAt", isLessThanOrEqualTo: Timestamp(date: cutoff))
                 .order(by: "periodEndAt", descending: true)
                 .limit(to: pageSize)
-                .getDocuments(source: .server)
+                .getServerDocuments()
             try await markSeen(userId: userId, recapIDs: snapshot.documents.map(\.documentID))
             if snapshot.documents.count < pageSize { return }
         }

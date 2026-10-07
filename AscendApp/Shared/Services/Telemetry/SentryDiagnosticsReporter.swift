@@ -79,12 +79,19 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
         SentrySDK.addBreadcrumb(breadcrumb)
     }
 
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {
+    func record(
+        error: Error,
+        context: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {
         guard didStart else { return }
 
         SentrySDK.capture(error: error) { scope in
             scope.setTag(value: context, key: "ascend_error_context")
             scope.setTag(value: code, key: "ascend_error_code")
+            scope.setLevel(severity.sentryLevel)
 
             if let additionalInfo, !additionalInfo.isEmpty {
                 scope.setContext(value: additionalInfo, key: "ascend")
@@ -99,5 +106,14 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
         guard didStart else { return }
         SentrySDK.close()
         didStart = false
+    }
+}
+
+private extension TelemetryErrorSeverity {
+    var sentryLevel: SentryLevel {
+        switch self {
+        case .warning: .warning
+        case .error: .error
+        }
     }
 }

@@ -281,9 +281,11 @@ struct HomeGlobeSheetEvidenceTests {
     private func makeScreen(
         feed: HomeTodayActivityFeed,
         detent: BrowseSheetDetent,
-        globeViewModel: GlobeViewModel = makeGlobeViewModel()
+        globeViewModel: GlobeViewModel = makeGlobeViewModel(),
+        container: ModelContainer? = nil,
+        makeJustClimbSession: @escaping HomeView.JustClimbSessionFactory = HomeView.liveJustClimbSession
     ) async throws -> some View {
-        let container = try ModelContainer(
+        let container = try container ?? ModelContainer(
             for: AscendLocalStore.schema,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
@@ -307,7 +309,8 @@ struct HomeGlobeSheetEvidenceTests {
             todayActivity: todayActivity,
             globeViewModel: globeViewModel,
             enrichmentService: enrichmentService,
-            detent: detent
+            detent: detent,
+            makeJustClimbSession: makeJustClimbSession
         )
         .preferredColorScheme(.dark)
         .environment(AuthenticationViewModel())
@@ -401,6 +404,106 @@ extension HomeGlobeSheetEvidenceTests {
     }()
 }
 
+extension HomeGlobeSheetEvidenceTests {
+    /// Start -> Just Climb -> START, tapped the way a climber taps it, and the session Home
+    /// then builds and pushes.
+    ///
+    /// Home once kept the goal and the experience as two pieces of state and built the session
+    /// inside the pushed destination, which SwiftUI evaluates with the state Home's last body
+    /// pass captured. A climb started on the Mountain was therefore built Classic; the screen
+    /// drew the Mountain anyway a moment later, and the Live Activity reopened that session as
+    /// the Just Me page mid-climb (the captain's own climb, 2026-10-03). The tap now builds the
+    /// session once, from what the sheet handed over, and the screen is that session.
+    ///
+    /// The stand-in session is Classic whatever was asked for, so no RealityKit scene is hosted
+    /// and this runs on CI's virtual Macs (#629): what Home asked for is the assertion.
+    @Test(
+        "START builds one session, drawn the way the setup sheet said",
+        arguments: [
+            (JustClimbExperience?.none, JustClimbExperience.mountain),
+            (JustClimbExperience.mountain, JustClimbExperience.mountain),
+            (JustClimbExperience.classic, JustClimbExperience.classic),
+        ]
+    )
+    func startBuildsOneSessionDrawnTheWayTheSetupSheetSaid(
+        remembered: JustClimbExperience?,
+        expected: JustClimbExperience
+    ) async throws {
+        let defaults = try #require(UserDefaults(suiteName: "home-just-climb-start-\(UUID().uuidString)"))
+        if let remembered {
+            defaults.set(remembered.rawValue, forKey: JustClimbSetupSheet.experienceKey)
+        }
+        let container = try RetainedModelContainer.inMemory(schema: AscendLocalStore.schema)
+        let starts = JustClimbStartRecorder(container: container)
+        let screen = try await makeScreen(
+            feed: Self.sampleFeed,
+            detent: .compact,
+            container: container,
+            makeJustClimbSession: starts.start
+        )
+        .defaultAppStorage(defaults)
+
+        try await RenderedScreen.host(screen, settle: .turns(30, interval: .milliseconds(100))) { hosted in
+            try activateAccessibilityElement(labelled: "Start", in: hosted.window)
+            try await Self.activate(in: hosted) { $0.accessibilityLabel == "Just Climb" }
+            try await Self.activate(in: hosted) {
+                $0.accessibilityLabel == "START" && $0.accessibilityTraits.contains(.button)
+            }
+
+            let copy = try await hosted.copy { $0.contains("end attempt") }
+            #expect(starts.requested == [expected], "what each START asked the session to be")
+            #expect(copy.contains("1,842"), "the pushed screen is the session the tap built: \(copy)")
+        }
+        await starts.endSession()
+    }
+
+    /// Waits for a control to arrive and settle - a sheet animates in - then activates it.
+    private static func activate(
+        in hosted: HostedScreen,
+        matching isMatch: @escaping (NSObject) -> Bool
+    ) async throws {
+        _ = try await hosted.elements { $0.contains(where: isMatch) }
+        try await hosted.settle(.turns(10, interval: .milliseconds(100)))
+        try activateAccessibilityElement(in: hosted.window, matching: isMatch)
+    }
+}
+
+/// Hands Home one recording session, whatever it asks for, and remembers what it asked for.
+@MainActor
+private final class JustClimbStartRecorder {
+    private(set) var requested: [JustClimbExperience] = []
+    private let session: LiveClimbSessionViewModel
+    private let container: ModelContainer
+
+    init(container: ModelContainer) {
+        self.container = container
+        let motionSession = FakeHeadphoneMotionSession()
+        motionSession.stepCount = 1_842
+        motionSession.duration = 504
+        session = LiveClimbSessionViewModel(
+            justClimbGoal: JustClimbGoal(),
+            experience: .classic,
+            motionSession: motionSession,
+            climbService: ClimbService(catalogRepository: StubClimbCatalogRepository(climbs: [])),
+            leaderboardService: StubLiveReplayLeaderboardService(),
+            backgroundSessionService: FakeLiveClimbBackgroundSession()
+        )
+        // Already recording, so the pushed screen draws the climb instead of the countdown and
+        // the headphone gate the simulator cannot pass.
+        session.start(modelContext: container.mainContext)
+    }
+
+    func start(_ goal: JustClimbGoal, _ experience: JustClimbExperience) -> LiveClimbSessionViewModel {
+        requested.append(experience)
+        return session
+    }
+
+    /// A running session is process-wide state; the next suite must not inherit it.
+    func endSession() async {
+        await session.discard(modelContext: container.mainContext)
+    }
+}
+
 /// The real Home above the real tab bar, wired the way `MainTabView` wires them: the
 /// bar's measured height reaches Home through the environment so the sheet measures
 /// its resting heights from the bar's top.
@@ -411,6 +514,7 @@ private struct HostedHomeScreen: View {
     let globeViewModel: GlobeViewModel
     let enrichmentService: AppleHealthEnrichmentService
     let detent: BrowseSheetDetent
+    let makeJustClimbSession: HomeView.JustClimbSessionFactory
 
     @State private var tabBarOverlayHeight: CGFloat = 0
 
@@ -422,7 +526,8 @@ private struct HostedHomeScreen: View {
                 todayActivity: todayActivity,
                 globeViewModel: globeViewModel,
                 enrichmentService: enrichmentService,
-                initialSheetDetent: detent
+                initialSheetDetent: detent,
+                makeJustClimbSession: makeJustClimbSession
             )
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {

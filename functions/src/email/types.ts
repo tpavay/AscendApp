@@ -1,19 +1,28 @@
 import * as admin from "firebase-admin";
 
 export type TransactionalEmailProvider = "resend";
-export type EmailType =
-  | "rating_positive_followup"
-  | "rating_negative_feedback"
-  | "onboarding_abandoned_before_paywall"
-  | "onboarding_abandoned_after_paywall"
-  | "first_climb_completed"
-  | "first_ascent_claimed"
-  | "leaderboard_first_place"
-  | "weekly_recap_active"
-  | "weekly_recap_inactive"
-  | "monthly_recap_active"
-  | "monthly_recap_inactive"
-  | "drop_announcement";
+/**
+ * Every email type a job can carry, as a runtime list: the secret's
+ * `enabledEmailTypes` is validated against it, so a misspelt type fails the
+ * config check instead of silently switching that email off.
+ */
+export const EMAIL_TYPES = [
+  "rating_positive_followup",
+  "rating_negative_feedback",
+  "onboarding_abandoned_before_paywall",
+  "onboarding_abandoned_after_paywall",
+  "first_climb_completed",
+  "first_ascent_claimed",
+  "leaderboard_first_place",
+  "weekly_recap_active",
+  "weekly_recap_inactive",
+  "monthly_recap_active",
+  "monthly_recap_inactive",
+  "drop_announcement",
+] as const;
+export type EmailType = typeof EMAIL_TYPES[number];
+/** Which email types an environment delivers: all of them, or a list. */
+export type EnabledEmailTypes = "all" | EmailType[];
 export type EmailJobStatus =
   | "queued"
   | "processing"
@@ -26,6 +35,8 @@ export type EmailJobStatus =
 export interface TransactionalEmailConfig {
   provider: TransactionalEmailProvider;
   apiKey: string;
+  enabledEmailTypes: EnabledEmailTypes;
+  environmentLabel?: string;
   feedbackNotificationEmail?: string;
   fromEmail: string;
   fromName: string;

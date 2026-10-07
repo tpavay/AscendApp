@@ -46,10 +46,18 @@ struct LiveClimbSessionView: View {
     /// The climber's own athlete on the Mountain.
     private let athleteLookStore = AthleteLookStore.shared
 
-    private let experience: JustClimbExperience
     /// Where Ascend Mountain reads the climbers someone can filter the race to.
     private let mountainBoard: MountainRaceBoard
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    /// How this session is drawn, read off the session the screen holds on every pass and never
+    /// kept as a value of this struct. SwiftUI rebuilds the struct whenever the presenting view
+    /// updates, while `@State` keeps the session it was first handed, so a stored copy can drift
+    /// from that session: the screen drew the Mountain over a session that said Classic, and the
+    /// Live Activity then reopened that session as the Just Me page mid-climb.
+    private var experience: JustClimbExperience {
+        viewModel.experience
+    }
 
     init(
         climb: Climb,
@@ -60,25 +68,9 @@ struct LiveClimbSessionView: View {
             analyticsEntryPoint: analyticsEntryPoint
         ))
         _mountainRace = State(initialValue: AscendMountainRace())
-        experience = .classic
         mountainBoard = FirestoreLiveReplayLeaderboardRepository.shared
     }
 
-    init(
-        justClimbGoal: JustClimbGoal,
-        experience: JustClimbExperience = .classic,
-        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
-    ) {
-        self.init(
-            viewModel: LiveClimbSessionViewModel(
-                justClimbGoal: justClimbGoal,
-                experience: experience,
-                analyticsEntryPoint: analyticsEntryPoint
-            )
-        )
-    }
-
-    /// Ascend Mountain only ever presents a Just Climb; a landmark climb always runs Classic.
     init(
         viewModel: LiveClimbSessionViewModel,
         mountainBoard: MountainRaceBoard = FirestoreLiveReplayLeaderboardRepository.shared,
@@ -86,8 +78,11 @@ struct LiveClimbSessionView: View {
         athleteLooks: AthleteLookRepository = FirestoreAthleteLookRepository.shared
     ) {
         _viewModel = State(initialValue: viewModel)
+        // A session reopened mid-climb is already recording, so its first frame is the climb
+        // rather than the pre-start chrome animating away.
+        _hasStartedRecording = State(initialValue: viewModel.phase != .idle)
         self.mountainBoard = mountainBoard
-        let isMountain = !viewModel.mode.isLandmarkClimb && viewModel.experience == .mountain
+        let isMountain = viewModel.experience == .mountain
         _mountainRace = State(initialValue: isMountain
             ? AscendMountainRace(
                 goal: viewModel.mode.justClimbGoal,
@@ -97,9 +92,8 @@ struct LiveClimbSessionView: View {
                 userId: Auth.auth().currentUser?.uid
             )
             : AscendMountainRace())
-        self.experience = isMountain ? .mountain : .classic
 #if DEBUG
-        if self.experience == .mountain {
+        if isMountain {
             _mountainDebugState = State(initialValue: MountainDebugState())
         }
 #endif
@@ -230,9 +224,6 @@ struct LiveClimbSessionView: View {
         }
         .onAppear {
             motionAccessGate.isAppActive = scenePhase == .active
-            if viewModel.phase != .idle {
-                hasStartedRecording = true
-            }
             registerLiveActivityControls()
         }
         .onDisappear {

@@ -31,7 +31,7 @@ final class FirestoreLiveClimbCommunityStatsService: LiveClimbCommunityStatsServ
         let snapshot = try await db
             .collection("live_climb_community_stats")
             .document("global")
-            .getDocument(source: .server)
+            .getServerDocument()
 
         guard let data = snapshot.data() else {
             return .empty

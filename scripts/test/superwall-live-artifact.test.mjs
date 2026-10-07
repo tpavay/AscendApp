@@ -26,7 +26,7 @@ function validate(capture, productIDs) {
     staticConfig: capture.staticConfig,
     runtimeStore: capture.runtimeStore,
     placement: "app_access_gate",
-    expectedProductIDs: productIDs,
+    sellableProductIDs: productIDs,
     expectedEntitlementID: "app_access"
   });
 }
@@ -111,6 +111,52 @@ test("purchase and close cannot be sibling actions on one control", async () => 
 
   assert.deepEqual(result.errors, [
     "Purchase control $.node:purchase.properties.prop:click-behavior.value.clickActions also has a direct close action."
+  ]);
+});
+
+async function repairedStagingCapture() {
+  const capture = structuredClone(await fixture(stagingFixture));
+  capture.runtimeStore["state:"] = {};
+  return capture;
+}
+
+const stagingCatalog = [
+  "ascend_staging_yearly",
+  "ascend_staging_lifetime",
+  "ascend_staging_monthly"
+];
+
+test("a paywall offering part of the build's catalog passes", async () => {
+  // Lifetime cannot be on a live paywall before Apple approves it, and Monthly can leave one
+  // without a release, so the archive that ships Lifetime has to pass against a paywall that
+  // offers less than the build can sell.
+  const capture = await repairedStagingCapture();
+  assert.deepEqual(validate(capture, stagingCatalog).errors, []);
+
+  const {response} = activePaywallResponse(capture.staticConfig, "app_access_gate");
+  response.products_v2 = response.products_v2.filter(
+    (product) => product.store_product.product_identifier === "ascend_staging_yearly"
+  );
+  const yearlyOnly = validate(capture, stagingCatalog);
+  assert.deepEqual(yearlyOnly.errors, []);
+  assert.deepEqual(yearlyOnly.evidence.productIDs, ["ascend_staging_yearly"]);
+});
+
+test("a paywall selling a product outside the build's catalog fails", async () => {
+  const capture = await repairedStagingCapture();
+
+  assert.deepEqual(validate(capture, ["ascend_staging_yearly"]).errors, [
+    "Active paywall offers [ascend_staging_monthly], which this build's catalog " +
+      "[ascend_staging_yearly] does not contain."
+  ]);
+});
+
+test("a paywall offering nothing fails", async () => {
+  const capture = await repairedStagingCapture();
+  activePaywallResponse(capture.staticConfig, "app_access_gate").response.products_v2 = [];
+
+  assert.deepEqual(validate(capture, stagingCatalog).errors, [
+    "Active paywall offers no products."
   ]);
 });
 

@@ -67,12 +67,14 @@ The JSON shape is:
   "webhookSigningSecret": "<environment HMAC signing secret>",
   "appId": "<RevenueCat event.app_id for this app>",
   "entitlementId": "app_access",
-  "allowedProductIds": ["<annual product>", "<monthly product>"]
+  "allowedProductIds": ["<annual product>", "<lifetime product>", "<monthly product>"]
 }
 ```
 
-Staging must allow `ascend_staging_yearly` and `ascend_staging_monthly`.
-Production must allow `ascend_yearly`, `ascend_monthly`, and `rc_promo_app_access_lifetime`, the product every comp from `scripts/comp-access.mjs` carries.
+Staging must allow `ascend_staging_yearly`, `ascend_staging_lifetime` and `ascend_staging_monthly`.
+Production must allow `ascend_yearly`, `ascend_lifetime`, `ascend_monthly`, and `rc_promo_app_access_lifetime`, the product every comp from `scripts/comp-access.mjs` carries.
+`ascend_lifetime` is the one-time purchase a climber pays for and `rc_promo_app_access_lifetime` is a free comp; they are different products that happen to share a word.
+A Lifetime purchase reaches the webhook as `NON_RENEWING_PURCHASE` with no expiry, and `buildAppAccessProjection` grants it as non-expiring access (`docs/superwall-paywall-setup.md`, "Lifetime").
 Add any other promotional product identifier only when a subscriber response proves its exact value.
 Both deploys enforce this set, derived from the app's build settings, the comp tool, and every product a live grant holds, and refuse to bind a version that drops any of it.
 

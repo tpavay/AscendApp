@@ -51,7 +51,7 @@ struct AppAccessRestoreStateTests {
         #expect(AppAccessRestoreState.restored.statusMessage == nil)
         #expect(
             AppAccessRestoreState.noPurchasesFound.statusMessage
-                == "No active Ascend subscription was found for this Apple ID."
+                == "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
         )
         #expect(
             AppAccessRestoreState.failed.statusMessage

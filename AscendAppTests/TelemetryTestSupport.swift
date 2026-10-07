@@ -155,7 +155,13 @@ struct NoopCrashlyticsReporter: CrashlyticsReporting {
     func setCustomValue(_ value: Int, forKey key: String) {}
     func setCustomValue(_ value: String, forKey key: String) {}
     func log(_ message: String) {}
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
+    func record(
+        error: Error,
+        context: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {}
 }
 
 /// Captures the non-fatals a caller recorded.
@@ -167,6 +173,7 @@ final class RecordingCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
         let context: String
         let code: String
         let additionalInfo: [String: String]?
+        let severity: TelemetryErrorSeverity
     }
 
     private let lock = NSLock()
@@ -185,10 +192,21 @@ final class RecordingCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
     func setCustomValue(_ value: String, forKey key: String) {}
     func log(_ message: String) {}
 
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {
+    func record(
+        error: Error,
+        context: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {
         lock.lock()
         recorded.append(
-            RecordedError(context: context, code: code, additionalInfo: additionalInfo)
+            RecordedError(
+                context: context,
+                code: code,
+                additionalInfo: additionalInfo,
+                severity: severity
+            )
         )
         lock.unlock()
     }
@@ -289,4 +307,20 @@ func makeTestTelemetry(
         collectionEnabled: collectionEnabled,
         identityStore: identityStore
     )
+}
+
+/// For an emitter that reports one failure two ways: an analytics event to count it and a
+/// non-fatal to diagnose it.
+func makeTestTelemetry(
+    sink: InMemoryTelemetrySink,
+    reporter: any CrashlyticsReporting
+) -> TelemetryManager {
+    let telemetry = TelemetryManager(
+        sinks: [sink],
+        crashlyticsReporter: reporter,
+        collectionEnabledOverride: true,
+        identityStore: makeTestIdentityStore()
+    )
+    telemetry.configure()
+    return telemetry
 }

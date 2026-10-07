@@ -88,6 +88,20 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             max(steps, 0).formatted()
         }
 
+        /// Floors climbed, on the saved workout's own definition.
+        ///
+        /// Derived from `steps` rather than stored, so nothing is added to the
+        /// wire: a Live Activity an older binary started states its floors as
+        /// soon as this one draws it, and the figure can never be a tick behind
+        /// the step count beside it.
+        var floors: Int {
+            FloorsClimbed.count(forSteps: max(steps, 0))
+        }
+
+        var floorsLabel: String {
+            FloorsClimbed.phrase(floors)
+        }
+
         var minimalStepsLabel: String {
             let stepCount = max(steps, 0)
 

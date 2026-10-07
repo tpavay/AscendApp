@@ -68,6 +68,7 @@ before(() => {
   process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify({
     provider: "resend",
     apiKey: "re_emulator_only",
+    enabledEmailTypes: "all",
     fromEmail: "hello@updates.ascendstepper.com",
     fromName: "Ascend",
     replyTo: "support@ascendstepper.com",
@@ -728,6 +729,96 @@ test(
     assert.deepEqual(payload.landmarksFinished, ["Eiffel Tower"]);
   }
 );
+
+test("two accounts on one address each get their own account's week",
+  async () => {
+    // The founder's production and test accounts share his address. A recap
+    // is read by uid and nothing else: each account's email carries that
+    // account's totals, never the other's (9,578 real steps against a test
+    // account's 574, 2026-10-05).
+    const address = "founder@example.com";
+    await seedUser("real-account", address);
+    await seedUser("test-account", address);
+    await seedWeeklyStats("real-account", closedWeek, {
+      totalFloors: 599,
+      totalSteps: 9578,
+      totalWorkouts: 2,
+    });
+    await seedWeeklyStats("test-account", closedWeek, {
+      totalFloors: 36,
+      totalSteps: 574,
+      totalWorkouts: 2,
+    });
+
+    await composeAndSend();
+
+    const real = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "real-account")
+    );
+    const test = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "test-account")
+    );
+    assert.equal(real.recipientUid, "real-account");
+    assert.equal(test.recipientUid, "test-account");
+    assert.equal(real.recipientEmail, address);
+    assert.equal(test.recipientEmail, address);
+    const realPayload = real.payload as RecapActivePayload;
+    const testPayload = test.payload as RecapActivePayload;
+    assert.equal(realPayload.totalSteps, 9578);
+    assert.equal(realPayload.totalFloors, 599);
+    assert.equal(realPayload.climbsCompleted, 2);
+    assert.equal(testPayload.totalSteps, 574);
+    assert.equal(testPayload.totalFloors, 36);
+    assert.equal(realPayload.periodLabel, testPayload.periodLabel);
+  });
+
+test("a climb on the week's first or last instant counts, the next does not",
+  async () => {
+    await seedUser("edge-climber", "edge@example.com");
+    await seedWeeklyStats("edge-climber", closedWeek, {
+      totalFloors: 100,
+      totalSteps: 4000,
+      totalWorkouts: 2,
+    });
+    // First millisecond of the week, last millisecond of the week, and the
+    // first millisecond of the week after.
+    await seedCompletedLandmarkWorkout(
+      "edge-climber",
+      "eiffel",
+      closedWeek.startAt
+    );
+    await seedCompletedLandmarkWorkout(
+      "edge-climber",
+      "short-climb",
+      new Date(closedWeek.endAt.getTime() - 1)
+    );
+    await seedCompletedLandmarkWorkout(
+      "edge-climber",
+      "next-week-climb",
+      closedWeek.endAt
+    );
+    await seedCompletedLandmarkWorkout(
+      "edge-climber",
+      "last-week-climb",
+      new Date(closedWeek.startAt.getTime() - 1)
+    );
+
+    await composeAndSend();
+
+    const job = await readJob(
+      buildRecapDedupeKey("weekly", closedWeek.key, "edge-climber")
+    );
+    const payload = job.payload as RecapActivePayload;
+    assert.deepEqual(
+      [...payload.landmarksFinished].sort(),
+      ["Eiffel Tower", "Short Climb"]
+    );
+    // Monday and Sunday are the two days with a climb; nothing else is.
+    const active = payload.calendar.filter((cell) => cell.level !== "none");
+    assert.equal(active.length, 2);
+    assert.notEqual(payload.calendar[0].level, "none");
+    assert.notEqual(payload.calendar[6].level, "none");
+  });
 
 test("a field of one active climber gets no percentile callout", async () => {
   await seedUser("solo-1", "solo@example.com");

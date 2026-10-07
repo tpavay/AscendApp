@@ -4,7 +4,21 @@
 
   ],
   "products" : [
-
+    {
+      "displayPrice" : "49.99",
+      "familyShareable" : false,
+      "internalID" : "7E33E763-4663-48F2-B0CB-554000000003",
+      "localizations" : [
+        {
+          "description" : "Pay once, keep it forever.",
+          "displayName" : "Lifetime Access",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "ascend_staging_lifetime",
+      "referenceName" : "Lifetime Access",
+      "type" : "NonConsumable"
+    }
   ],
   "settings" : {
     "_applicationInternalID" : "",
@@ -33,7 +47,7 @@
           "codeOffers" : [
 
           ],
-          "displayPrice" : "49.99",
+          "displayPrice" : "29.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "7E33E763-4663-48F2-B0CB-554000000001",
@@ -41,7 +55,7 @@
             "internalID" : "0F6EC9A8-A75E-43EF-9C9E-554000000001",
             "numberOfPeriods" : 1,
             "paymentMode" : "free",
-            "subscriptionPeriod" : "P1W"
+            "subscriptionPeriod" : "P1M"
           },
           "localizations" : [
             {

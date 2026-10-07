@@ -31,13 +31,20 @@ final class CompositeCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
         reporters.forEach { $0.log(message) }
     }
 
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {
+    func record(
+        error: Error,
+        context: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {
         reporters.forEach {
             $0.record(
                 error: error,
                 context: context,
                 code: code,
-                additionalInfo: additionalInfo
+                additionalInfo: additionalInfo,
+                severity: severity
             )
         }
     }

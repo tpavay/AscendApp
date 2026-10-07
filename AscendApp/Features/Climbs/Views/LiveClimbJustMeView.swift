@@ -3,8 +3,8 @@ import SwiftUI
 /// The "Just Me" tab of the live climb session: a large centered progress hero shaped by the
 /// session's goal type, an animated summit bar carrying the previous-best marker directly
 /// beneath it whenever there is a goal to measure against, and a centered grid of medium live
-/// stats (elapsed - or steps on a duration goal - rank, pace, heart rate) sitting directly
-/// below - a 2x2 grid when heart rate is present, two-and-one when it is not. Renders over the
+/// stats (elapsed - or steps on a duration goal - rank, pace, floors, heart rate) sitting
+/// directly below - a 2x2 grid without heart rate, three over two with it. Renders over the
 /// climb's own hero photo (`LiveClimbSessionView.sessionBackground`) rather than a flat
 /// background, so text throughout carries its own shadow.
 ///
@@ -155,38 +155,51 @@ struct LiveClimbJustMeView: View {
         width - fillWidth >= 40
     }
 
-    /// A centered grid directly below the summit bar: the top-left box and Current Rank on
-    /// the first row always, then Pace and (when present) Heart Rate on the second - a 2x2
-    /// grid with a strap connected, two-and-one without one. Heart rate only appears when
-    /// `viewModel.liveHeartRateStatus` reports a remembered strap (`LiveClimbSessionView.
-    /// topChrome` draws no heart-rate indicator on this tab, so heart rate reads in exactly
-    /// one place). Both rows share one `GeometryReader`-computed column
-    /// width so the lone Pace box on the second row - centered by the VStack's default
-    /// alignment rather than stretched to fill - matches the width of the boxes above it
-    /// exactly, keeping the two-and-one shape balanced instead of lopsided.
+    /// A centered grid directly below the summit bar, two rows that always span its full width.
+    /// Without a strap it is two by two: the top-left box and Current Rank, then Pace and
+    /// Floors. A remembered strap (`viewModel.liveHeartRateStatus`) takes the seat beside Pace,
+    /// and Floors moves up between the top row's two boxes - those three are a plain value over
+    /// a label and narrow gracefully, where the pace pair and the heart-rate ring would not, and
+    /// a third row would not fit a compact phone. `LiveClimbSessionView.topChrome` draws no
+    /// heart-rate indicator on this tab, so heart rate reads in exactly one place.
     private var statGrid: some View {
         GeometryReader { proxy in
-            let columnWidth = (proxy.size.width - Self.statBoxSpacing) / 2
+            let heartRateStatus = viewModel.liveHeartRateStatus
+            let topColumns: CGFloat = heartRateStatus == nil ? 2 : 3
+            let topWidth = (proxy.size.width - Self.statBoxSpacing * (topColumns - 1)) / topColumns
+            let bottomWidth = (proxy.size.width - Self.statBoxSpacing) / 2
 
             VStack(spacing: Self.statBoxSpacing) {
                 HStack(spacing: Self.statBoxSpacing) {
                     topLeftStatCard
-                        .frame(width: columnWidth)
+                        .frame(width: topWidth)
+                    if heartRateStatus != nil {
+                        floorsCard
+                            .frame(width: topWidth)
+                    }
                     statCard(value: viewModel.currentRankDisplay, label: "CURRENT RANK")
-                        .frame(width: columnWidth)
+                        .frame(width: topWidth)
                 }
 
                 HStack(spacing: Self.statBoxSpacing) {
                     paceCard
-                        .frame(width: columnWidth)
-                    if let heartRateStatus = viewModel.liveHeartRateStatus {
+                        .frame(width: bottomWidth)
+                    if let heartRateStatus {
                         heartRateCard(status: heartRateStatus)
-                            .frame(width: columnWidth)
+                            .frame(width: bottomWidth)
+                    } else {
+                        floorsCard
+                            .frame(width: bottomWidth)
                     }
                 }
             }
         }
         .frame(height: Self.statBoxHeight * 2 + Self.statBoxSpacing)
+    }
+
+    /// Floors climbed so far, on the definition the saved workout will carry.
+    private var floorsCard: some View {
+        statCard(value: viewModel.displayedFloors.formatted(), label: "FLOORS")
     }
 
     /// The grid's top-left box: elapsed time for every goal type except a duration goal,

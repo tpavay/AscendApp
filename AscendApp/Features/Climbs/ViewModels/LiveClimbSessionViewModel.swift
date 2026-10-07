@@ -161,7 +161,9 @@ enum LiveClimbSessionMode: Equatable {
 @Observable
 final class LiveClimbSessionViewModel {
     let mode: LiveClimbSessionMode
-    /// How the live screen draws this session, kept here so every way back into it draws the same.
+    /// How the live screen draws this session, kept here so every way back into it draws the same:
+    /// the screen reads it from here on every pass and holds no copy of its own. A landmark climb
+    /// is always Classic; Ascend Mountain only ever presents a Just Climb.
     let experience: JustClimbExperience
     let motionSession: any HeadphoneMotionSessionServicing
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
@@ -390,6 +392,8 @@ final class LiveClimbSessionViewModel {
         motionSession.duration
     }
 
+    /// Floors climbed so far, converted exactly as `saveWorkout` converts the finished count,
+    /// so the figure on screen at the last step is the one the saved workout carries.
     var displayedFloors: Int {
         Workout.stepsToFloors(totalRecordedSteps)
     }
@@ -1653,5 +1657,18 @@ final class LiveClimbSessionViewModel {
                 )
             )
         }
+    }
+}
+
+/// A session is one object for as long as it runs, so a presenter pushes the session itself:
+/// Home hands `navigationDestination(item:)` the session a START tap began, and the screen is
+/// built from that item alone.
+extension LiveClimbSessionViewModel: Hashable {
+    nonisolated static func == (lhs: LiveClimbSessionViewModel, rhs: LiveClimbSessionViewModel) -> Bool {
+        lhs === rhs
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(self))
     }
 }

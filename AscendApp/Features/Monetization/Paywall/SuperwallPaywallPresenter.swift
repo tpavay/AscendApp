@@ -111,17 +111,28 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         guard configuration.revenueCatAPIKey != nil else { return }
         guard let apiKey = configuration.superwallAPIKey else { return }
 
-        let options = SuperwallOptions()
-        options.testModeBehavior = configuration.isSuperwallTestModeEnabled ? .always : .never
-        options.paywalls.shouldShowPurchaseFailureAlert = false
-
         Superwall.configure(
             apiKey: apiKey,
             purchaseController: purchaseController,
-            options: options
+            options: Self.makeOptions(configuration: configuration)
         )
         Superwall.shared.delegate = self
         isConfigured = true
+    }
+
+    static func makeOptions(configuration: MonetizationConfiguration) -> SuperwallOptions {
+        let options = SuperwallOptions()
+        options.testModeBehavior = configuration.isSuperwallTestModeEnabled ? .always : .never
+        options.paywalls.shouldShowPurchaseFailureAlert = false
+        // Superwall shows this one alert for every failed restore and discards the error it was
+        // handed, so the copy has to be true for nothing-found and for could-not-reach alike. Its
+        // default says "No Subscription Found", which is wrong for a climber who owns Lifetime.
+        options.paywalls.restoreFailed.title = "Nothing Restored"
+        options.paywalls.restoreFailed.message =
+            "Ascend found no active subscription or Lifetime purchase to restore for this Apple ID. "
+            + "Check your connection and try again."
+        options.paywalls.restoreFailed.closeButtonTitle = "OK"
+        return options
     }
 
     func updateSubscriptionStatus(entitlementIDs: Set<String>) {
@@ -266,7 +277,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
                 ),
                 identity: registration.identity
             )
-            onOutcome(.failed(message: "Subscription options could not open."))
+            onOutcome(.failed(message: "Plans could not open."))
             self.registrations[revision] = nil
         }
 

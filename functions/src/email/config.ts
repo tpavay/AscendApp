@@ -1,5 +1,10 @@
 import {defineSecret} from "firebase-functions/params";
-import type {TransactionalEmailConfig} from "./types";
+import {EMAIL_TYPES} from "./types";
+import type {
+  EmailType,
+  EnabledEmailTypes,
+  TransactionalEmailConfig,
+} from "./types";
 
 export const transactionalEmailConfig =
   defineSecret("TRANSACTIONAL_EMAIL_CONFIG");
@@ -7,6 +12,9 @@ export const DEFAULT_MARKETING_WEBSITE_URL = "https://ascendstepper.com";
 export const DEFAULT_TRANSACTIONAL_REPLY_TO_EMAIL =
   "support@ascendstepper.com";
 export const MIN_UNSUBSCRIBE_SIGNING_KEY_LENGTH = 32;
+// Short, upper case and free of markup: it is printed in the sender name, the
+// subject and a banner of every message a labelled environment sends.
+const ENVIRONMENT_LABEL_PATTERN = /^[A-Z][A-Z0-9]{1,11}$/;
 
 /**
  * Normalizes a public-facing HTTPS URL from config.
@@ -29,6 +37,27 @@ function normalizePublicUrl(value: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Reads which email types this environment delivers from config.
+ * @param {unknown} value - Raw `enabledEmailTypes`
+ * @return {EnabledEmailTypes | null} The setting, or null if invalid
+ */
+function parseEnabledEmailTypes(value: unknown): EnabledEmailTypes | null {
+  if (value === "all") {
+    return "all";
+  }
+
+  const known: readonly string[] = EMAIL_TYPES;
+  if (
+    !Array.isArray(value) ||
+    !value.every((type) => typeof type === "string" && known.includes(type))
+  ) {
+    return null;
+  }
+
+  return value as EmailType[];
 }
 
 /**
@@ -84,9 +113,47 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
     );
   }
 
+  // Mail from anywhere but the production site must say where it came from.
+  // Test accounts carry real addresses, and an unmarked recap from dev or
+  // staging is indistinguishable from a production one in the inbox. Tied to
+  // the host rather than left optional, so a test environment whose secret
+  // lacks the label fails here instead of sending unmarked mail.
+  const environmentLabel = config.environmentLabel;
+  if (environmentLabel === undefined) {
+    if (websiteUrl !== DEFAULT_MARKETING_WEBSITE_URL) {
+      throw new Error(
+        "TRANSACTIONAL_EMAIL_CONFIG.environmentLabel is required unless " +
+        "websiteUrl is the production site"
+      );
+    }
+  } else if (
+    typeof environmentLabel !== "string" ||
+    !ENVIRONMENT_LABEL_PATTERN.test(environmentLabel)
+  ) {
+    throw new Error(
+      "TRANSACTIONAL_EMAIL_CONFIG.environmentLabel must be 2 to 12 upper " +
+      "case letters or digits, starting with a letter"
+    );
+  }
+
+  // Required, never defaulted: this is what keeps an email type that ships in
+  // code - and whose producer already runs - from reaching climbers in an
+  // environment where nobody has decided it should. A default of "all" would
+  // make a secret rebuilt without the field switch every type on, and a
+  // default of none would switch email off without a sound.
+  const enabledEmailTypes = parseEnabledEmailTypes(config.enabledEmailTypes);
+  if (!enabledEmailTypes) {
+    throw new Error(
+      "TRANSACTIONAL_EMAIL_CONFIG.enabledEmailTypes must be \"all\" or a " +
+      "list of email types"
+    );
+  }
+
   return {
     provider: config.provider,
     apiKey: config.apiKey,
+    enabledEmailTypes,
+    ...(environmentLabel ? {environmentLabel} : {}),
     feedbackNotificationEmail: config.feedbackNotificationEmail,
     fromEmail: config.fromEmail,
     fromName: config.fromName,
@@ -105,6 +172,24 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
  */
 export function assertTransactionalEmailConfig(): void {
   getTransactionalEmailConfig();
+}
+
+/**
+ * Whether this environment delivers queued email of the given type.
+ *
+ * Takes a string, not an `EmailType`: a queued job outlives the build that
+ * wrote it and can name a type this build no longer knows.
+ * @param {string} emailType - A queued job's type
+ * @return {boolean} True when the type may be delivered here
+ */
+export function isEmailTypeEnabled(emailType: string): boolean {
+  const {enabledEmailTypes} = getTransactionalEmailConfig();
+  if (enabledEmailTypes === "all") {
+    return true;
+  }
+
+  const enabled: readonly string[] = enabledEmailTypes;
+  return enabled.includes(emailType);
 }
 
 /**
