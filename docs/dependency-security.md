@@ -70,3 +70,10 @@ Astro 6.4.8 became vulnerable to new XSS advisories and capped `sharp` at the un
 Astro 7 still declares `sharp` as `^0.34.0 || ^0.35.0` while the inherited libvips advisory covers every release below 0.35.0, so `web/package.json` overrides `sharp` to `^0.35.0`.
 Astro 7 declares `esbuild` as `^0.28.0` and its `vite` dependency declares `^0.27.0 || ^0.28.0`, both of which still admit the releases covered by the dev-server path-traversal advisory (`>=0.27.3 <0.28.1`), so `web/package.json` overrides `esbuild` to `^0.28.1`.
 Remove either override once every declared range in the tree resolves only to patched releases, after `npm run build` passes.
+
+## Root
+
+`@firebase/firestore` declares `@grpc/grpc-js` as `~1.9.0`, a range that cannot admit the patched 1.13.6 and 1.14.5 releases, so the root `package.json` overrides `@grpc/grpc-js` to `^1.13.6`.
+It reaches the root tree only through the `@firebase/rules-unit-testing` dev dependency that runs the emulator-backed rules suite.
+Dropping the override reintroduces the unauthorized-certificate advisory (GHSA-m9gg-hp2v-232j) and the handler-error disclosure advisory (GHSA-f596-whhp-79r4), which fail the root audit gate on every pull request.
+Remove the override once the resolved Firestore SDK declares a `@grpc/grpc-js` range that admits only patched releases, after `npm run test:firebase-rules` passes.

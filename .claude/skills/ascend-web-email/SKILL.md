@@ -10,6 +10,7 @@ paths:
 # Web + Email
 
 Website source lives in `web/` (Astro) and is built to `web/dist/` before deploy. Load `firebase-hosting-basics` for hosting/rewrite/deploy work.
+`/go` is the one link every social bio carries - it reads the user agent and hands an in-app browser to the App Store with per-platform campaign attribution; the URLs to paste and the behaviour contract are in `docs/social-bio-link.md`.
 
 ## No public unauthenticated endpoints
 The waitlist signup endpoint, its Beehiiv integration, and the public IP rate limiter were removed in #330: a live `POST /api/join-waitlist` with no form anywhere behind it was attack surface for no benefit.

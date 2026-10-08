@@ -1,0 +1,264 @@
+---
+// ascendstepper.com/go - the one link every social bio points at.
+//
+// Instagram's in-app browser drops an apps.apple.com navigation on the floor,
+// so the bio cannot carry the App Store URL itself. This page reads the user
+// agent: inside an in-app browser it draws one big button that hands off to
+// the App Store app's own scheme and says what to tap if nothing opens;
+// anywhere else it goes straight to the product page. The button is server
+// rendered with the direct campaign link, so a visitor without JavaScript
+// still has somewhere to tap. Attribution: `?src=instagram|tiktok|youtube|
+// facebook` picks the App Store campaign token (`docs/social-bio-link.md`).
+//
+// Deliberately standalone: no nav, no site footer beyond one home link, no
+// stylesheet request. A bounce page earns its keep by being on screen before
+// the thumb lifts.
+import AppStoreBadge from '../components/AppStoreBadge.astro';
+import { appStoreCampaignURL } from '../appStore';
+
+const directStoreURL = appStoreCampaignURL(null);
+const title = 'Get Ascend - Stair Stepper Racing';
+const description = 'Race real towers from any gym. Ascend is on the App Store for iPhone.';
+const socialImageUrl = 'https://ascendstepper.com/images/ascend-social-card.png';
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{title}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="description" content={description} />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#0d1117" />
+  <link rel="icon" type="image/png" href="/images/ascend-a-icon.png" />
+  <link rel="apple-touch-icon" href="/images/ascend-a-icon.png" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Ascend" />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content={socialImageUrl} />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Ascend logo and wordmark on a dark background" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content={socialImageUrl} />
+  <meta name="twitter:image:alt" content="Ascend logo and wordmark on a dark background" />
+  <style is:inline>
+    :root {
+      --accent: #86D30A;
+      --accent-hover: color-mix(in srgb, var(--accent) 88%, white);
+      --bg: #0d1117;
+      --text: #f0f2f5;
+      --muted: #8b949e;
+      --border: rgba(255, 255, 255, 0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(134, 211, 10, 0.14), transparent 46%),
+        var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: min(100%, 520px);
+      margin: 0 auto;
+      padding: max(40px, env(safe-area-inset-top)) 24px max(32px, env(safe-area-inset-bottom));
+      text-align: center;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 36px;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .logo img { width: 40px; height: 40px; }
+
+    .logo span {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin-bottom: 14px;
+      font-size: clamp(34px, 9vw, 44px);
+      font-weight: 850;
+      line-height: 1.04;
+      letter-spacing: -0.02em;
+    }
+
+    .lead {
+      margin-bottom: 32px;
+      color: #c9d1d9;
+      font-size: 18px;
+    }
+
+    .open {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 64px;
+      padding: 18px 24px;
+      border: 1px solid var(--accent);
+      border-radius: 14px;
+      background: var(--accent);
+      color: #080c10;
+      font-size: 20px;
+      font-weight: 800;
+      text-decoration: none;
+      transition: background 0.2s, border-color 0.2s, transform 0.1s;
+    }
+
+    .open:hover { border-color: var(--accent-hover); background: var(--accent-hover); }
+    .open:active { transform: scale(0.98); }
+
+    .status {
+      min-height: 24px;
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .status:empty { display: none; }
+
+    .in-app-only { display: none; }
+    [data-handoff="in-app"] .in-app-only { display: block; }
+
+    .manual {
+      margin-top: 20px;
+      padding: 16px 18px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      color: #c9d1d9;
+      font-size: 15px;
+      line-height: 1.55;
+      text-align: left;
+    }
+
+    .manual strong { color: var(--text); }
+
+    .manual p + p { margin-top: 8px; }
+
+    .manual-title {
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .manual .menu {
+      display: inline-block;
+      min-width: 28px;
+      padding: 0 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-align: center;
+    }
+
+    .manual a { color: var(--accent); font-weight: 700; text-decoration: none; }
+    .manual a:hover { color: var(--accent-hover); }
+
+    .badge { margin-top: 36px; }
+
+    noscript p { margin-top: 16px; color: var(--muted); font-size: 14px; }
+
+    footer {
+      padding: 0 24px max(20px, env(safe-area-inset-bottom));
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="/" class="logo">
+      <img src="/images/ascend-a-icon.png" alt="Ascend icon" width="40" height="40" />
+      <span>Ascend</span>
+    </a>
+
+    <h1>Race real towers from any gym.</h1>
+    <p class="lead">Ascend is on the App Store for iPhone.</p>
+
+    <a id="open" class="open" href={directStoreURL} rel="noopener">Get Ascend</a>
+    <p id="status" class="status" aria-live="polite"></p>
+
+    <!-- One line per sentence on purpose: Astro's HTML compression drops a
+         line break between a tag and text, which read as "Safarior". -->
+    <div class="manual in-app-only">
+      <p class="manual-title">Nothing opened?</p>
+      <p>Tap the <span class="menu" aria-label="more">···</span> menu, choose <strong>Open in Safari</strong> or <strong>Open in browser</strong>, then tap the button again.</p>
+      <p>Or <a id="open-browser" href={directStoreURL} target="_blank" rel="noopener">open the App Store page</a>.</p>
+    </div>
+
+    <noscript>
+      <p>Tap the button to open Ascend on the App Store.</p>
+    </noscript>
+
+    <div class="badge">
+      <AppStoreBadge href={directStoreURL} />
+    </div>
+  </main>
+
+  <footer>
+    <a href="/">ascendstepper.com</a>
+  </footer>
+
+  <script>
+    import { handoffPlan } from '../goHandoff';
+
+    const plan = handoffPlan(navigator.userAgent, location.search);
+    const root = document.documentElement;
+    const open = document.getElementById('open') as HTMLAnchorElement | null;
+    const openBrowser = document.getElementById('open-browser') as HTMLAnchorElement | null;
+    const badge = document.querySelector<HTMLAnchorElement>('.store-badge');
+    const status = document.getElementById('status');
+
+    root.dataset.handoff = plan.inApp ? 'in-app' : 'browser';
+    root.dataset.campaign = plan.campaignToken;
+
+    if (open) open.href = plan.handoffURL;
+    if (openBrowser) openBrowser.href = plan.storeURL;
+    if (badge) badge.href = plan.handoffURL;
+
+    if (plan.redirect) {
+      if (status) status.textContent = 'Opening the App Store…';
+      location.replace(plan.handoffURL);
+    } else {
+      if (open) open.textContent = 'Open the App Store';
+      // Let the button paint first, then try the hand-off on the visitor's
+      // behalf. A webview that refuses a scripted scheme navigation still
+      // passes a tapped one on, which is what the button is for.
+      window.setTimeout(() => {
+        location.href = plan.handoffURL;
+      }, 350);
+    }
+  </script>
+</body>
+</html>
