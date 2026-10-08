@@ -29,6 +29,7 @@ on:
       - ".ruby-version"
       - "fastlane/**"
       - "SharedTestVectors/**"
+      - "docs/social-bio-link.md"
       - "docs/superwall-paywall-setup.md"
       - "docs/onboarding-design-guide.md"
       - "docs/app-store-brief.md"
@@ -135,6 +136,13 @@ jobs:
               - "web/public/superwall/**"
               - "web/src/pages/index.astro"
               - "web/src/pages/terms.astro"
+              # The social bio link suite imports the hand-off logic the /go
+              # page runs and reads the page, the hosting config and the doc
+              # that publishes the per-platform URLs.
+              - "web/src/appStore.ts"
+              - "web/src/goHandoff.ts"
+              - "web/src/pages/go.astro"
+              - "docs/social-bio-link.md"
               - "docs/superwall-paywall-setup.md"
               - "docs/onboarding-design-guide.md"
               - "docs/app-store-brief.md"
