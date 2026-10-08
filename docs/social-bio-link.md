@@ -45,7 +45,7 @@ The logic is `web/src/goHandoff.ts`; the page is `web/src/pages/go.astro`; `scri
   The button is still rendered underneath for the moment the redirect is in flight.
 - **Without JavaScript**: the server-rendered button and App Store badge already link to the `Link-direct` campaign URL, so there is always something to tap. Attribution needs the script, so a no-script visitor counts as direct.
 
-The page is standalone on purpose: no nav, no footer, no stylesheet or script request, no tracking.
+The page is standalone on purpose: no nav, no site footer beyond one home link, no stylesheet or script request, no tracking.
 The site carries no analytics script, and the bounce page is not where one appears; the campaign token is the attribution.
 
 ## Verifying a change
