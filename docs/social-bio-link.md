@@ -6,7 +6,9 @@ Instagram's in-app browser drops an `apps.apple.com` navigation silently, so a r
 
 ## The one URL per platform
 
-Copy these exactly. The same page serves all four; only `src` and the call-to-action wording around the link differ.
+Copy these exactly.
+It is one page, `/go`, with one URL per platform, and those URLs differ only in `src`.
+The page and what it does are identical everywhere; only `src` and the call-to-action wording around the link change from platform to platform.
 
 | Platform | Where it goes | URL |
 |---|---|---|
@@ -36,7 +38,7 @@ Installs attributed to these tokens show up in App Store Connect under Analytics
 
 The logic is `web/src/goHandoff.ts`; the page is `web/src/pages/go.astro`; `scripts/test/social-bio-link.test.mjs` holds the contract.
 
-- **In an in-app browser** (Instagram, Facebook, Messenger, TikTok, the YouTube app, or any other iOS WKWebView, recognised from the user agent): the page stays on screen with one large button, `Open the App Store`, that links to the App Store app's own scheme (`itms-apps://`, which a webview passes to iOS even when it refuses an `https://apps.apple.com` hand-off).
+- **In an in-app browser** (Instagram, Facebook, Messenger, TikTok, the YouTube app, or any other: an iOS user agent with no `Safari/` token, or an Android one carrying the `; wv)` WebView marker): the page stays on screen with one large button, `Open the App Store`, that links to the App Store app's own scheme (`itms-apps://`, which a webview passes to iOS even when it refuses an `https://apps.apple.com` hand-off).
   The same hand-off is attempted automatically a moment after the page paints.
   Under the button, a short instruction says what to tap if nothing opened (the `···` menu, then `Open in Safari` or `Open in browser`), plus a plain link to the https product page.
 - **In a real browser** (Safari, Chrome, Firefox, Edge on iPhone; any desktop browser; Android): the page redirects straight to the https campaign link with `location.replace`, so the back button never lands on the bounce page.

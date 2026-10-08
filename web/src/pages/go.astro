@@ -241,7 +241,6 @@ const socialImageUrl = 'https://ascendstepper.com/images/ascend-social-card.png'
 
     root.dataset.handoff = plan.inApp ? 'in-app' : 'browser';
     root.dataset.campaign = plan.campaignToken;
-    if (plan.host) root.dataset.host = plan.host;
 
     if (open) open.href = plan.handoffURL;
     if (openBrowser) openBrowser.href = plan.storeURL;

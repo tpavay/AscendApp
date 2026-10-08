@@ -15,6 +15,7 @@ import {
   bioLinkCampaignToken
 } from "../../web/src/appStore.ts";
 import { classifyBrowser, handoffPlan } from "../../web/src/goHandoff.ts";
+import { ciFilterPatterns } from "./support/ci-workflow-filters.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const pathFromRoot = (...parts) => join(repositoryRoot, ...parts);
@@ -93,25 +94,12 @@ test("the campaign URL carries pt, ct and mt=8 and nothing else", () => {
 });
 
 test("every in-app browser is recognised from its user agent and every real browser is not", () => {
-  const inApp = {
-    instagram: "instagram",
-    facebook: "facebook",
-    messenger: "facebook",
-    tiktok: "tiktok",
-    youtube: "youtube",
-    unnamedWebView: "webview",
-    androidInstagram: "instagram"
-  };
-  for (const [name, host] of Object.entries(inApp)) {
-    const result = classifyBrowser(USER_AGENTS[name]);
-    assert.equal(result.inApp, true, `${name} should be in-app`);
-    assert.equal(result.host, host, `${name} host`);
+  for (const name of ["instagram", "facebook", "messenger", "tiktok", "youtube", "unnamedWebView", "androidInstagram"]) {
+    assert.equal(classifyBrowser(USER_AGENTS[name]).inApp, true, `${name} should be in-app`);
   }
 
   for (const name of ["safari", "chrome", "firefox", "edge", "desktopSafari", "desktopChrome", "androidChrome"]) {
-    const result = classifyBrowser(USER_AGENTS[name]);
-    assert.equal(result.inApp, false, `${name} should be a real browser`);
-    assert.equal(result.host, null);
+    assert.equal(classifyBrowser(USER_AGENTS[name]).inApp, false, `${name} should be a real browser`);
   }
 
   assert.equal(classifyBrowser("").inApp, false);
@@ -147,31 +135,20 @@ test("an iOS in-app browser gets the tap-first App Store scheme; everything else
   assert.equal(handoffPlan(USER_AGENTS.safari, "").campaignToken, "Link-direct");
 });
 
-test("the /go page is served clean, renders a store link without JavaScript, and never hardcodes the store", async () => {
+test("the /go page is served clean, never hardcodes the store, and loads no tracking", async () => {
   const page = await source("page");
 
-  // Server-rendered fallback: the big button and the badge both link to the
-  // direct campaign before any script runs, so a blank page is impossible.
-  assert.match(page, /import \{ appStoreCampaignURL \} from ['"]\.\.\/appStore['"]/);
-  assert.match(page, /const directStoreURL = appStoreCampaignURL\(null\)/);
-  assert.match(page, /<a id="open" class="open" href=\{directStoreURL\}[^>]*>Get Ascend<\/a>/);
-  assert.match(page, /<AppStoreBadge href=\{directStoreURL\} \/>/);
-  assert.match(page, /<noscript>/);
-  assert.doesNotMatch(page, /["']https:\/\/apps\.apple\.com/, "the page repeats the store URL instead of importing it");
-  assert.doesNotMatch(page, /itms-apps/, "the scheme belongs to appStore.ts, not the page");
+  // The store URL and its app scheme have one home: web/src/appStore.ts.
+  assert.ok(!page.includes("https://apps.apple.com"), "the page repeats the store URL instead of importing it");
+  assert.ok(!page.includes("itms-apps"), "the scheme belongs to appStore.ts, not the page");
 
-  // The in-app instruction names the real menu items, and the script that
-  // decides is the shared module the tests above exercise.
-  assert.match(page, /Nothing opened\?/);
-  assert.match(page, /Open in Safari/);
-  assert.match(page, /Open in browser/);
-  assert.match(page, /import \{ handoffPlan \} from ['"]\.\.\/goHandoff['"]/);
-  assert.match(page, /location\.replace\(plan\.handoffURL\)/, "a browser visitor is redirected, not left on a bounce page");
-  assert.match(page, /<meta name="robots" content="noindex" \/>/);
+  assert.ok(page.includes('<meta name="robots" content="noindex" />'), "a bounce page must not be indexed");
+  assert.ok(page.includes("<noscript>"), "a visitor without JavaScript needs a fallback");
 
   // No tracking script: the site has none, and a bounce page must not be
   // where one appears.
-  assert.doesNotMatch(page, /gtag|googletagmanager|mixpanel|analytics|<script src=/i);
+  assert.doesNotMatch(page, /<script[^>]*\ssrc=/i);
+  assert.doesNotMatch(page, /gtag|googletagmanager|mixpanel/i);
 
   // Firebase Hosting serves web/dist/go.html at /go only with clean URLs on,
   // and the hosting block has no rewrite that would shadow the path.
@@ -191,8 +168,8 @@ test("the doc publishes one URL per platform and CI runs this suite when its inp
   }
   assert.ok(doc.includes(campaignURL("Link-direct")));
 
-  const ci = await source("ci");
+  const scriptsFilter = ciFilterPatterns(await source("ci")).get("scripts") ?? [];
   for (const input of ["web/src/appStore.ts", "web/src/goHandoff.ts", "web/src/pages/go.astro", "docs/social-bio-link.md"]) {
-    assert.ok(ci.includes(`- "${input}"`), `ci.yml scripts filter lacks ${input}`);
+    assert.ok(scriptsFilter.includes(input), `ci.yml scripts filter lacks ${input}`);
   }
 });

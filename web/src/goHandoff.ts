@@ -1,53 +1,31 @@
 import { appStoreCampaignURL, bioLinkCampaignToken } from './appStore.ts';
 
-// Which in-app browser a visitor arrived through, read from the user agent.
-// `webview` is any other iOS WKWebView: on iOS every real browser (Safari,
-// Chrome, Firefox, Edge, DuckDuckGo, Brave) carries a `Safari/` token, and an
-// embedded WKWebView is the one thing that does not.
-export type InAppHost = 'instagram' | 'facebook' | 'tiktok' | 'youtube' | 'webview';
-
 export interface BrowserClassification {
   inApp: boolean;
-  host: InAppHost | null;
   ios: boolean;
 }
 
-const NAMED_HOSTS: ReadonlyArray<[InAppHost, RegExp]> = [
-  ['instagram', /\bInstagram\b/i],
-  ['facebook', /\bFB(AN|AV|_IAB|IOS)\b|\bMessengerForiOS\b|\bFBAN\/Messenger/i],
-  ['tiktok', /\bmusical_ly\b|\bBytedanceWebview\b|\bTikTok\b|\bBytedance\b/i],
-  ['youtube', /\bYouTube\b|com\.google\.ios\.youtube/i]
-];
-
+// On iOS every real browser (Safari, Chrome, Firefox, Edge, DuckDuckGo, Brave)
+// carries a `Safari/` token, and an embedded in-app browser does not - the
+// YouTube app's does not even claim AppleWebKit. `; wv)` is Android's WebView
+// marker; Android needs no App Store hand-off, but it still gets the tap-first
+// page rather than a redirect that may be swallowed.
 export function classifyBrowser(userAgent: string): BrowserClassification {
   const ua = userAgent ?? '';
   const ios = /\b(iPhone|iPad|iPod)\b/.test(ua);
 
-  for (const [host, pattern] of NAMED_HOSTS) {
-    if (pattern.test(ua)) {
-      return { inApp: true, host, ios: ios || /\bMacintosh\b/.test(ua) };
-    }
-  }
-
-  // An iOS WebKit user agent with no `Safari/` token is an embedded WKWebView.
-  // `wv` is Android's WebView marker; Android needs no App Store hand-off, but
-  // it still gets the tap-first page rather than a redirect that may be
-  // swallowed.
-  const isWebKit = /\bAppleWebKit\b/.test(ua);
-  const hasSafariToken = /\bSafari\/\d/.test(ua);
-  if (ios && isWebKit && !hasSafariToken) {
-    return { inApp: true, host: 'webview', ios };
+  if (ios && !/\bSafari\/\d/.test(ua)) {
+    return { inApp: true, ios };
   }
   if (/\bAndroid\b/.test(ua) && /;\s*wv\)/.test(ua)) {
-    return { inApp: true, host: 'webview', ios: false };
+    return { inApp: true, ios: false };
   }
 
-  return { inApp: false, host: null, ios };
+  return { inApp: false, ios };
 }
 
 export interface HandoffPlan {
   inApp: boolean;
-  host: InAppHost | null;
   campaignToken: string;
   // The product page every browser can open.
   storeURL: string;
@@ -71,7 +49,6 @@ export function handoffPlan(userAgent: string, search: string): HandoffPlan {
 
   return {
     inApp: browser.inApp,
-    host: browser.host,
     campaignToken: bioLinkCampaignToken(source),
     storeURL,
     handoffURL: useAppScheme ? appStoreCampaignURL(source, 'itms-apps') : storeURL,
