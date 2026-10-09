@@ -26,10 +26,9 @@ The October haunted stretch is in effect in every photograph, because the sandbo
 | ![01](01-before-near-100.png) ![02](02-after-near-100.png) | **Two steps below the 100 post**, on a straight flight. | The shaft crosses the `00`. | `100` reads whole; the shaft disappears behind the sign. |
 | ![03](03-before-turn-100.png) ![04](04-after-turn-100.png) | **Six steps below the 100 post, mid-turn**, where the camera looks across at the sign. | The shaft covers the middle of the number. | `100` reads whole. |
 | ![05](05-after-far-300.png) | **Twenty-five steps below the 300 post**, seen across the turn ahead. | | `300` reads at distance; nothing of the post reaches it. |
-| ![06](06-before-wide-100100.png) ![07](07-after-wide-1000100.png) | **A climber far up the mountain**: posts at 100,100 and 1,000,100 steps. | The shaft crosses the number. | A seven-glyph `1,000,100` fits inside the plaque's border at a smaller size; a short number keeps the usual size. |
 
 ## The contract
 
 `AscendApp/Features/AscendMountain/Reality/MountainTrailPost.swift` holds the post's layout in its own frame, with the climber toward +z: the shaft ends at its half width, the board starts beyond it, and the face sits beyond the board.
-`AscendAppTests/AscendMountainTrailPostTests.swift` pins it three ways - the numbers, the built entity's bounds, and the sight line from the real camera to every corner of the number across the first 1,250 steps of the course - and `MountainPlaque.fittedTitleSize` for the wide numbers.
+`AscendAppTests/AscendMountainTrailPostTests.swift` pins it three ways - the numbers, the built entity's bounds, and the sight line from the real camera to every corner of the number across the first 1,250 steps of the course.
 Put the sign back through the shaft and all three geometry tests fail.

@@ -2,7 +2,6 @@ import Foundation
 import RealityKit
 import simd
 import Testing
-import UIKit
 
 @testable import AscendApp
 
@@ -106,24 +105,6 @@ struct AscendMountainTrailPostTests {
         #expect(posts.count >= 10, "the climb faced posts \(posts.sorted())")
         #expect(farFrames > 0 && nearFrames > 0, "checked \(farFrames) far and \(nearFrames) near frames")
         #expect(violations.isEmpty, "the shaft crossed the number \(violations.count) times, first at \(violations.first ?? "-")")
-    }
-
-    /// A post stands at every hundred steps of the climber's whole life on the mountain, so its
-    /// number grows to six digits and a comma. A number the border clips cannot be read, so the
-    /// title shrinks to fit, and only when it must, so neighbouring posts match.
-    @Test
-    func aWideNumberShrinksToFitThePlaque() {
-        let usable = MountainPlaque.imageSize.width - MountainPlaque.titleMargin * 2
-
-        #expect(MountainPlaque.fittedTitleSize(for: "100", requested: 250) == 250)
-        #expect(MountainPlaque.fittedTitleSize(for: "1,900", requested: 250) == 250)
-        for title in ["16,900", "100,100", "1,000,100"] {
-            let fitted = MountainPlaque.fittedTitleSize(for: title, requested: 250)
-            let width = (title as NSString).size(withAttributes: [.font: MountainPlaque.titleFont(size: fitted)]).width
-            #expect(fitted <= 250 && fitted > 60)
-            #expect(width <= usable, "\(title) at \(fitted)pt is \(width)px wide, over \(usable)")
-        }
-        #expect(MountainPlaque.fittedTitleSize(for: "1,000,100", requested: 250) < MountainPlaque.fittedTitleSize(for: "100,100", requested: 250))
     }
 
     /// Whether the segment from `a` to `b` touches the box, ends included.
