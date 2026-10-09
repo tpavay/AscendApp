@@ -77,6 +77,10 @@ paths:
   It used to floor totals at a `minimumStepsByTimeFrame` (640,000 yearly, and so on), which is where identical demo totals and the podium ties they produced came from.
   That floor is gone, so demo standings now differ per account and match the seeded workouts.
 
+## Ascend Mountain capture
+
+- The simulator has no headphone motion, so a real Mountain session never passes its headphone gate there. A Dev build launched with `-AscendMountainSandbox` drives the identical scene from a step clock instead, and its launch arguments (`-AscendMountainSandboxOffset <steps>` to stand at a chosen step, `-AscendMountainSandboxSPM 0` to hold still, `-AscendMountainDebugOverlayCollapsed 1` to fold the readout away) are documented on `AscendMountainSandboxView`. Photograph it headless with `xcrun simctl io <udid> screenshot`; `docs/quality/evidence/mountain-trail-post-sign/README.md` is a worked example.
+
 ## Staging content capture
 
 - One command puts staging into a state worth photographing: `node scripts/seed-content-ready.mjs --email <account>`.
