@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Dev-only Ascend Mountain with a simulated climber, reachable from Debug Tools or by launching
 /// a Dev build with `-AscendMountainSandbox`. `-AscendMountainSandboxSPM <n>` sets the starting
-/// cadence and `-AscendMountainSandboxOffset <n>` the starting visual step offset.
+/// cadence, `-AscendMountainSandboxOffset <n>` the starting visual step offset, and
+/// `-AscendMountainDebugOverlayCollapsed 1` folds the readout away for a screenshot.
 ///
 /// The simulator has no headphone motion, so the real session cannot get past its headphone
 /// gate there; this drives the identical scene from a step clock instead, for tuning the feel
