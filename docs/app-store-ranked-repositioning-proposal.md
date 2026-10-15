@@ -78,7 +78,7 @@ None of those are repeated here, because a repeat buys nothing and costs bytes.
 | `compete` | The intent word. Pairs with `climb`, `steps`, and the name to reach competitive rather than passive searchers. |
 | `records` | Covers Best Efforts intent, "stair records" and "climb records". The weakest term in the set and the first to cut if something better appears. |
 | `stairs` | Apple's plural handling is inconsistent, and `stairs` is how people actually type the query. Cheap insurance on the single most important token. |
-| `hiit` | Four bytes for the routines feature and a high-volume interval-training query. Fills the field exactly. |
+| `hiit` | Four bytes for the routines feature and a high-volume interval-training query. Leaves the set 1 byte under the 100-byte field. |
 
 ### Deliberately excluded
 
