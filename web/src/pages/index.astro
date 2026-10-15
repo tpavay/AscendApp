@@ -3,7 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import AppStoreBadge from '../components/AppStoreBadge.astro';
 import { APP_STORE_URL } from '../appStore';
 ---
-<BaseLayout title="Ascend - Stair Stepper Racing" description="Compete on the stair stepper. Your headphones count every step, and Ascend turns every one of them into a race against other climbers.">
+<BaseLayout title="Ascend - Ranked Stair Stepper" description="Compete on the stair stepper. Your headphones count every step, and Ascend ranks every one of them against other climbers.">
 
   <style>
     .wrap {
@@ -491,7 +491,7 @@ import { APP_STORE_URL } from '../appStore';
     </video>
     <div class="hero-inner">
       <h1 class="display">Compete on <span class="accent">the stair stepper.</span></h1>
-      <p class="lead">Your headphones count every step. Ascend turns every one of them into a race against other climbers.</p>
+      <p class="lead">Your headphones count every step. Ascend ranks every one of them against other climbers.</p>
       <div class="actions">
         <AppStoreBadge href={APP_STORE_URL} />
         <button class="watch" id="watch-story" type="button">
@@ -529,7 +529,7 @@ import { APP_STORE_URL } from '../appStore';
       </div>
       <div>
         <div class="act lime">The fix</div>
-        <h2 class="display">Ascend turns it <span class="accent">into a race.</span></h2>
+        <h2 class="display">Ascend turns it <span class="accent">into a ranked climb.</span></h2>
         <div class="beats">
           <div class="beat">
             <h3>Your headphones count every step</h3>
@@ -560,7 +560,7 @@ import { APP_STORE_URL } from '../appStore';
         <div class="crown"><img src="/images/home/crown-alltime-mythic.png" alt="" loading="lazy" decoding="async" /><span>ALL TIME</span></div>
       </div>
       <div class="gallery">
-        <div class="phone small"><div class="screen"><img src="/images/home/app-race.jpg" alt="An Ascend race, fifth of 412 climbers" loading="lazy" decoding="async" /></div></div>
+        <div class="phone small"><div class="screen"><img src="/images/home/app-race.jpg" alt="An Ascend climb ranked fifth of 412 climbers" loading="lazy" decoding="async" /></div></div>
         <div class="phone"><div class="screen"><img src="/images/home/app-leaderboard.jpg" alt="The weekly leaderboard with last week's champion" loading="lazy" decoding="async" /></div></div>
         <div class="phone small"><div class="screen"><img src="/images/home/app-globe.jpg" alt="Climbs around the globe on the Home screen" loading="lazy" decoding="async" /></div></div>
       </div>
@@ -578,7 +578,7 @@ import { APP_STORE_URL } from '../appStore';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Ascend is a stair stepper racing app for iOS. You pick a real tower, such as the Empire State Building, Taipei 101, or the Eiffel Tower, and race its actual step count on the machine in front of you, against every climber who has taken it on. Your rank, your records, and your history all come out of the races you run.
+            Ascend ranks stair stepper workouts. You pick a real tower, such as the Empire State Building, Taipei 101, or the Eiffel Tower, climb its actual step count on the machine in front of you, and Ascend ranks you against every climber who has taken it on. Your rank, your records, and your history all come out of the climbs you finish.
           </div>
         </div>
       </div>
@@ -590,14 +590,14 @@ import { APP_STORE_URL } from '../appStore';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            A Live Climb is one race up one tower. Ascend counts your steps in real time from compatible headphone motion, ranks you against the attempts already posted on that tower, and gives you a completion summary, splits, and leaderboard context when you finish.
+            A Live Climb is one ranked attempt at one tower. Ascend counts your steps in real time from compatible headphone motion, ranks you against the attempts already posted on that tower, and gives you a completion summary, splits, and leaderboard context when you finish.
           </div>
         </div>
       </div>
 
       <div class="faq-item">
         <button class="faq-question">
-          How does Ascend count my steps during a race?
+          How does Ascend count my steps during a climb?
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="faq-answer">
@@ -609,7 +609,7 @@ import { APP_STORE_URL } from '../appStore';
 
       <div class="faq-item">
         <button class="faq-question">
-          What do I need to race?
+          What do I need to climb?
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="faq-answer">
@@ -626,7 +626,7 @@ import { APP_STORE_URL } from '../appStore';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            For heart rate, yes. Connect Apple Health and Ascend attaches the heart-rate data recorded while you were racing to that climb, so an Apple Watch or any wearable that writes to Apple Health can supply it. Ascend does not import workouts from Apple Health, and there is no manual workout entry. Every record in Ascend comes from a climb you performed in Ascend.
+            For heart rate, yes. Connect Apple Health and Ascend attaches the heart-rate data recorded while you were climbing to that climb, so an Apple Watch or any wearable that writes to Apple Health can supply it. Ascend does not import workouts from Apple Health, and there is no manual workout entry. Every record in Ascend comes from a climb you performed in Ascend.
           </div>
         </div>
       </div>
@@ -650,7 +650,7 @@ import { APP_STORE_URL } from '../appStore';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Ascend is out now on the App Store for iPhone. Download it, pick a tower, and start the race.
+            Ascend is out now on the App Store for iPhone. Download it, pick a tower, and take your rank.
           </div>
         </div>
       </div>
@@ -658,7 +658,7 @@ import { APP_STORE_URL } from '../appStore';
   </section>
 
   <section class="cta" id="download">
-    <h2 class="display">Make the stair stepper <span class="accent">a race.</span></h2>
+    <h2 class="display">Every stair stepper workout, <span class="accent">ranked.</span></h2>
     <div class="actions">
       <AppStoreBadge href={APP_STORE_URL} />
     </div>

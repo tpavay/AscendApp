@@ -9,10 +9,11 @@ const pathFromRoot = (...parts) => join(repositoryRoot, ...parts);
 
 const sourcePaths = {
   home: pathFromRoot("web/src/pages/index.astro"),
+  go: pathFromRoot("web/src/pages/go.astro"),
   support: pathFromRoot("web/src/pages/support.astro"),
   privacy: pathFromRoot("web/src/pages/privacy.astro"),
   terms: pathFromRoot("web/src/pages/terms.astro"),
-  proposal: pathFromRoot("docs/app-store-racing-repositioning-proposal.md"),
+  proposal: pathFromRoot("docs/app-store-ranked-repositioning-proposal.md"),
   projectMemory: pathFromRoot("CLAUDE.md"),
   demoSeed: pathFromRoot("scripts/seed-demo-user.mjs")
 };
@@ -49,17 +50,17 @@ function textCodeBlockAfter(contents, heading) {
   return match[1];
 }
 
-test("the App Store proposal pins the settled racing metadata", async () => {
+test("the App Store proposal pins the settled ranked metadata", async () => {
   const proposal = await source("proposal");
   const appName = textCodeBlockAfter(proposal, "App name");
   const subtitle = textCodeBlockAfter(proposal, "Subtitle");
   const keywords = textCodeBlockAfter(proposal, "Keywords");
 
-  assert.equal(appName, "Ascend: Stair Stepper Racing");
-  assert.equal(subtitle, "Race real towers from any gym");
-  assert.equal([...appName].length, 28);
-  assert.equal([...subtitle].length, 29);
-  assert.equal(Buffer.byteLength(keywords, "utf8"), 100);
+  assert.equal(appName, "Ascend: Ranked Stair Stepper");
+  assert.equal(subtitle, "Climb real towers from any gym");
+  assert.ok([...appName].length <= 30);
+  assert.ok([...subtitle].length <= 30);
+  assert.ok(Buffer.byteLength(keywords, "utf8") <= 100);
   assert.match(proposal, /Status: \*\*proposal\*\*, not applied\./);
   assert.match(proposal, /Nothing here has been written to App Store Connect\./);
 
@@ -149,20 +150,24 @@ test("the demo seeder only creates sessions the app can still record", async () 
   }
 });
 
-test("the public website consistently presents Ascend as racing", async () => {
+test("the public website consistently presents Ascend as ranked", async () => {
   const publicSources = await Promise.all([
     source("home"),
+    source("go"),
     source("support"),
     source("privacy"),
     source("terms")
   ]);
   const outwardCopy = publicSources.join("\n").replace(/<[^>]+>/g, "");
 
-  assert.match(outwardCopy, /stair stepper racing app/i);
+  // Ranked, not racing, since the captain's repositioning on 2026-10-15: the
+  // product is ranked stair stepper workouts, and every outward surface says so.
+  assert.match(outwardCopy, /Ascend ranks stair stepper workouts\./);
+  assert.match(outwardCopy, /Ranked stair stepper workouts\./);
   // The homepage the captain approved on 2026-10-01 leads with competition on the
   // machine itself, not with towers.
   assert.match(outwardCopy, /Compete on the stair stepper\./);
-  assert.match(outwardCopy, /Ascend turns every one of them into a race against other climbers/);
+  assert.match(outwardCopy, /Ascend ranks every one of them against other climbers/);
   assert.match(
     outwardCopy,
     /does not import workouts from Apple Health or any other app/i
@@ -176,7 +181,15 @@ test("the public website consistently presents Ascend as racing", async () => {
     "log sessions",
     "import supported workout data",
     // Read as "this is a running app" in the positioning review; the machine leads now.
-    "Tower running, without the tower"
+    "Tower running, without the tower",
+    // Racing was the positioning until 2026-10-15; "race" now names only the live run
+    // against other climbers, never the product.
+    "stair stepper racing app",
+    "Stair Stepper Racing",
+    "into a race against other climbers",
+    "Race real towers",
+    "Get back to racing",
+    "a racing and fitness app"
   ]) {
     assert.doesNotMatch(outwardCopy, new RegExp(retiredCopy, "i"));
   }

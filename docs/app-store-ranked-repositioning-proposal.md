@@ -1,4 +1,4 @@
-# App Store listing proposal: racing repositioning
+# App Store listing proposal: ranked repositioning
 
 Locale: en-US.
 Status: **proposal**, not applied.
@@ -6,6 +6,10 @@ Status: **proposal**, not applied.
 This file is a proposal for issue [#439](https://github.com/tpavay/AscendApp/issues/439).
 Nothing here has been written to App Store Connect.
 Firstmate owns App Store Connect metadata and applies it.
+
+Repositioned from racing to ranked on 2026-10-15 at the captain's direction.
+The product is ranked stair stepper workouts: every climb lands on a leaderboard, which is what the app actually does, and "ranked" lands with more people than "racing" does (Liftoff sells "Ranked Gym Workouts" on the same understanding).
+The racing listing that preceded this one is in git history.
 
 Every claim below was re-verified against build `2026081101` (commit `650acdbc`) on 2026-08-11, after the pre-submission audit found the live description and the live App Review notes both selling manual workout entry and Apple Health workout import - two features [#437](https://github.com/tpavay/AscendApp/issues/437) deleted on 2026-08-08.
 That is Guideline 2.1 and 2.3, so both are submission blockers.
@@ -31,40 +35,40 @@ The live App Review notes describe the same two deleted features, so they are re
 ## App name
 
 ```text
-Ascend: Stair Stepper Racing
+Ascend: Ranked Stair Stepper
 ```
 
 28 characters of 30.
-Settled by the captain on 2026-08-08.
+Settled by the captain on 2026-10-15, replacing `Ascend: Stair Stepper Racing` from 2026-08-08.
 
 ## Subtitle
 
 ```text
-Race real towers from any gym
+Climb real towers from any gym
 ```
 
-29 characters of 30.
-Settled by the captain on 2026-08-08.
+30 characters of 30.
+The hook the captain settled on 2026-08-08 with the verb swapped: the name now says ranked, so the subtitle says what you do.
 
 ## Keywords
 
 ```text
-climber,stepmill,climb,steps,cardio,leaderboard,running,vertical,workout,compete,records,stairs,hiit
+climber,stepmill,race,steps,cardio,leaderboard,running,vertical,workout,compete,records,stairs,hiit
 ```
 
-100 bytes of 100.
+99 bytes of 100.
 
 ### How this set was derived
 
 Apple indexes the app name and subtitle alongside the keyword field and combines tokens across all three into phrases.
-The name supplies `ascend`, `stair`, `stepper`, `racing`; the subtitle supplies `race`, `real`, `towers`, `gym`.
+The name supplies `ascend`, `ranked`, `stair`, `stepper`; the subtitle supplies `climb`, `real`, `towers`, `gym`.
 None of those are repeated here, because a repeat buys nothing and costs bytes.
 
 | Keyword | Why it earns its bytes |
 |---|---|
 | `climber` | Combines with the name's `stair` to cover "stair climber", the second most common name for the machine after StairMaster. |
 | `stepmill` | The third common name for the machine, and a term nobody searching for a general fitness app types. |
-| `climb` | The product's own verb, and the root of the queries that describe what Ascend does rather than what it runs on. |
+| `race` | Discovery, not positioning. The listing no longer calls the product racing, but "stair race" and "stairmaster race" are still typed by exactly the customer, and the query keeps finding it. `climb`, the product's own verb, moved to the subtitle. |
 | `steps` | Ascend's canonical metric, and the unit every climb target is expressed in. |
 | `cardio` | The broadest term where a stair-stepper app has any legitimate claim, and the category a stepper user self-identifies with. |
 | `leaderboard` | The differentiator. Anyone searching this is searching for competition, which is exactly the customer. |
@@ -115,24 +119,24 @@ It was derived for a tracking product, and it reads like one: every term describ
 - `heart rate` spends 11 bytes including a space on a secondary feature.
 - `intervals` and `routines` are replaced by the shorter, higher-volume `hiit`.
 
-That frees the bytes for `climber`, `stepmill`, `climb`, `stairs`, `running`, `vertical`, and `compete`, which are the terms that describe racing a stair machine.
+That frees the bytes for `climber`, `stepmill`, `climb`, `stairs`, `running`, `vertical`, and `compete`, which are the terms that describe climbing a stair machine for rank.
 
 ## Description
 
 ```text
-Tower running is a real sport. Ascend puts it on the machine in front of you.
+Every stair stepper workout, ranked.
 
-Athletes race the stairwells of the world's tallest buildings. Getting into one of those races takes a skyscraper, an event date, a travel budget, and a place in a limited field.
+Ascend puts a real tower on the machine in front of you. Climb its real step count, and your time lands on that tower's leaderboard beside every climber who has finished it.
 
-Ascend is that sport, on a stair stepper, on any day, from any gym.
+Ranked stair stepper workouts, on any day, from any gym.
 
-Pick a tower. Race its real step count. Take your rank.
+Pick a tower. Climb its real step count. Take your rank.
 
-RACE REAL TOWERS
+RANK ON REAL TOWERS
 
 Choose a landmark and attack its actual step count: the Empire State Building, Taipei 101, the Eiffel Tower, Burj Khalifa, and more.
 Motion sensors in compatible AirPods or Beats count your steps in real time.
-Every climber who has raced that tower lines up beside you, each running their best attempt.
+Every climber who has finished that tower lines up beside you, each running their best attempt.
 Watch your position move while you climb.
 
 CLIMB THE LEADERBOARDS
@@ -149,20 +153,20 @@ Be ready when the next tower drops.
 
 BREAK YOUR OWN RECORDS
 
-Best Efforts turns the races you finish into a record book only you can break.
+Best Efforts turns the climbs you finish into a record book only you can break.
 Most steps, longest climb, strongest pace, and more, each tied back to the session that set it.
 See the work stack up instead of disappearing when the session ends.
 
-TRAIN BETWEEN RACES
+TRAIN BETWEEN CLIMBS
 
 Guided routines build structured intervals and changing intensity into a stair session.
 Pair a Bluetooth chest strap for live heart rate and effort zones.
 Or start a Just Climb when you only want the work, with a step goal if you want one.
-Every finished session lands in the same history as your races.
+Every finished session lands in the same history as your ranked climbs.
 
 SHARE THE CLIMB
 
-Build a share card from the tower you raced and the result you posted.
+Build a share card from the tower you climbed and the rank you posted.
 
 Ascend is built for people who take the stair stepper seriously.
 It is not a generic activity tracker and it is not a social feed.
@@ -172,21 +176,21 @@ An auto-renewing subscription is required after onboarding.
 Available plans, billing terms, and any eligible trial are shown before purchase.
 Subscriptions can be managed through your Apple Account, and eligible purchases can be restored in Ascend.
 
-Every session in Ascend - a tower race, a Just Climb, or a guided routine - is counted by motion sensors in compatible AirPods or Beats, and needs a stair stepper to climb.
+Every session in Ascend - a ranked tower climb, a Just Climb, or a guided routine - is counted by motion sensors in compatible AirPods or Beats, and needs a stair stepper to climb.
 Apple Health is optional and is used only to attach heart rate and active-energy calories recorded while you were climbing in Ascend.
 A Bluetooth heart-rate monitor is optional.
 Ascend is not a medical device and does not provide medical advice.
 ```
 
-2,738 characters of 4,000.
+2,706 characters of 4,000.
 
 ### What changed from the live description, and why
 
 The live description opens with "Your stair-stepper work should count", which is a tracker's promise: it says the app will hold your effort for you.
 
-This one opens by naming the sport.
-Tower running exists, it is organised, and the only thing standing between a stepper user and it is a skyscraper they cannot get into.
-That framing names the customer and answers "why does this not already exist" in the same breath, which "nobody does this" does not.
+This one opens by saying what the app does to a workout: it ranks it.
+The first racing draft opened by naming tower running as a sport; the captain replaced that framing on 2026-10-15 because ranked is what the product really is and reads as relatable where racing reads as a sport you have to be an athlete for.
+The real-tower hook stays, because "which tower" is still the answer to "ranked on what".
 
 Three other changes carry the repositioning:
 
@@ -206,7 +210,7 @@ Every claim in the description, and where the app makes it true. Checked against
 
 | Claim | Evidence |
 |---|---|
-| Races real towers by their actual step count | `web/public/climbs/catalog-v1.json` - 59 `available` climbs. Empire State Building, Taipei 101, Eiffel Tower and Burj Khalifa are all `available` and all carry a `realStairCount` sourced in `docs/climb-real-stair-counts.md`. |
+| Climbs real towers by their actual step count | `web/public/climbs/catalog-v1.json` - 59 `available` climbs. Empire State Building, Taipei 101, Eiffel Tower and Burj Khalifa are all `available` and all carry a `realStairCount` sourced in `docs/climb-real-stair-counts.md`. |
 | Steps come from AirPods / Beats motion | `HeadphoneMotionReadinessService` gates every start on `CMHeadphoneMotionManager.isDeviceMotionAvailable`; the supported models are listed in `CompatibleHeadphonesHelpSheet`. |
 | A field of other climbers, live | `LiveReplayLeaderboardPanel` renders the `everyone` field during the session; `functions/src/liveReplayLeaderboard.ts` derives it as each climber's best attempt. |
 | Per-tower rankings on finish time, cadence, steps | `ClimbDetailView`'s All Times page; the global board's metrics are `LeaderboardMetric` - steps, workouts, duration, steps/min. |
@@ -214,7 +218,7 @@ Every claim in the description, and where the app makes it true. Checked against
 | Best Efforts record book | `BestEffortMetric` - most steps, longest climb, highest average SPM, most steps in a time window, fastest step target. |
 | Guided routines with chest-strap heart rate | `AscendApp/Features/Routines/`; `HeartRateMonitorIntegrationCard` names the Bluetooth chest strap, and `LiveHeartRateSourceKind` ranks it above the watch. |
 | Just Climb, open-ended with an optional goal | `HomeStartAction.justClimb` -> `LiveClimbSessionViewModel(justClimbGoal:experience:)`. |
-| Share card from a race result | `AscendApp/Features/ShareComposer/`. |
+| Share card from a ranked result | `AscendApp/Features/ShareComposer/`. |
 | No manual entry, no import | `WorkoutSource.filterOptions == [.headphoneMotion]`, and `AscendAppTests/ManualLoggingAndImportRemovalEvidenceTests.swift` reads the removal back off rendered pixels. |
 | Apple Health is heart rate and active energy only, over the session's own window | `HealthKitAuthorizationClient.readTypes`; `workoutType()` is never requested and no share types are requested. |
 
@@ -227,7 +231,7 @@ Two claims the description deliberately does **not** make, because the build doe
 
 Locale-independent; App Store Connect keeps one set for the version.
 Apple's limit on this field is 4,000 bytes.
-As written below it is **3,810 bytes**, so the bracketed fields have roughly 190 bytes to grow into - enough for real addresses, eight-digit backup codes, a video URL and a contact line, but not much more.
+As written below it is **3,847 bytes**, so the bracketed fields have roughly 150 bytes to grow into - enough for real addresses, eight-digit backup codes, a video URL and a contact line, but not much more.
 Count it again after filling them in; a long hosting URL is the one field that can blow the budget.
 
 This text is truthful **only** once the bracketed fields are filled and the checklist below is verified against the production-signed build being submitted.
@@ -236,10 +240,10 @@ Every unbracketed sentence in it was checked against build `2026081101` on 2026-
 ```text
 ASCEND - NOTES FOR APP REVIEW
 
-Ascend is a stair stepper racing app. You pick a real tower, such as the Empire
-State Building or Burj Khalifa, and race its real step count on a stair stepper
-while motion sensors in your AirPods or Beats count your steps. Your time is
-ranked on that tower's leaderboard.
+Ascend ranks stair stepper workouts. You pick a real tower, such as the Empire
+State Building or Burj Khalifa, and climb its real step count on a stair stepper
+while motion sensors in your AirPods or Beats count your steps. Your time
+ranks on that tower's leaderboard.
 
 1. SIGNING IN
 
@@ -280,7 +284,7 @@ start this live climb" and no session begins. That is designed behaviour, not a
 failure.
 
 The video was recorded on the submitted build and shows the headphones, the
-machine, a live tower race with splits and leaderboard movement, the finish,
+machine, a live tower climb with splits and leaderboard movement, the finish,
 and a guided routine start to finish. We will ship the hardware on request.
 
 3. WHAT YOU CAN REVIEW WITHOUT THAT HARDWARE

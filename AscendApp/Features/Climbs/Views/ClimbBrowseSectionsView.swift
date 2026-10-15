@@ -166,7 +166,7 @@ struct ClimbBrowseSectionsView: View {
                         .foregroundStyle(.white.opacity(0.9))
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Text("New climbs open soon. Ghost pins on the globe show where the next races will land.")
+                    Text("New climbs open soon. Ghost pins on the globe show where the next towers will land.")
                         .font(.montserratRegular(size: 12.5))
                         .foregroundStyle(.white.opacity(0.56))
                         .lineSpacing(2)

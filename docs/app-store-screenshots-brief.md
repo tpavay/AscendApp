@@ -24,15 +24,18 @@ Regenerate them only for a genuinely new concept; the prompts in section 9 are w
 
 ## 1. What Ascend is
 
-Ascend is a **stair stepper racing app for iOS**. Racing is the product; measuring the
-session is a byproduct. You pick a real tower, race its actual step count against every
-attempt already posted on it via headphone-motion step counting, and either hit the target
-(completion) or you don't.
+Ascend is the iOS app for **ranked stair stepper workouts**. Ranking is the product;
+measuring the session is a byproduct. You pick a real tower, climb its actual step count
+beside every attempt already posted on it via headphone-motion step counting, and either
+hit the target (completion) or you don't.
 
-`CLAUDE.md` ("What Is Ascend") owns the positioning statement and the tower-running market
-framing behind it. Read it there rather than from a second copy.
+`CLAUDE.md` ("What Is Ascend") owns the positioning statement and the framing behind it.
+Read it there rather than from a second copy.
 
-**Core promise:** *Race real towers. From any gym.*
+**Core promise:** *Every stair stepper workout, ranked. Real towers, from any gym.*
+
+The shipped screenshot captions below still say "race" on frames 03 and 04. They are the set
+live in App Store Connect; re-rendering them for the ranked wording is a separate change.
 
 **The retention hook - First Ascent:** the first person ever to finish a climb holds its
 **First Ascent** forever. Permanent prestige that can never be reclaimed, even after faster

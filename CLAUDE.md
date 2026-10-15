@@ -4,7 +4,7 @@ This file is the always-on core. Domain detail lives in `.claude/skills/` - see 
 
 ## What Is Ascend
 
-Ascend is a **stair stepper racing app** for iOS, shipping as `Ascend: Stair Stepper Racing`. Racing is the product; measuring the session is a byproduct. The market framing, settled by the captain on 2026-08-08: tower running is already an organised sport, and entering one takes a skyscraper, an event date, a travel budget, and a place in a limited field - **Ascend is that sport, on a machine, on any day, from any gym.** Users race real towers, top per-climb leaderboards, claim First Ascents, and watch their progress compound. The leaderboard is the conversation. Outward copy derived from this: `docs/app-store-racing-repositioning-proposal.md`.
+Ascend is the iOS app for **ranked stair stepper workouts**, shipping as `Ascend: Ranked Stair Stepper`. Ranking is the product; measuring the session is a byproduct. The framing, settled by the captain on 2026-10-15 when it replaced racing (the product really is ranked, and ranked lands with more people than racing does): every workout is a climb up a real tower that lands on that tower's leaderboard - **ranked stair stepper workouts, on any day, from any gym.** Users climb real towers, top per-climb leaderboards, claim First Ascents, and watch their progress compound. The leaderboard is the conversation. "Race" survives only as the verb for a Live Climb's genuine race against other climbers' best attempts (the Mountain, the board), never as what Ascend is. Outward copy derived from this: `docs/app-store-ranked-repositioning-proposal.md`; the App Store Connect listing is applied by hand and can lag it.
 
 **Solo dev + AI assisted** (Tyler Pavay). Launch monetization is a hard paywall with no freemium tier: `$29.99/year` with a one-month free trial, or Lifetime, one payment (`$49.99` planned) with no trial and no renewal, sold from 1.2.3. Both unlock RevenueCat entitlement `app_access`; `$9.99/month` stays on sale in App Store Connect but no Ascend paywall offers it, and there is no weekly or separate launch-discount product. Prices and trials are App Store Connect settings that move without a release, so `docs/superwall-paywall-setup.md` owns the current numbers. The paywall is a server-enforced lock, not just a screen: Firebase requires a server-owned grant projected from RevenueCat (`docs/revenuecat-server-entitlement-enforcement.md`).
 
@@ -21,7 +21,7 @@ The niche defined by exclusion. Check every feature, screen, and copy change aga
   Apple Health stays only to enrich an Ascend-owned climb, and the read set is exactly two types: `heartRate` and `activeEnergyBurned`, read over that climb's own time window and attached to it.
   Ascend never requests `workoutType()`, never reads outside a climb's window, and never writes to Apple Health.
   Quote that set when writing any disclosure - the legal pages, the `Info.plist` usage string, and the App Store answers all have to agree, and `HealthKitAuthorizationClient.readTypes` is the authority.
-  No outward surface may promise otherwise. Outward copy: `docs/app-store-racing-repositioning-proposal.md`.
+  No outward surface may promise otherwise. Outward copy: `docs/app-store-ranked-repositioning-proposal.md`.
 
 Full rationale: `ascend-brand-voice`.
 
@@ -29,7 +29,7 @@ Full rationale: `ascend-brand-voice`.
 
 Niche-aggressive and declarative. The user already chose to be here; the copy doesn't beg.
 
-- **Active verbs at the front.** *Climb. Race. Rank. Push.* Never "explore" / "discover" as openers.
+- **Active verbs at the front.** *Climb. Rank. Push. Claim.* Never "explore" / "discover" as openers.
 - **Imperative over invitational.** *Be the first* beats *You could be the first*.
 - **No hedging.** Cut "maybe," "perhaps," "feel free to."
 - **Specific over abstract.** Name landmarks, verbs, and earned numbers.
