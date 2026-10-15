@@ -90,10 +90,10 @@ Recommendation: launch without it.
 If the captain accepts that risk, swap it in for `leaderboard`, which is the same 11 bytes:
 
 ```text
-climber,stepmill,climb,steps,cardio,stairmaster,running,vertical,workout,compete,records,stairs,hiit
+climber,stepmill,race,steps,cardio,stairmaster,running,vertical,workout,compete,records,stairs,hiit
 ```
 
-100 bytes of 100.
+99 bytes of 100.
 
 **`everest`, and mountain names generally.**
 [#440](https://github.com/tpavay/AscendApp/issues/440) is curating unraceable mountains out of the catalogue.
@@ -119,7 +119,7 @@ It was derived for a tracking product, and it reads like one: every term describ
 - `heart rate` spends 11 bytes including a space on a secondary feature.
 - `intervals` and `routines` are replaced by the shorter, higher-volume `hiit`.
 
-That frees the bytes for `climber`, `stepmill`, `climb`, `stairs`, `running`, `vertical`, and `compete`, which are the terms that describe climbing a stair machine for rank.
+That frees the bytes for `climber`, `stepmill`, `race`, `stairs`, `running`, `vertical`, and `compete`, which are the terms that describe climbing a stair machine for rank.
 
 ## Description
 

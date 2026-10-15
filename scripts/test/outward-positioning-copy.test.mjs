@@ -58,9 +58,9 @@ test("the App Store proposal pins the settled ranked metadata", async () => {
 
   assert.equal(appName, "Ascend: Ranked Stair Stepper");
   assert.equal(subtitle, "Climb real towers from any gym");
-  assert.ok([...appName].length <= 30);
-  assert.ok([...subtitle].length <= 30);
-  assert.ok(Buffer.byteLength(keywords, "utf8") <= 100);
+  assert.equal([...appName].length, 28);
+  assert.equal([...subtitle].length, 30);
+  assert.equal(Buffer.byteLength(keywords, "utf8"), 99);
   assert.match(proposal, /Status: \*\*proposal\*\*, not applied\./);
   assert.match(proposal, /Nothing here has been written to App Store Connect\./);
 
@@ -189,7 +189,8 @@ test("the public website consistently presents Ascend as ranked", async () => {
     "into a race against other climbers",
     "Race real towers",
     "Get back to racing",
-    "a racing and fitness app"
+    "a racing and fitness app",
+    "You race other climbers"
   ]) {
     assert.doesNotMatch(outwardCopy, new RegExp(retiredCopy, "i"));
   }
