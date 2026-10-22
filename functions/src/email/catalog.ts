@@ -1,5 +1,6 @@
 import {renderDropEmailFromPayload} from "./dropTemplate";
 import {
+  renderBirthdayEmailFromPayload,
   renderFirstAscentClaimedEmailFromPayload,
   renderFirstClimbCompletedEmailFromPayload,
   renderLeaderboardFirstPlaceEmailFromPayload,
@@ -94,6 +95,11 @@ export const emailTypeConfigs: Record<EmailType, EmailTypeDefinition> = {
   },
   drop_announcement: {
     render: renderDropEmailFromPayload,
+    retryDelaysMs: standardRetryDelaysMs,
+    sendPolicy: "send_now",
+  },
+  birthday: {
+    render: renderBirthdayEmailFromPayload,
     retryDelaysMs: standardRetryDelaysMs,
     sendPolicy: "send_now",
   },

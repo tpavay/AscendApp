@@ -46,6 +46,7 @@ export {reconcileAppAccess} from "./revenueCat/reconciliation";
 export {
   expireRevenueCatEntitlements,
 } from "./revenueCat/expiration";
+export {birthdayEmails} from "./birthdayEmails";
 export {
   composeMonthlyRecaps,
   composeWeeklyRecaps,

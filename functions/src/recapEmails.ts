@@ -239,6 +239,7 @@ import {
   referenceStepCount,
 } from "./climbDropNotifications";
 import {runWithBoundedConcurrency} from "./concurrency";
+import {APP_STORE_URL} from "./email/config";
 import {keepNewestRow} from "./leaderboardResults";
 import {
   enqueueLifecycleEmailIfAllowed,
@@ -259,14 +260,6 @@ import {
   leaderboardDocumentId,
   previousPeriod,
 } from "./leaderboardPeriod";
-
-/**
- * Ascend's production App Store Connect app id (data/app-setup-runbook.md).
- * Deliberately environment-invariant, unlike `getMarketingWebsiteUrl()`: this
- * is the one public App Store listing, the same regardless of which Firebase
- * project the sweep happens to run in.
- */
-const APP_STORE_URL = "https://apps.apple.com/app/id6757202987";
 
 const USERS_COLLECTION = "users";
 const WORKOUTS_COLLECTION = "workouts";
