@@ -21,6 +21,7 @@ import {
 import {
   renderBirthdayEmail,
   renderBirthdayEmailFromPayload,
+  renderWeeklyRecapActiveEmail,
   renderWeeklyRecapInactiveEmail,
 } from "../src/email/templates";
 import {EMAIL_TYPES} from "../src/email/types";
@@ -133,40 +134,71 @@ test("the email wears the recap shell, footer, and unsubscribe link", () => {
   assert.doesNotMatch(withoutLink.html, /Unsubscribe/);
 });
 
-test("the email is plain text on the recap rhythm, with no age and no box", () => {
-  const rendered = renderBirthdayEmail(
-    {ctaUrl: APP_URL, firstName: "Tyler"},
-    {unsubscribeUrl: UNSUBSCRIBE}
-  );
+test("the email is plain text on the recap structure, with no age, box or label",
+  () => {
+    const rendered = renderBirthdayEmail(
+      {ctaUrl: APP_URL, firstName: "Tyler"},
+      {unsubscribeUrl: UNSUBSCRIBE}
+    );
 
-  // No bordered card and no big number: the body is the eyebrow, headline,
-  // two lines of copy and the button, as in the "We missed you" email.
-  assert.doesNotMatch(rendered.html, /border-radius:20px/);
-  assert.doesNotMatch(rendered.html, /font-size:56px/);
-  assert.doesNotMatch(rendered.html, /floors, one for every year/i);
-  assert.doesNotMatch(rendered.text, /\d+ floors?/);
-  assert.doesNotMatch(rendered.text, /Your birthday climb:/);
-  assert.doesNotMatch(rendered.html, />\d{1,3}<\/p>/);
+    // No bordered card, no big number and no eyebrow label: the body is the
+    // cake, headline and two lines of copy, then the button.
+    assert.doesNotMatch(rendered.html, /border-radius:20px/);
+    assert.doesNotMatch(rendered.html, /font-size:56px/);
+    assert.doesNotMatch(rendered.html, /letter-spacing:0\.22em/);
+    assert.doesNotMatch(rendered.html, /Birthday Climb/);
+    assert.doesNotMatch(rendered.text, /Birthday Climb/);
+    assert.doesNotMatch(rendered.html, /floors, one for every year/i);
+    assert.doesNotMatch(rendered.text, /\d+ floors?/);
+    assert.doesNotMatch(rendered.text, /Your birthday climb:/);
+    assert.doesNotMatch(rendered.html, />\d{1,3}<\/p>/);
 
-  const inactive = renderWeeklyRecapInactiveEmail(
-    {
+    // Headline and body are left-aligned, as in every other Ascend email.
+    const bodyRow = rendered.html.split("<tr>")
+      .find((row) => row.includes("<h1")) ?? "";
+    assert.doesNotMatch(bodyRow, /text-align:center/);
+    assert.match(bodyRow, /padding:40px 30px 34px;/);
+    assert.match(bodyRow, /<h1 style="margin:0 0 18px;font-size:34px;/);
+
+    // The button sits in its own centered row, the same markup the active
+    // recap ends its body with.
+    const ctaRow = (html: string): string | undefined => html.match(
+      /<tr><td style="padding:0 30px 40px;text-align:center;"><a [^]*?<\/a><\/td><\/tr>/
+    )?.[0];
+    const active = renderWeeklyRecapActiveEmail({
+      calendar: [],
+      climbsCompleted: 3,
       ctaUrl: APP_URL,
       earnedBadges: [],
-      firstAscents: [],
-      gapCount: 2,
-      periodLabel: "Oct 5 - Oct 11",
-    },
-    {unsubscribeUrl: UNSUBSCRIBE}
-  );
-  for (const shared of [
-    "padding:40px 30px 40px;",
-    "font-size:34px;line-height:1.1;",
-    "padding-top:28px;",
-  ]) {
-    assert.ok(inactive.html.includes(shared), `recap uses ${shared}`);
-    assert.ok(rendered.html.includes(shared), `birthday uses ${shared}`);
-  }
-});
+      landmarksFinished: [],
+      periodLabel: "Sep 15 - Sep 21",
+      totalFloors: 210,
+      totalSteps: 8500,
+    });
+    const birthdayCta = ctaRow(rendered.html);
+    assert.ok(birthdayCta, "birthday button is in a centered row");
+    assert.equal(
+      birthdayCta?.replace(/>[^<]*<\/a>/, "></a>"),
+      ctaRow(active.html)?.replace(/>[^<]*<\/a>/, "></a>")
+    );
+    assert.match(birthdayCta ?? "", />Start my birthday climb<\/a>/);
+
+    // The headline wears the "We missed you" headline style.
+    const inactive = renderWeeklyRecapInactiveEmail(
+      {
+        ctaUrl: APP_URL,
+        earnedBadges: [],
+        firstAscents: [],
+        gapCount: 2,
+        periodLabel: "Oct 5 - Oct 11",
+      },
+      {unsubscribeUrl: UNSUBSCRIBE}
+    );
+    const headlineStyle = "font-size:34px;line-height:1.1;font-weight:800;" +
+      "color:#ffffff;letter-spacing:-0.02em;";
+    assert.ok(inactive.html.includes(headlineStyle));
+    assert.ok(rendered.html.includes(headlineStyle));
+  });
 
 test("birthday jobs render through the queue and reject a bad payload", () => {
   const job = {

@@ -1377,6 +1377,21 @@ function renderRecapCtaHtml(label: string, url: string): string {
 }
 
 /**
+ * Renders the closing row that holds the centered CTA button, the row the
+ * active recap and the birthday email end their body with.
+ * @param {string} label - Button label
+ * @param {string} url - Button destination
+ * @return {string} CTA `<tr>` HTML
+ */
+function renderRecapCtaRowHtml(label: string, url: string): string {
+  return [
+    "<tr><td style=\"padding:0 30px 40px;text-align:center;\">",
+    renderRecapCtaHtml(label, url),
+    "</td></tr>",
+  ].join("");
+}
+
+/**
  * Builds the plain-text "Achievement earned" lines for a set of earned
  * badges, shared by both cadences and both variants' plain-text renders -
  * plain text has no images, so this is where a badge's fact still has to
@@ -1503,9 +1518,7 @@ function renderRecapActiveEmail(
     `${RECAP_TEXT};">Your activity</h2>`,
     renderCalendarHtml(payload.calendar),
     "</td></tr>",
-    "<tr><td style=\"padding:0 30px 40px;text-align:center;\">",
-    renderRecapCtaHtml(copy.ctaLabel, payload.ctaUrl),
-    "</td></tr>",
+    renderRecapCtaRowHtml(copy.ctaLabel, payload.ctaUrl),
     renderRecapFooterHtml(copy.whyReceivedActive, context.unsubscribeUrl),
   ].join("");
 
@@ -1763,13 +1776,12 @@ export function renderMonthlyRecapInactiveEmailFromPayload(
 // Birthday
 //
 // The simple warm greeting with the birthday challenge under it: a hello from
-// everyone at Ascend, one plain line of challenge and one action. It lays out
-// headline, body and CTA exactly as the "We missed you" email does, in the same
-// recap shell, footer and CTA, so it reads as the same family. It never states
-// the climber's age.
+// everyone at Ascend, one plain line of challenge and one action. It is built
+// from the same recap shell, footer and centered CTA row as the active recap,
+// with a left-aligned headline and body, so it reads as the same family. It
+// never states the climber's age, and it carries no eyebrow label.
 // =============================================================================
 
-const BIRTHDAY_EYEBROW = "Birthday Climb";
 const BIRTHDAY_CTA_LABEL = "Start my birthday climb";
 const BIRTHDAY_PREHEADER = "Everyone at Ascend is wishing you a great one.";
 const BIRTHDAY_WHY_RECEIVED = "You get this because you shared your birthday " +
@@ -1812,11 +1824,7 @@ export function renderBirthdayEmail(
   const challenge = "Climb one floor for every year of your age today.";
 
   const bodyRowsHtml = [
-    "<tr><td style=\"padding:40px 30px 40px;\">",
-    "<p style=\"margin:0 0 14px;font-size:12px;letter-spacing:0.22em;",
-    `text-transform:uppercase;color:${BRAND_ACCENT_COLOR};font-weight:700;">`,
-    escapeHtml(BIRTHDAY_EYEBROW),
-    "</p>",
+    "<tr><td style=\"padding:40px 30px 34px;\">",
     "<p style=\"margin:0 0 6px;font-size:48px;line-height:1.1;\">",
     "\u{1F382}</p>",
     "<h1 style=\"margin:0 0 18px;font-size:34px;line-height:1.1;",
@@ -1827,9 +1835,8 @@ export function renderBirthdayEmail(
     `${RECAP_TEXT_MUTED};">${escapeHtml(greeting)}</p>`,
     "<p style=\"margin:14px 0 0;font-size:16px;line-height:1.6;color:",
     `${RECAP_TEXT};">${escapeHtml(challenge)}</p>`,
-    "<div style=\"padding-top:28px;\">",
-    renderRecapCtaHtml(BIRTHDAY_CTA_LABEL, payload.ctaUrl),
-    "</div></td></tr>",
+    "</td></tr>",
+    renderRecapCtaRowHtml(BIRTHDAY_CTA_LABEL, payload.ctaUrl),
     renderRecapFooterHtml(BIRTHDAY_WHY_RECEIVED, context.unsubscribeUrl),
   ].join("");
 
