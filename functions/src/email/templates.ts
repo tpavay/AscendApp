@@ -1772,7 +1772,7 @@ const BIRTHDAY_EYEBROW = "Birthday Climb";
 const BIRTHDAY_CTA_LABEL = "Start my birthday climb";
 const BIRTHDAY_PREHEADER = "Climb your age in floors today.";
 const BIRTHDAY_WHY_RECEIVED = "You get this because you shared your birthday " +
-  "in Ascend. The birthday climb is a fun extra, totally optional.";
+  "in Ascend.";
 
 /**
  * Parses and validates a stored birthday payload.
@@ -1813,8 +1813,7 @@ export function renderBirthdayEmail(
     "HAPPY BIRTHDAY!";
   const greeting = "Everyone at Ascend is wishing you a great one. " +
     "Thanks for climbing with us.";
-  const challenge = "Climb one floor for every year today and see where " +
-    "you land on the board.";
+  const challenge = "Climb one floor for every year of your age today.";
   const floorsLabel = payload.age === 1 ? "floor" : "floors";
 
   const bodyRowsHtml = [

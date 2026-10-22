@@ -102,6 +102,15 @@ test("the email carries the greeting, the age challenge, and the CTA", () => {
   assert.ok(rendered.html.includes(`href="${APP_URL}"`));
   assert.match(rendered.text, /Start my birthday climb: https:\/\/apps\.apple\.com/);
   assert.match(rendered.text, /34 floors, one for every year/);
+  assert.match(
+    rendered.text,
+    /^Climb one floor for every year of your age today\.$/m
+  );
+  assert.match(
+    rendered.text,
+    /^You get this because you shared your birthday in Ascend\.$/m
+  );
+  assert.doesNotMatch(rendered.text, /board|optional/i);
   assert.ok(!rendered.html.includes("—") && !rendered.text.includes("—"));
 });
 
