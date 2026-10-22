@@ -19,6 +19,7 @@ export const EMAIL_TYPES = [
   "monthly_recap_active",
   "monthly_recap_inactive",
   "drop_announcement",
+  "birthday",
 ] as const;
 export type EmailType = typeof EMAIL_TYPES[number];
 /** Which email types an environment delivers: all of them, or a list. */
@@ -272,6 +273,16 @@ export interface DropEmailPayload {
   whyReceived: string;
 }
 
+/**
+ * A birthday greeting. `firstName` is omitted when the climber has no usable
+ * name on file (never stored as an empty string), and the subject falls back
+ * to the nameless greeting. The email never states the climber's age.
+ */
+export interface BirthdayEmailPayload {
+  ctaUrl: string;
+  firstName?: string;
+}
+
 export type EmailJobPayload =
   | EmptyEmailPayload
   | FirstClimbCompletedPayload
@@ -279,7 +290,8 @@ export type EmailJobPayload =
   | LeaderboardFirstPlacePayload
   | RecapActivePayload
   | RecapInactivePayload
-  | DropEmailPayload;
+  | DropEmailPayload
+  | BirthdayEmailPayload;
 
 export interface EmailJobDocument {
   attemptCount: number;
