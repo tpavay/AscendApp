@@ -21,6 +21,7 @@ import {
 import {
   renderBirthdayEmail,
   renderBirthdayEmailFromPayload,
+  renderWeeklyRecapInactiveEmail,
 } from "../src/email/templates";
 import {EMAIL_TYPES} from "../src/email/types";
 import type {EmailJobDocument, EmailJobPayload} from "../src/email/types";
@@ -50,7 +51,7 @@ test("the subject greets the climber by first name with a celebration emoji",
       "Happy Birthday from Ascend, Tyler! \u{1F389}"
     );
     const rendered = renderBirthdayEmail(
-      {age: 34, ctaUrl: APP_URL, firstName: "Tyler"},
+      {ctaUrl: APP_URL, firstName: "Tyler"},
       {unsubscribeUrl: UNSUBSCRIBE}
     );
     assert.equal(
@@ -64,7 +65,7 @@ test("a climber with no usable name gets the nameless subject", () => {
 
   for (const stored of [undefined, null, "", "   ", "\n\t", "CHANGE", "change", 7]) {
     assert.equal(cleanFirstName(stored), null, `stored ${String(stored)}`);
-    const payload = buildBirthdayEmailPayload(34, stored);
+    const payload = buildBirthdayEmailPayload(stored);
     assert.equal("firstName" in payload, false);
 
     const rendered = renderBirthdayEmailFromPayload(payload as EmailJobPayload);
@@ -80,7 +81,7 @@ test("a stored name is cleaned before it reaches a subject or the HTML", () => {
   assert.equal(cleanFirstName("a".repeat(100))?.length, 40);
 
   const rendered = renderBirthdayEmail(
-    {age: 34, ctaUrl: APP_URL, firstName: "<script>alert(1)</script>"},
+    {ctaUrl: APP_URL, firstName: "<script>alert(1)</script>"},
     {unsubscribeUrl: UNSUBSCRIBE}
   );
   assert.doesNotMatch(rendered.html, /<script>/);
@@ -88,20 +89,18 @@ test("a stored name is cleaned before it reaches a subject or the HTML", () => {
   assert.doesNotMatch(rendered.subject, /[\r\n]/);
 });
 
-test("the email carries the greeting, the age challenge, and the CTA", () => {
+test("the email carries the greeting, the challenge line, and the CTA", () => {
   const rendered = renderBirthdayEmail(
-    {age: 34, ctaUrl: APP_URL, firstName: "Tyler"},
+    {ctaUrl: APP_URL, firstName: "Tyler"},
     {unsubscribeUrl: UNSUBSCRIBE}
   );
 
   assert.match(rendered.html, /HAPPY BIRTHDAY, TYLER!/);
   assert.match(rendered.html, /Everyone at Ascend is wishing you a great one/);
-  assert.match(rendered.html, />34<\/p>/);
-  assert.match(rendered.html, /one for every year/);
+  assert.match(rendered.html, /Climb one floor for every year of your age today\./);
   assert.match(rendered.html, /Start my birthday climb/);
   assert.ok(rendered.html.includes(`href="${APP_URL}"`));
   assert.match(rendered.text, /Start my birthday climb: https:\/\/apps\.apple\.com/);
-  assert.match(rendered.text, /34 floors, one for every year/);
   assert.match(
     rendered.text,
     /^Climb one floor for every year of your age today\.$/m
@@ -116,7 +115,7 @@ test("the email carries the greeting, the age challenge, and the CTA", () => {
 
 test("the email wears the recap shell, footer, and unsubscribe link", () => {
   const rendered = renderBirthdayEmail(
-    {age: 34, ctaUrl: APP_URL, firstName: "Tyler"},
+    {ctaUrl: APP_URL, firstName: "Tyler"},
     {unsubscribeUrl: UNSUBSCRIBE}
   );
 
@@ -128,20 +127,50 @@ test("the email wears the recap shell, footer, and unsubscribe link", () => {
   assert.match(rendered.text, /Unsubscribe: https:\/\/ascendstepper\.com/);
 
   const withoutLink = renderBirthdayEmail(
-    {age: 34, ctaUrl: APP_URL},
+    {ctaUrl: APP_URL},
     {}
   );
   assert.doesNotMatch(withoutLink.html, /Unsubscribe/);
 });
 
-test("an age of one reads as a singular floor", () => {
-  const rendered = renderBirthdayEmail({age: 1, ctaUrl: APP_URL});
-  assert.match(rendered.text, /1 floor, one for every year/);
+test("the email is plain text on the recap rhythm, with no age and no box", () => {
+  const rendered = renderBirthdayEmail(
+    {ctaUrl: APP_URL, firstName: "Tyler"},
+    {unsubscribeUrl: UNSUBSCRIBE}
+  );
+
+  // No bordered card and no big number: the body is the eyebrow, headline,
+  // two lines of copy and the button, as in the "We missed you" email.
+  assert.doesNotMatch(rendered.html, /border-radius:20px/);
+  assert.doesNotMatch(rendered.html, /font-size:56px/);
+  assert.doesNotMatch(rendered.html, /floors, one for every year/i);
+  assert.doesNotMatch(rendered.text, /\d+ floors?/);
+  assert.doesNotMatch(rendered.text, /Your birthday climb:/);
+  assert.doesNotMatch(rendered.html, />\d{1,3}<\/p>/);
+
+  const inactive = renderWeeklyRecapInactiveEmail(
+    {
+      ctaUrl: APP_URL,
+      earnedBadges: [],
+      firstAscents: [],
+      gapCount: 2,
+      periodLabel: "Oct 5 - Oct 11",
+    },
+    {unsubscribeUrl: UNSUBSCRIBE}
+  );
+  for (const shared of [
+    "padding:40px 30px 40px;",
+    "font-size:34px;line-height:1.1;",
+    "padding-top:28px;",
+  ]) {
+    assert.ok(inactive.html.includes(shared), `recap uses ${shared}`);
+    assert.ok(rendered.html.includes(shared), `birthday uses ${shared}`);
+  }
 });
 
 test("birthday jobs render through the queue and reject a bad payload", () => {
   const job = {
-    payload: buildBirthdayEmailPayload(34, "Tyler"),
+    payload: buildBirthdayEmailPayload("Tyler"),
     type: "birthday",
   } as unknown as EmailJobDocument;
   const rendered = renderEmailContentForJob(job, {unsubscribeUrl: UNSUBSCRIBE});
@@ -149,10 +178,8 @@ test("birthday jobs render through the queue and reject a bad payload", () => {
 
   for (const bad of [
     {},
-    {age: 34},
-    {age: 0, ctaUrl: APP_URL},
-    {age: 34.5, ctaUrl: APP_URL},
-    {age: 34, ctaUrl: "not a url"},
+    {firstName: "Tyler"},
+    {ctaUrl: "not a url"},
   ]) {
     assert.throws(
       () => renderEmailContentForJob(
@@ -311,13 +338,11 @@ test("only birthdays near today in some zone are worth a zone lookup", () => {
 });
 
 test("the payload omits the name rather than storing undefined", () => {
-  assert.deepEqual(buildBirthdayEmailPayload(34, "Tyler"), {
-    age: 34,
+  assert.deepEqual(buildBirthdayEmailPayload("Tyler"), {
     ctaUrl: APP_URL,
     firstName: "Tyler",
   });
-  assert.deepEqual(buildBirthdayEmailPayload(34, ""), {
-    age: 34,
+  assert.deepEqual(buildBirthdayEmailPayload(""), {
     ctaUrl: APP_URL,
   });
 });

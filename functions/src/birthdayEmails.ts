@@ -143,17 +143,14 @@ export function birthdayEligibility(
 
 /**
  * Builds the stored payload for one climber's birthday email.
- * @param {number} age - Age on this birthday
  * @param {unknown} rawFirstName - The profile's stored first name
  * @return {BirthdayEmailPayload} Email payload, name omitted when unusable
  */
 export function buildBirthdayEmailPayload(
-  age: number,
   rawFirstName: unknown
 ): BirthdayEmailPayload {
   const firstName = cleanFirstName(rawFirstName);
   return {
-    age,
     ctaUrl: APP_STORE_URL,
     ...(firstName ? {firstName} : {}),
   };
@@ -251,7 +248,7 @@ async function sendBirthdayEmail(
   const outcome = await enqueueLifecycleEmailIfAllowed(firestore, {
     dedupeKey: buildBirthdayDedupeKey(user.id, eligibility.year),
     emailType: "birthday",
-    payload: buildBirthdayEmailPayload(eligibility.age, user.get("firstName")),
+    payload: buildBirthdayEmailPayload(user.get("firstName")),
     recipientEmail: email,
     sourceRef: user.ref.path,
     uid: user.id,

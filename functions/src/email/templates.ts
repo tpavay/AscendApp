@@ -1763,14 +1763,15 @@ export function renderMonthlyRecapInactiveEmailFromPayload(
 // Birthday
 //
 // The simple warm greeting with the birthday challenge under it: a hello from
-// everyone at Ascend, then one number (the climber's age, which is also the
-// floors to climb) and one action. It wears the recap shell, footer and CTA so
-// it reads as the same family as every other Ascend email.
+// everyone at Ascend, one plain line of challenge and one action. It lays out
+// headline, body and CTA exactly as the "We missed you" email does, in the same
+// recap shell, footer and CTA, so it reads as the same family. It never states
+// the climber's age.
 // =============================================================================
 
 const BIRTHDAY_EYEBROW = "Birthday Climb";
 const BIRTHDAY_CTA_LABEL = "Start my birthday climb";
-const BIRTHDAY_PREHEADER = "Climb your age in floors today.";
+const BIRTHDAY_PREHEADER = "Everyone at Ascend is wishing you a great one.";
 const BIRTHDAY_WHY_RECEIVED = "You get this because you shared your birthday " +
   "in Ascend.";
 
@@ -1785,13 +1786,8 @@ function parseBirthdayPayload(payload: EmailJobPayload): BirthdayEmailPayload {
     throw new Error(errorCode);
   }
 
-  const age = requiredNumber(payload, "age", errorCode);
-  if (!Number.isInteger(age) || age < 1 || age > 150) {
-    throw new Error(errorCode);
-  }
   const firstName = cleanFirstName(payload.firstName);
   return {
-    age,
     ctaUrl: requiredUrl(payload, "ctaUrl", errorCode),
     ...(firstName ? {firstName} : {}),
   };
@@ -1814,7 +1810,6 @@ export function renderBirthdayEmail(
   const greeting = "Everyone at Ascend is wishing you a great one. " +
     "Thanks for climbing with us.";
   const challenge = "Climb one floor for every year of your age today.";
-  const floorsLabel = payload.age === 1 ? "floor" : "floors";
 
   const bodyRowsHtml = [
     "<tr><td style=\"padding:40px 30px 40px;\">",
@@ -1830,19 +1825,7 @@ export function renderBirthdayEmail(
     "</h1>",
     "<p style=\"margin:0;font-size:16px;line-height:1.6;color:",
     `${RECAP_TEXT_MUTED};">${escapeHtml(greeting)}</p>`,
-    `<div style="margin-top:28px;border:1px solid ${RECAP_ACCENT_BORDER};`,
-    "border-radius:20px;padding:28px 20px;text-align:center;background:",
-    `rgba(134,211,10,0.08);box-shadow:${RECAP_CARD_SHADOW};">`,
-    "<p style=\"margin:0 0 8px;font-size:12px;letter-spacing:0.12em;",
-    `text-transform:uppercase;color:${RECAP_TEXT_MUTED};">Your birthday `,
-    "climb</p>",
-    "<p style=\"margin:0;font-size:56px;line-height:1;font-weight:900;",
-    `color:${BRAND_ACCENT_COLOR};letter-spacing:-0.02em;">${payload.age}</p>`,
-    "<p style=\"margin:8px 0 0;font-size:14px;font-weight:800;",
-    `letter-spacing:0.12em;text-transform:uppercase;color:${RECAP_TEXT};">`,
-    `${floorsLabel}, one for every year</p>`,
-    "</div>",
-    "<p style=\"margin:20px 0 0;font-size:16px;line-height:1.6;color:",
+    "<p style=\"margin:14px 0 0;font-size:16px;line-height:1.6;color:",
     `${RECAP_TEXT};">${escapeHtml(challenge)}</p>`,
     "<div style=\"padding-top:28px;\">",
     renderRecapCtaHtml(BIRTHDAY_CTA_LABEL, payload.ctaUrl),
@@ -1855,7 +1838,6 @@ export function renderBirthdayEmail(
     "",
     greeting,
     "",
-    `Your birthday climb: ${payload.age} ${floorsLabel}, one for every year.`,
     challenge,
     "",
     `${BIRTHDAY_CTA_LABEL}: ${payload.ctaUrl}`,

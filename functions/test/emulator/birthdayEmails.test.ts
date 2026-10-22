@@ -151,7 +151,6 @@ test("a climber whose birthday it is gets one email, however often it runs",
     assert.equal(job?.recipientUid, "tyler");
     assert.equal(job?.recipientEmail, "tyler@example.com");
     assert.deepEqual(job?.payload, {
-      age: 34,
       ctaUrl: "https://apps.apple.com/app/id6757202987",
       firstName: "Tyler",
     });
@@ -166,7 +165,7 @@ test("next year's birthday is a new email", async () => {
   assert.ok(await readJob("tyler", 2026));
   const next = await readJob("tyler", 2027);
   assert.ok(next);
-  assert.equal((next.payload as {age: number}).age, 35);
+  assert.equal(next.status, "queued");
 });
 
 test("the worker delivers the greeting with the personalised subject",
@@ -240,7 +239,6 @@ test("a climber with no usable name is greeted without one", async () => {
   for (const uid of ["placeholder", "blank", "no-name"]) {
     const job = await readJob(uid, 2026);
     assert.deepEqual(job?.payload, {
-      age: 34,
       ctaUrl: "https://apps.apple.com/app/id6757202987",
     }, uid);
   }
@@ -301,17 +299,14 @@ test("a February 29 birthday is greeted on February 28 in a common year",
     assert.equal(after.queued, 0);
     assert.equal(after.alreadyQueued, 0);
     const job = await readJob("leapling", 2027);
-    assert.equal((job?.payload as {age: number}).age, 31);
+    assert.equal(job?.status, "queued");
 
     // In a leap year it is the 29th, and the 28th is an ordinary day.
     const leap28 = await runBirthdaySweep(new Date("2028-02-28T16:00:00Z"));
     const leap29 = await runBirthdaySweep(new Date("2028-02-29T16:00:00Z"));
     assert.equal(leap28.queued, 0);
     assert.equal(leap29.queued, 1);
-    assert.equal(
-      ((await readJob("leapling", 2028))?.payload as {age: number}).age,
-      32
-    );
+    assert.equal((await readJob("leapling", 2028))?.status, "queued");
   });
 
 test("a sweep that hits its page bound says so and still queues what it read",

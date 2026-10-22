@@ -276,11 +276,9 @@ export interface DropEmailPayload {
 /**
  * A birthday greeting. `firstName` is omitted when the climber has no usable
  * name on file (never stored as an empty string), and the subject falls back
- * to the nameless greeting. `age` is the climber's age on this birthday and is
- * also the number of floors the birthday climb asks for.
+ * to the nameless greeting. The email never states the climber's age.
  */
 export interface BirthdayEmailPayload {
-  age: number;
   ctaUrl: string;
   firstName?: string;
 }
