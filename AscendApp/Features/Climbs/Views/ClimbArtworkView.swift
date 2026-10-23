@@ -194,11 +194,11 @@ struct ClimbArtworkView: View {
     }
 }
 
-private struct CachedClimbArtworkURL {
+struct CachedClimbArtworkURL {
     let url: URL?
 }
 
-private final class ClimbArtworkMemoryCache: @unchecked Sendable {
+final class ClimbArtworkMemoryCache: @unchecked Sendable {
     static let shared = ClimbArtworkMemoryCache()
 
     private let images = NSCache<NSString, UIImage>()
@@ -212,6 +212,12 @@ private final class ClimbArtworkMemoryCache: @unchecked Sendable {
 
     func image(for key: String) -> UIImage? {
         images.object(forKey: key as NSString)
+    }
+
+    /// Drops every decoded image on a memory warning; the resolved URLs are a few strings and
+    /// stay, so the next draw refetches the bytes without a second Storage round trip.
+    func removeAllImages() {
+        images.removeAllObjects()
     }
 
     func store(_ image: UIImage, for key: String) {

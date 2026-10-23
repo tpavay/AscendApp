@@ -387,13 +387,17 @@ final class AccountDeletionService {
         }
     }
 
-    /// Commits staged local deletions to disk
+    /// Commits staged local deletions to disk, and with them the session drafts that live beside
+    /// the store rather than in it: a checkpoint SwiftData refused is kept as a JSON file, and the
+    /// next launch folds any such file back into a row - which would hand a deleted account's
+    /// climb to the next climber on this device.
     private func commitStagedLocalDeletion(modelContext: ModelContext) throws {
         do {
             try modelContext.save()
         } catch {
             throw DeletionError.localDataDeletionFailed(error.localizedDescription)
         }
+        ActiveHeadphoneWorkoutDraftFallbackStore().removeAll()
     }
 
     /// Deletes local pending upload files from disk

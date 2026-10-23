@@ -25,6 +25,7 @@ struct LiveClimbSessionView: View {
     @State private var stepSyncValue = ""
     @State private var selectedTab: LiveClimbSessionTab = .justMe
     @State private var liveActivityControlRegistrationID = UUID().uuidString
+    @State private var screenPresenceToken = UUID()
     @State private var showingRatingEnjoymentPrompt = false
     /// Latched for the rest of this screen's life once the summary hands off to the sentiment
     /// question. The alert's own binding cannot stand in for it: SwiftUI clears that binding as
@@ -225,13 +226,51 @@ struct LiveClimbSessionView: View {
         .onAppear {
             motionAccessGate.isAppActive = scenePhase == .active
             registerLiveActivityControls()
+            HeadphoneSessionScreenPresence.shared.didAppear(
+                sessionID: viewModel.liveActivitySessionID,
+                token: screenPresenceToken
+            )
         }
         .onDisappear {
             LiveClimbActivityCommandCenter.shared.unregister(
                 sessionID: viewModel.liveActivitySessionID,
                 registrationID: liveActivityControlRegistrationID
             )
+            HeadphoneSessionScreenPresence.shared.didDisappear(
+                sessionID: viewModel.liveActivitySessionID,
+                token: screenPresenceToken
+            )
             viewModel.cancelPreparedBackgroundSession()
+        }
+        .sheet(
+            item: Binding(
+                get: { viewModel.phase == .recording ? viewModel.resumeNotice : nil },
+                set: { _ in }
+            )
+        ) { notice in
+            HeadphoneSessionResumeSheet(
+                notice: notice,
+                sessionLabel: viewModel.mode.isLandmarkClimb ? "climb" : "session",
+                onSave: { machineSteps in
+                    Task {
+                        await viewModel.settleResumeNotice(
+                            machineSteps: machineSteps,
+                            save: true,
+                            modelContext: modelContext
+                        )
+                    }
+                },
+                onKeepCounting: { machineSteps in
+                    Task {
+                        await viewModel.settleResumeNotice(
+                            machineSteps: machineSteps,
+                            save: false,
+                            modelContext: modelContext
+                        )
+                    }
+                }
+            )
+            .appSheetStyle(.fitted(), isInteractiveDismissDisabled: true)
         }
         .task(id: countdownRunID) {
             await runCountdownThenStart()
@@ -273,11 +312,11 @@ struct LiveClimbSessionView: View {
                 retryAfterMotionAccessChangeIfNeeded()
             }
             guard phase == .inactive || phase == .background else { return }
-            viewModel.checkpointForLifecycleChange(modelContext: modelContext)
+            viewModel.checkpointForLifecycleChange()
         }
         .onReceive(liveTick) { _ in
             guard hasStartedRecording, viewModel.isActivelyRecording else { return }
-            viewModel.recordLiveSplitSample(modelContext: modelContext)
+            viewModel.recordLiveSplitSampleAndCheckpoint()
             viewModel.evaluateStepSyncPrompt()
             if viewModel.durationGoalReached {
                 Task {

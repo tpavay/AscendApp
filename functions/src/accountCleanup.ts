@@ -56,6 +56,7 @@ export interface DeletedUserCleanupPort {
   removeHomeTodayActivityRows(userId: string): Promise<number>;
   deleteRateLimitDocument(userId: string): Promise<void>;
   disconnectStrava(userId: string): Promise<number>;
+  deleteAttemptHeartbeatFlags(userId: string): Promise<number>;
 }
 
 export interface CleanupSummary {
@@ -76,6 +77,7 @@ export interface CleanupSummary {
   deletedRevenueCatAnalyticsOutbox: number;
   removedHomeTodayActivityRows: number;
   deletedStravaRecords: number;
+  deletedAttemptHeartbeatFlags: number;
   failures: string[];
 }
 
@@ -278,6 +280,14 @@ export async function cleanupDeletedUser(
     failures.push(`strava: ${errorMessage(error)}`);
   }
 
+  let deletedAttemptHeartbeatFlags = 0;
+  try {
+    deletedAttemptHeartbeatFlags =
+      await port.deleteAttemptHeartbeatFlags(userId);
+  } catch (error) {
+    failures.push(`attempt_heartbeat_flags: ${errorMessage(error)}`);
+  }
+
   return {
     anonymizedFirstAscents,
     anonymizedLeaderboardPlacings,
@@ -294,6 +304,7 @@ export async function cleanupDeletedUser(
     deletedReplayFinisherStatuses,
     deletedRevenueCatAnalyticsOutbox,
     deletedStravaRecords,
+    deletedAttemptHeartbeatFlags,
     deletedSubcollections,
     failures,
     removedHomeTodayActivityRows,
@@ -601,6 +612,19 @@ export function makeAdminPort(
       );
       return deleted;
     },
+
+    async deleteAttemptHeartbeatFlags(userId) {
+      const snapshot = await firestore
+        .collection("attempt_heartbeat_flags")
+        .where("userId", "==", userId)
+        .get();
+
+      for (const document of snapshot.docs) {
+        await document.ref.delete();
+      }
+
+      return snapshot.size;
+    },
   };
 }
 
@@ -761,6 +785,7 @@ export const cleanupDeletedUserData = onDocumentDeleted(
       deletedRevenueCatAnalyticsOutbox:
         summary.deletedRevenueCatAnalyticsOutbox,
       deletedStravaRecords: summary.deletedStravaRecords,
+      deletedAttemptHeartbeatFlags: summary.deletedAttemptHeartbeatFlags,
       deletedSubcollections: summary.deletedSubcollections,
       removedHomeTodayActivityRows: summary.removedHomeTodayActivityRows,
       userId,

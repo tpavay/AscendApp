@@ -31,6 +31,10 @@ final class CompositeCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
         reporters.forEach { $0.log(message) }
     }
 
+    func addBreadcrumb(_ breadcrumb: TelemetryBreadcrumb) {
+        reporters.forEach { $0.addBreadcrumb(breadcrumb) }
+    }
+
     func record(
         error: Error,
         context: String,

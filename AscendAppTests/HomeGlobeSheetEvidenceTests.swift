@@ -515,6 +515,9 @@ private struct HostedHomeScreen: View {
     let enrichmentService: AppleHealthEnrichmentService
     let detent: BrowseSheetDetent
     let makeJustClimbSession: HomeView.JustClimbSessionFactory
+    /// A registry nothing else writes into: the globe these suites measure stands down only for a
+    /// session this Home owns, never for one another suite started in the same process.
+    private let sessionRegistry = ActiveHeadphoneWorkoutRuntimeRegistry()
 
     @State private var tabBarOverlayHeight: CGFloat = 0
 
@@ -527,7 +530,8 @@ private struct HostedHomeScreen: View {
                 globeViewModel: globeViewModel,
                 enrichmentService: enrichmentService,
                 initialSheetDetent: detent,
-                makeJustClimbSession: makeJustClimbSession
+                makeJustClimbSession: makeJustClimbSession,
+                sessionRegistry: sessionRegistry
             )
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {

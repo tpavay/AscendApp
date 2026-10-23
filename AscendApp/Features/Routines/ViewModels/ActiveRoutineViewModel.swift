@@ -12,11 +12,10 @@ final class ActiveRoutineViewModel {
 
     private let replayContext: LiveReplayLeaderboardContext
     private let leaderboardService: LiveReplayLeaderboardServicing
-    private let motionSession: HeadphoneMotionSessionService
+    private let motionSession: any HeadphoneMotionSessionServicing
     private let backgroundSessionService: any LiveClimbBackgroundSessionControlling
     /// Whether the countdown started the workout session, so an abandoned countdown stops it.
     private var didPrepareBackgroundSession = false
-    private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let heartRateRecorder: LiveHeartRateRecorder
     /// Read once per session. `leaderboardRows` is rebuilt on every step and
     /// elapsed tick, so the climber's name cannot be resolved from the cache
@@ -58,9 +57,23 @@ final class ActiveRoutineViewModel {
     /// window refresh, so it is ordered ahead of that refresh.
     private var hasBegunLeaderboardSession = false
     private var stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
-    private var activeDraft: ActiveHeadphoneWorkoutDraft?
-    private var lastDraftCheckpointAt: Date?
-    private let draftCheckpointInterval: TimeInterval = 2
+    /// The one writer of this session's draft, shared with Live Climb and Just Climb
+    /// (`docs/headphone-session-recovery.md`).
+    let checkpointer: HeadphoneSessionCheckpointer
+    private var activeDraft: ActiveHeadphoneWorkoutDraft? {
+        checkpointer.activeDraft
+    }
+    /// Shown over a session resumed after the process died; nil for a fresh session.
+    private(set) var resumeNotice: HeadphoneSessionResumeNotice?
+    /// A resumed session has already counted its three seconds once; it goes straight to active.
+    private var skipsCountdown = false
+    /// Set by `startSession`, so a screen that adopts a running session does not start it again.
+    private(set) var hasBegunSession = false
+    /// The id the draft, the heartbeat and the screen-presence registry all share. Minted here so it
+    /// exists before the countdown writes the draft, and reused by a recovered draft.
+    let sessionID: String
+    /// Injectable so a test can place a session on the day it is reproducing.
+    private let now: () -> Date
     private var promptedStepSyncInterruptionCounts: Set<Int> = []
     private var skippedStepSyncInterruptionCounts: Set<Int> = []
     private let stepSyncPromptMinimumGapDuration: TimeInterval = 20
@@ -68,22 +81,32 @@ final class ActiveRoutineViewModel {
     init(
         routine: Routine,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
-        motionSession: HeadphoneMotionSessionService = HeadphoneMotionSessionService(),
+        motionSession: any HeadphoneMotionSessionServicing = HeadphoneMotionSessionService(),
         backgroundSessionService: any LiveClimbBackgroundSessionControlling = LiveClimbBackgroundSessionService.shared,
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
-        recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
+        recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil,
+        resumeNotice: HeadphoneSessionResumeNotice? = nil,
+        checkpointer: HeadphoneSessionCheckpointer? = nil,
+        now: @escaping () -> Date = Date.init
     ) {
         self.routine = routine
+        self.now = now
         intervals = routine.intervals
         totalDuration = routine.totalDuration
         replayContext = RoutineReplayLeaderboardContextBuilder.context(for: routine)
         self.leaderboardService = leaderboardService
         self.motionSession = motionSession
         self.backgroundSessionService = backgroundSessionService
-        self.draftStore = draftStore
         self.heartRateRecorder = heartRateRecorder
-        self.activeDraft = recoveredDraft
+        let resolvedCheckpointer = checkpointer ?? HeadphoneSessionCheckpointer(
+            draftStore: draftStore,
+            backgroundSession: backgroundSessionService
+        )
+        resolvedCheckpointer.adopt(recoveredDraft)
+        self.checkpointer = resolvedCheckpointer
+        self.resumeNotice = resumeNotice
+        self.sessionID = recoveredDraft?.sessionID ?? UUID().uuidString
     }
 
     var currentInterval: RoutineInterval? {
@@ -267,14 +290,20 @@ final class ActiveRoutineViewModel {
         resolvedStopReason.earnsCompetitiveCredit
     }
 
-    func startSession(modelContext: ModelContext) {
+    /// Begins the session. A fresh routine counts down from three; a session resumed after the
+    /// process died (`skipsCountdown`) is already mid-routine and goes straight back to counting,
+    /// with no view required - the background relaunch calls this with nothing on screen.
+    func startSession(modelContext: ModelContext, skipsCountdown: Bool = false) {
         AppDiagnosticsRecorder.shared.record(
             "routine_headphone_session_start_requested",
             details: [
                 "routine_id": routine.id.uuidString,
-                "resumed_from_draft": activeDraft == nil ? "false" : "true"
+                "resumed_from_draft": activeDraft == nil ? "false" : "true",
+                "skips_countdown": skipsCountdown ? "true" : "false"
             ]
         )
+        self.skipsCountdown = skipsCountdown
+        hasBegunSession = true
         stopTimer()
         heartRateRecorder.prepareForSession()
         self.modelContext = modelContext
@@ -315,7 +344,7 @@ final class ActiveRoutineViewModel {
         stepSyncConfirmation = nil
         promptedStepSyncInterruptionCounts.removeAll(keepingCapacity: true)
         skippedStepSyncInterruptionCounts.removeAll(keepingCapacity: true)
-        countdownStartDate = Date()
+        countdownStartDate = now()
         lastTickDate = nil
         lastCountdownHapticValue = 3
         lastWarningSecond = nil
@@ -323,6 +352,10 @@ final class ActiveRoutineViewModel {
         hasTrackedSessionStart = false
         hasTrackedSessionCompletion = false
         prepareBackgroundSessionForCountdown()
+        if skipsCountdown {
+            countdownValue = 0
+            updateCountdown(at: now(), elapsed: 3)
+        }
         startTimer()
         HapticsManager.shared.trigger(.mediumImpact)
     }
@@ -388,7 +421,7 @@ final class ActiveRoutineViewModel {
         if currentIntervalIndex >= intervals.count {
             completeWorkout()
         } else {
-            checkpointDraft(force: true)
+            checkpointer.checkpoint(makeCheckpointSnapshot(), force: true)
             HapticsManager.shared.trigger(.heavyImpact)
         }
     }
@@ -467,7 +500,7 @@ final class ActiveRoutineViewModel {
         _ = stepTimelineRecorder.recordCorrection(correction)
         stepSyncPrompt = nil
         stepSyncConfirmation = RoutineStepSyncConfirmation(correctedSteps: correction.correctedSteps)
-        checkpointDraft(force: true)
+        checkpointer.checkpoint(makeCheckpointSnapshot(), force: true)
 
         Task { [weak self] in
             await self?.refreshReplayLeaderboardIfNeeded(force: true)
@@ -596,7 +629,9 @@ final class ActiveRoutineViewModel {
 
         savedWorkout = workout
         phase = .complete
-        clearDraft(modelContext: modelContext)
+        checkpointer.publishSessionEnd(outcome: .saved)
+        checkpointer.clearDraft()
+        ActiveRoutineSessionCoordinator.shared.clearIfActive(sessionID: sessionID)
         trackWorkoutSaved(workout)
         AppDiagnosticsRecorder.shared.record(
             "routine_headphone_session_saved",
@@ -622,31 +657,68 @@ final class ActiveRoutineViewModel {
             ]
         )
         backgroundSessionService.stop()
-        clearDraft(modelContext: modelContext)
+        checkpointer.publishSessionEnd(outcome: .discarded)
+        checkpointer.clearDraft()
+        ActiveRoutineSessionCoordinator.shared.clearIfActive(sessionID: sessionID)
     }
 
     func checkpointForLifecycleChange() {
         guard phase == .active || phase == .finishing else { return }
 
         recordLiveSplitSample()
-        checkpointDraft(force: true)
-        AppDiagnosticsRecorder.shared.record(
-            "routine_headphone_session_lifecycle_checkpoint",
-            details: [
-                "routine_id": routine.id.uuidString,
-                "steps": String(currentSteps),
-                "duration_seconds": String(Int(actualElapsed.rounded(.down)))
-            ]
+        checkpointer.checkpointForLifecycleChange(makeCheckpointSnapshot(), kind: ActiveHeadphoneWorkoutDraftKind.routine.rawValue)
+    }
+
+    // MARK: - Resume after a process death
+
+    /// Applies the machine count a resumed session's notice collected, as a correction against the
+    /// gap, and clears the notice. The view then saves or keeps counting; both paths go through
+    /// the routine's ordinary save, so a resumed session finishes the way every other one does.
+    func settleResumeNotice(machineSteps: Int?, action: HeadphoneSessionRecoveryAnalyticsEvent.ResumeAction) {
+        guard let notice = resumeNotice else { return }
+        resumeNotice = nil
+
+        var source = HeadphoneSessionResumeNotice.GapSource.wallClock
+        var deltaSteps = 0
+        if let machineSteps, machineSteps != motionSession.stepCount,
+           let correction = motionSession.applyStepCorrection(
+               correctedSteps: machineSteps,
+               trackingGapDuration: notice.gap
+           ) {
+            _ = stepTimelineRecorder.recordCorrection(correction)
+            deltaSteps = correction.deltaSteps
+            source = machineSteps == notice.suggestedSteps && notice.phoneEstimateSteps ?? 0 > 0
+                ? .pedometer
+                : .machine
+            checkpointer.checkpoint(makeCheckpointSnapshot(), force: true)
+        }
+
+        TelemetryManager.shared.track(
+            HeadphoneSessionRecoveryAnalyticsEvent.sessionResumed(
+                mode: .routine,
+                gapSeconds: Int(notice.gap.rounded(.down)),
+                lossReason: notice.lossReason,
+                source: source,
+                deltaSteps: deltaSteps,
+                action: action
+            )
         )
     }
 
-    private func updateCountdown(at now: Date) {
+    /// The phone's own count across the gap arrived after the session started; offer it.
+    func attachPhoneStepEstimate(_ steps: Int) {
+        guard var notice = resumeNotice else { return }
+        notice.phoneEstimateSteps = steps
+        resumeNotice = notice
+    }
+
+    private func updateCountdown(at now: Date, elapsed forcedElapsed: TimeInterval? = nil) {
         guard let startDate = countdownStartDate else {
             countdownStartDate = now
             return
         }
 
-        let elapsed = now.timeIntervalSince(startDate)
+        let elapsed = forcedElapsed ?? now.timeIntervalSince(startDate)
         let secondsRemaining = max(0, 3 - Int(floor(elapsed)))
         countdownValue = secondsRemaining
 
@@ -695,7 +767,7 @@ final class ActiveRoutineViewModel {
         actualElapsed = motionSession.duration
         timelineElapsed += delta
         recordLiveSplitSample(at: now)
-        checkpointDraft()
+        checkpointer.checkpoint(makeCheckpointSnapshot())
         evaluateStepSyncPrompt()
 
         triggerEndOfIntervalWarningsIfNeeded()
@@ -750,26 +822,23 @@ final class ActiveRoutineViewModel {
             ]
         )
         do {
-            let draft = try prepareDraftIfNeeded(startedAt: startedAt, modelContext: modelContext)
-            try motionSession.startRecording(resumeState: draft?.resumeState)
+            let draft = try checkpointer.prepareDraftIfNeeded(modelContext: modelContext) {
+                makeDraft(startedAt: startedAt)
+            }
+            try motionSession.startRecording(targetStepCount: nil, resumeState: draft.resumeState)
             if !backgroundSessionService.isRunning {
-                backgroundSessionService.start(at: draft?.startedAt ?? startedAt)
+                backgroundSessionService.start(at: draft.startedAt)
             }
             didPrepareBackgroundSession = false
             recordLiveSplitSample()
-            checkpointDraft(force: true)
+            checkpointer.checkpoint(makeCheckpointSnapshot(), force: true)
+            ActiveRoutineSessionCoordinator.shared.setActive(self, sessionID: sessionID)
             AppDiagnosticsRecorder.shared.record(
                 "routine_headphone_recording_started",
-                details: draft?.diagnosticDetails ?? ["routine_id": routine.id.uuidString]
+                details: draft.diagnosticDetails
             )
         } catch {
-            if preexistingDraft == nil,
-               let activeDraft,
-               activeDraft.steps == 0 {
-                ActiveHeadphoneWorkoutRuntimeRegistry.shared.markInactive(activeDraft)
-                try? draftStore.delete(activeDraft, in: modelContext)
-                self.activeDraft = nil
-            }
+            checkpointer.discardUnstartedDraft(wasRecovered: preexistingDraft != nil)
             AppDiagnosticsRecorder.shared.record(
                 "routine_headphone_recording_start_failed",
                 level: .error,
@@ -782,18 +851,9 @@ final class ActiveRoutineViewModel {
         }
     }
 
-    private func prepareDraftIfNeeded(
-        startedAt: Date,
-        modelContext: ModelContext
-    ) throws -> ActiveHeadphoneWorkoutDraft? {
-        if let activeDraft {
-            draftStore.setActiveDraftID(activeDraft.id)
-            ActiveHeadphoneWorkoutRuntimeRegistry.shared.markActive(activeDraft)
-            return activeDraft
-        }
-
-        let draft = ActiveHeadphoneWorkoutDraft(
-            sessionID: UUID().uuidString,
+    private func makeDraft(startedAt: Date) -> ActiveHeadphoneWorkoutDraft {
+        ActiveHeadphoneWorkoutDraft(
+            sessionID: sessionID,
             kind: .routine,
             startedAt: startedAt,
             title: routine.name,
@@ -808,10 +868,6 @@ final class ActiveRoutineViewModel {
             routineIntervalCount: routine.intervalCount,
             routineWeightConfiguration: routine.defaultWeightConfiguration
         )
-        try draftStore.insert(draft, in: modelContext)
-        activeDraft = draft
-        ActiveHeadphoneWorkoutRuntimeRegistry.shared.markActive(draft)
-        return draft
     }
 
     private func finishRecording(
@@ -854,9 +910,8 @@ final class ActiveRoutineViewModel {
             )
             recordedResult = result
             actualElapsed = result.duration
-            checkpointDraft(
-                splitCurve: finalSplitCurve,
-                result: result,
+            checkpointer.checkpoint(
+                makeCheckpointSnapshot(result: result, splitCurve: finalSplitCurve),
                 status: .stopped,
                 force: true
             )
@@ -912,61 +967,21 @@ final class ActiveRoutineViewModel {
         heartRateRecorder.workoutSummary
     }
 
-    private func checkpointDraft(
-        splitCurve: LiveReplaySplitCurve? = nil,
+    private func makeCheckpointSnapshot(
         result: HeadphoneMotionSessionResult? = nil,
-        status: ActiveHeadphoneWorkoutDraftStatus = .recording,
-        force: Bool = false
-    ) {
-        guard let modelContext,
-              let activeDraft else { return }
-
-        let now = Date()
-        if !force,
-           let lastDraftCheckpointAt,
-           now.timeIntervalSince(lastDraftCheckpointAt) < draftCheckpointInterval {
-            return
-        }
-
-        activeDraft.applyCheckpoint(
+        splitCurve: LiveReplaySplitCurve? = nil
+    ) -> HeadphoneSessionCheckpointSnapshot {
+        HeadphoneSessionCheckpointSnapshot(
             steps: result?.steps ?? currentSteps,
             durationSeconds: result?.duration ?? motionSession.duration,
             sampleCount: result?.sampleCount ?? motionSession.sampleCount,
             splitCurve: splitCurve ?? stepTimelineRecorder.curve,
             trackingIntegrity: result?.trackingIntegrity ?? motionSession.trackingIntegrity,
             stepCorrections: result?.stepCorrections ?? motionSession.stepCorrectionsSnapshot,
-            status: status,
-            skippedIntervalCount: skippedIntervalCount,
-            checkpointedAt: now
+            heartRateBuffer: heartRateRecorder.sampleBuffer,
+            motionStatus: String(describing: motionSession.status),
+            skippedIntervalCount: skippedIntervalCount
         )
-
-        do {
-            try modelContext.save()
-            lastDraftCheckpointAt = now
-        } catch {
-#if DEBUG
-            debugLog("Routine draft checkpoint failed: \(error.localizedDescription)")
-#endif
-        }
-    }
-
-    private func clearDraft(modelContext: ModelContext) {
-        guard let activeDraft else {
-            draftStore.clearActiveDraftID()
-            return
-        }
-
-        ActiveHeadphoneWorkoutRuntimeRegistry.shared.markInactive(activeDraft)
-        do {
-            try draftStore.delete(activeDraft, in: modelContext)
-        } catch {
-#if DEBUG
-            debugLog("Routine draft cleanup failed: \(error.localizedDescription)")
-#endif
-            draftStore.clearActiveDraftID(activeDraft.id)
-        }
-        self.activeDraft = nil
-        lastDraftCheckpointAt = nil
     }
 
     private func restoreTimeline(to elapsed: TimeInterval) {

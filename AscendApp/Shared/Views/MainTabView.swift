@@ -370,6 +370,7 @@ struct MainTabView: View {
               recoveryDraft == nil,
               appVersionGateState.nudgePresentation == nil,
               !LiveClimbSessionCoordinator.shared.hasActiveSession,
+              !ActiveRoutineSessionCoordinator.shared.hasActiveSession,
               !ActiveHeadphoneWorkoutRuntimeRegistry.shared.hasActiveSession else { return false }
         if let lastRoutedAt, Date.now.timeIntervalSince(lastRoutedAt) < 5 {
             return false
@@ -377,21 +378,23 @@ struct MainTabView: View {
         return true
     }
 
+    /// Puts an unfinished session back in front of the climber whenever one exists and no screen
+    /// is showing it - a dead process's draft, a session the HealthKit relaunch restarted in the
+    /// background, or one whose screen a tab switch took away. The cover decides between adopting
+    /// the running session, resuming the draft at once, and the recovery screen.
     private func presentActiveHeadphoneRecoveryIfNeeded() async {
-        guard recoveryDraft == nil,
-              !LiveClimbSessionCoordinator.shared.hasActiveSession,
-              !ActiveHeadphoneWorkoutRuntimeRegistry.shared.hasActiveSession else { return }
+        guard recoveryDraft == nil else { return }
 
         do {
-            let draft = try ActiveHeadphoneWorkoutDraftStore().activeDraft(in: modelContext)
-            if let draft {
-                await LiveClimbBackgroundSessionService.shared.recoverActiveWorkoutSessionIfAvailable()
-                AppDiagnosticsRecorder.shared.record(
-                    "active_headphone_recovery_presented",
-                    level: .warning,
-                    details: draft.diagnosticDetails
-                )
-            }
+            guard let draft = try ActiveHeadphoneWorkoutDraftStore().activeDraft(in: modelContext) else { return }
+            guard !HeadphoneSessionScreenPresence.shared.isOnScreen(sessionID: draft.sessionID) else { return }
+
+            await LiveClimbBackgroundSessionService.shared.recoverActiveWorkoutSessionIfAvailable()
+            AppDiagnosticsRecorder.shared.record(
+                "active_headphone_recovery_presented",
+                level: .warning,
+                details: draft.diagnosticDetails
+            )
             recoveryDraft = draft
         } catch {
             AppDiagnosticsRecorder.shared.record(

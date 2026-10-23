@@ -77,6 +77,18 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// is written or deleted, and what was earned is offered and drawn again when it returns.
     case unlocks = "unlocks_enabled"
 
+    /// Writing the sixty-second liveness document `users/{uid}/attempt_heartbeats/{sessionID}`
+    /// during every headphone session, and the final write that closes it. Nothing to defer: a
+    /// heartbeat is a report about now, so a blocked one is simply not sent and the server's
+    /// stall detector sees nothing for that session. The climb itself is untouched.
+    case attemptHeartbeats = "attempt_heartbeats_enabled"
+
+    /// Resuming a dead session automatically on the next launch - crediting the gap as wall clock
+    /// into the draft and restarting the sensor without a prompt. Off, every recovered draft goes
+    /// through the recovery screen instead, which credits nothing until the climber acts, so the
+    /// draft is left exactly as the dead process wrote it.
+    case headphoneSessionAutoResume = "headphone_session_auto_resume_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -124,6 +136,10 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Shows the period recap after a week or month closes and marks it seen."
         case .unlocks:
             return "Shows unlockable items: drawn on the mountain, the unlock moment, the editor row."
+        case .attemptHeartbeats:
+            return "Writes the sixty-second liveness heartbeat for a running climb to Firestore."
+        case .headphoneSessionAutoResume:
+            return "Resumes a dead session automatically on relaunch instead of asking first."
         }
     }
 }

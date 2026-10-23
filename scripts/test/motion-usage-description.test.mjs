@@ -16,20 +16,31 @@ const infoPlistPath = join(repositoryRoot, "AscendApp/Info.plist");
 const MAXIMUM_USAGE_DESCRIPTION_LENGTH = 140;
 
 // The audited Core Motion surface: one CMHeadphoneMotionManager feed, its sample
-// type, the manager seam behind it, the pre-countdown access gate, and the
-// readiness probe. Any other file reaching for Core Motion means a
-// second sensor consumer exists and the usage string no longer describes it.
+// type, the manager seam behind it, the pre-countdown access gate, the
+// readiness probe, and the one CMPedometer read that fills the gap after a
+// session's process died (docs/headphone-session-recovery.md). Any other file
+// reaching for Core Motion means a sensor consumer exists that the usage string
+// no longer describes.
 const CORE_MOTION_SOURCE_PATHS = [
   "AscendApp/Features/Climbs/Services/HeadphoneMotionReadinessService.swift",
   "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionAccessGate.swift",
   "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionManaging.swift",
   "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionSample.swift",
-  "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionSessionService.swift"
+  "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionSessionService.swift",
+  "AscendApp/Shared/Services/HeadphoneSession/PhoneStepEstimator.swift"
 ];
 
+// The one file allowed a Core Motion reader other than the headphone feed, and
+// which reader: the phone's own step count across a gap, read once at resume,
+// never live. The usage string names it ("your phone's steps to fill a gap").
+const CORE_MOTION_READER_EXCEPTIONS = {
+  "AscendApp/Shared/Services/HeadphoneSession/PhoneStepEstimator.swift": ["CMPedometer"]
+};
+
 // Every Core Motion type that starts a sensor feed. CMHeadphoneMotionManager is
-// the only one Ascend is allowed to use; the rest would each add a feature the
-// usage string does not mention.
+// the only one Ascend is allowed to use everywhere; CMPedometer is allowed in the
+// one file above; the rest would each add a feature the usage string does not
+// mention.
 const CORE_MOTION_READER_TYPES = [
   "CMAltimeter",
   "CMBatchedSensorManager",
@@ -103,7 +114,7 @@ test("the motion usage description stays plain, short, and feature-named", async
       `${MAXIMUM_USAGE_DESCRIPTION_LENGTH} the alert can show without truncating: "${value}"`
   );
 
-  for (const phrase of ["headphones", "steps", "Live Climbs", "Just Climb", "routines"]) {
+  for (const phrase of ["headphones", "steps", "Live Climbs", "Just Climb", "routines", "phone's steps"]) {
     assert.ok(
       value.includes(phrase),
       `The motion usage description omits "${phrase}": "${value}"`
@@ -141,7 +152,7 @@ test("the only Core Motion reader in the app is the headphone motion feed", asyn
 
     assert.deepEqual(
       readers,
-      ["CMHeadphoneMotionManager"],
+      CORE_MOTION_READER_EXCEPTIONS[path] ?? ["CMHeadphoneMotionManager"],
       `${path} starts a Core Motion feed the usage description does not describe: ${readers}`
     );
   }

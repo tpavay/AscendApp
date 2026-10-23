@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftData
 import UIKit
 
@@ -33,10 +34,18 @@ struct ActiveHeadphoneWorkoutDraftStore {
     static let maximumCreditableTrackingGap: TimeInterval = 60 * 60
 
     private let userDefaults: UserDefaults
+    private let fallbackStore: ActiveHeadphoneWorkoutDraftFallbackStore
+    private let diagnostics: AppDiagnosticsRecorder
     private let activeDraftIDKey = "activeHeadphoneWorkoutDraft.id.v1"
 
-    init(userDefaults: UserDefaults = .standard) {
+    init(
+        userDefaults: UserDefaults = .standard,
+        fallbackStore: ActiveHeadphoneWorkoutDraftFallbackStore = ActiveHeadphoneWorkoutDraftFallbackStore(),
+        diagnostics: AppDiagnosticsRecorder = .shared
+    ) {
         self.userDefaults = userDefaults
+        self.fallbackStore = fallbackStore
+        self.diagnostics = diagnostics
     }
 
     func activeDraftID() -> UUID? {
@@ -62,8 +71,13 @@ struct ActiveHeadphoneWorkoutDraftStore {
         userDefaults.synchronize()
     }
 
+    /// The draft a previous process left behind, after any checkpoint that SwiftData refused has
+    /// been folded back in from the fallback file - so the number this returns is the last one
+    /// the dead process counted, never the last one its store happened to accept.
     @MainActor
     func activeDraft(in modelContext: ModelContext) throws -> ActiveHeadphoneWorkoutDraft? {
+        _ = fallbackStore.reconcile(into: modelContext, diagnostics: diagnostics)
+
         guard let id = activeDraftID() else {
             return try mostRecentDraft(in: modelContext)
         }
@@ -132,28 +146,66 @@ struct ActiveHeadphoneWorkoutDraftStore {
         modelContext.delete(draft)
         try modelContext.save()
         clearActiveDraftID(draftID)
+        fallbackStore.remove(draftID: draftID)
         AppDiagnosticsRecorder.shared.record(
             "active_headphone_draft_deleted",
             details: details
         )
     }
 
+    /// What crediting the dead time to a draft produced.
+    struct TrackingGapCredit: Equatable, Sendable {
+        /// Wall clock between the last checkpoint and the resume.
+        let gapSeconds: TimeInterval
+        /// Whether that time was added to the draft's duration, or only recorded as unavailable.
+        let credited: Bool
+        /// The draft's duration after the credit.
+        let durationSeconds: TimeInterval
+    }
+
+    /// Credits the time Ascend was not counting to the draft, as the resume path does for every
+    /// mode: the duration grows to the wall clock when the gap is inside
+    /// `maximumCreditableTrackingGap`, the gap is recorded in the integrity record as one more
+    /// interruption either way, and the checkpoint moves to the resume instant so the next process
+    /// death is measured from here.
+    ///
+    /// No step correction is recorded: the climber has not said a number yet. `applyRecoveryStepSync`
+    /// is this plus that correction, for the recovery screen's typed count.
     @MainActor
-    func applyRecoveryStepSync(
-        correctedSteps: Int,
+    @discardableResult
+    func creditTrackingGap(
         to draft: ActiveHeadphoneWorkoutDraft,
         in modelContext: ModelContext,
-        syncedAt: Date = Date()
-    ) throws {
-        let normalizedSteps = max(correctedSteps, 0)
-        let trackingGapSeconds = max(syncedAt.timeIntervalSince(draft.lastCheckpointAt), 0)
+        resumedAt: Date = Date()
+    ) throws -> TrackingGapCredit {
+        let credit = applyGapCreditUnsaved(to: draft, at: resumedAt)
+        try modelContext.save()
+        setActiveDraftID(draft.id)
+
+        AppDiagnosticsRecorder.shared.record(
+            "active_headphone_recovery_gap_credited",
+            level: .warning,
+            details: draft.diagnosticDetails.merging([
+                "tracking_gap_seconds": String(Int(credit.gapSeconds.rounded(.down))),
+                "tracking_gap_credited": String(credit.credited)
+            ]) { current, _ in current }
+        )
+        return credit
+    }
+
+    @MainActor
+    private func applyGapCreditUnsaved(
+        to draft: ActiveHeadphoneWorkoutDraft,
+        at resumedAt: Date
+    ) -> TrackingGapCredit {
+        let trackingGapSeconds = max(resumedAt.timeIntervalSince(draft.lastCheckpointAt), 0)
         // Wall clock is only evidence of climbing while the climber was plausibly still on the
         // machine. Past `maximumCreditableTrackingGap` the session is credited to its last
         // checkpoint - the last moment Ascend has any evidence for - rather than to now. The
         // integrity record below still carries the full gap: how long tracking was unavailable is a
         // fact, and clamping it there would falsify the record instead of bounding a claim.
         let gapIsCreditable = trackingGapSeconds <= Self.maximumCreditableTrackingGap
-        let creditedThrough = gapIsCreditable ? syncedAt : draft.lastCheckpointAt
+        let creditedThrough = gapIsCreditable ? resumedAt : draft.lastCheckpointAt
         let elapsedSeconds = max(
             draft.durationSeconds,
             creditedThrough.timeIntervalSince(draft.startedAt)
@@ -168,12 +220,42 @@ struct ActiveHeadphoneWorkoutDraftStore {
             longestUnavailableDuration: max(previousIntegrity.longestUnavailableDuration, trackingGapSeconds),
             interruptionCount: interruptionCount
         )
+
+        draft.applyCheckpoint(
+            steps: draft.steps,
+            durationSeconds: elapsedSeconds,
+            sampleCount: draft.sampleCount,
+            splitCurve: draft.splitCurve,
+            trackingIntegrity: updatedIntegrity,
+            stepCorrections: draft.stepCorrections,
+            status: draft.status,
+            checkpointedAt: creditedThrough
+        )
+
+        return TrackingGapCredit(
+            gapSeconds: trackingGapSeconds,
+            credited: gapIsCreditable,
+            durationSeconds: elapsedSeconds
+        )
+    }
+
+    @MainActor
+    func applyRecoveryStepSync(
+        correctedSteps: Int,
+        to draft: ActiveHeadphoneWorkoutDraft,
+        in modelContext: ModelContext,
+        syncedAt: Date = Date()
+    ) throws {
+        let normalizedSteps = max(correctedSteps, 0)
+        let detectedSteps = draft.steps
+        let credit = applyGapCreditUnsaved(to: draft, at: syncedAt)
+        let updatedIntegrity = draft.trackingIntegrity
         let correction = HeadphoneMotionStepCorrection(
-            elapsedSeconds: Int(elapsedSeconds.rounded(.down)),
-            detectedSteps: draft.steps,
+            elapsedSeconds: Int(credit.durationSeconds.rounded(.down)),
+            detectedSteps: detectedSteps,
             correctedSteps: normalizedSteps,
-            deltaSteps: normalizedSteps - draft.steps,
-            trackingGapDurationSeconds: trackingGapSeconds,
+            deltaSteps: normalizedSteps - detectedSteps,
+            trackingGapDurationSeconds: credit.gapSeconds,
             totalUnavailableDurationSeconds: updatedIntegrity.totalUnavailableDuration,
             interruptionCount: updatedIntegrity.interruptionCount
         )
@@ -187,13 +269,13 @@ struct ActiveHeadphoneWorkoutDraftStore {
 
         draft.applyCheckpoint(
             steps: normalizedSteps,
-            durationSeconds: elapsedSeconds,
+            durationSeconds: credit.durationSeconds,
             sampleCount: draft.sampleCount,
             splitCurve: splitCurve,
             trackingIntegrity: updatedIntegrity,
             stepCorrections: corrections,
             status: draft.status,
-            checkpointedAt: creditedThrough
+            checkpointedAt: draft.lastCheckpointAt
         )
         try modelContext.save()
         setActiveDraftID(draft.id)
@@ -205,23 +287,32 @@ struct ActiveHeadphoneWorkoutDraftStore {
                 "detected_steps": String(correction.detectedSteps),
                 "corrected_steps": String(correction.correctedSteps),
                 "delta_steps": String(correction.deltaSteps),
-                "tracking_gap_seconds": String(Int(trackingGapSeconds.rounded(.down))),
-                "tracking_gap_credited": String(gapIsCreditable)
+                "tracking_gap_seconds": String(Int(credit.gapSeconds.rounded(.down))),
+                "tracking_gap_credited": String(credit.credited)
             ]) { current, _ in current }
         )
     }
 }
 
+/// Which drafts a session in this process is writing right now. Observable, so a surface that
+/// sheds weight while a session runs (Home's globe) re-renders the moment one starts or ends.
 @MainActor
+@Observable
 final class ActiveHeadphoneWorkoutRuntimeRegistry {
     static let shared = ActiveHeadphoneWorkoutRuntimeRegistry()
 
     private var activeDraftIDs: Set<UUID> = []
 
-    private init() {}
+    /// Production uses `shared`; a test may hold a registry of its own so a session another suite
+    /// is running in the same process cannot reach the surface under test.
+    init() {}
 
     var hasActiveSession: Bool {
         !activeDraftIDs.isEmpty
+    }
+
+    func isActive(_ draft: ActiveHeadphoneWorkoutDraft) -> Bool {
+        activeDraftIDs.contains(draft.id)
     }
 
     func markActive(_ draft: ActiveHeadphoneWorkoutDraft?) {

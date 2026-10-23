@@ -17,6 +17,7 @@ struct ActiveRoutineView: View {
     @State private var motionAccessGate = HeadphoneMotionAccessGate()
     @State private var showingMotionAccessRequirement = false
     @State private var sessionStartRunID = 0
+    @State private var screenPresenceToken = UUID()
 
     private let leaderboardTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -26,6 +27,13 @@ struct ActiveRoutineView: View {
             routine: routine,
             recoveredDraft: recoveredDraft
         ))
+    }
+
+    /// Shows a session that is already running - resumed by `HeadphoneSessionRecoveryCoordinator`
+    /// with no screen, or one whose screen was lost - without restarting it.
+    init(viewModel: ActiveRoutineViewModel, routine: Routine) {
+        self.routine = routine
+        _viewModel = State(initialValue: viewModel)
     }
 
     var body: some View {
@@ -64,9 +72,48 @@ struct ActiveRoutineView: View {
             await startSessionAfterMotionAccess()
         }
         .keepsScreenAwake(shouldKeepScreenAwake, reason: "Routine session")
+        .onAppear {
+            HeadphoneSessionScreenPresence.shared.didAppear(
+                sessionID: viewModel.sessionID,
+                token: screenPresenceToken
+            )
+        }
         .onDisappear {
-            viewModel.stopTimer()
+            HeadphoneSessionScreenPresence.shared.didDisappear(
+                sessionID: viewModel.sessionID,
+                token: screenPresenceToken
+            )
+            // A session that is still counting keeps its clock: the screen may be gone to a tab
+            // switch or a relaunch, and the next screen adopts the same session.
+            if viewModel.phase != .active {
+                viewModel.stopTimer()
+            }
             viewModel.cancelPreparedBackgroundSession()
+        }
+        .sheet(
+            item: Binding(
+                get: { viewModel.phase == .active ? viewModel.resumeNotice : nil },
+                set: { _ in }
+            )
+        ) { notice in
+            HeadphoneSessionResumeSheet(
+                notice: notice,
+                sessionLabel: "routine",
+                onSave: { machineSteps in
+                    viewModel.settleResumeNotice(machineSteps: machineSteps, action: .save)
+                    viewModel.trackLogWorkoutTapped(surface: .stopAlert)
+                    Task {
+                        await saveRoutineForSummary(reason: .userStopped)
+                    }
+                },
+                onKeepCounting: { machineSteps in
+                    viewModel.settleResumeNotice(machineSteps: machineSteps, action: .keepCounting)
+                    Task {
+                        await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+                    }
+                }
+            )
+            .appSheetStyle(.fitted(), isInteractiveDismissDisabled: true)
         }
         .onChange(of: viewModel.showCompletionSheet) { _, isShowing in
             if isShowing {
@@ -391,6 +438,8 @@ struct ActiveRoutineView: View {
     /// Motion & Fitness is settled before the countdown, so its alert meets a climber who is still
     /// looking at the screen instead of one who has already started climbing.
     private func startSessionAfterMotionAccess() async {
+        // A session handed to this screen already running is never restarted.
+        guard !viewModel.hasBegunSession else { return }
         motionAccessGate.isAppActive = scenePhase == .active
         let motionAccess = await motionAccessGate.resolve()
         guard !Task.isCancelled else { return }

@@ -25,7 +25,7 @@ enum AscendSchemaV1: VersionedSchema {
             Workout.self,
             WorkoutSourceLink.self,
             WorkoutParticipation.self,
-            ActiveHeadphoneWorkoutDraft.self,
+            AscendSchemaV4.ActiveHeadphoneWorkoutDraft.self,
             LeaderboardStats.self,
             Routine.self,
             RoutineFolder.self,

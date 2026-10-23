@@ -16,9 +16,9 @@ import SwiftData
 /// point of the change. `PendingRoutineDeletion` is a brand-new model with no rows to default. So
 /// the stage is lightweight; nothing has to be computed per record.
 ///
-/// This still names the live model types rather than frozen copies of its own, because
-/// `AscendSchemaV4` added a model and changed none. The day an existing model's shape moves, this
-/// version needs frozen copies of what it described, exactly as V1 and V2 carry.
+/// It names the live model types except for `ActiveHeadphoneWorkoutDraft`, whose pre-V5 shape is
+/// the frozen `AscendSchemaV4.ActiveHeadphoneWorkoutDraft`; `AscendSchemaV4` added a model and
+/// changed none, so nothing else here needs a copy of its own.
 /// `AscendLocalStore.currentSchema` is the one declaration of which version is live.
 enum AscendSchemaV3: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
@@ -28,7 +28,7 @@ enum AscendSchemaV3: VersionedSchema {
             Workout.self,
             WorkoutSourceLink.self,
             WorkoutParticipation.self,
-            ActiveHeadphoneWorkoutDraft.self,
+            AscendSchemaV4.ActiveHeadphoneWorkoutDraft.self,
             LeaderboardStats.self,
             Routine.self,
             RoutineFolder.self,
