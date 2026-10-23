@@ -118,6 +118,45 @@ test('a client may not claim the server verdict, forge the clock, or add fields'
   await assertFails(setDoc(heartbeatRef(owner), heartbeat({ durationSeconds: 500_000 })));
 });
 
+test('a heartbeat the server flagged stalled is re-opened and then ended by its owner', async () => {
+  const owner = testEnv.authenticatedContext(ownerId);
+  await assertSucceeds(setDoc(heartbeatRef(owner), heartbeat()));
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(heartbeatRef(adminContext), { state: 'stalled' }, { merge: true });
+  });
+
+  await assertSucceeds(setDoc(heartbeatRef(owner), heartbeat({ steps: 1_593, durationSeconds: 1_328 }), { merge: true }));
+  await assertSucceeds(setDoc(heartbeatRef(owner), heartbeat({
+    steps: 3_169,
+    durationSeconds: 2_600,
+    state: 'ended',
+    endedAt: serverTimestamp(),
+    outcome: 'saved',
+  }), { merge: true }));
+
+  let stored;
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    stored = (await getDoc(heartbeatRef(adminContext))).data();
+  });
+  if (stored.state !== 'ended' || stored.outcome !== 'saved' || stored.steps !== 3_169) {
+    throw new Error(`expected the owner's end to land, got ${JSON.stringify(stored)}`);
+  }
+});
+
+test('a heartbeat the server flagged stalled can be ended straight from recovery', async () => {
+  const owner = testEnv.authenticatedContext(ownerId);
+  await assertSucceeds(setDoc(heartbeatRef(owner), heartbeat()));
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(heartbeatRef(adminContext), { state: 'stalled' }, { merge: true });
+  });
+
+  await assertSucceeds(setDoc(heartbeatRef(owner), heartbeat({
+    state: 'ended',
+    endedAt: serverTimestamp(),
+    outcome: 'discarded',
+  }), { merge: true }));
+});
+
 test('a stranger can neither read nor write another climber heartbeat', async () => {
   const owner = testEnv.authenticatedContext(ownerId);
   await assertSucceeds(setDoc(heartbeatRef(owner), heartbeat()));

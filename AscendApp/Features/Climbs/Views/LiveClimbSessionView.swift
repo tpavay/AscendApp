@@ -326,7 +326,6 @@ struct LiveClimbSessionView: View {
             }
             Task {
                 await viewModel.refreshReplayLeaderboardIfNeeded()
-                await viewModel.updateLiveActivity()
                 if experience == .mountain {
                     let context = viewModel.replayContext
                     await mountainRace.refreshChosen(

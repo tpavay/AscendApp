@@ -101,7 +101,7 @@ struct ActiveRoutineView: View {
                 sessionLabel: "routine",
                 onSave: { machineSteps in
                     viewModel.settleResumeNotice(machineSteps: machineSteps, action: .save)
-                    viewModel.trackLogWorkoutTapped(surface: .stopAlert)
+                    viewModel.trackLogWorkoutTapped(surface: .resumeSheet)
                     Task {
                         await saveRoutineForSummary(reason: .userStopped)
                     }

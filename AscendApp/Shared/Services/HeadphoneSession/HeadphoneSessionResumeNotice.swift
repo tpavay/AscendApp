@@ -35,6 +35,13 @@ struct HeadphoneSessionResumeNotice: Identifiable, Equatable, Sendable {
         return detectedSteps + phoneEstimateSteps
     }
 
+    /// The session's count a settled field stands for. The field is a count at the resume moment -
+    /// the draft's number, the phone's estimate on top, or the machine's - while the sensor has
+    /// kept counting under the sheet since, so every step it counted after the resume is kept.
+    func correctedSteps(enteredSteps: Int, sensorStepsNow: Int) -> Int {
+        enteredSteps + max(sensorStepsNow - detectedSteps, 0)
+    }
+
     var suggestedStepsSource: GapSource {
         guard let phoneEstimateSteps, phoneEstimateSteps > 0 else { return .wallClock }
         return .pedometer

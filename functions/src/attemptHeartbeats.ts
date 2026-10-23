@@ -51,7 +51,6 @@ export interface HeartbeatDocument {
   outcome?: string | null;
   climbId?: string | null;
   appVersion?: string | null;
-  flaggedAt?: admin.firestore.Timestamp;
 }
 
 export interface StalledHeartbeat {
@@ -191,7 +190,7 @@ export interface AttemptHeartbeatPort {
     cutoff: Date,
     limit: number
   ): Promise<StalledHeartbeat[]>;
-  writeFlag(flag: FlagDocument, markStalledAt: Date): Promise<void>;
+  writeFlag(flag: FlagDocument): Promise<void>;
   listUnresolvedFlags(
     limit: number
   ): Promise<Array<{id: string; flag: FlagDocument}>>;
@@ -243,7 +242,7 @@ export async function flagStalledHeartbeats(
       continue;
     }
     try {
-      await port.writeFlag(buildFlag(heartbeat, now), now);
+      await port.writeFlag(buildFlag(heartbeat, now));
       summary.flagged += 1;
     } catch (error) {
       summary.failures.push(
@@ -311,7 +310,7 @@ export function makeAdminPort(
       });
     },
 
-    async writeFlag(flag, markStalledAt) {
+    async writeFlag(flag) {
       const batch = firestore.batch();
       batch.set(
         firestore
@@ -326,10 +325,7 @@ export function makeAdminPort(
           .doc(flag.userId)
           .collection(ATTEMPT_HEARTBEATS_COLLECTION)
           .doc(flag.sessionID),
-        {
-          state: "stalled",
-          flaggedAt: admin.firestore.Timestamp.fromDate(markStalledAt),
-        },
+        {state: "stalled"},
         {merge: true}
       );
       await batch.commit();

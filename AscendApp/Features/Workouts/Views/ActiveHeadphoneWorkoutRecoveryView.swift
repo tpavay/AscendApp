@@ -52,16 +52,12 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
     private func resolve() {
         defer { isResolving = false }
 
-        if let live = LiveClimbSessionCoordinator.shared.activeViewModel(sessionID: draft.sessionID) {
-            resumedLiveClimbViewModel = live
-            return
-        }
-        if let routineViewModel = ActiveRoutineSessionCoordinator.shared.activeViewModel(sessionID: draft.sessionID) {
-            adopt(.routine(routineViewModel, routineViewModel.routine))
-            return
-        }
         if let resumption = coordinator.adopt(draftID: draft.id) {
             adopt(resumption.session)
+            return
+        }
+        if let running = coordinator.runningSession(for: draft) {
+            adopt(running)
             return
         }
 
@@ -173,9 +169,12 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
 
     /// Plain words for what happened, worded from the facts the launch could establish.
     private var explanation: String {
+        let clock = Self.clockPhrase(draft.durationSeconds)
+        if assessment?.climberEndedSession == true {
+            return "You ended this \(sessionLabel) at \(draft.steps.formatted()) steps and \(clock), and Ascend closed before saving it. Enter the machine's count and save it, or discard it."
+        }
         let gap = assessment.map(Self.gapPhrase) ?? "a while"
         let reason = assessment?.lossReason.climberFacingClause ?? HeadphoneSessionLossReason.unknown.climberFacingClause
-        let clock = Self.clockPhrase(draft.durationSeconds)
         return "\(reason) \(gap) ago, at \(draft.steps.formatted()) steps and \(clock) into this \(sessionLabel). Enter the machine's count to credit the work and save it, keep going live, or discard it."
     }
 
@@ -284,17 +283,9 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
     // MARK: - Actions
 
     private func resume() {
-        do {
-            try syncDraftIfNeeded()
-        } catch {
-            errorMessage = error.localizedDescription
-            AppDiagnosticsRecorder.shared.record(
-                "active_headphone_recovery_step_sync_failed",
-                level: .error,
-                details: draft.diagnosticDetails.merging(["error": error.localizedDescription]) { current, _ in current }
-            )
-            return
-        }
+        isStepFieldFocused = false
+        let correctedSteps = stepCountDidChange ? effectiveStepCount : nil
+        let deltaSteps = effectiveStepCount - draft.steps
 
         AppDiagnosticsRecorder.shared.record(
             "active_headphone_recovery_resume_tapped",
@@ -305,11 +296,12 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
         let assessment = assessment ?? coordinator.assess(draft)
         do {
             // The screen has already explained the gap, so the running session opens without
-            // the inline notice; a typed count was applied by `syncDraftIfNeeded` above.
+            // the inline notice; a typed count rides the one gap credit the resume makes.
             let resumption = try coordinator.resume(
                 draft,
                 modelContext: modelContext,
                 assessment: assessment,
+                correctedSteps: correctedSteps,
                 showsNotice: false
             )
             _ = coordinator.adopt(draftID: draft.id)
@@ -318,8 +310,8 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
                     mode: draft.kind,
                     gapSeconds: Int(assessment.gap.rounded(.down)),
                     lossReason: assessment.lossReason,
-                    source: stepCountDidChange ? .machine : .wallClock,
-                    deltaSteps: 0,
+                    source: correctedSteps == nil ? .wallClock : .machine,
+                    deltaSteps: correctedSteps == nil ? 0 : deltaSteps,
                     action: .promptResume
                 )
             )
@@ -345,6 +337,7 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
             let deltaSteps = effectiveStepCount - draft.steps
             try syncDraftIfNeeded()
             let details = draft.diagnosticDetails
+            coordinator.publishSessionEnd(for: draft, outcome: .saved)
             _ = try ActiveHeadphoneWorkoutDraftSaver.save(draft, modelContext: modelContext)
             await LiveClimbActivityManager.shared.end(sessionID: draft.sessionID, status: .finished)
             TelemetryManager.shared.track(
@@ -377,10 +370,11 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
         isStepFieldFocused = false
         guard stepCountDidChange else { return }
 
-        try ActiveHeadphoneWorkoutDraftStore().applyRecoveryStepSync(
-            correctedSteps: effectiveStepCount,
+        try coordinator.creditGap(
             to: draft,
-            in: modelContext
+            correctedSteps: effectiveStepCount,
+            in: modelContext,
+            at: Date()
         )
     }
 
@@ -388,6 +382,7 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
         do {
             let assessment = assessment ?? coordinator.assess(draft)
             let details = draft.diagnosticDetails
+            coordinator.publishSessionEnd(for: draft, outcome: .discarded)
             try ActiveHeadphoneWorkoutDraftStore().delete(draft, in: modelContext)
             await LiveClimbActivityManager.shared.end(sessionID: draft.sessionID, status: .failed)
             TelemetryManager.shared.track(

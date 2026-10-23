@@ -232,6 +232,35 @@ struct HomeGlobeSheetEvidenceTests {
         return frames.sorted { $0.minX < $1.minX }
     }
 
+    @Test
+    func theGlobeIsUnmountedWhileASessionRunsAndRemountedAfterIt() async throws {
+        let registry = ActiveHeadphoneWorkoutRuntimeRegistry()
+        let draft = ActiveHeadphoneWorkoutDraft(
+            sessionID: "home-footprint-session",
+            kind: .justClimb,
+            startedAt: .now,
+            title: "Just Climb",
+            subtitle: "",
+            workoutName: "Just Climb",
+            targetStepCount: nil,
+            targetDurationSeconds: nil
+        )
+        let screen = try await makeScreen(feed: Self.sampleFeed, detent: .compact, sessionRegistry: registry)
+
+        try await RenderedScreen.host(screen, settle: .turns(30, interval: .milliseconds(100))) { hosted in
+            #expect(Self.firstMapView(under: hosted.window) != nil, "no session: the globe is up")
+
+            registry.markActive(draft)
+            try await hosted.settle(.turns(30, interval: .milliseconds(100)))
+            #expect(Self.firstMapView(under: hosted.window) == nil, "a running session unmounts the MapKit globe")
+            #expect(try await hosted.copy().contains("marker colors by steps"), "the chrome over the globe stays")
+
+            registry.markInactive(draft)
+            try await hosted.settle(.turns(30, interval: .milliseconds(100)))
+            #expect(Self.firstMapView(under: hosted.window) != nil, "the session ended: the globe is rebuilt")
+        }
+    }
+
     private static func firstMapView(under view: UIView) -> MKMapView? {
         if let map = view as? MKMapView { return map }
         for subview in view.subviews {
@@ -283,7 +312,8 @@ struct HomeGlobeSheetEvidenceTests {
         detent: BrowseSheetDetent,
         globeViewModel: GlobeViewModel = makeGlobeViewModel(),
         container: ModelContainer? = nil,
-        makeJustClimbSession: @escaping HomeView.JustClimbSessionFactory = HomeView.liveJustClimbSession
+        makeJustClimbSession: @escaping HomeView.JustClimbSessionFactory = HomeView.liveJustClimbSession,
+        sessionRegistry: ActiveHeadphoneWorkoutRuntimeRegistry = ActiveHeadphoneWorkoutRuntimeRegistry()
     ) async throws -> some View {
         let container = try container ?? ModelContainer(
             for: AscendLocalStore.schema,
@@ -310,7 +340,8 @@ struct HomeGlobeSheetEvidenceTests {
             globeViewModel: globeViewModel,
             enrichmentService: enrichmentService,
             detent: detent,
-            makeJustClimbSession: makeJustClimbSession
+            makeJustClimbSession: makeJustClimbSession,
+            sessionRegistry: sessionRegistry
         )
         .preferredColorScheme(.dark)
         .environment(AuthenticationViewModel())
@@ -517,7 +548,7 @@ private struct HostedHomeScreen: View {
     let makeJustClimbSession: HomeView.JustClimbSessionFactory
     /// A registry nothing else writes into: the globe these suites measure stands down only for a
     /// session this Home owns, never for one another suite started in the same process.
-    private let sessionRegistry = ActiveHeadphoneWorkoutRuntimeRegistry()
+    let sessionRegistry: ActiveHeadphoneWorkoutRuntimeRegistry
 
     @State private var tabBarOverlayHeight: CGFloat = 0
 

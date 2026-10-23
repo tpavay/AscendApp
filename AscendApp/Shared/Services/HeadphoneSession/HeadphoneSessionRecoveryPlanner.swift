@@ -44,6 +44,9 @@ struct HeadphoneSessionRecoveryAssessment: Equatable, Sendable {
     let plan: HeadphoneSessionRecoveryPlan
     /// Whether `gap` is inside `ActiveHeadphoneWorkoutDraftStore.maximumCreditableTrackingGap`.
     let gapIsCreditable: Bool
+    /// The climber had already ended the session (the draft is `.stopped`) and the process died
+    /// before the save finished. Such a draft is never restarted: the screen offers to save it.
+    let climberEndedSession: Bool
 
     var gapMinutes: Int {
         Int((gap / 60).rounded())
@@ -70,20 +73,25 @@ enum HeadphoneSessionRecoveryPlanner {
         var systemUptime: TimeInterval
         var crashedLastRun: Bool
         var autoResumeEnabled: Bool
+        /// The draft's status was `.stopped`: the finish path wrote it before saving.
+        var climberEndedSession: Bool
     }
 
     static func assess(_ inputs: Inputs) -> HeadphoneSessionRecoveryAssessment {
         let gap = max(inputs.now.timeIntervalSince(inputs.lastCheckpointAt), 0)
         let reason = lossReason(gap: gap, inputs: inputs)
         let creditable = gap <= ActiveHeadphoneWorkoutDraftStore.maximumCreditableTrackingGap
-        let plan: HeadphoneSessionRecoveryPlan = inputs.autoResumeEnabled && gap <= automaticResumeWindow
+        let plan: HeadphoneSessionRecoveryPlan = inputs.autoResumeEnabled
+            && !inputs.climberEndedSession
+            && gap <= automaticResumeWindow
             ? .autoResume
             : .prompt
         return HeadphoneSessionRecoveryAssessment(
             gap: gap,
             lossReason: reason,
             plan: plan,
-            gapIsCreditable: creditable
+            gapIsCreditable: creditable,
+            climberEndedSession: inputs.climberEndedSession
         )
     }
 

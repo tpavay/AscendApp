@@ -680,9 +680,12 @@ final class ActiveRoutineViewModel {
 
         var source = HeadphoneSessionResumeNotice.GapSource.wallClock
         var deltaSteps = 0
-        if let machineSteps, machineSteps != motionSession.stepCount,
+        let correctedSteps = machineSteps.map {
+            notice.correctedSteps(enteredSteps: $0, sensorStepsNow: motionSession.stepCount)
+        }
+        if let machineSteps, let correctedSteps, correctedSteps != motionSession.stepCount,
            let correction = motionSession.applyStepCorrection(
-               correctedSteps: machineSteps,
+               correctedSteps: correctedSteps,
                trackingGapDuration: notice.gap
            ) {
             _ = stepTimelineRecorder.recordCorrection(correction)

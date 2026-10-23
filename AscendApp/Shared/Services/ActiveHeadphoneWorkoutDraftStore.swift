@@ -240,12 +240,13 @@ struct ActiveHeadphoneWorkoutDraftStore {
     }
 
     @MainActor
+    @discardableResult
     func applyRecoveryStepSync(
         correctedSteps: Int,
         to draft: ActiveHeadphoneWorkoutDraft,
         in modelContext: ModelContext,
         syncedAt: Date = Date()
-    ) throws {
+    ) throws -> TrackingGapCredit {
         let normalizedSteps = max(correctedSteps, 0)
         let detectedSteps = draft.steps
         let credit = applyGapCreditUnsaved(to: draft, at: syncedAt)
@@ -291,6 +292,7 @@ struct ActiveHeadphoneWorkoutDraftStore {
                 "tracking_gap_credited": String(credit.credited)
             ]) { current, _ in current }
         )
+        return credit
     }
 }
 

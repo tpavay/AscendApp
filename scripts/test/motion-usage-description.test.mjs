@@ -30,16 +30,18 @@ const CORE_MOTION_SOURCE_PATHS = [
   "AscendApp/Shared/Services/HeadphoneSession/PhoneStepEstimator.swift"
 ];
 
-// The one file allowed a Core Motion reader other than the headphone feed, and
-// which reader: the phone's own step count across a gap, read once at resume,
-// never live. The usage string names it ("your phone's steps to fill a gap").
-const CORE_MOTION_READER_EXCEPTIONS = {
-  "AscendApp/Shared/Services/HeadphoneSession/PhoneStepEstimator.swift": ["CMPedometer"]
+// The Core Motion readers Ascend starts, each with the words in the usage
+// description that tell the climber about it: the headphone feed, and the
+// phone's own step count across a gap after a session's process died, read once
+// at resume and never live. A reader is allowed exactly when the alert iOS shows
+// describes it.
+const DESCRIBED_CORE_MOTION_READERS = {
+  CMHeadphoneMotionManager: "headphones",
+  CMPedometer: "phone's steps"
 };
 
-// Every Core Motion type that starts a sensor feed. CMHeadphoneMotionManager is
-// the only one Ascend is allowed to use everywhere; CMPedometer is allowed in the
-// one file above; the rest would each add a feature the usage string does not
+// Every Core Motion type that starts a sensor feed. Any of them outside
+// DESCRIBED_CORE_MOTION_READERS would add a feature the usage string does not
 // mention.
 const CORE_MOTION_READER_TYPES = [
   "CMAltimeter",
@@ -114,7 +116,7 @@ test("the motion usage description stays plain, short, and feature-named", async
       `${MAXIMUM_USAGE_DESCRIPTION_LENGTH} the alert can show without truncating: "${value}"`
   );
 
-  for (const phrase of ["headphones", "steps", "Live Climbs", "Just Climb", "routines", "phone's steps"]) {
+  for (const phrase of ["headphones", "steps", "Live Climbs", "Just Climb", "routines"]) {
     assert.ok(
       value.includes(phrase),
       `The motion usage description omits "${phrase}": "${value}"`
@@ -128,8 +130,10 @@ test("the motion usage description stays plain, short, and feature-named", async
   );
 });
 
-test("the only Core Motion reader in the app is the headphone motion feed", async () => {
+test("every Core Motion reader in the app is one the usage description describes", async () => {
   const sources = await swiftSources();
+  const plist = await readFile(infoPlistPath, "utf8");
+  const description = infoPlistString(plist, "NSMotionUsageDescription");
 
   const importers = sources
     .filter(([, source]) => /^@?\w*\s*import CoreMotion$/m.test(source))
@@ -145,16 +149,13 @@ test("the only Core Motion reader in the app is the headphone motion feed", asyn
   const readerPattern = new RegExp(`\\b(${CORE_MOTION_READER_TYPES.join("|")})\\b`, "g");
 
   for (const [path, source] of sources) {
-    const readers = [...new Set([...source.matchAll(readerPattern)].map(([, type]) => type))];
-    if (readers.length === 0) {
-      continue;
+    for (const [, reader] of source.matchAll(readerPattern)) {
+      const phrase = DESCRIBED_CORE_MOTION_READERS[reader];
+      assert.ok(
+        phrase !== undefined && description.includes(phrase),
+        `${path} starts ${reader}, a Core Motion feed the usage description does not describe: "${description}"`
+      );
     }
-
-    assert.deepEqual(
-      readers,
-      CORE_MOTION_READER_EXCEPTIONS[path] ?? ["CMHeadphoneMotionManager"],
-      `${path} starts a Core Motion feed the usage description does not describe: ${readers}`
-    );
   }
 });
 

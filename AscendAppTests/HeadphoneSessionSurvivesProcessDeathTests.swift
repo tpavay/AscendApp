@@ -188,6 +188,136 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         #expect(metadata.stopReason == .interrupted)
     }
 
+    @Test("A draft whose session is already running is never resumed a second time", arguments: Mode.allCases)
+    func resumingARunningDraftReturnsTheRunningSession(mode: Mode) async throws {
+        let lab = try Lab(mode: mode)
+        let session = try lab.startedSession()
+        lab.run(session, seconds: 62)
+        let draft = try #require(try lab.draftStore.activeDraft(in: lab.context))
+        lab.simulateProcessDeath(session)
+        lab.clock.now = Self.recoveryShownAt
+        let assessment = lab.recovery.assess(draft)
+
+        // The HealthKit relaunch resumes it and the cover adopts it; then the foreground path
+        // reaches the same draft.
+        let first = try lab.recovery.resume(draft, modelContext: lab.context, assessment: assessment)
+        _ = lab.recovery.adopt(draftID: draft.id)
+        lab.clock.now = Self.recoveryShownAt.addingTimeInterval(5)
+        let second = try lab.recovery.resume(draft, modelContext: lab.context, assessment: assessment)
+
+        switch (first.session, second.session) {
+        case (.liveClimb(let started), .liveClimb(let returned)):
+            #expect(started === returned)
+        case (.routine(let started, _), .routine(let returned, _)):
+            #expect(started === returned)
+        default:
+            Issue.record("the second resume changed the session's mode")
+        }
+        #expect(draft.trackingIntegrity.interruptionCount == 1, "the gap was credited once")
+
+        lab.endResumedSession(first)
+    }
+
+    @Test("The recovery screen's typed count and its Resume credit one gap between them, even retried", arguments: Mode.allCases)
+    func promptPathCreditsTheGapOnce(mode: Mode) async throws {
+        let lab = try Lab(mode: mode)
+        let session = try lab.startedSession()
+        lab.run(session, seconds: 62)
+        let draft = try #require(try lab.draftStore.activeDraft(in: lab.context))
+        lab.simulateProcessDeath(session)
+
+        // Two hours later on a phone that stayed up: past the automatic window, so the screen asks.
+        let gap: TimeInterval = 2 * 3_600
+        lab.clock.now = Self.goAt.addingTimeInterval(62 + gap)
+        let assessment = lab.recovery.assess(draft)
+        #expect(assessment.plan == .prompt)
+
+        // Save failed after the typed count landed; the climber then taps Resume Live.
+        try lab.recovery.creditGap(to: draft, correctedSteps: 1_400, in: lab.context, at: lab.clock.now)
+        lab.clock.now = lab.clock.now.addingTimeInterval(30)
+        let resumption = try lab.recovery.resume(
+            draft,
+            modelContext: lab.context,
+            assessment: assessment,
+            correctedSteps: 1_500,
+            showsNotice: false
+        )
+
+        #expect(draft.steps == 1_500)
+        #expect(draft.trackingIntegrity.interruptionCount == 1)
+        #expect(Int(draft.trackingIntegrity.totalUnavailableDuration) == Int(gap))
+        #expect(Int(draft.durationSeconds) == 62, "a gap past the hour is never credited as climbing")
+
+        lab.endResumedSession(resumption)
+    }
+
+    @Test("A draft the climber already ended is offered for saving, not restarted")
+    func stoppedDraftIsNeverAutoResumed() throws {
+        let lab = try Lab(mode: .liveClimb)
+        let draft = try lab.persistedDraft(steps: 1_576, durationSeconds: 1_172)
+        draft.status = .stopped
+        lab.clock.now = draft.lastCheckpointAt.addingTimeInterval(20)
+
+        let assessment = lab.recovery.assess(draft)
+
+        #expect(assessment.plan == .prompt)
+        #expect(assessment.climberEndedSession)
+    }
+
+    @Test("Saving from the resume sheet keeps every step the sensor counted after the resume", arguments: Mode.allCases)
+    func resumeSheetKeepsStepsCountedSinceTheResume(mode: Mode) async throws {
+        let lab = try Lab(mode: mode)
+        let session = try lab.startedSession()
+        lab.run(session, seconds: 62)
+        let draft = try #require(try lab.draftStore.activeDraft(in: lab.context))
+        lab.simulateProcessDeath(session)
+        lab.clock.now = Self.recoveryShownAt
+        let resumption = try lab.recovery.resume(draft, modelContext: lab.context, assessment: lab.recovery.assess(draft))
+
+        // The phone counted 1,500 across the gap; the climber climbs 40 more while reading the
+        // sheet, then accepts the pre-filled number.
+        let expected = 66 + 1_500 + 40
+        lab.resumedMotion.correctionResult = HeadphoneMotionStepCorrection(
+            elapsedSeconds: 1_230, detectedSteps: 106, correctedSteps: expected,
+            deltaSteps: expected - 106, trackingGapDurationSeconds: 1_165,
+            totalUnavailableDurationSeconds: 1_165, interruptionCount: 1
+        )
+        switch resumption.session {
+        case .liveClimb(let viewModel):
+            viewModel.attachPhoneStepEstimate(1_500)
+            let notice = try #require(viewModel.resumeNotice)
+            #expect(notice.suggestedSteps == 1_566)
+            lab.resumedMotion.stepCount += 40
+            await viewModel.settleResumeNotice(machineSteps: notice.suggestedSteps, save: false, modelContext: lab.context)
+        case .routine(let viewModel, _):
+            viewModel.attachPhoneStepEstimate(1_500)
+            let notice = try #require(viewModel.resumeNotice)
+            #expect(notice.suggestedSteps == 1_566)
+            lab.resumedMotion.stepCount += 40
+            viewModel.settleResumeNotice(machineSteps: notice.suggestedSteps, action: .save)
+        }
+
+        #expect(lab.resumedMotion.lastCorrection?.correctedSteps == expected)
+
+        lab.endResumedSession(resumption)
+    }
+
+    @Test("Saving or discarding from the recovery screen closes the server heartbeat")
+    func recoveryScreenClosesTheHeartbeat() async throws {
+        let lab = try Lab(mode: .liveClimb)
+        let draft = try lab.persistedDraft(steps: 66, durationSeconds: 62)
+
+        lab.recovery.publishSessionEnd(for: draft, outcome: .saved)
+
+        for _ in 0..<100 where lab.heartbeats.published.isEmpty {
+            await Task.yield()
+        }
+        let published = try #require(lab.heartbeats.published.last)
+        #expect(published.heartbeat.sessionID == draft.sessionID)
+        #expect(published.heartbeat.state == .ended)
+        #expect(published.heartbeat.outcome == .saved)
+    }
+
     // MARK: - 3. The Lock Screen is honest
 
     @Test("Every live activity update carries a stale date fifteen seconds ahead")
@@ -425,7 +555,8 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
                 },
                 makeRoutineSession: { [unowned self] routine, draft, notice in
                     makeRoutineViewModel(routine: routine, motion: resumedMotion, recoveredDraft: draft, notice: notice)
-                }
+                },
+                makeCheckpointer: { [unowned self] in makeCheckpointer() }
             )
         }
 

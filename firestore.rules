@@ -1719,7 +1719,8 @@ service cloud.firestore {
       // writes it, reads it, and account deletion sweeps it with the rest of
       // the subtree. The server reads it across every climber through a
       // collection-group query (flagStalledAttemptHeartbeats) and writes only
-      // `state: stalled` and `flaggedAt`, both with the Admin SDK. Owner-gated
+      // `state: stalled`, with the Admin SDK, so the owner's next merge write
+      // re-opens or ends it under the same validation. Owner-gated
       // rather than paid-gated, like every owner-private collection: a climb
       // that is counting right now is never refused its heartbeat over a
       // lapsed subscription.

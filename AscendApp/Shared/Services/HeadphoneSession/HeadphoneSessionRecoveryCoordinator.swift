@@ -47,6 +47,9 @@ final class HeadphoneSessionRecoveryCoordinator {
 
     private(set) var resumptions: [UUID: HeadphoneSessionResumption] = [:]
     @ObservationIgnored private var reportedLostDraftIDs: Set<UUID> = []
+    /// The checkpoint each draft's gap was last credited from, so the same gap is never credited
+    /// twice. A session that runs again moves the checkpoint, and its next death is a new gap.
+    @ObservationIgnored private var gapCreditedCheckpoints: [UUID: Date] = [:]
 
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let featureFlags: RemoteFeatureFlagStore
@@ -58,6 +61,7 @@ final class HeadphoneSessionRecoveryCoordinator {
     private let makeJustClimbSession: @MainActor (ActiveHeadphoneWorkoutDraft, HeadphoneSessionResumeNotice?) -> LiveClimbSessionViewModel
     private let makeRoutineSession: @MainActor (Routine, ActiveHeadphoneWorkoutDraft, HeadphoneSessionResumeNotice?) -> ActiveRoutineViewModel
     private let climbLookup: @MainActor (String) -> Climb?
+    private let makeCheckpointer: @MainActor () -> HeadphoneSessionCheckpointer
 
     init(
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
@@ -80,7 +84,8 @@ final class HeadphoneSessionRecoveryCoordinator {
         },
         makeRoutineSession: @escaping @MainActor (Routine, ActiveHeadphoneWorkoutDraft, HeadphoneSessionResumeNotice?) -> ActiveRoutineViewModel = { routine, draft, notice in
             ActiveRoutineViewModel(routine: routine, recoveredDraft: draft, resumeNotice: notice)
-        }
+        },
+        makeCheckpointer: @escaping @MainActor () -> HeadphoneSessionCheckpointer = { HeadphoneSessionCheckpointer() }
     ) {
         self.draftStore = draftStore
         self.featureFlags = featureFlags
@@ -89,6 +94,7 @@ final class HeadphoneSessionRecoveryCoordinator {
         self.crashedLastRun = crashedLastRun
         self.now = now
         self.climbLookup = climbLookup
+        self.makeCheckpointer = makeCheckpointer
         self.makeLiveClimbSession = makeLiveClimbSession
         self.makeJustClimbSession = makeJustClimbSession
         self.makeRoutineSession = makeRoutineSession
@@ -107,7 +113,8 @@ final class HeadphoneSessionRecoveryCoordinator {
                     .headphoneSessionAutoResume,
                     path: "HeadphoneSessionRecoveryCoordinator.assess",
                     store: featureFlags
-                )
+                ),
+                climberEndedSession: draft.status == .stopped
             )
         )
     }
@@ -142,23 +149,67 @@ final class HeadphoneSessionRecoveryCoordinator {
         )
     }
 
-    /// A session already running for this draft, started by an earlier surface in this process.
-    func resumption(for draftID: UUID) -> HeadphoneSessionResumption? {
-        resumptions[draftID]
+    /// A session already running for this draft in this process - started by an earlier surface,
+    /// the HealthKit relaunch, or a screen a tab switch took away.
+    func runningSession(for draft: ActiveHeadphoneWorkoutDraft) -> HeadphoneSessionResumption.Session? {
+        if let live = LiveClimbSessionCoordinator.shared.activeViewModel(sessionID: draft.sessionID) {
+            return .liveClimb(live)
+        }
+        if let routine = ActiveRoutineSessionCoordinator.shared.activeViewModel(sessionID: draft.sessionID) {
+            return .routine(routine, routine.routine)
+        }
+        return nil
+    }
+
+    /// Credits the gap since the draft's last checkpoint exactly once, with the machine's number
+    /// when the climber typed one. A second credit from the same checkpoint - a Resume retried
+    /// after the sensor refused, or a Save after it - measures no gap at all.
+    @discardableResult
+    func creditGap(
+        to draft: ActiveHeadphoneWorkoutDraft,
+        correctedSteps: Int?,
+        in modelContext: ModelContext,
+        at creditedAt: Date
+    ) throws -> ActiveHeadphoneWorkoutDraftStore.TrackingGapCredit {
+        let alreadyCredited = gapCreditedCheckpoints[draft.id] == draft.lastCheckpointAt
+        let effectiveAt = alreadyCredited ? draft.lastCheckpointAt : creditedAt
+        let credit: ActiveHeadphoneWorkoutDraftStore.TrackingGapCredit
+        if let correctedSteps {
+            credit = try draftStore.applyRecoveryStepSync(
+                correctedSteps: correctedSteps,
+                to: draft,
+                in: modelContext,
+                syncedAt: effectiveAt
+            )
+        } else {
+            credit = try draftStore.creditTrackingGap(to: draft, in: modelContext, resumedAt: effectiveAt)
+        }
+        gapCreditedCheckpoints[draft.id] = draft.lastCheckpointAt
+        return credit
     }
 
     /// Credits the gap, restarts the session for the draft's mode, and keeps it until a screen
-    /// adopts it. Throws when the climb or routine is gone or the sensor refuses to start; the
-    /// caller then falls back to the recovery screen with the draft untouched beyond the credit.
+    /// adopts it. A draft whose session is already running returns that session untouched.
+    /// Throws when the climb or routine is gone or the sensor refuses to start; the caller then
+    /// falls back to the recovery screen with the draft untouched beyond the credit.
     @discardableResult
     func resume(
         _ draft: ActiveHeadphoneWorkoutDraft,
         modelContext: ModelContext,
         assessment: HeadphoneSessionRecoveryAssessment,
+        correctedSteps: Int? = nil,
         showsNotice: Bool = true
     ) throws -> HeadphoneSessionResumption {
         if let existing = resumptions[draft.id] {
             return existing
+        }
+        if let running = runningSession(for: draft) {
+            return HeadphoneSessionResumption(
+                draftID: draft.id,
+                sessionID: draft.sessionID,
+                session: running,
+                assessment: assessment
+            )
         }
 
         let routine = draft.kind == .routine ? fetchRoutine(for: draft, in: modelContext) : nil
@@ -174,7 +225,7 @@ final class HeadphoneSessionRecoveryCoordinator {
 
         let resumedAt = now()
         let gapStart = draft.lastCheckpointAt
-        let credit = try draftStore.creditTrackingGap(to: draft, in: modelContext, resumedAt: resumedAt)
+        let credit = try creditGap(to: draft, correctedSteps: correctedSteps, in: modelContext, at: resumedAt)
         let notice: HeadphoneSessionResumeNotice? = showsNotice
             ? HeadphoneSessionResumeNotice(
                 gap: credit.gapSeconds,
@@ -234,6 +285,14 @@ final class HeadphoneSessionRecoveryCoordinator {
     /// The screen that now shows the session takes it over; the coordinator forgets it.
     func adopt(draftID: UUID) -> HeadphoneSessionResumption? {
         resumptions.removeValue(forKey: draftID)
+    }
+
+    /// Closes the draft's server heartbeat when the recovery screen saves or discards it, so a
+    /// session settled there is never left open or flagged for good.
+    func publishSessionEnd(for draft: ActiveHeadphoneWorkoutDraft, outcome: AttemptHeartbeat.Outcome) {
+        let checkpointer = makeCheckpointer()
+        checkpointer.adopt(draft)
+        checkpointer.publishSessionEnd(outcome: outcome)
     }
 
     private func attachPhoneEstimate(

@@ -85,6 +85,27 @@ final class LiveClimbActivityManager {
             return
         }
 
+        // A session resumed after its process died - often in the background, where ActivityKit
+        // refuses a new request - keeps the card already on the Lock Screen and brings it current.
+        if let existing = Activity<LiveClimbActivityAttributes>.activities.first(where: {
+            $0.attributes.sessionID == sessionID && [.active, .stale].contains($0.activityState)
+        }) {
+            await endExistingActivities(except: existing.id)
+            activity = existing
+            currentAttributes = existing.attributes
+            lastState = existing.content.state
+            await update(
+                steps: steps,
+                rank: rank,
+                rankTotal: rankTotal,
+                standing: standing,
+                duration: duration,
+                progress: progress,
+                force: true
+            )
+            return
+        }
+
         await endExistingActivities()
 
         let attributes = LiveClimbActivityAttributes(
@@ -306,8 +327,8 @@ final class LiveClimbActivityManager {
         )
     }
 
-    private func endExistingActivities() async {
-        for activity in Activity<LiveClimbActivityAttributes>.activities {
+    private func endExistingActivities(except keptID: String? = nil) async {
+        for activity in Activity<LiveClimbActivityAttributes>.activities where activity.id != keptID {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
     }

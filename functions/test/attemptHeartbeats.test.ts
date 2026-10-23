@@ -55,13 +55,13 @@ function makeFakePort(state: FakePortState): AttemptHeartbeatPort {
     async listStalledHeartbeats() {
       return state.stalled;
     },
-    async writeFlag(flag, markStalledAt) {
+    async writeFlag(flag) {
       const id = flagId(flag.userId, flag.sessionID);
       if (state.failWriteFor === id) {
         throw new Error("write refused");
       }
       state.flags.set(id, flag);
-      state.markedStalled.push(`${id}@${markStalledAt.toISOString()}`);
+      state.markedStalled.push(id);
     },
     async listUnresolvedFlags() {
       return [...state.flags.entries()]
@@ -153,10 +153,7 @@ test("a run flags each stalled session once and marks its heartbeat stalled", as
   assert.equal(summary.resolved, 0);
   assert.deepEqual(summary.failures, []);
   assert.deepEqual([...state.flags.keys()].sort(), ["climber-a__s1", "climber-b__s2"]);
-  assert.deepEqual(state.markedStalled, [
-    "climber-a__s1@2026-10-23T11:27:00.000Z",
-    "climber-b__s2@2026-10-23T11:27:00.000Z",
-  ]);
+  assert.deepEqual(state.markedStalled, ["climber-a__s1", "climber-b__s2"]);
 });
 
 test("a flagged session that resumed resolves as resumed with the steps it came back with", async () => {

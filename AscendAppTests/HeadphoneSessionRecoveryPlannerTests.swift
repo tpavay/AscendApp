@@ -12,6 +12,7 @@ struct HeadphoneSessionRecoveryPlannerTests {
         systemUptime: TimeInterval = 7 * 24 * 3_600,
         crashedLastRun: Bool = false,
         autoResumeEnabled: Bool = true,
+        climberEndedSession: Bool = false,
         diagnostics: HeadphoneSessionCheckpointDiagnostics? = nil
     ) -> HeadphoneSessionRecoveryPlanner.Inputs {
         HeadphoneSessionRecoveryPlanner.Inputs(
@@ -20,7 +21,8 @@ struct HeadphoneSessionRecoveryPlannerTests {
             now: Self.lastCheckpointAt.addingTimeInterval(gap),
             systemUptime: systemUptime,
             crashedLastRun: crashedLastRun,
-            autoResumeEnabled: autoResumeEnabled
+            autoResumeEnabled: autoResumeEnabled,
+            climberEndedSession: climberEndedSession
         )
     }
 
@@ -49,6 +51,14 @@ struct HeadphoneSessionRecoveryPlannerTests {
         #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 61 * 60)).plan == .prompt)
         #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 61 * 60)).gapIsCreditable == false)
         #expect(HeadphoneSessionRecoveryPlanner.automaticResumeWindow == ActiveHeadphoneWorkoutDraftStore.maximumCreditableTrackingGap)
+    }
+
+    @Test("A session the climber already ended is offered for saving, never restarted")
+    func endedSessionIsNeverAutoResumed() {
+        let assessment = HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 30, climberEndedSession: true))
+        #expect(assessment.plan == .prompt)
+        #expect(assessment.climberEndedSession)
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 30)).climberEndedSession == false)
     }
 
     @Test("The kill switch turns every draft into a prompt without touching it")
