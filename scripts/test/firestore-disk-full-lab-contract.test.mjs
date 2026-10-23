@@ -4,99 +4,85 @@
  * `FirestoreDiskFullSurvivalTests` is the regression test for the 2026-10-23
  * production crash: Firestore's `LevelDbTransaction::Commit()` aborting the
  * process on a volume with no free blocks. It needs a volume it can fill, which
- * the simulator cannot provide (it shares the Mac's), so the CI runner creates
- * a tiny APFS image and hands its mount point to the test host. Three things
- * have to agree for the suite to actually run on CI, and nothing in Xcode can
- * notice when they stop agreeing:
+ * the simulator cannot provide (it shares the Mac's), so the CI runner attaches
+ * a tiny APFS image through `scripts/ci/attach-disk-full-lab.sh` and hands its
+ * mount point to the test host.
  *
- * - the runner script creates and attaches the image and exports the mount under
- *   the `TEST_RUNNER_` prefix `xcodebuild` strips,
- * - the Swift suite reads exactly the stripped key, and
- * - the pass planner names the suite, so a suite that skipped itself (no mount)
- *   fails its pass instead of counting as green.
- *
- * The image also has to be a fresh path per run, attached without a Finder
- * window, and never cleaned up by a wildcard delete: the home's rules forbid
- * `rm -rf` outright, and a `-nobrowse` attach is what keeps a window off the
- * captain's screen on a developer machine.
+ * Two things are held here. The attach step, run for real, has to produce a
+ * mounted, writable, 8 MB APFS volume at a fresh absolute path per run, outside
+ * the `build-logs/` directory CI uploads, attached without a Finder window. And
+ * the pass planner has to name the suite, so a suite that skipped itself (no
+ * mount) fails its pass instead of counting as green - which is also what
+ * catches the runner and the Swift lab disagreeing about the variable.
  */
 
 import assert from "node:assert/strict";
-import {readFile} from "node:fs/promises";
-import {join} from "node:path";
+import {execFileSync} from "node:child_process";
+import {mkdtempSync, realpathSync, rmSync, statfsSync, writeFileSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {isAbsolute, join} from "node:path";
 import test from "node:test";
 import {fileURLToPath} from "node:url";
 
 import {ISOLATED_PASSES} from "../ci/plan-test-passes.mjs";
 
-const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
-
-const RUNNER_PATH = "scripts/ci/run-ios-test-passes.sh";
-const LAB_PATH = "AscendAppTests/FirestoreDiskFullLab.swift";
-const SUITE_PATH = "AscendAppTests/FirestoreDiskFullSurvivalTests.swift";
+const ATTACH_SCRIPT = fileURLToPath(new URL("../ci/attach-disk-full-lab.sh", import.meta.url));
 const SUITE_NAME = "FirestoreDiskFullSurvivalTests";
+const IMAGE_BYTES = 8 * 1024 * 1024;
 
-// What the test host sees. `xcodebuild` strips `TEST_RUNNER_` from the runner's
-// environment, so the script exports the prefixed name and Swift reads the bare one.
-const HOST_KEY = "ASCEND_DISKFULL_MOUNT";
-const RUNNER_KEY = `TEST_RUNNER_${HOST_KEY}`;
-
-async function read(relativePath) {
-  return readFile(join(repositoryRoot, relativePath), "utf8");
+function mountTableEntry(mountPoint) {
+  const resolved = realpathSync(mountPoint);
+  return execFileSync("mount", {encoding: "utf8"})
+    .split("\n")
+    .find((line) => line.includes(` on ${resolved} (`));
 }
 
-test("the runner creates a fresh APFS image per run, attaches it without a window, and exports its mount", async () => {
-  const runner = await read(RUNNER_PATH);
+test(
+  "the attach step mounts a fresh, writable 8 MB APFS volume outside the uploaded logs",
+  {skip: process.platform !== "darwin" && "hdiutil is macOS-only"},
+  () => {
+    const runnerTemp = mkdtempSync(join(tmpdir(), "disk-full-lab-contract-"));
+    const mounts = [];
+    try {
+      for (let run = 0; run < 2; run += 1) {
+        mounts.push(
+          execFileSync(ATTACH_SCRIPT, {env: {...process.env, RUNNER_TEMP: runnerTemp}, encoding: "utf8"}).trim(),
+        );
+      }
 
-  assert.match(runner, /hdiutil create -quiet -size 8m -fs APFS[^\n]*\$disk_full_lab_image/, "an 8 MB APFS image");
-  assert.match(
-    runner,
-    /disk_full_lab_stamp="\$\(date \+%s\)-\$\$"/,
-    "the image path carries the run's time and pid, so no run ever reuses or deletes another's"
-  );
-  assert.match(runner, /hdiutil attach -quiet -nobrowse -mountpoint "\$disk_full_lab_mount"/, "attached with -nobrowse");
-  assert.match(
-    runner,
-    /disk_full_lab_mount="\$PWD\/\$log_dir\//,
-    "the mount is absolute: the test host has its own working directory and cannot resolve the runner's relative path"
-  );
-  assert.match(runner, new RegExp(`export ${RUNNER_KEY}="\\$disk_full_lab_mount"`), `exports ${RUNNER_KEY}`);
-  assert.match(runner, /trap detach_disk_full_lab EXIT/, "detaches the image when the script ends, however it ends");
-});
+      assert.notEqual(mounts[0], mounts[1], "every run gets a path of its own");
+      for (const mount of mounts) {
+        assert.ok(isAbsolute(mount), `the test host has its own working directory, so ${mount} must be absolute`);
+        assert.ok(
+          realpathSync(mount).startsWith(realpathSync(runnerTemp)),
+          `${mount} lives under RUNNER_TEMP, not in the uploaded build-logs/`,
+        );
 
-test("the image is attached before the first test pass runs", async () => {
-  const runner = await read(RUNNER_PATH);
-  const attachAt = runner.indexOf(`export ${RUNNER_KEY}=`);
-  const firstPassAt = runner.indexOf("test-without-building");
+        const entry = mountTableEntry(mount);
+        assert.ok(entry, `${mount} is mounted`);
+        assert.match(entry, /\(apfs,/, "the volume is APFS");
+        assert.match(entry, /nobrowse/, "attached without a Finder window");
 
-  assert.ok(attachAt > 0, "the export exists");
-  assert.ok(firstPassAt > attachAt, "the mount is exported before any pass executes");
-});
+        const stats = statfsSync(mount);
+        const total = stats.blocks * stats.bsize;
+        assert.ok(total > 0 && total <= IMAGE_BYTES, `the volume is the 8 MB image, not the host's (${total} bytes)`);
+        assert.ok(stats.bavail > 0, "the volume starts with room for Firestore's directory");
+        writeFileSync(join(mount, "probe"), "x");
+      }
+    } finally {
+      for (const mount of mounts) {
+        execFileSync("hdiutil", ["detach", "-quiet", "-force", mount]);
+      }
+      rmSync(runnerTemp, {recursive: true, force: true});
+    }
+  },
+);
 
-test("the runner never reaches for rm -rf", async () => {
-  const runner = await read(RUNNER_PATH);
-
-  assert.doesNotMatch(runner, /rm -rf/, "a wildcard delete is forbidden in this home; fresh paths replace cleanup");
-});
-
-test("the Swift lab reads exactly the key the runner exports, minus the prefix xcodebuild strips", async () => {
-  const lab = await read(LAB_PATH);
-
-  assert.match(lab, new RegExp(`static let mountEnvironmentKey = "${HOST_KEY}"`));
-  assert.doesNotMatch(lab, new RegExp(RUNNER_KEY), "the test host never sees the TEST_RUNNER_ prefix");
-});
-
-test("the suite skips itself without the mount and the planner names it, so a skipped suite fails its pass", async () => {
-  const suite = await read(SUITE_PATH);
-
-  assert.match(suite, /\.disabled\(\s*if: FirestoreDiskFullLab\.mountPoint == nil/, "the suite is disabled, not silently green, without the image");
-  assert.ok(
-    ISOLATED_PASSES.some((group) => group.includes(SUITE_NAME)),
-    `${SUITE_NAME} must be a named pass: the post-pass check fails a named suite that executed nothing`
-  );
+test("the planner names the suite in a pass of its own, so a skipped suite fails its pass", () => {
   assert.deepEqual(
     ISOLATED_PASSES.find((group) => group.includes(SUITE_NAME)),
     [SUITE_NAME],
-    "the suite rides alone: a regression aborts its host, and the kill must name only this suite"
+    `${SUITE_NAME} must be a named pass that rides alone: the post-pass check fails a named suite that ` +
+      "executed nothing, and a regression aborts its host, so the kill must name only this suite",
   );
 });

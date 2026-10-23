@@ -257,10 +257,10 @@ A network handoff is enough: the stream runs on gRPC with its own DNS and TLS, s
 - `quietRetry: false` is for a caller that already has an immediate, designed answer for an unreachable server.
   `ModerationStore.hydrate` is the one such caller: it falls back to the cached block list at once, and every cross-user identity stays masked until it does.
 
-Before every attempt, server or cache, the path asks `FirestoreDiskGuard.shared.allowsLocalCacheWrite()`.
-Each read is a Firestore listen, each listen is a LevelDB transaction, and on a volume with no free blocks that transaction's commit aborts the process - which is how a Live Climb died on 2026-10-23.
-While the volume is at the floor the read is refused as `unreachable` before the SDK is asked, with no retry and no fallback; `WorkoutSyncCoordinator` defers its pass on the same answer, and a process that launched under the floor runs Firestore on a memory cache and is never refused.
-`docs/firestore-disk-full-guard.md` owns the policy, the numbers and what the gate does not reach; a Firestore operation that bypasses this path and the coordinator runs unguarded.
+Ascend runs Firestore on a memory cache, so no read or write touches LevelDB, whose commit aborts the process on a volume with no free blocks - which is how a Live Climb died on 2026-10-23.
+Before every attempt, server or cache, the path still asks `FirestoreDiskGuard.shared.localCacheWriteRefusal()`, for a process the `firestore_memory_cache_enabled` kill switch put on the persistent cache: while that volume is at the floor the read is refused as `unreachable` before the SDK is asked, with no retry and no fallback, and `WorkoutSyncCoordinator` defers its pass on the same answer.
+A memory-cache process is never refused.
+`docs/firestore-disk-full-guard.md` owns the policy, the numbers and what the gate cannot reach in a persistent process.
 
 `ServerReadFailureClass` sorts a failure into unreachable (14, 4, 1, 13, transport errors, app timeouts, and the low-disk refusal), refused (7, 16) or unexpected (everything else, a missing index included).
 Keep them apart in whatever a feature shows and records: a refusal and a dropped stream shared one sentence on the Leaderboards tab, which is why a five-minute blip on 2026-10-03 read as a repeat of the 2026-09-25 outage.

@@ -3,7 +3,7 @@ import SwiftData
 import Testing
 @testable import AscendApp
 
-/// A sync pass on a volume at the floor defers rather than runs.
+/// A sync pass of a persistent-cache process on a volume at the floor defers rather than runs.
 ///
 /// The upsert and the delete are both Firestore writes, and a Firestore write is a LevelDB
 /// transaction before it is a network call: `LocalStore::WriteLocally` commits the mutation
@@ -21,9 +21,9 @@ struct WorkoutSyncLowDiskDeferralTests {
         modelContext.insert(workout)
         try modelContext.save()
 
-        // Room at launch - the persistent cache - then the volume fills.
+        // The kill switch off and room at launch - the persistent cache - then the volume fills.
         let volume = ScriptedVolume(availableBytes: FirestoreDiskPolicy.lowDiskFloorBytes * 2, importantUsageBytes: nil)
-        let diskGuard = makeGuard(volume: volume)
+        let diskGuard = makeGuard(volume: volume, featureFlags: .withMemoryCacheOff())
         volume.freeBytes = 0
         let remoteRepository = LowDiskFakeWorkoutRemoteRepository()
         let diagnostics = SpyDiagnosticsRecorder()
@@ -47,6 +47,7 @@ struct WorkoutSyncLowDiskDeferralTests {
             diagnostics.events.filter { $0.name == "workout_sync_deferred_low_disk" }.count == 1,
             "the deferral is recorded once, not once per trigger"
         )
+        #expect(diagnostics.events.first { $0.name == "workout_sync_deferred_low_disk" }?.details["free_bytes"] == "0")
 
         volume.freeBytes = FirestoreDiskPolicy.lowDiskFloorBytes * 2
         await coordinator.processPendingWorkouts(modelContext: modelContext, currentUserId: "user-123")
@@ -64,7 +65,7 @@ struct WorkoutSyncLowDiskDeferralTests {
         try modelContext.save()
 
         let volume = ScriptedVolume(availableBytes: FirestoreDiskPolicy.lowDiskFloorBytes * 2, importantUsageBytes: nil)
-        let diskGuard = makeGuard(volume: volume)
+        let diskGuard = makeGuard(volume: volume, featureFlags: .withMemoryCacheOff())
         volume.freeBytes = 0
         let remoteRepository = LowDiskFakeWorkoutRemoteRepository()
         let coordinator = WorkoutSyncCoordinator(
@@ -105,10 +106,13 @@ struct WorkoutSyncLowDiskDeferralTests {
         #expect(await remoteRepository.upsertCount() == 1)
     }
 
-    private func makeGuard(volume: ScriptedVolume) -> FirestoreDiskGuard {
+    private func makeGuard(
+        volume: ScriptedVolume,
+        featureFlags: RemoteFeatureFlagStore = RemoteFeatureFlagStore()
+    ) -> FirestoreDiskGuard {
         let diskGuard = FirestoreDiskGuard(
             freeSpace: volume,
-            featureFlags: RemoteFeatureFlagStore(),
+            featureFlags: featureFlags,
             diagnostics: SpyDiagnosticsRecorder(),
             telemetry: { _ in }
         )

@@ -41,6 +41,8 @@ struct AscendApp: App {
             PushNotificationService.shared.configure()
             TelemetryManager.shared.configure()
             TelemetryManager.shared.setAppMetadata()
+            // The cache was decided before telemetry existed; a launch at the floor is reported now.
+            FirestoreDiskGuard.shared.reportLaunchDecision()
             // This must precede AuthenticationViewModel construction. Its Firebase listener owns
             // the identify call that joins this anonymous installation event to the signed-in user.
             AppInstallationTelemetryReporter.shared.recordFirstOpenIfNeeded()
@@ -66,10 +68,10 @@ struct AscendApp: App {
         // and migrations sees whatever the backend last said even with no network.
         RemoteFeatureFlagService.shared.configure()
         // The first thing to touch `Firestore.firestore()`, on purpose: the SDK refuses settings
-        // after first use, and this decides whether the process gets a LevelDB cache at all. On a
-        // volume under the floor it gets none, so Firestore's commit assertion - which killed a
-        // climb in progress on 2026-10-23 - has nothing to fire on. Reads the kill switch the
-        // seed above just published, which is why the seed moved up here with it.
+        // after first use, and this decides whether the process gets a LevelDB cache at all. With
+        // the memory cache it gets none, so Firestore's commit assertion - which killed a climb
+        // in progress on 2026-10-23 - has nothing to fire on. Reads the kill switch the seed
+        // above just published, which is why the seed moved up here with it.
         FirestoreDiskGuard.shared.activate(applyingTo: Firestore.firestore())
         return nil
     }

@@ -4,8 +4,8 @@ import Foundation
 /// full the phone was instead of inferring it from a crash report that never arrived.
 enum FirestoreDiskAnalyticsEvent: TelemetryEvent {
     enum Trigger: String, Sendable {
-        /// The launch decision put this process on a memory cache.
-        case launchMemoryCache = "launch_memory_cache"
+        /// The volume was at the floor when this process's cache was decided at launch.
+        case launchLowDisk = "launch_low_disk"
         /// A persistent-cache process refused its first cache-writing operation mid-session.
         case readGate = "read_gate"
     }

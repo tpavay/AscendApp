@@ -77,14 +77,14 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// is written or deleted, and what was earned is offered and drawn again when it returns.
     case unlocks = "unlocks_enabled"
 
-    /// The low-disk policy that keeps Firestore's on-device cache off a volume that cannot take
-    /// a write: a memory cache at launch when free space is under the floor, a 20 MiB bound on
-    /// the persistent cache otherwise, and the pre-flight that refuses server reads and defers
-    /// workout sync while the volume is at the floor. Off, Firestore runs on the SDK's default
-    /// 100 MiB persistent cache and nothing is refused - exactly the 1.2.3 behaviour, including
-    /// the crash this policy exists to prevent. Reshapes what is persisted at startup, which is
-    /// why it has a switch (`docs/firestore-disk-full-guard.md`).
-    case firestoreMemoryCacheOnLowDisk = "firestore_memory_cache_on_low_disk_enabled"
+    /// Firestore's memory cache, which keeps LevelDB - and the commit assertion that aborts the
+    /// process on a full volume - out of every process. Off gives a process that launches with
+    /// at least 200 MiB free a persistent cache bounded to 20 MiB, guarded by the pre-flight that
+    /// refuses server reads and defers workout sync once the volume reaches the floor; that
+    /// guard cannot reach the Home feed listener, the SDK's own garbage collection, or the reads
+    /// that bypass the shared read path. Decides how Firestore persists at startup, which is why
+    /// it has a switch (`docs/firestore-disk-full-guard.md`).
+    case firestoreMemoryCache = "firestore_memory_cache_enabled"
 
     var key: String { rawValue }
 
@@ -133,8 +133,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Shows the period recap after a week or month closes and marks it seen."
         case .unlocks:
             return "Shows unlockable items: drawn on the mountain, the unlock moment, the editor row."
-        case .firestoreMemoryCacheOnLowDisk:
-            return "Keeps Firestore off a full volume: memory cache at launch, reads refused and sync deferred under the floor."
+        case .firestoreMemoryCache:
+            return "Runs Firestore on a memory cache; off allows a 20 MiB disk cache from the next cold launch."
         }
     }
 }

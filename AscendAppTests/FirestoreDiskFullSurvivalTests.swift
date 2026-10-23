@@ -9,8 +9,10 @@ import Testing
 /// Before the guard, the first test here aborted the host inside
 /// `firebase::firestore::local::LevelDbTransaction::Commit()` with `No space left on device`
 /// on the fifth-or-so live-leaderboard read after the volume filled - the evidence is in the
-/// pull request that added it. With the guard, the same sequence must leave the process alive,
-/// the session recording, and the board saying it could not refresh.
+/// pull request that added it. Ascend now ships the memory cache, which the second test holds;
+/// the first holds the pre-flight that still guards a process the kill switch put on the
+/// persistent cache: the same sequence must leave it alive, the session recording, and the
+/// board saying it could not refresh.
 ///
 /// Needs the APFS image `scripts/ci/run-ios-test-passes.sh` attaches; without it the suite
 /// skips itself and says so, and in CI it is a named pass that must execute.
@@ -22,14 +24,19 @@ import Testing
     )
 )
 struct FirestoreDiskFullSurvivalTests {
-    /// Urjita's climb: the phone had room at launch, so Firestore got its persistent cache,
-    /// and the volume filled during the climb.
+    /// Urjita's climb, with the memory-cache kill switch pulled: the phone had room at launch,
+    /// so Firestore got its persistent cache, and the volume filled during the climb.
     @Test @MainActor
     func aPersistentCacheClimbOnAVolumeThatFillsKeepsRecordingAndSaysTheBoardCouldNotRefresh() async throws {
         let mount = try #require(FirestoreDiskFullLab.mountPoint)
         try FirestoreDiskFullLab.freeVolume(mount)
         try FirestoreDiskFullLab.prepareCacheDirectory(appName: "disk-full-gate", mountPoint: mount)
-        defer { FirestoreDiskGuard.shared.decideCacheMode(on: VolumeFreeSpaceReader()) }
+        let shippedFlags = RemoteFeatureFlagStore.shared.snapshot
+        RemoteFeatureFlagStore.shared.apply(.resolving(remoteValues: [RemoteFeatureFlag.firestoreMemoryCache.key: false]))
+        defer {
+            RemoteFeatureFlagStore.shared.apply(shippedFlags)
+            FirestoreDiskGuard.shared.decideCacheMode(on: VolumeFreeSpaceReader())
+        }
 
         var activatedMode: FirestoreCacheMode?
         let db = try await FirestoreDiskFullLab.makeFirestore(appName: "disk-full-gate") { db in
@@ -73,10 +80,10 @@ struct FirestoreDiskFullSurvivalTests {
         await viewModel.discard(modelContext: container.mainContext)
     }
 
-    /// A phone that is already full at launch gets no LevelDB at all, so the same reads that
-    /// aborted the process before now simply fail offline, forty times over.
+    /// The shipped state on a phone that is already full: no LevelDB at all, so the same reads
+    /// that aborted the process before now simply fail offline, forty times over.
     @Test @MainActor
-    func aFullVolumeAtLaunchRunsFirestoreInMemoryAndTheReadsCannotAbort() async throws {
+    func aFullVolumeRunsFirestoreInMemoryAndTheReadsCannotAbort() async throws {
         let mount = try #require(FirestoreDiskFullLab.mountPoint)
         // The directory first, then the fill: a full volume cannot take even an empty folder.
         try FirestoreDiskFullLab.freeVolume(mount)

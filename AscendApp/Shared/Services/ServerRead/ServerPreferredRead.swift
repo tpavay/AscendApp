@@ -13,11 +13,12 @@ import Foundation
 /// then either hand back the device's last copy, flagged, or the error. Features decide what the
 /// climber is told - never whether or how to retry. Do not add a second retry beside this one.
 ///
-/// One pre-flight runs before every attempt, server or cache: `FirestoreDiskGuard`. Each read
-/// is a Firestore listen, each listen is a LevelDB transaction, and on a volume with no free
-/// blocks that transaction's commit aborts the process (`docs/firestore-disk-full-guard.md`).
-/// While the volume is at the floor the read is refused here, as `unreachable`, with no retry
-/// and no cache fallback - the SDK is never asked, so it can never abort.
+/// One pre-flight runs before every attempt, server or cache: `FirestoreDiskGuard`. In a process
+/// running Firestore's persistent cache each read is a listen, each listen is a LevelDB
+/// transaction, and on a volume with no free blocks that transaction's commit aborts the process
+/// (`docs/firestore-disk-full-guard.md`). While the volume is at the floor the read is refused
+/// here, as `unreachable`, with no retry and no cache fallback - the SDK is never asked, so it
+/// can never abort. A memory-cache process is never refused.
 enum ServerPreferredRead {
     static let defaultRetryDelay: Duration = .seconds(2)
 
@@ -49,8 +50,8 @@ enum ServerPreferredRead {
         while true {
             let failure: ServerReadFailure
             do {
-                guard diskGuard.allowsLocalCacheWrite() else {
-                    throw FirestoreLowDiskRefusal(availableBytes: nil)
+                if let refusal = diskGuard.localCacheWriteRefusal() {
+                    throw refusal
                 }
                 let value = try await read(.server)
                 return ServerPreferredReadOutcome(

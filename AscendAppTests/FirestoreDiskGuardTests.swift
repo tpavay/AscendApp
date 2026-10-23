@@ -6,37 +6,9 @@ import Testing
 struct FirestoreDiskGuardTests {
     private static let floor = FirestoreDiskPolicy.lowDiskFloorBytes
 
+    /// The shipped state: memory whatever the volume holds, and a memory process never refuses.
     @Test
-    func aFullVolumeAtLaunchChoosesMemoryAndReportsItOnce() {
-        let volume = ScriptedVolume(availableBytes: 1_000, importantUsageBytes: 5_000)
-        let diagnostics = SpyDiagnosticsRecorder()
-        let telemetry = RecordedTelemetry()
-        let guardUnderTest = FirestoreDiskGuard(
-            freeSpace: volume,
-            featureFlags: RemoteFeatureFlagStore(),
-            diagnostics: diagnostics,
-            telemetry: telemetry.track
-        )
-
-        let mode = guardUnderTest.decideCacheMode()
-
-        #expect(mode == .memory)
-        #expect(guardUnderTest.cacheMode == .memory)
-        #expect(guardUnderTest.allowsLocalCacheWrite())
-        #expect(diagnostics.events.map(\.name) == ["firestore_low_disk_mode"])
-        #expect(diagnostics.events.first?.details["trigger"] == "launch_memory_cache")
-        #expect(diagnostics.events.first?.details["free_bytes"] == "1000")
-        #expect(diagnostics.events.first?.details["important_free_bytes"] == "5000")
-        let records = telemetry.records
-        #expect(records.map(\.name) == ["firestore_low_disk_mode"])
-        #expect(records.first?.parameters["trigger"] == .string("launch_memory_cache"))
-        #expect(records.first?.parameters["cache_mode"] == .string("memory"))
-        #expect(records.first?.parameters["free_bytes"] == .int(1_000))
-        #expect(records.first?.parameters["important_free_bytes"] == .int(5_000))
-    }
-
-    @Test
-    func aRoomyVolumeAtLaunchChoosesTheBoundedCacheAndStaysQuiet() {
+    func theShippedSwitchRunsInMemoryOnARoomyVolumeAndStaysQuiet() {
         let volume = ScriptedVolume(availableBytes: Self.floor * 4, importantUsageBytes: nil)
         let diagnostics = SpyDiagnosticsRecorder()
         let telemetry = RecordedTelemetry()
@@ -47,19 +19,20 @@ struct FirestoreDiskGuardTests {
             telemetry: telemetry.track
         )
 
-        let mode = guardUnderTest.decideCacheMode()
+        #expect(guardUnderTest.decideCacheMode() == .memory)
+        guardUnderTest.reportLaunchDecision()
+        volume.freeBytes = 0
 
-        #expect(mode == .persistent(sizeBytes: FirestoreDiskPolicy.boundedPersistentCacheSizeBytes))
-        #expect(guardUnderTest.allowsLocalCacheWrite())
+        #expect(guardUnderTest.localCacheWriteRefusal() == nil)
         #expect(diagnostics.events.isEmpty)
         #expect(telemetry.records.isEmpty)
     }
 
-    /// The Empire State case: fine at launch, full 39 seconds into the climb. The gate trips,
-    /// reports the first refusal once, and keeps refusing silently until the volume has room.
+    /// The decision is taken before telemetry is configured, so the report waits for
+    /// `reportLaunchDecision()` and is made exactly once.
     @Test
-    func aVolumeThatFillsMidSessionTripsTheGateAndReportsTheFirstRefusalOnly() {
-        let volume = ScriptedVolume(availableBytes: Self.floor * 4, importantUsageBytes: 10)
+    func aFullVolumeAtLaunchIsReportedOnceAndOnlyWhenAsked() {
+        let volume = ScriptedVolume(availableBytes: 1_000, importantUsageBytes: 5_000)
         let diagnostics = SpyDiagnosticsRecorder()
         let telemetry = RecordedTelemetry()
         let guardUnderTest = FirestoreDiskGuard(
@@ -68,11 +41,68 @@ struct FirestoreDiskGuardTests {
             diagnostics: diagnostics,
             telemetry: telemetry.track
         )
+
+        #expect(guardUnderTest.decideCacheMode() == .memory)
+        #expect(guardUnderTest.cacheMode == .memory)
+        #expect(guardUnderTest.allowsLocalCacheWrite())
+        #expect(diagnostics.events.isEmpty, "nothing is reported before telemetry is configured")
+        #expect(telemetry.records.isEmpty)
+
+        guardUnderTest.reportLaunchDecision()
+        guardUnderTest.reportLaunchDecision()
+
+        #expect(diagnostics.events.map(\.name) == ["firestore_low_disk_mode"])
+        #expect(diagnostics.events.first?.details["trigger"] == "launch_low_disk")
+        #expect(diagnostics.events.first?.details["free_bytes"] == "1000")
+        #expect(diagnostics.events.first?.details["important_free_bytes"] == "5000")
+        let records = telemetry.records
+        #expect(records.map(\.name) == ["firestore_low_disk_mode"])
+        #expect(records.first?.parameters["trigger"] == .string("launch_low_disk"))
+        #expect(records.first?.parameters["cache_mode"] == .string("memory"))
+        #expect(records.first?.parameters["free_bytes"] == .int(1_000))
+        #expect(records.first?.parameters["important_free_bytes"] == .int(5_000))
+    }
+
+    @Test
+    func theSwitchOffOnARoomyVolumeChoosesTheBoundedCacheAndStaysQuiet() {
+        let volume = ScriptedVolume(availableBytes: Self.floor * 4, importantUsageBytes: nil)
+        let diagnostics = SpyDiagnosticsRecorder()
+        let telemetry = RecordedTelemetry()
+        let guardUnderTest = FirestoreDiskGuard(
+            freeSpace: volume,
+            featureFlags: .withMemoryCacheOff(),
+            diagnostics: diagnostics,
+            telemetry: telemetry.track
+        )
+
+        let mode = guardUnderTest.decideCacheMode()
+        guardUnderTest.reportLaunchDecision()
+
+        #expect(mode == .persistent(sizeBytes: FirestoreDiskPolicy.boundedPersistentCacheSizeBytes))
+        #expect(guardUnderTest.allowsLocalCacheWrite())
+        #expect(diagnostics.events.isEmpty)
+        #expect(telemetry.records.isEmpty)
+    }
+
+    /// The Empire State case with the switch off: fine at launch, full 39 seconds into the
+    /// climb. The gate trips, reports the first refusal once, and keeps refusing silently until
+    /// the volume has room.
+    @Test
+    func aVolumeThatFillsMidSessionTripsTheGateAndReportsTheFirstRefusalOnly() {
+        let volume = ScriptedVolume(availableBytes: Self.floor * 4, importantUsageBytes: 10)
+        let diagnostics = SpyDiagnosticsRecorder()
+        let telemetry = RecordedTelemetry()
+        let guardUnderTest = FirestoreDiskGuard(
+            freeSpace: volume,
+            featureFlags: .withMemoryCacheOff(),
+            diagnostics: diagnostics,
+            telemetry: telemetry.track
+        )
         guardUnderTest.decideCacheMode()
         #expect(guardUnderTest.allowsLocalCacheWrite())
 
         volume.freeBytes = 0
-        #expect(guardUnderTest.allowsLocalCacheWrite() == false)
+        #expect(guardUnderTest.localCacheWriteRefusal() == FirestoreLowDiskRefusal(availableBytes: 0))
         #expect(guardUnderTest.allowsLocalCacheWrite() == false)
         #expect(guardUnderTest.allowsLocalCacheWrite() == false)
 
@@ -87,49 +117,24 @@ struct FirestoreDiskGuardTests {
         #expect(guardUnderTest.allowsLocalCacheWrite())
     }
 
+    /// The cache is decided once at launch; flipping the switch afterwards cannot remove a
+    /// LevelDB the process already opened, so the gate keeps guarding it.
     @Test
-    func theKillSwitchOffLeavesTheSDKDefaultAndNeverRefuses() {
-        let volume = ScriptedVolume(availableBytes: 0, importantUsageBytes: 0)
-        let diagnostics = SpyDiagnosticsRecorder()
-        let telemetry = RecordedTelemetry()
-        let store = RemoteFeatureFlagStore(
-            snapshot: .resolving(remoteValues: [RemoteFeatureFlag.firestoreMemoryCacheOnLowDisk.key: false])
-        )
-        let guardUnderTest = FirestoreDiskGuard(
-            freeSpace: volume,
-            featureFlags: store,
-            diagnostics: diagnostics,
-            telemetry: telemetry.track
-        )
-
-        let mode = guardUnderTest.decideCacheMode()
-
-        #expect(mode == .persistent(sizeBytes: FirestoreDiskPolicy.sdkDefaultPersistentCacheSizeBytes))
-        #expect(guardUnderTest.allowsLocalCacheWrite())
-        #expect(diagnostics.events.isEmpty)
-        #expect(telemetry.records.isEmpty)
-    }
-
-    /// The gate reads the switch live, so an operator can disarm it on a running fleet.
-    @Test
-    func flippingTheSwitchOffMidSessionDisarmsTheGate() {
-        let volume = ScriptedVolume(availableBytes: 0, importantUsageBytes: nil)
-        let store = RemoteFeatureFlagStore()
+    func flippingTheSwitchMidSessionLeavesAPersistentProcessGuarded() {
+        let volume = ScriptedVolume(availableBytes: Self.floor, importantUsageBytes: nil)
+        let store = RemoteFeatureFlagStore.withMemoryCacheOff()
         let guardUnderTest = FirestoreDiskGuard(
             freeSpace: volume,
             featureFlags: store,
             diagnostics: SpyDiagnosticsRecorder(),
             telemetry: { _ in }
         )
-        // Activated while the volume still had room, then the volume filled.
-        volume.freeBytes = Self.floor
         guardUnderTest.decideCacheMode()
         volume.freeBytes = 0
+
+        store.apply(.shippedDefaults)
+
         #expect(guardUnderTest.allowsLocalCacheWrite() == false)
-
-        store.apply(.resolving(remoteValues: [RemoteFeatureFlag.firestoreMemoryCacheOnLowDisk.key: false]))
-
-        #expect(guardUnderTest.allowsLocalCacheWrite())
     }
 
     @Test
@@ -145,6 +150,13 @@ struct FirestoreDiskGuardTests {
     func theRealReaderSaysNilForAPathThatDoesNotExist() {
         let reader = VolumeFreeSpaceReader(path: "/nonexistent/\(UUID().uuidString)")
         #expect(reader.availableBytes() == nil)
+    }
+}
+
+extension RemoteFeatureFlagStore {
+    /// The kill switch pulled: a process launched on a roomy volume gets the persistent cache.
+    static func withMemoryCacheOff() -> RemoteFeatureFlagStore {
+        RemoteFeatureFlagStore(snapshot: .resolving(remoteValues: [RemoteFeatureFlag.firestoreMemoryCache.key: false]))
     }
 }
 

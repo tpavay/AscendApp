@@ -5,26 +5,24 @@ import Testing
 
 /// The low-disk pre-flight on the one shared server-read path.
 ///
-/// Every forced read is a Firestore listen, every listen is a LevelDB transaction, and on a
-/// full volume that transaction's commit aborts the process. So when the guard says the volume
-/// is at the floor, the read is refused before the SDK is asked - no attempt, no quiet retry
+/// In a persistent-cache process every forced read is a Firestore listen, every listen is a
+/// LevelDB transaction, and on a full volume that transaction's commit aborts the process. So
+/// when the guard says the volume is at the floor, the read is refused before the SDK is asked - no attempt, no quiet retry
 /// (there is no stream to wait for), no cache fallback (a cache read is a LevelDB transaction
 /// too) - and the failure classifies as unreachable, which every caller already treats as
 /// "no answer this time, keep going".
 struct ServerPreferredReadDiskGateTests {
     @Test
     func aFullVolumeRefusesTheReadBeforeTheSDKIsAsked() async {
-        let volume = ScriptedVolume(availableBytes: 0, importantUsageBytes: nil)
+        let volume = ScriptedVolume(availableBytes: FirestoreDiskPolicy.lowDiskFloorBytes, importantUsageBytes: nil)
         let diskGuard = FirestoreDiskGuard(
             freeSpace: volume,
-            featureFlags: RemoteFeatureFlagStore(),
+            featureFlags: .withMemoryCacheOff(),
             diagnostics: SpyDiagnosticsRecorder(),
             telemetry: { _ in }
         )
-        diskGuard.decideCacheMode()
         // Decided as persistent while the volume had room, then it filled.
-        volume.freeBytes = FirestoreDiskPolicy.lowDiskFloorBytes
-        diskGuard.decideCacheMode()
+        #expect(diskGuard.decideCacheMode() == .persistent(sizeBytes: FirestoreDiskPolicy.boundedPersistentCacheSizeBytes))
         volume.freeBytes = 0
         let attempts = AttemptLog()
 
@@ -46,7 +44,7 @@ struct ServerPreferredReadDiskGateTests {
             Issue.record("expected a refusal")
             return
         }
-        #expect(error is FirestoreLowDiskRefusal)
+        #expect((error as? FirestoreLowDiskRefusal)?.availableBytes == 0, "the refusal carries the reading it was made on")
         #expect(ServerReadFailureClass.classify(error) == .unreachable)
     }
 
@@ -67,11 +65,11 @@ struct ServerPreferredReadDiskGateTests {
     }
 
     @Test
-    func aVolumeWithRoomLeavesTheReadPathUntouched() async throws {
+    func aPersistentProcessWithRoomLeavesTheReadPathUntouched() async throws {
         let volume = ScriptedVolume(availableBytes: FirestoreDiskPolicy.lowDiskFloorBytes * 2, importantUsageBytes: nil)
         let diskGuard = FirestoreDiskGuard(
             freeSpace: volume,
-            featureFlags: RemoteFeatureFlagStore(),
+            featureFlags: .withMemoryCacheOff(),
             diagnostics: SpyDiagnosticsRecorder(),
             telemetry: { _ in }
         )
@@ -100,7 +98,7 @@ struct ServerPreferredReadDiskGateTests {
         let volume = ScriptedVolume(availableBytes: FirestoreDiskPolicy.lowDiskFloorBytes * 2, importantUsageBytes: nil)
         let diskGuard = FirestoreDiskGuard(
             freeSpace: volume,
-            featureFlags: RemoteFeatureFlagStore(),
+            featureFlags: .withMemoryCacheOff(),
             diagnostics: SpyDiagnosticsRecorder(),
             telemetry: { _ in }
         )

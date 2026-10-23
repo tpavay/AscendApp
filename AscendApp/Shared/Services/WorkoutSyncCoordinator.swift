@@ -456,18 +456,22 @@ final class WorkoutSyncCoordinator {
         repeat {
             shouldProcessPendingWorkoutsAgain = false
 
-            // Deferred, exactly like a kill switch: a Firestore upsert or delete commits to the
-            // on-device LevelDB cache before it goes anywhere, and on a volume at the floor that
-            // commit aborts the process (`docs/firestore-disk-full-guard.md`). Nothing is
-            // attempted, counted or marked; the outbox and the tombstones stay as they are and the
-            // next trigger after the phone has room runs the pass.
-            guard diskGuard.allowsLocalCacheWrite() else {
+            // Deferred, exactly like a kill switch: in a persistent-cache process a Firestore
+            // upsert or delete commits to the on-device LevelDB cache before it goes anywhere,
+            // and on a volume at the floor that commit aborts the process
+            // (`docs/firestore-disk-full-guard.md`). Nothing is attempted, counted or marked; the
+            // outbox and the tombstones stay as they are and the next trigger after the phone has
+            // room runs the pass.
+            if let refusal = diskGuard.localCacheWriteRefusal() {
                 if !hasRecordedLowDiskDeferral {
                     hasRecordedLowDiskDeferral = true
                     diagnostics.record(
                         "workout_sync_deferred_low_disk",
                         level: .warning,
-                        details: ["path": "WorkoutSyncCoordinator.processPendingWorkouts"],
+                        details: [
+                            "path": "WorkoutSyncCoordinator.processPendingWorkouts",
+                            "free_bytes": refusal.availableBytes.map(String.init) ?? "unknown"
+                        ],
                         mirrorToCrashlytics: true
                     )
                 }
