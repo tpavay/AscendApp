@@ -289,8 +289,8 @@ struct ModerationStoreTests {
         #expect(marker.syncedUserIds.isEmpty)
     }
 
-    /// Once this account has synced here, an empty cache means what it says, so a
-    /// user who has blocked nobody is not masked forever.
+    /// Once this account has synced here, an empty persistent cache means what
+    /// it says, so a user who has blocked nobody is not masked forever.
     @Test
     func emptyCacheHydratesOnceAServerSyncHasBeenRecorded() async {
         let repository = RepositorySpy()
@@ -298,7 +298,8 @@ struct ModerationStoreTests {
         await repository.setCachedBlocks([])
         let store = makeStore(
             repository: repository,
-            serverSyncMarker: ServerSyncMarkerSpy(syncedUserIds: ["viewer"])
+            serverSyncMarker: ServerSyncMarkerSpy(syncedUserIds: ["viewer"]),
+            diskGuard: Self.diskGuard(featureFlags: .withMemoryCacheOff())
         )
 
         await store.hydrate(for: "viewer")
@@ -307,6 +308,30 @@ struct ModerationStoreTests {
         #expect(store.blockedUserIds.isEmpty)
         #expect(store.hydrationErrorMessage == nil)
         #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden == false)
+    }
+
+    /// The cold-launch-offline sequence under the shipped memory cache: the
+    /// marker survives relaunch, but the cache starts the process empty, so an
+    /// empty read proves nothing and a blocked climber must stay masked.
+    @Test
+    func emptyMemoryCacheStaysMaskedEvenAfterAServerSync() async {
+        let repository = RepositorySpy()
+        await repository.setFetchFails(true)
+        await repository.setCachedBlocks([])
+        let diskGuard = Self.diskGuard(featureFlags: RemoteFeatureFlagStore())
+        #expect(diskGuard.cacheMode == .memory)
+        let store = makeStore(
+            repository: repository,
+            serverSyncMarker: ServerSyncMarkerSpy(syncedUserIds: ["viewer"]),
+            diskGuard: diskGuard
+        )
+
+        await store.hydrate(for: "viewer")
+
+        #expect(store.isBlockListHydrated == false)
+        #expect(store.hydrationErrorMessage != nil)
+        #expect(await repository.fetchedSources == [.server, .cache])
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden)
     }
 
     /// The marker is proof of a server round trip. A cache-only hydration must not
@@ -837,12 +862,30 @@ struct ModerationStoreTests {
 
     private func makeStore(
         repository: RepositorySpy,
-        serverSyncMarker: ServerSyncMarkerSpy = ServerSyncMarkerSpy()
+        serverSyncMarker: ServerSyncMarkerSpy = ServerSyncMarkerSpy(),
+        diskGuard: FirestoreDiskGuard = Self.diskGuard(featureFlags: RemoteFeatureFlagStore())
     ) -> ModerationStore {
         ModerationStore(
             repository: repository,
-            serverSyncMarker: serverSyncMarker
+            serverSyncMarker: serverSyncMarker,
+            diskGuard: diskGuard
         )
+    }
+
+    /// A guard decided on a roomy volume: the memory cache with the shipped
+    /// switch, the persistent cache with it pulled.
+    private static func diskGuard(featureFlags: RemoteFeatureFlagStore) -> FirestoreDiskGuard {
+        let diskGuard = FirestoreDiskGuard(
+            freeSpace: ScriptedVolume(
+                availableBytes: FirestoreDiskPolicy.lowDiskFloorBytes * 4,
+                importantUsageBytes: nil
+            ),
+            featureFlags: featureFlags,
+            diagnostics: SpyDiagnosticsRecorder(),
+            telemetry: { _ in }
+        )
+        diskGuard.decideCacheMode()
+        return diskGuard
     }
 
     private func otherClimber() -> ProfileUserIdentity {

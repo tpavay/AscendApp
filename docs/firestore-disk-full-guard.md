@@ -52,6 +52,7 @@ Everything that writes LevelDB in a persistent process, with no list to keep cur
 
 What the memory cache costs is the device's copy: a cold launch re-reads from the server what a persistent cache would have answered locally, and a read that falls back to the cache finds only what this process has already seen.
 Ascend reads from the server by design and keeps its own outbox in SwiftData, so nothing a climber recorded depends on that copy.
+It also means an empty cache read proves nothing after a relaunch: `ModerationStore` trusts an empty cached block list on a cold launch that cannot reach the server only when the process runs the persistent cache, so under the memory cache that launch stays masked - every other climber's identity hidden - until the block list reaches the server.
 
 ## The pre-flight gate
 
