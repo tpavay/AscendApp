@@ -189,6 +189,23 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
         return "Saving credits \(steps.formatted()) steps and the time since Ascend stopped, with the gap recorded."
     }
 
+    /// What Save reports: the gap a session Ascend lost is counted as wall clock, while a
+    /// session the climber ended keeps its stopped clock and so credits no gap at all.
+    static func savedEvent(
+        mode: ActiveHeadphoneWorkoutDraftKind,
+        assessment: HeadphoneSessionRecoveryAssessment,
+        deltaSteps: Int
+    ) -> HeadphoneSessionRecoveryAnalyticsEvent {
+        .sessionResumed(
+            mode: mode,
+            gapSeconds: assessment.climberEndedSession ? 0 : Int(assessment.gap.rounded(.down)),
+            lossReason: assessment.lossReason,
+            source: deltaSteps == 0 ? .wallClock : .machine,
+            deltaSteps: deltaSteps,
+            action: .promptSave
+        )
+    }
+
     static func gapPhrase(_ assessment: HeadphoneSessionRecoveryAssessment) -> String {
         let minutes = max(assessment.gapMinutes, 1)
         if minutes >= 120 {
@@ -355,14 +372,7 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
             _ = try ActiveHeadphoneWorkoutDraftSaver.save(draft, modelContext: modelContext)
             await LiveClimbActivityManager.shared.end(sessionID: draft.sessionID, status: .finished)
             TelemetryManager.shared.track(
-                HeadphoneSessionRecoveryAnalyticsEvent.sessionResumed(
-                    mode: draft.kind,
-                    gapSeconds: Int(assessment.gap.rounded(.down)),
-                    lossReason: assessment.lossReason,
-                    source: deltaSteps == 0 ? .wallClock : .machine,
-                    deltaSteps: deltaSteps,
-                    action: .promptSave
-                )
+                Self.savedEvent(mode: draft.kind, assessment: assessment, deltaSteps: deltaSteps)
             )
             AppDiagnosticsRecorder.shared.record(
                 "active_headphone_recovery_saved_attempt",

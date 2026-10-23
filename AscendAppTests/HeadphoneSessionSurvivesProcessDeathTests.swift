@@ -309,6 +309,33 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         }
     }
 
+    @Test("Saving from the recovery screen reports only the gap it credited")
+    func recoverySaveReportsTheCreditedGap() throws {
+        let lab = try Lab(mode: .liveClimb)
+        let draft = try lab.persistedDraft(steps: 1_500, durationSeconds: 1_172)
+        lab.clock.now = draft.lastCheckpointAt.addingTimeInterval(600)
+
+        let lost = ActiveHeadphoneWorkoutRecoveryView.savedEvent(
+            mode: draft.kind, assessment: lab.recovery.assess(draft), deltaSteps: 93
+        ).record
+        #expect(lost.parameters["gap_seconds"] == .int(600))
+        #expect(lost.parameters["gap_source"] == .string("machine"))
+
+        draft.status = .stopped
+        let ended = ActiveHeadphoneWorkoutRecoveryView.savedEvent(
+            mode: draft.kind, assessment: lab.recovery.assess(draft), deltaSteps: 93
+        ).record
+        #expect(ended.parameters["gap_seconds"] == .int(0), "an ended session keeps its stopped clock")
+        #expect(ended.parameters["gap_source"] == .string("machine"))
+
+        let endedUntyped = ActiveHeadphoneWorkoutRecoveryView.savedEvent(
+            mode: draft.kind, assessment: lab.recovery.assess(draft), deltaSteps: 0
+        ).record
+        #expect(endedUntyped.parameters["gap_seconds"] == .int(0))
+        #expect(endedUntyped.parameters["gap_source"] == .string("wall_clock"))
+        #expect(endedUntyped.parameters["action"] == .string("prompt_save"))
+    }
+
     @Test("The typed-count hint promises the gap credit only to a session Ascend lost")
     func stepSyncHintMatchesWhatSavingCredits() {
         #expect(ActiveHeadphoneWorkoutRecoveryView.stepSyncHint(steps: 1_593, climberEndedSession: false)
