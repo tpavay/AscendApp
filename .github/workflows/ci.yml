@@ -511,7 +511,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.ios == 'true'
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 75
 
     steps:
       - name: Checkout repository
@@ -732,12 +732,16 @@ jobs:
       # 34 with pass 2 five suites from the end: that runner compiled 18 minutes
       # against the 14 of the green run an hour earlier and ran the untouched
       # movie-export pass 2.5x slower, so the old 34 turned runner speed into a
-      # red check. The silence watchdog and the per-test allowance are what
-      # name a real hang, long before this fires.
+      # red check. The 48 that replaced it went the same way: green runs spent
+      # 27-46 minutes here between 2026-10-06 and 2026-10-23, and run
+      # 40003775993 was killed at 48 one test from the end of a suite that had
+      # passed, after a 21-minute compile at a load average of 411. The
+      # silence watchdog and the per-test allowance are what name a real hang,
+      # long before this fires.
       - name: Run tests
         id: tests
         shell: bash
-        timeout-minutes: 48
+        timeout-minutes: 60
         # The Mixpanel step above resolved the package graph against the
         # restored cache, so the build can skip fetching every remote again.
         env:
