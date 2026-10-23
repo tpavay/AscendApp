@@ -77,6 +77,15 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// is written or deleted, and what was earned is offered and drawn again when it returns.
     case unlocks = "unlocks_enabled"
 
+    /// The low-disk policy that keeps Firestore's on-device cache off a volume that cannot take
+    /// a write: a memory cache at launch when free space is under the floor, a 20 MiB bound on
+    /// the persistent cache otherwise, and the pre-flight that refuses server reads and defers
+    /// workout sync while the volume is at the floor. Off, Firestore runs on the SDK's default
+    /// 100 MiB persistent cache and nothing is refused - exactly the 1.2.3 behaviour, including
+    /// the crash this policy exists to prevent. Reshapes what is persisted at startup, which is
+    /// why it has a switch (`docs/firestore-disk-full-guard.md`).
+    case firestoreMemoryCacheOnLowDisk = "firestore_memory_cache_on_low_disk_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -124,6 +133,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Shows the period recap after a week or month closes and marks it seen."
         case .unlocks:
             return "Shows unlockable items: drawn on the mountain, the unlock moment, the editor row."
+        case .firestoreMemoryCacheOnLowDisk:
+            return "Keeps Firestore off a full volume: memory cache at launch, reads refused and sync deferred under the floor."
         }
     }
 }

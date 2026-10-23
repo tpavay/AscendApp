@@ -145,6 +145,37 @@ progress_pattern='[◇✔✘⚠] (Test|Suite) '
 
 mkdir -p "$log_dir"
 
+# The volume `FirestoreDiskFullSurvivalTests` fills. The simulator shares the Mac's
+# volume and cannot fill it, so the suite points a dedicated Firestore instance's
+# LevelDB directory into a tiny APFS image and fills that instead; what it then
+# proves is that the real SDK on a volume with no free blocks no longer aborts
+# the host (`docs/firestore-disk-full-guard.md`). The image is created here, with
+# a fresh path per run and never deleted by a wildcard, attached without a
+# Finder window, and handed to the test host through `TEST_RUNNER_`, which
+# `xcodebuild` strips to `ASCEND_DISKFULL_MOUNT`. Without the variable the suite
+# skips itself, and since it is a named pass below, a skipped suite fails the
+# pass - so losing this step cannot go green.
+# Absolute on purpose: the test host runs in the simulator with its own working
+# directory, so a path relative to this script's is a folder that does not exist
+# to it.
+disk_full_lab_stamp="$(date +%s)-$$"
+disk_full_lab_image="$PWD/$log_dir/disk-full-lab-$disk_full_lab_stamp.dmg"
+disk_full_lab_mount="$PWD/$log_dir/disk-full-lab-$disk_full_lab_stamp"
+
+detach_disk_full_lab() {
+    if [ -d "$disk_full_lab_mount" ]; then
+        hdiutil detach -quiet -force "$disk_full_lab_mount" 2>/dev/null || true
+    fi
+}
+trap detach_disk_full_lab EXIT
+
+echo "--- Attaching the disk-full lab image ---" | tee -a "$log"
+hdiutil create -quiet -size 8m -fs APFS -volname AscendDiskFullLab "$disk_full_lab_image"
+mkdir -p "$disk_full_lab_mount"
+hdiutil attach -quiet -nobrowse -mountpoint "$disk_full_lab_mount" "$disk_full_lab_image"
+export TEST_RUNNER_ASCEND_DISKFULL_MOUNT="$disk_full_lab_mount"
+df -k "$disk_full_lab_mount" | tee -a "$log"
+
 # A runner is discarded whole, so CI deliberately keeps Xcode's default
 # DerivedData - relocating it would move `SourcePackages` out from under the
 # `actions/cache` path and silently re-resolve every package on every run. A

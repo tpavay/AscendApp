@@ -125,6 +125,13 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off hides every unlock surface: no carried items drawn, no unlock moment, no editor row. Display only; nothing is written or deleted, and earned items return with the switch."
+    },
+    "firestore_memory_cache_on_low_disk_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops the low-disk policy: Firestore runs on the SDK's default persistent cache and no server read or workout sync is refused or deferred for low free space - the 1.2.3 behaviour, crash included. Applied at the next cold launch for the cache, immediately for the read gate."
     }
   },
   "parameterGroups": {},

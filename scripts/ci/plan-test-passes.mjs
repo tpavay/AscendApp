@@ -83,6 +83,18 @@ const TEST_TARGET = "AscendAppTests";
  * non-Mountain mask proof - so the named-suite check stays honest, and on a
  * machine that does draw the Mountain a kill stays contained to them.
  *
+ * `FirestoreDiskFullSurvivalTests` gets a host of its own for the plainest
+ * reason of all: what it tests is whether the process survives. It runs the
+ * real Firestore SDK against a volume with no free blocks, which before the
+ * guard aborted the host in `LevelDbTransaction::Commit()` (the 2026-10-23
+ * production crash) and after it must not. If the guard ever regresses, the
+ * abort kills whatever host the suite is in and reports every test still
+ * queued there as "crashed", so it rides alone: a kill names this suite and
+ * nothing else. It also re-points the process-wide `FirestoreDiskGuard` at
+ * the lab image while it runs, which no other suite should share a process
+ * with. Its measurement is in the pull request that added it: the host
+ * `SIGABRT`ed on the fifth live-leaderboard read after the fill.
+ *
  * Add a suite only with a measurement, and remove it the moment it stops
  * needing a host of its own. A name that no longer matches a real suite is
  * fatal on purpose, through the post-pass `.xcresult` check: a silently
@@ -92,6 +104,7 @@ const TEST_TARGET = "AscendAppTests";
 export const ISOLATED_PASSES = [
     ["ShareComposerBackgroundFillEvidenceTests"],
     ["AscendMountainSessionEvidenceTests", "SentryMaskingEvidenceTests", "SentryMaskInteractionTests"],
+    ["FirestoreDiskFullSurvivalTests"],
 ];
 
 /**

@@ -61,7 +61,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let splitBucketCount: Int?
     }
 
-    private let db = Firestore.firestore()
+    private let db: Firestore
     private let ownPreviousCompletionCache =
         OSAllocatedUnfairLock<OwnPreviousCompletionCache?>(initialState: nil)
     private let ownHistoryCache =
@@ -75,7 +75,12 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         initialState: Set<String>()
     )
 
-    private init() {}
+    /// `db` is injectable so a test can point this exact code at a Firestore whose
+    /// cache lives on a volume the test controls (`FirestoreDiskFullSurvivalTests`).
+    /// Production has one instance, on the default app.
+    init(db: Firestore = Firestore.firestore()) {
+        self.db = db
+    }
 
     func fetchLiveClimbCompletedClimberCounts() async throws -> [String: Int] {
         // `contextType` is a single-field equality, served by Firestore's automatic
