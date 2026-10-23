@@ -264,6 +264,51 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         #expect(assessment.climberEndedSession)
     }
 
+    @Test("A draft the climber already ended refuses Resume and credits a typed count through its stop", arguments: Mode.allCases)
+    func stoppedDraftRefusesResumeAndKeepsItsClock(mode: Mode) async throws {
+        let lab = try Lab(mode: mode)
+        let session = try lab.startedSession()
+        lab.run(session, seconds: 62)
+        let draft = try #require(try lab.draftStore.activeDraft(in: lab.context))
+        draft.status = .stopped
+        lab.simulateProcessDeath(session)
+
+        // Ten minutes after the climber ended it, the save never having finished.
+        lab.clock.now = draft.lastCheckpointAt.addingTimeInterval(600)
+        let assessment = lab.recovery.assess(draft)
+
+        #expect(throws: HeadphoneSessionRecoveryError.self) {
+            try lab.recovery.resume(draft, modelContext: lab.context, assessment: assessment)
+        }
+        #expect(LiveClimbSessionCoordinator.shared.activeViewModel(sessionID: draft.sessionID) == nil)
+        #expect(ActiveRoutineSessionCoordinator.shared.activeViewModel(sessionID: draft.sessionID) == nil)
+
+        try lab.recovery.creditGap(to: draft, correctedSteps: 80, in: lab.context, at: lab.clock.now)
+        #expect(draft.steps == 80)
+        #expect(Int(draft.durationSeconds) == 62, "the clock stays where the climber stopped it")
+        #expect(draft.trackingIntegrity.interruptionCount == 0)
+    }
+
+    @Test("The recovery screen offers no Resume Live for a draft the climber already ended")
+    func stoppedDraftRecoveryScreenHasNoResume() async throws {
+        let lab = try Lab(mode: .liveClimb)
+        let draft = try lab.persistedDraft(steps: 1_500, durationSeconds: 1_172)
+        draft.status = .stopped
+        lab.clock.now = draft.lastCheckpointAt.addingTimeInterval(600)
+
+        let screen = ActiveHeadphoneWorkoutRecoveryView(draft: draft, onResolved: {}, coordinator: lab.recovery)
+            .modelContainer(lab.container)
+
+        try await RenderedScreen.host(screen) { hosted in
+            let copy = try await hosted.copy { $0.contains("discard") }
+            #expect(copy.contains("you ended this climb at 1,500 steps and 19:32"))
+            #expect(copy.contains("save attempt"))
+            #expect(copy.contains("discard"))
+            #expect(!copy.contains("resume live"))
+            #expect(LiveClimbSessionCoordinator.shared.activeViewModel(sessionID: draft.sessionID) == nil)
+        }
+    }
+
     @Test("Saving from the resume sheet keeps every step the sensor counted after the resume", arguments: Mode.allCases)
     func resumeSheetKeepsStepsCountedSinceTheResume(mode: Mode) async throws {
         let lab = try Lab(mode: mode)

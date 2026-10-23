@@ -19,6 +19,7 @@ struct HeadphoneSessionResumption {
 enum HeadphoneSessionRecoveryError: LocalizedError {
     case climbUnavailable
     case routineUnavailable
+    case sessionEnded
     case sessionFailedToStart(String)
 
     var errorDescription: String? {
@@ -27,6 +28,8 @@ enum HeadphoneSessionRecoveryError: LocalizedError {
             return "This climb is no longer available."
         case .routineUnavailable:
             return "This routine is no longer available. Save the attempt or discard it."
+        case .sessionEnded:
+            return "You already ended this session. Save it or discard it."
         case .sessionFailedToStart(let message):
             return message
         }
@@ -163,7 +166,8 @@ final class HeadphoneSessionRecoveryCoordinator {
 
     /// Credits the gap since the draft's last checkpoint exactly once, with the machine's number
     /// when the climber typed one. A second credit from the same checkpoint - a Resume retried
-    /// after the sensor refused, or a Save after it - measures no gap at all.
+    /// after the sensor refused, or a Save after it - measures no gap at all, and neither does a
+    /// session the climber already ended: its clock stopped where they stopped it.
     @discardableResult
     func creditGap(
         to draft: ActiveHeadphoneWorkoutDraft,
@@ -172,7 +176,7 @@ final class HeadphoneSessionRecoveryCoordinator {
         at creditedAt: Date
     ) throws -> ActiveHeadphoneWorkoutDraftStore.TrackingGapCredit {
         let alreadyCredited = gapCreditedCheckpoints[draft.id] == draft.lastCheckpointAt
-        let effectiveAt = alreadyCredited ? draft.lastCheckpointAt : creditedAt
+        let effectiveAt = alreadyCredited || draft.status == .stopped ? draft.lastCheckpointAt : creditedAt
         let credit: ActiveHeadphoneWorkoutDraftStore.TrackingGapCredit
         if let correctedSteps {
             credit = try draftStore.applyRecoveryStepSync(
@@ -210,6 +214,10 @@ final class HeadphoneSessionRecoveryCoordinator {
                 session: running,
                 assessment: assessment
             )
+        }
+
+        guard draft.status != .stopped else {
+            throw HeadphoneSessionRecoveryError.sessionEnded
         }
 
         let routine = draft.kind == .routine ? fetchRoutine(for: draft, in: modelContext) : nil

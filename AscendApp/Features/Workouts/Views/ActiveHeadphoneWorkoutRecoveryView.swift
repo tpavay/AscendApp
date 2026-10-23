@@ -128,8 +128,10 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
                 .disabled(isSaving || effectiveStepCount <= 0)
                 .opacity(effectiveStepCount <= 0 ? 0.55 : 1)
 
-                recoveryButton(title: "Resume Live", style: .secondary) {
-                    resume()
+                if assessment?.climberEndedSession != true {
+                    recoveryButton(title: "Resume Live", style: .secondary) {
+                        resume()
+                    }
                 }
 
                 recoveryButton(title: "Discard", style: .destructive) {
