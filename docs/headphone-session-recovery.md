@@ -31,6 +31,7 @@ The regression suite `AscendAppTests/HeadphoneSessionSurvivesProcessDeathTests.s
    `CMPedometer.queryPedometerData(from:to:)` over the gap is offered as the phone's own estimate when it is non-zero, labelled as the phone's and never as the machine's.
    A draft older than an hour keeps a recovery screen, reordered: machine count and Save first, Resume Live second, Discard last, with the plain-language explanation.
    Nothing defaults the climber into silently dropping a gap any more.
+   A draft the climber had already ended (`.stopped`: the process died during the save) is never resumed, automatically or from the screen: it offers Save and Discard only, and a typed machine count is credited at the clock they stopped, with no gap.
    `MainTabView` presents the cover whenever a draft exists and `HeadphoneSessionScreenPresence` says no screen is showing its session, which also covers a session whose screen a tab switch took away and one the HealthKit relaunch restarted in the background.
 4. **The Lock Screen is honest.**
    `LiveClimbActivityManager` publishes every live update with a stale date fifteen seconds ahead (`LiveClimbActivityStalenessPolicy`), and the widget draws the stale state as "Ascend stopped counting - Tap to resume", routing through the existing deep link into the resume above.
@@ -42,7 +43,7 @@ The regression suite `AscendAppTests/HeadphoneSessionSurvivesProcessDeathTests.s
 6. **Nothing parks a session dead.**
    `CMErrorNotAvailable` and `CMErrorMotionActivityNotAvailable` are dropouts, retried on the stall clock; only the entitlement errors remain fatal, and every `handleSessionError` records `headphone_motion_session_failed`.
 7. **Detection within minutes.**
-   `live_climb_session_lost` fires once per draft the launch finds (age, steps, duration, last HK state, available memory at the last checkpoint, suspected reason, plan) and `live_climb_session_resumed` when the gap is settled (gap, source: wall clock, pedometer or machine, step delta, action).
+   `live_climb_session_lost` fires once per draft the launch finds (age, steps, duration, last HK state, available memory at the last checkpoint, suspected reason, plan) and `live_climb_session_resumed` when the gap is settled (`gap_seconds` measured, `gap_credited_seconds` actually credited, `gap_source` wall clock, pedometer or machine - `none` when nothing was credited - step delta, action).
    Every `AppDiagnosticsRecorder` event reaches Sentry as a breadcrumb at its own level through `CrashlyticsBreadcrumbSink`.
    `MetricKitExitReporter` forwards each daily `MXAppExitMetric` as `app_exit_metrics`, the only count of background kills iOS offers.
    Every session writes `users/{uid}/attempt_heartbeats/{sessionID}` every sixty seconds (steps, duration, mode, `lastSeenAt` on the server clock, `state: open`), closes it with `state: ended` and the outcome, and the scheduled `flagStalledAttemptHeartbeats` writes `attempt_heartbeat_flags/{uid}__{sessionID}` for any heartbeat silent for five minutes before its end, then resolves the flag when the session resumes or ends.

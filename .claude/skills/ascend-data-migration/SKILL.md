@@ -17,9 +17,9 @@ Start from what is actually here.
 
 | Thing | Where |
 |---|---|
-| The shapes older installs wrote | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift`, `AscendSchemaV2.swift`, `AscendSchemaV3.swift` |
-| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV4.swift` |
-| The plan that carries V1 forward to V4 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
+| The shapes older installs wrote | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift`, `AscendSchemaV2.swift`, `AscendSchemaV3.swift`, `AscendSchemaV4.swift` |
+| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV5.swift` |
+| The plan that carries V1 forward to V5 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
 | The one declaration of which schema is live, read by everything that must cover the whole store | `AscendApp/Shared/Models/AscendLocalStore.swift` (`currentSchema`) |
 | Where the container is opened, and the interrupted-migration retry | `AscendApp/App/AscendApp.swift` (`createModelContainer`, `finishInterruptedMigrationIfNeeded`) |
 | Proof it works against a real V1 store | `AscendAppTests/WorkoutSourceSchemaMigrationTests.swift` |
