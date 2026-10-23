@@ -10,11 +10,11 @@ Voice is niche-aggressive and declarative - confident about who Ascend is for, w
 Consult the `product-design-playbook` skill's relevant plays before shipping design or copy changes.
 
 ## Principles
-- **Active verbs at the front.** *Climb. Race. Rank. Push.* Avoid "explore" / "discover" / "learn" as openers - too passive. "Track" is not one of them: it is the tracker positioning the product was moved off.
+- **Active verbs at the front.** *Climb. Rank. Push. Claim.* Avoid "explore" / "discover" / "learn" as openers - too passive. "Track" is not one of them: it is the tracker positioning the product was moved off.
 - **Imperative over invitational.** *Be the first* beats *You could be the first*. *Climb past them* beats *You may want to try*.
 - **No hedging.** Cut "maybe," "perhaps," "if you'd like," "feel free to."
 - **Specific over abstract.** Name landmarks, name verbs, name numbers when they're earned. Concrete words land harder than generic ones.
-- **Assume the user is serious.** Don't explain stair stepping. Don't soften "race." Don't add tutorial scaffolding to copy that should land in one read.
+- **Assume the user is serious.** Don't explain stair stepping. Don't soften "ranked." "Race" is the verb for a Live Climb's run against other climbers' best attempts, not the name of the product; the positioning word is ranked. Don't add tutorial scaffolding to copy that should land in one read.
 - **The dare beats the invite.** Empty states, first-action prompts, and first-time experiences should *dare* the user, not coax them.
 
 ## Empty states: state-then-action
@@ -30,7 +30,7 @@ Defining the niche by exclusion. Use this as a check when adding features, scree
 - **Not a generic fitness tracker.** Don't drift toward "every workout, any activity." Activity scope is stair stepper sessions.
 - **Not weight-lifting / strength-training focused.** Weighted-vest tracking exists to honor stair-stepper users who add load, not to become a strength app.
 - **Not a passive tracker.** Every session is competitive context - pushing for PRs, climbing leaderboards, chasing First Ascents.
-- **Not a logger or an importer.** Every climb and record comes from a session performed in Ascend; manual entry and Apple Health workout import were removed on 2026-08-08 (#437). Apple Health stays only to enrich an Ascend-owned climb, and the read set is stated once in `CLAUDE.md` under "What Ascend Is NOT" - quote it from there rather than paraphrasing, because the legal pages and the permission-sheet string have to match. No copy - in-app, website, legal, listing, or email - may promise logging, importing, or generic workout tracking. Outward copy derived from this positioning: `docs/app-store-racing-repositioning-proposal.md`.
+- **Not a logger or an importer.** Every climb and record comes from a session performed in Ascend; manual entry and Apple Health workout import were removed on 2026-08-08 (#437). Apple Health stays only to enrich an Ascend-owned climb, and the read set is stated once in `CLAUDE.md` under "What Ascend Is NOT" - quote it from there rather than paraphrasing, because the legal pages and the permission-sheet string have to match. No copy - in-app, website, legal, listing, or email - may promise logging, importing, or generic workout tracking. Outward copy derived from this positioning: `docs/app-store-ranked-repositioning-proposal.md`.
 
 ## Locked copy
 - Unclaimed climb / no finisher: "First Ascent open. The first finisher claims it forever." Use verbatim (see `ascend-live-climbs`).

@@ -5,7 +5,7 @@ description: Use when working on Ascend's Apple Health integration - connecting 
 
 # Apple Health enrichment
 
-Ascend is a racing app, not a tracker.
+Ascend ranks stair stepper workouts, it does not track them.
 It does not import workouts and it has no manual entry: **every `Workout` is created by an in-app sensor flow** (Live Climbs and routines captured via headphone motion).
 Apple Health does exactly one job - it fills in the heart rate and calories a phone cannot measure, for a climb Ascend already recorded.
 

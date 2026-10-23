@@ -489,19 +489,19 @@ export function renderOnboardingAbandonedAfterPaywallEmail(
 
   return renderBrandedEmail({
     unsubscribeUrl: context.unsubscribeUrl,
-    subject: "Race real climbs",
+    subject: "Every climb ranked",
     preheader: [
       "Leaderboards, First Ascents, and stair-stepper records",
       "live inside Ascend.",
     ].join(" "),
-    eyebrow: "Race The Board",
-    headline: "RACE REAL CLIMBS.",
+    eyebrow: "Ranked Climbs",
+    headline: "EVERY CLIMB RANKED.",
     bodyParagraphs: [
       [
         "Ascend turns stair-stepper sessions into climbs, ranks,",
         "and permanent records.",
       ].join(" "),
-      "Start with one landmark. Race the board from there.",
+      "Start with one landmark. Take your rank from there.",
     ],
     ctaLabel: "Start climbing",
     ctaUrl: appUrl,
