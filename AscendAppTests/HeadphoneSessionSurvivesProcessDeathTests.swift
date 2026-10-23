@@ -312,28 +312,61 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
     @Test("Saving from the recovery screen reports only the gap it credited")
     func recoverySaveReportsTheCreditedGap() throws {
         let lab = try Lab(mode: .liveClimb)
-        let draft = try lab.persistedDraft(steps: 1_500, durationSeconds: 1_172)
-        lab.clock.now = draft.lastCheckpointAt.addingTimeInterval(600)
+        func saveEvent(_ draft: ActiveHeadphoneWorkoutDraft, typed: Int?) throws -> TelemetryRecord {
+            let assessment = lab.recovery.assess(draft)
+            let deltaSteps = (typed ?? draft.steps) - draft.steps
+            if let typed {
+                try lab.recovery.creditGap(to: draft, correctedSteps: typed, in: lab.context, at: lab.clock.now)
+            }
+            return ActiveHeadphoneWorkoutRecoveryView.promptEvent(
+                mode: draft.kind,
+                assessment: assessment,
+                creditedGapSeconds: lab.recovery.creditedGapSeconds(for: draft),
+                deltaSteps: deltaSteps,
+                action: .promptSave
+            ).record
+        }
 
-        let lost = ActiveHeadphoneWorkoutRecoveryView.savedEvent(
-            mode: draft.kind, assessment: lab.recovery.assess(draft), deltaSteps: 93
-        ).record
-        #expect(lost.parameters["gap_seconds"] == .int(600))
-        #expect(lost.parameters["gap_source"] == .string("machine"))
+        // Saved untyped: nothing touched the clock, so nothing was credited.
+        let untypedDraft = try lab.persistedDraft(steps: 1_500, durationSeconds: 1_172)
+        lab.clock.now = untypedDraft.lastCheckpointAt.addingTimeInterval(600)
+        let untyped = try saveEvent(untypedDraft, typed: nil)
+        #expect(untyped.parameters["gap_seconds"] == .int(600))
+        #expect(untyped.parameters["gap_credited_seconds"] == .int(0))
+        #expect(untyped.parameters["gap_source"] == .string("none"))
+        #expect(untyped.parameters["action"] == .string("prompt_save"))
 
-        draft.status = .stopped
-        let ended = ActiveHeadphoneWorkoutRecoveryView.savedEvent(
-            mode: draft.kind, assessment: lab.recovery.assess(draft), deltaSteps: 93
-        ).record
-        #expect(ended.parameters["gap_seconds"] == .int(0), "an ended session keeps its stopped clock")
-        #expect(ended.parameters["gap_source"] == .string("machine"))
+        // Saved with the machine's count: the gap was credited from it.
+        let typedDraft = try lab.persistedDraft(steps: 1_500, durationSeconds: 1_172)
+        lab.clock.now = typedDraft.lastCheckpointAt.addingTimeInterval(600)
+        let typed = try saveEvent(typedDraft, typed: 1_593)
+        #expect(typed.parameters["gap_seconds"] == .int(600))
+        #expect(typed.parameters["gap_credited_seconds"] == .int(600))
+        #expect(typed.parameters["gap_source"] == .string("machine"))
 
-        let endedUntyped = ActiveHeadphoneWorkoutRecoveryView.savedEvent(
-            mode: draft.kind, assessment: lab.recovery.assess(draft), deltaSteps: 0
+        // An auto-resume that credited the gap and then fell back to the screen: saved untyped.
+        let fallbackDraft = try lab.persistedDraft(steps: 1_500, durationSeconds: 1_172)
+        lab.clock.now = fallbackDraft.lastCheckpointAt.addingTimeInterval(600)
+        let assessment = lab.recovery.assess(fallbackDraft)
+        try lab.recovery.creditGap(to: fallbackDraft, correctedSteps: nil, in: lab.context, at: lab.clock.now)
+        let fallback = ActiveHeadphoneWorkoutRecoveryView.promptEvent(
+            mode: fallbackDraft.kind,
+            assessment: assessment,
+            creditedGapSeconds: lab.recovery.creditedGapSeconds(for: fallbackDraft),
+            deltaSteps: 0,
+            action: .promptSave
         ).record
-        #expect(endedUntyped.parameters["gap_seconds"] == .int(0))
-        #expect(endedUntyped.parameters["gap_source"] == .string("wall_clock"))
-        #expect(endedUntyped.parameters["action"] == .string("prompt_save"))
+        #expect(fallback.parameters["gap_credited_seconds"] == .int(600))
+        #expect(fallback.parameters["gap_source"] == .string("wall_clock"))
+
+        // A session the climber ended keeps its stopped clock, typed count or not.
+        let endedDraft = try lab.persistedDraft(steps: 1_500, durationSeconds: 1_172)
+        endedDraft.status = .stopped
+        lab.clock.now = endedDraft.lastCheckpointAt.addingTimeInterval(600)
+        let ended = try saveEvent(endedDraft, typed: 1_593)
+        #expect(ended.parameters["gap_seconds"] == .int(600))
+        #expect(ended.parameters["gap_credited_seconds"] == .int(0))
+        #expect(ended.parameters["gap_source"] == .string("none"))
     }
 
     @Test("The typed-count hint promises the gap credit only to a session Ascend lost")

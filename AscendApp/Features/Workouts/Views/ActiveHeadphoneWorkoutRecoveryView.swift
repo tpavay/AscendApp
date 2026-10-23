@@ -189,20 +189,23 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
         return "Saving credits \(steps.formatted()) steps and the time since Ascend stopped, with the gap recorded."
     }
 
-    /// What Save reports: the gap a session Ascend lost is counted as wall clock, while a
-    /// session the climber ended keeps its stopped clock and so credits no gap at all.
-    static func savedEvent(
+    /// What the recovery screen reports for an action: the gap it measured, the part of it the
+    /// climb was actually credited, and the typed count's change when there was one.
+    static func promptEvent(
         mode: ActiveHeadphoneWorkoutDraftKind,
         assessment: HeadphoneSessionRecoveryAssessment,
-        deltaSteps: Int
+        creditedGapSeconds: TimeInterval,
+        deltaSteps: Int,
+        action: HeadphoneSessionRecoveryAnalyticsEvent.ResumeAction
     ) -> HeadphoneSessionRecoveryAnalyticsEvent {
         .sessionResumed(
             mode: mode,
-            gapSeconds: assessment.climberEndedSession ? 0 : Int(assessment.gap.rounded(.down)),
+            gapSeconds: Int(assessment.gap.rounded(.down)),
+            gapCreditedSeconds: Int(creditedGapSeconds.rounded(.down)),
             lossReason: assessment.lossReason,
             source: deltaSteps == 0 ? .wallClock : .machine,
             deltaSteps: deltaSteps,
-            action: .promptSave
+            action: action
         )
     }
 
@@ -337,11 +340,10 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
             )
             _ = coordinator.adopt(draftID: draft.id)
             TelemetryManager.shared.track(
-                HeadphoneSessionRecoveryAnalyticsEvent.sessionResumed(
+                Self.promptEvent(
                     mode: draft.kind,
-                    gapSeconds: Int(assessment.gap.rounded(.down)),
-                    lossReason: assessment.lossReason,
-                    source: correctedSteps == nil ? .wallClock : .machine,
+                    assessment: assessment,
+                    creditedGapSeconds: resumption.creditedGapSeconds,
                     deltaSteps: correctedSteps == nil ? 0 : deltaSteps,
                     action: .promptResume
                 )
@@ -367,12 +369,19 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
             let assessment = assessment ?? coordinator.assess(draft)
             let deltaSteps = effectiveStepCount - draft.steps
             try syncDraftIfNeeded()
+            let creditedGapSeconds = coordinator.creditedGapSeconds(for: draft)
             let details = draft.diagnosticDetails
             coordinator.publishSessionEnd(for: draft, outcome: .saved)
             _ = try ActiveHeadphoneWorkoutDraftSaver.save(draft, modelContext: modelContext)
             await LiveClimbActivityManager.shared.end(sessionID: draft.sessionID, status: .finished)
             TelemetryManager.shared.track(
-                Self.savedEvent(mode: draft.kind, assessment: assessment, deltaSteps: deltaSteps)
+                Self.promptEvent(
+                    mode: draft.kind,
+                    assessment: assessment,
+                    creditedGapSeconds: creditedGapSeconds,
+                    deltaSteps: deltaSteps,
+                    action: .promptSave
+                )
             )
             AppDiagnosticsRecorder.shared.record(
                 "active_headphone_recovery_saved_attempt",
@@ -405,16 +414,16 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
     private func discard() async {
         do {
             let assessment = assessment ?? coordinator.assess(draft)
+            let creditedGapSeconds = coordinator.creditedGapSeconds(for: draft)
             let details = draft.diagnosticDetails
             coordinator.publishSessionEnd(for: draft, outcome: .discarded)
             try ActiveHeadphoneWorkoutDraftStore().delete(draft, in: modelContext)
             await LiveClimbActivityManager.shared.end(sessionID: draft.sessionID, status: .failed)
             TelemetryManager.shared.track(
-                HeadphoneSessionRecoveryAnalyticsEvent.sessionResumed(
+                Self.promptEvent(
                     mode: draft.kind,
-                    gapSeconds: Int(assessment.gap.rounded(.down)),
-                    lossReason: assessment.lossReason,
-                    source: .wallClock,
+                    assessment: assessment,
+                    creditedGapSeconds: creditedGapSeconds,
                     deltaSteps: 0,
                     action: .promptDiscard
                 )

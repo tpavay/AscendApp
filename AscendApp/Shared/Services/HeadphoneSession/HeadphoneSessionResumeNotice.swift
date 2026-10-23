@@ -24,6 +24,8 @@ struct HeadphoneSessionResumeNotice: Identifiable, Equatable, Sendable {
     /// kept stepping with the phone on them. Labelled as the phone's estimate, never as the
     /// machine's number.
     var phoneEstimateSteps: Int?
+    /// How much of `gap` the resume credited to the climb's clock.
+    var creditedGap: TimeInterval = 0
 
     var gapMinutes: Int {
         max(Int((gap / 60).rounded()), 1)

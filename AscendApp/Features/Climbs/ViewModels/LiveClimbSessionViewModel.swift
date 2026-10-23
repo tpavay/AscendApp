@@ -1262,6 +1262,7 @@ final class LiveClimbSessionViewModel {
             HeadphoneSessionRecoveryAnalyticsEvent.sessionResumed(
                 mode: mode.draftKind,
                 gapSeconds: Int(notice.gap.rounded(.down)),
+                gapCreditedSeconds: Int(notice.creditedGap.rounded(.down)),
                 lossReason: notice.lossReason,
                 source: source,
                 deltaSteps: deltaSteps,

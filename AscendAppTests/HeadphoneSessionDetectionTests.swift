@@ -37,6 +37,7 @@ struct HeadphoneSessionDetectionTests {
         let record = HeadphoneSessionRecoveryAnalyticsEvent.sessionResumed(
             mode: .routine,
             gapSeconds: 1_165,
+            gapCreditedSeconds: 1_165,
             lossReason: .phoneOff,
             source: .machine,
             deltaSteps: 1_527,
@@ -46,6 +47,7 @@ struct HeadphoneSessionDetectionTests {
         #expect(record.name == "live_climb_session_resumed")
         #expect(record.parameters["mode"] == .string("routine"))
         #expect(record.parameters["gap_seconds"] == .int(1_165))
+        #expect(record.parameters["gap_credited_seconds"] == .int(1_165))
         #expect(record.parameters["loss_reason"] == .string("phone_off"))
         #expect(record.parameters["gap_source"] == .string("machine"))
         #expect(record.parameters["delta_steps"] == .int(1_527))

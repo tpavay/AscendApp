@@ -14,6 +14,8 @@ struct HeadphoneSessionResumption {
     let sessionID: String
     let session: Session
     let assessment: HeadphoneSessionRecoveryAssessment
+    /// The gap this resume credited to the climb's clock; zero for a session already running.
+    let creditedGapSeconds: TimeInterval
 }
 
 enum HeadphoneSessionRecoveryError: LocalizedError {
@@ -50,9 +52,10 @@ final class HeadphoneSessionRecoveryCoordinator {
 
     private(set) var resumptions: [UUID: HeadphoneSessionResumption] = [:]
     @ObservationIgnored private var reportedLostDraftIDs: Set<UUID> = []
-    /// The checkpoint each draft's gap was last credited from, so the same gap is never credited
-    /// twice. A session that runs again moves the checkpoint, and its next death is a new gap.
-    @ObservationIgnored private var gapCreditedCheckpoints: [UUID: Date] = [:]
+    /// The checkpoint each draft's gap was last credited from and how much was credited, so the
+    /// same gap is never credited twice and is reported once. A session that runs again moves the
+    /// checkpoint, and its next death is a new gap.
+    @ObservationIgnored private var gapCredits: [UUID: (checkpoint: Date, creditedSeconds: TimeInterval)] = [:]
 
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
     private let featureFlags: RemoteFeatureFlagStore
@@ -175,7 +178,8 @@ final class HeadphoneSessionRecoveryCoordinator {
         in modelContext: ModelContext,
         at creditedAt: Date
     ) throws -> ActiveHeadphoneWorkoutDraftStore.TrackingGapCredit {
-        let alreadyCredited = gapCreditedCheckpoints[draft.id] == draft.lastCheckpointAt
+        let priorCredit = creditedGapSeconds(for: draft)
+        let alreadyCredited = gapCredits[draft.id]?.checkpoint == draft.lastCheckpointAt
         let effectiveAt = alreadyCredited || draft.status == .stopped ? draft.lastCheckpointAt : creditedAt
         let credit: ActiveHeadphoneWorkoutDraftStore.TrackingGapCredit
         if let correctedSteps {
@@ -188,8 +192,18 @@ final class HeadphoneSessionRecoveryCoordinator {
         } else {
             credit = try draftStore.creditTrackingGap(to: draft, in: modelContext, resumedAt: effectiveAt)
         }
-        gapCreditedCheckpoints[draft.id] = draft.lastCheckpointAt
+        gapCredits[draft.id] = (
+            checkpoint: draft.lastCheckpointAt,
+            creditedSeconds: priorCredit + (credit.credited ? credit.gapSeconds : 0)
+        )
         return credit
+    }
+
+    /// How much gap this process credited to the draft's clock since its last checkpoint: what a
+    /// save or discard from the recovery screen reports as credited.
+    func creditedGapSeconds(for draft: ActiveHeadphoneWorkoutDraft) -> TimeInterval {
+        guard let record = gapCredits[draft.id], record.checkpoint == draft.lastCheckpointAt else { return 0 }
+        return record.creditedSeconds
     }
 
     /// Credits the gap, restarts the session for the draft's mode, and keeps it until a screen
@@ -212,7 +226,8 @@ final class HeadphoneSessionRecoveryCoordinator {
                 draftID: draft.id,
                 sessionID: draft.sessionID,
                 session: running,
-                assessment: assessment
+                assessment: assessment,
+                creditedGapSeconds: 0
             )
         }
 
@@ -234,11 +249,13 @@ final class HeadphoneSessionRecoveryCoordinator {
         let resumedAt = now()
         let gapStart = draft.lastCheckpointAt
         let credit = try creditGap(to: draft, correctedSteps: correctedSteps, in: modelContext, at: resumedAt)
+        let creditedGapSeconds = creditedGapSeconds(for: draft)
         let notice: HeadphoneSessionResumeNotice? = showsNotice
             ? HeadphoneSessionResumeNotice(
                 gap: credit.gapSeconds,
                 lossReason: assessment.lossReason,
-                detectedSteps: draft.steps
+                detectedSteps: draft.steps,
+                creditedGap: creditedGapSeconds
             )
             : nil
 
@@ -272,7 +289,8 @@ final class HeadphoneSessionRecoveryCoordinator {
             draftID: draft.id,
             sessionID: draft.sessionID,
             session: session,
-            assessment: assessment
+            assessment: assessment,
+            creditedGapSeconds: creditedGapSeconds
         )
         resumptions[draft.id] = resumption
         AppDiagnosticsRecorder.shared.record(

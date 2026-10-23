@@ -700,6 +700,7 @@ final class ActiveRoutineViewModel {
             HeadphoneSessionRecoveryAnalyticsEvent.sessionResumed(
                 mode: .routine,
                 gapSeconds: Int(notice.gap.rounded(.down)),
+                gapCreditedSeconds: Int(notice.creditedGap.rounded(.down)),
                 lossReason: notice.lossReason,
                 source: source,
                 deltaSteps: deltaSteps,

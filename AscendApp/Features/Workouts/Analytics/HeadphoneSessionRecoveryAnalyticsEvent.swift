@@ -26,9 +26,12 @@ enum HeadphoneSessionRecoveryAnalyticsEvent: TelemetryEvent {
         lossReason: HeadphoneSessionLossReason,
         plan: HeadphoneSessionRecoveryPlan
     )
+    /// `gapSeconds` is the gap measured; `gapCreditedSeconds` is how much of it the climb was
+    /// actually credited, and `source` names where that credit came from - `none` when nothing was.
     case sessionResumed(
         mode: ActiveHeadphoneWorkoutDraftKind,
         gapSeconds: Int,
+        gapCreditedSeconds: Int,
         lossReason: HeadphoneSessionLossReason,
         source: HeadphoneSessionResumeNotice.GapSource,
         deltaSteps: Int,
@@ -59,14 +62,17 @@ enum HeadphoneSessionRecoveryAnalyticsEvent: TelemetryEvent {
             }
             return TelemetryRecord(name: "live_climb_session_lost", parameters: parameters)
 
-        case .sessionResumed(let mode, let gapSeconds, let lossReason, let source, let deltaSteps, let action):
+        case .sessionResumed(
+            let mode, let gapSeconds, let gapCreditedSeconds, let lossReason, let source, let deltaSteps, let action
+        ):
             return TelemetryRecord(
                 name: "live_climb_session_resumed",
                 parameters: [
                     "mode": .string(mode.rawValue),
                     "gap_seconds": .int(gapSeconds),
+                    "gap_credited_seconds": .int(gapCreditedSeconds),
                     "loss_reason": .string(lossReason.rawValue),
-                    "gap_source": .string(source.rawValue),
+                    "gap_source": .string(gapCreditedSeconds > 0 ? source.rawValue : "none"),
                     "delta_steps": .int(deltaSteps),
                     "action": .string(action.rawValue)
                 ]
