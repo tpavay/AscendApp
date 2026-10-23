@@ -309,6 +309,14 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         }
     }
 
+    @Test("The typed-count hint promises the gap credit only to a session Ascend lost")
+    func stepSyncHintMatchesWhatSavingCredits() {
+        #expect(ActiveHeadphoneWorkoutRecoveryView.stepSyncHint(steps: 1_593, climberEndedSession: false)
+            == "Saving credits 1,593 steps and the time since Ascend stopped, with the gap recorded.")
+        #expect(ActiveHeadphoneWorkoutRecoveryView.stepSyncHint(steps: 1_593, climberEndedSession: true)
+            == "Saving credits 1,593 steps at the time you ended it.")
+    }
+
     @Test("Saving from the resume sheet keeps every step the sensor counted after the resume", arguments: Mode.allCases)
     func resumeSheetKeepsStepsCountedSinceTheResume(mode: Mode) async throws {
         let lab = try Lab(mode: mode)

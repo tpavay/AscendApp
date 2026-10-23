@@ -180,6 +180,15 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
         return "\(reason) \(gap) ago, at \(draft.steps.formatted()) steps and \(clock) into this \(sessionLabel). Enter the machine's count to credit the work and save it, keep going live, or discard it."
     }
 
+    /// What saving a typed count does. A session the climber ended keeps the clock they stopped;
+    /// only a session Ascend lost is credited the time since.
+    static func stepSyncHint(steps: Int, climberEndedSession: Bool) -> String {
+        if climberEndedSession {
+            return "Saving credits \(steps.formatted()) steps at the time you ended it."
+        }
+        return "Saving credits \(steps.formatted()) steps and the time since Ascend stopped, with the gap recorded."
+    }
+
     static func gapPhrase(_ assessment: HeadphoneSessionRecoveryAssessment) -> String {
         let minutes = max(assessment.gapMinutes, 1)
         if minutes >= 120 {
@@ -274,7 +283,10 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
                 .accessibilityLabel("Machine's current steps")
 
             if stepCountDidChange {
-                Text("Saving credits \(effectiveStepCount.formatted()) steps and the time since Ascend stopped, with the gap recorded.")
+                Text(Self.stepSyncHint(
+                    steps: effectiveStepCount,
+                    climberEndedSession: assessment?.climberEndedSession == true
+                ))
                     .font(.montserratMedium(size: 12))
                     .foregroundStyle(Color.ascendAccent.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
