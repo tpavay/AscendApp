@@ -137,13 +137,17 @@ struct FirestoreDiskGuardTests {
         #expect(guardUnderTest.allowsLocalCacheWrite() == false)
     }
 
+    /// Both readings answer for a real volume. They are two separate system calls on a volume
+    /// other processes are writing to, so the test asks nothing about their order: on a busy
+    /// build host the important-usage figure has landed 4 KiB under the statfs figure taken a
+    /// moment earlier, and that is the host, not the reader.
     @Test
     func theRealReaderAnswersForTheHostsVolume() throws {
         let reader = VolumeFreeSpaceReader()
         let available = try #require(reader.availableBytes())
         #expect(available > 0)
         let important = try #require(reader.availableBytesForImportantUsage())
-        #expect(important >= available)
+        #expect(important > 0)
     }
 
     @Test
