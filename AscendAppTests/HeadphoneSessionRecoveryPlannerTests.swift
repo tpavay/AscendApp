@@ -28,11 +28,12 @@ struct HeadphoneSessionRecoveryPlannerTests {
 
     private func diagnostics(
         availableMemoryBytes: Int64? = 1_000 * 1_048_576,
+        freeDiskBytes: Int64? = 10 * 1_024 * 1_048_576,
         memoryWarningCount: Int = 0
     ) -> HeadphoneSessionCheckpointDiagnostics {
         HeadphoneSessionCheckpointDiagnostics(
             availableMemoryBytes: availableMemoryBytes,
-            freeDiskBytes: 10 * 1_024 * 1_048_576,
+            freeDiskBytes: freeDiskBytes,
             memoryWarningCount: memoryWarningCount,
             batteryLevel: 0.84,
             batteryState: "unplugged",
@@ -91,15 +92,69 @@ struct HeadphoneSessionRecoveryPlannerTests {
         #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60)).lossReason == .unknown, "a draft from before V5 has no diagnostics and says so")
     }
 
+    @Test("A volume under the Firestore disk floor at the last checkpoint names the phone being out of space, ahead of unknown")
+    func outOfDiskSpaceFromTheLastCheckpoint() {
+        let twelveMB: Int64 = 12 * 1_048_576
+        let full = HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: twelveMB)))
+        #expect(full.lossReason == .outOfDiskSpace)
+        #expect(full.freeDiskBytesAtLastCheckpoint == twelveMB, "the reading travels with the reason so the sheet can show it")
+        #expect(full.plan == .autoResume, "a full phone still resumes inside the hour; the reason is just named")
+
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: 0))).lossReason == .outOfDiskSpace, "zero free is a reading, and the fullest one")
+        #expect(HeadphoneSessionRecoveryPlanner.lowDiskFloorBytes == FirestoreDiskPolicy.lowDiskFloorBytes, "one floor, the disk guard's")
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: FirestoreDiskPolicy.lowDiskFloorBytes - 1))).lossReason == .outOfDiskSpace)
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: FirestoreDiskPolicy.lowDiskFloorBytes))).lossReason == .unknown, "at the floor the guard still writes, so the phone was not out of space")
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: nil))).lossReason == .unknown, "a volume that was never read is unknown, not full")
+
+        let unread = HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: nil)))
+        #expect(unread.freeDiskBytesAtLastCheckpoint == nil)
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60)).freeDiskBytesAtLastCheckpoint == nil, "a draft from before V5 has no reading")
+    }
+
+    @Test("Out of space sits between the proven reasons and the memory guess: a reboot or a written crash report outranks it, a memory warning does not")
+    func outOfDiskSpacePrecedence() {
+        let fullDisk = diagnostics(availableMemoryBytes: 150 * 1_048_576, freeDiskBytes: 12 * 1_048_576, memoryWarningCount: 3)
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 2 * 3_600, systemUptime: 20 * 60, diagnostics: fullDisk)).lossReason == .phoneOff)
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, crashedLastRun: true, diagnostics: fullDisk)).lossReason == .crashed, "a crash report that exists proves the volume could still take a file")
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: fullDisk)).lossReason == .outOfDiskSpace, "memory warnings on a full phone are the phone being full")
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(availableMemoryBytes: 150 * 1_048_576, freeDiskBytes: 12 * 1_048_576))).lossReason == .outOfDiskSpace)
+    }
+
     @Test("Every reason has words a climber can read")
     func climberFacingClauses() {
         #expect(HeadphoneSessionLossReason.phoneOff.climberFacingClause == "Your phone was off")
         #expect(HeadphoneSessionLossReason.crashed.climberFacingClause == "Ascend crashed")
+        #expect(HeadphoneSessionLossReason.outOfDiskSpace.climberFacingClause == "Your phone ran out of space")
         #expect(HeadphoneSessionLossReason.closedByIOS.climberFacingClause == "iOS closed Ascend in the background")
         #expect(HeadphoneSessionLossReason.unknown.climberFacingClause == "Ascend was closed")
         for reason in HeadphoneSessionLossReason.allCases {
             #expect(!reason.climberFacingClause.isEmpty)
+            #expect(reason.climberFacingClause(freeDiskBytes: nil) == reason.climberFacingClause, "no reading, no number")
+            if reason != .outOfDiskSpace {
+                #expect(reason.climberFacingClause(freeDiskBytes: 12 * 1_048_576) == reason.climberFacingClause, "only the disk reason shows the disk")
+            }
         }
+        #expect(HeadphoneSessionLossReason.outOfDiskSpace.climberFacingClause(freeDiskBytes: 12 * 1_048_576) == "Your phone ran out of space (12 MB free)")
+        #expect(HeadphoneSessionLossReason.outOfDiskSpace.climberFacingClause(freeDiskBytes: 0) == "Your phone ran out of space (0 MB free)")
+        #expect(HeadphoneSessionLossReason.outOfDiskSpace.rawValue == "out_of_disk_space", "the analytics value `loss_reason` carries")
+    }
+
+    @Test("The resume notice for a full phone says how full: the gap in the headline, the reading in the explanation")
+    func resumeNoticeNamesTheDiskReading() {
+        let notice = HeadphoneSessionResumeNotice(
+            gap: 1_165,
+            lossReason: .outOfDiskSpace,
+            detectedSteps: 66,
+            freeDiskBytes: 12 * 1_048_576
+        )
+        #expect(notice.headline == "Ascend stopped counting for 19 minutes.")
+        #expect(notice.explanation.hasPrefix("Your phone ran out of space (12 MB free) and the climb kept going without it."))
+
+        let unread = HeadphoneSessionResumeNotice(gap: 1_165, lossReason: .outOfDiskSpace, detectedSteps: 66)
+        #expect(unread.explanation.hasPrefix("Your phone ran out of space and the climb kept going without it."))
+
+        let crashed = HeadphoneSessionResumeNotice(gap: 1_165, lossReason: .crashed, detectedSteps: 66, freeDiskBytes: 12 * 1_048_576)
+        #expect(crashed.explanation.hasPrefix("Ascend crashed and the climb kept going without it."), "a reading is shown only for the reason it proved")
     }
 
     @Test("The resume notice leads with the gap, prefers the phone's own count, and never calls it the machine's")

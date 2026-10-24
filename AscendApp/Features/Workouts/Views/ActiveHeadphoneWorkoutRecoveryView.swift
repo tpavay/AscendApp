@@ -176,7 +176,8 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
             return "You ended this \(sessionLabel) at \(draft.steps.formatted()) steps and \(clock), and Ascend closed before saving it. Enter the machine's count and save it, or discard it."
         }
         let gap = assessment.map(Self.gapPhrase) ?? "a while"
-        let reason = assessment?.lossReason.climberFacingClause ?? HeadphoneSessionLossReason.unknown.climberFacingClause
+        let reason = assessment.map { $0.lossReason.climberFacingClause(freeDiskBytes: $0.freeDiskBytesAtLastCheckpoint) }
+            ?? HeadphoneSessionLossReason.unknown.climberFacingClause
         return "\(reason) \(gap) ago, at \(draft.steps.formatted()) steps and \(clock) into this \(sessionLabel). Enter the machine's count to credit the work and save it, keep going live, or discard it."
     }
 
