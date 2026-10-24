@@ -90,6 +90,18 @@ struct SentryDiagnosticsConfigurationTests {
         #expect(replay.onErrorSampleRate == 0)
     }
 
+    /// The 2026-10-23 crash killed a climb on a phone with no free blocks, and both in-process
+    /// crash handlers failed to create their report file on that same volume. MetricKit's
+    /// crash diagnostic is written by iOS into space the app cannot exhaust and delivered on
+    /// the next launch, so it is the one channel that carries exactly the crash a full phone
+    /// hides. It stays on.
+    @Test
+    func metricKitCrashDiagnosticsAreOn() throws {
+        let options = try #require(Self.options(environment: "production"))
+
+        #expect(options.enableMetricKit)
+    }
+
     // MARK: - Crash context
 
     @Test

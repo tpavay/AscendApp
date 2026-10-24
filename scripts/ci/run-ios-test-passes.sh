@@ -145,6 +145,22 @@ progress_pattern='[◇✔✘⚠] (Test|Suite) '
 
 mkdir -p "$log_dir"
 
+# The volume `FirestoreDiskFullSurvivalTests` fills, created and attached by
+# `attach-disk-full-lab.sh` and handed to the test host through `TEST_RUNNER_`,
+# which `xcodebuild` strips to `ASCEND_DISKFULL_MOUNT`. Without the variable the
+# suite skips itself, and since it is a named pass below, a skipped suite fails
+# the pass - so losing this step cannot go green.
+echo "--- Attaching the disk-full lab image ---" | tee -a "$log"
+disk_full_lab_mount="$("$scripts_dir/attach-disk-full-lab.sh")"
+
+detach_disk_full_lab() {
+    hdiutil detach -quiet -force "$disk_full_lab_mount" 2>/dev/null || true
+}
+trap detach_disk_full_lab EXIT
+
+export TEST_RUNNER_ASCEND_DISKFULL_MOUNT="$disk_full_lab_mount"
+df -k "$disk_full_lab_mount" | tee -a "$log"
+
 # A runner is discarded whole, so CI deliberately keeps Xcode's default
 # DerivedData - relocating it would move `SourcePackages` out from under the
 # `actions/cache` path and silently re-resolve every package on every run. A

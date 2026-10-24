@@ -31,9 +31,23 @@ enum SentryOptionsFactory {
 
         applyCrashContext(to: options)
         disableSessionReplay(on: options)
+        enableMetricKitDiagnostics(on: options)
         applyFloodGuard(to: options, floodGuard: floodGuard)
 
         return options
+    }
+
+    /// The one crash channel a full phone cannot silence.
+    ///
+    /// Both in-process crash handlers worked on 2026-10-23 and neither delivered: each has to
+    /// create a report file at crash time, and the volume with no free blocks that caused the
+    /// crash refused that file too, so the crash was invisible to Crashlytics and Sentry alike.
+    /// iOS writes `MXCrashDiagnostic` into system-reserved space from the same data as its own
+    /// `.ips` report and hands it to the app on the next launch; the SDK's MetricKit integration
+    /// turns each one into an unhandled event with the call-stack tree, which `isSevere` admits.
+    /// Keep both existing handlers; this is a third delivery path, not a third reporter.
+    private static func enableMetricKitDiagnostics(on options: Options) {
+        options.enableMetricKit = true
     }
 
     /// A stack trace alone rarely says what the climber was looking at, so a

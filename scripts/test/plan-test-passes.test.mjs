@@ -58,7 +58,7 @@ function isSerial(pass) {
   return index >= 0 && pass.arguments[index + 1] === "NO";
 }
 
-test("every suite is named exactly once, and the movie-export and Mountain suites keep their own hosts", () => {
+test("every suite is named exactly once, and the movie-export, Mountain and disk-full suites keep their own hosts", () => {
   const suites = namedSuites();
 
   assert.equal(new Set(suites).size, suites.length, "a suite is named in more than one pass");
@@ -66,9 +66,12 @@ test("every suite is named exactly once, and the movie-export and Mountain suite
   // real movie, and that cost is the assertion.
   // The Mountain suites share one host so a RealityKit render-thread
   // assertion cannot kill the remainder pass.
+  // The disk-full suite tests whether the process survives a full volume, so a
+  // regression kills its host; alone, the kill names the suite.
   assert.deepEqual(ISOLATED_PASSES, [
     ["ShareComposerBackgroundFillEvidenceTests"],
     ["AscendMountainSessionEvidenceTests", "SentryMaskingEvidenceTests", "SentryMaskInteractionTests"],
+    ["FirestoreDiskFullSurvivalTests"],
   ]);
   for (const suite of suites) {
     assert.doesNotMatch(suite, /\//, `${suite} must be a bare suite name; the planner adds the target`);
@@ -112,12 +115,13 @@ test("the last pass is the complement: it skips exactly what every other pass ru
   );
 });
 
-test("the plan is three passes: the movie host, the Mountain host and one host for everything else", () => {
+test("the plan is four passes: the movie host, the Mountain host, the disk-full host and one host for everything else", () => {
   const passes = planTestPasses();
 
-  assert.equal(passes.length, 3, "every extra pass costs ~2 minutes of host launch; measure before adding one");
-  assert.deepEqual(selectors(passes[2], "-skip-testing"), [
+  assert.equal(passes.length, 4, "every extra pass costs ~2 minutes of host launch; measure before adding one");
+  assert.deepEqual(selectors(passes[3], "-skip-testing"), [
     "AscendAppTests/AscendMountainSessionEvidenceTests",
+    "AscendAppTests/FirestoreDiskFullSurvivalTests",
     "AscendAppTests/SentryMaskInteractionTests",
     "AscendAppTests/SentryMaskingEvidenceTests",
     "AscendAppTests/ShareComposerBackgroundFillEvidenceTests",

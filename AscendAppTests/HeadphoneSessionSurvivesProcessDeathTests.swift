@@ -82,6 +82,36 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         #expect(found.id == draft.id)
     }
 
+    @Test("A heartbeat refused at the low-disk floor is recorded and the climb keeps counting", arguments: Mode.allCases)
+    func heartbeatRefusedAtTheFloorIsRecordedAndTheSessionKeepsCheckpointing(mode: Mode) async throws {
+        let lab = try Lab(mode: mode)
+        // The real repository throws this before Firestore is asked (`FirestoreAttemptHeartbeatRepository`);
+        // the session has to treat it as a report that was not sent, nothing more.
+        lab.heartbeats.refusal = FirestoreLowDiskRefusal(availableBytes: 0)
+        let session = try lab.startedSession()
+        lab.run(session, seconds: 62)
+        await session.checkpointer.settlePendingHeartbeat()
+
+        #expect(lab.heartbeats.published.isEmpty)
+        let draft = try #require(try lab.draftStore.activeDraft(in: lab.context))
+        #expect(draft.steps == 66, "the refusal costs the climb nothing")
+        #expect(draft.status == .recording)
+        let failures = lab.diagnostics.recentEvents().filter { $0.name == "attempt_heartbeat_publish_failed" }
+        #expect(failures.isEmpty == false, "every due heartbeat was refused, and each refusal is on the record")
+        #expect(failures.allSatisfy { $0.details["session_id"] == draft.sessionID })
+        #expect(failures.allSatisfy { $0.details["error"]?.contains("low-disk floor") == true })
+
+        // The phone has room again: the next due heartbeat is simply sent, nothing was queued.
+        lab.heartbeats.refusal = nil
+        lab.run(session, seconds: 62, from: 63)
+        await session.checkpointer.settlePendingHeartbeat()
+        let published = try #require(lab.heartbeats.published.last)
+        #expect(published.heartbeat.state == .open)
+        #expect(published.heartbeat.mode == mode.draftKind)
+        #expect(published.heartbeat.steps >= 66)
+        #expect(lab.heartbeats.published.count <= 2, "at most the heartbeats due in a minute; nothing refused was replayed")
+    }
+
     // MARK: - 2. The next launch resumes by itself and credits the gap
 
     @Test("Nineteen minutes later the next launch resumes the session, credits the gap, and records one interruption", arguments: Mode.allCases)
@@ -578,8 +608,16 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         struct Published { let heartbeat: AttemptHeartbeat; let userId: String }
         private let lock = NSLock()
         private var _published: [Published] = []
+        private var _refusal: (any Error)?
         var published: [Published] { lock.withLock { _published } }
+        /// Set by a test to have every publish fail the way the real repository does on a
+        /// volume at the low-disk floor; nil publishes.
+        var refusal: (any Error)? {
+            get { lock.withLock { _refusal } }
+            set { lock.withLock { _refusal = newValue } }
+        }
         func publish(_ heartbeat: AttemptHeartbeat, userId: String) async throws {
+            if let refusal = lock.withLock({ _refusal }) { throw refusal }
             lock.withLock { _published.append(Published(heartbeat: heartbeat, userId: userId)) }
         }
     }

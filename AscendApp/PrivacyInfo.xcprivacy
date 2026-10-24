@@ -370,6 +370,13 @@
           and because TelemetryEnvelope stamps `app_environment`, `build_config`,
           `app_version`, and `build_number` onto every analytics event and screen view.
 
+          Also covers `firestore_low_disk_mode` (FirestoreDiskAnalyticsEvent):
+          the device volume's free bytes as statfs and Apple's important-usage
+          figure report them, plus two closed enums (trigger, cache_mode), sent
+          once when the volume is under the low-disk floor at launch and once on
+          the first operation the guard refuses mid-session. Device storage
+          facts only; no file names and nothing about the climber.
+
           Also covers the device readings a session checkpoint records so a
           later launch can say why the process died: available process memory,
           free disk, memory-warning count, battery level and state, the workout
@@ -443,8 +450,17 @@
 
         <!--
           Disk Space - MapboxCommon / MapboxCoreMaps use disk-capacity APIs to
-          manage SDK-owned map tile caches and storage, and Ascend's own
-          LiveHeadphoneSessionDeviceDiagnostics reads
+          manage SDK-owned map tile caches and storage. Ascend itself reads the
+          app container's volume through statfs and
+          volumeAvailableCapacityForImportantUsage in VolumeFreeSpaceReader, for
+          FirestoreDiskPolicy: when a kill switch allows Firestore a persistent
+          cache, under 200 MiB free it runs on a memory cache instead and
+          cache-writing reads, sync and the attempt heartbeat are deferred, so the
+          app behaves observably differently on a nearly full phone (the live
+          board says it could not refresh; a climb's cloud sync waits). The two
+          byte counts are also recorded in the firestore_low_disk_mode diagnostic
+          and analytics event, classified as Other Diagnostic Data above. Ascend's
+          LiveHeadphoneSessionDeviceDiagnostics also reads
           volumeAvailableCapacityForImportantUsage when a session checkpoint is
           refused, to decide whether the draft can still be written and to record
           how much room the phone had.

@@ -64,6 +64,11 @@ See `.claude/skills/ascend-analytics/SKILL.md` for the Mixpanel side.
 
   Fatal App Hangs are the top real production signal - roughly 51 events in 14 days, against 23 errors a month - so a per-second main-thread render and hierarchy walk is a cost paid squarely on the metric this project exists to protect, and the unbounded post-error upload is the cost axis the work set out to bound.
   Neither is fixable from the app's side. Re-adding replay means answering both, not just setting a rate.
+- **MetricKit crash diagnostics are on** (`enableMetricKit = true`, pinned by `SentryDiagnosticsConfigurationTests.metricKitCrashDiagnosticsAreOn`).
+  On 2026-10-23 a climb died in Firestore's LevelDB commit assertion on a phone with no free blocks, and both in-process crash handlers ran and delivered nothing, because each has to create its report file at crash time on that same full volume (`docs/firestore-disk-full-guard.md`).
+  iOS writes `MXCrashDiagnostic` into system-reserved space from the same data as its own `.ips` report and hands it to the app on the next launch; the SDK's `SentryMetricKitIntegration` turns each one into an unhandled event with the call-stack tree, which `isSevere` admits and the flood guard never meters.
+  It is a third delivery path for the same crash, not a third reporter: both existing handlers stay exactly as they are, and the SDK deduplicates a crash it already captured itself.
+  The payload arrives on the next launch, after `HeadphoneSessionRecoveryPlanner` has already run, so it explains a loss rather than names it at the time.
 - **Nothing else new.** `tracesSampleRate` is `0`, `sendDefaultPii` is `false`, and auto performance, user-interaction and file-I/O tracing all stay off.
 
 ## Masking

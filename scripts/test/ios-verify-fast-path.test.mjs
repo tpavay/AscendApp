@@ -160,9 +160,9 @@ function writeExecutable(path, contents) {
 }
 
 /**
- * Runs `run-ios-test-passes.sh` against stub `xcodebuild`, `xcrun` and `sudo`,
- * with its sibling planner, verifier and watchdog replaced by stand-ins that
- * plan two passes and report every pass green. Returns each `xcodebuild`
+ * Runs `run-ios-test-passes.sh` against stub `xcodebuild`, `xcrun`, `sudo` and
+ * `hdiutil`, with its sibling planner, verifier, watchdog and disk-full lab
+ * attach replaced by stand-ins that plan two passes and report every pass green. Returns each `xcodebuild`
  * invocation's argv.
  */
 function runTestPasses(extraEnv) {
@@ -199,6 +199,10 @@ exec "$@"
 `
   );
 
+  const labMount = join(sandbox, "disk-full-lab");
+  mkdirSync(labMount);
+  writeExecutable(join(ciDir, "attach-disk-full-lab.sh"), `#!/bin/bash\necho ${JSON.stringify(labMount)}\n`);
+
   writeExecutable(
     join(binDir, "xcodebuild"),
     `#!/usr/bin/env node
@@ -212,6 +216,7 @@ if (bundle !== -1) mkdirSync(argv[bundle + 1], {recursive: true});
   writeExecutable(join(binDir, "xcrun"), "#!/bin/bash\nexit 0\n");
   writeExecutable(join(binDir, "sudo"), "#!/bin/bash\nexit 1\n");
   writeExecutable(join(binDir, "vm_stat"), "#!/bin/bash\nexit 0\n");
+  writeExecutable(join(binDir, "hdiutil"), "#!/bin/bash\nexit 0\n");
 
   const env = {...process.env, PATH: `${binDir}:${process.env.PATH}`, GITHUB_ACTIONS: "true"};
   delete env.ASCEND_PACKAGE_GRAPH_RESOLVED;

@@ -6,6 +6,7 @@
 //
 
 import FirebaseCore
+import FirebaseFirestore
 import GoogleSignIn
 import SwiftUI
 import SwiftData
@@ -40,13 +41,11 @@ struct AscendApp: App {
             #if DEBUG || STAGING
             SuperwallStaticConfigCacheBusterURLProtocol.register()
             #endif
-            // Seeds the store synchronously from the SDK's persisted activation before anything
-            // that touches data shape gets a chance to run, so the first pass of sync, restore,
-            // and migrations sees whatever the backend last said even with no network.
-            RemoteFeatureFlagService.shared.configure()
             PushNotificationService.shared.configure()
             TelemetryManager.shared.configure()
             TelemetryManager.shared.setAppMetadata()
+            // The cache was decided before telemetry existed; a launch at the floor is reported now.
+            FirestoreDiskGuard.shared.reportLaunchDecision()
             // Both listen from the first instant: a memory warning before the first screen is
             // still a warning, and MetricKit delivers the previous day's exits at launch.
             _ = AppMemoryPressureMonitor.shared
@@ -71,6 +70,16 @@ struct AscendApp: App {
             return .missingFirebaseConfiguration
         }
         FirebaseApp.configure()
+        // Seeds the store synchronously from the SDK's persisted activation before anything
+        // that touches data shape gets a chance to run, so the first pass of sync, restore,
+        // and migrations sees whatever the backend last said even with no network.
+        RemoteFeatureFlagService.shared.configure()
+        // The first thing to touch `Firestore.firestore()`, on purpose: the SDK refuses settings
+        // after first use, and this decides whether the process gets a LevelDB cache at all. With
+        // the memory cache it gets none, so Firestore's commit assertion - which killed a climb
+        // in progress on 2026-10-23 - has nothing to fire on. Reads the kill switch the seed
+        // above just published, which is why the seed moved up here with it.
+        FirestoreDiskGuard.shared.activate(applyingTo: Firestore.firestore())
         return nil
     }
 
