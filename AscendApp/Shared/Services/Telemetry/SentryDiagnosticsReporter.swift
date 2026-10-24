@@ -71,12 +71,19 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
     }
 
     func log(_ message: String) {
+        addBreadcrumb(TelemetryBreadcrumb(category: "ascend.telemetry", message: message, level: .info))
+    }
+
+    func addBreadcrumb(_ breadcrumb: TelemetryBreadcrumb) {
         guard didStart else { return }
 
-        let breadcrumb = Breadcrumb(level: .info, category: "ascend.telemetry")
-        breadcrumb.message = message
-        breadcrumb.type = "default"
-        SentrySDK.addBreadcrumb(breadcrumb)
+        let sentryBreadcrumb = Breadcrumb(level: breadcrumb.level.sentryLevel, category: breadcrumb.category)
+        sentryBreadcrumb.message = breadcrumb.message
+        sentryBreadcrumb.type = "default"
+        if !breadcrumb.data.isEmpty {
+            sentryBreadcrumb.data = breadcrumb.data
+        }
+        SentrySDK.addBreadcrumb(sentryBreadcrumb)
     }
 
     func record(
@@ -112,6 +119,16 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
 private extension TelemetryErrorSeverity {
     var sentryLevel: SentryLevel {
         switch self {
+        case .warning: .warning
+        case .error: .error
+        }
+    }
+}
+
+private extension TelemetryBreadcrumb.Level {
+    var sentryLevel: SentryLevel {
+        switch self {
+        case .info: .info
         case .warning: .warning
         case .error: .error
         }

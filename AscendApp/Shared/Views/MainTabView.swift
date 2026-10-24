@@ -331,6 +331,9 @@ struct MainTabView: View {
         // session, rebuilt from nothing - the Mountain's scene and its racers, and the page or
         // tab the climber had chosen - so the screen that is already up is left exactly as it is.
         guard !LiveClimbActivityCommandCenter.shared.isAnswering(sessionID: route.sessionID) else { return }
+        // The recovery cover already owns this session's draft; a second recovery screen pushed
+        // under it would resume the same draft twice.
+        guard recoveryDraft?.sessionID != route.sessionID else { return }
 
         tabRouter.select(.home, reason: .appRouting)
         homeNavigationPath = [.liveActivitySession(route.sessionID, route.climbID)]
@@ -370,6 +373,7 @@ struct MainTabView: View {
               recoveryDraft == nil,
               appVersionGateState.nudgePresentation == nil,
               !LiveClimbSessionCoordinator.shared.hasActiveSession,
+              !ActiveRoutineSessionCoordinator.shared.hasActiveSession,
               !ActiveHeadphoneWorkoutRuntimeRegistry.shared.hasActiveSession else { return false }
         if let lastRoutedAt, Date.now.timeIntervalSince(lastRoutedAt) < 5 {
             return false
@@ -377,21 +381,25 @@ struct MainTabView: View {
         return true
     }
 
+    /// Puts an unfinished session back in front of the climber whenever one exists and no screen
+    /// is showing it - a dead process's draft, a session the HealthKit relaunch restarted in the
+    /// background, or one whose screen a tab switch took away. The cover decides between adopting
+    /// the running session, resuming the draft at once, and the recovery screen.
     private func presentActiveHeadphoneRecoveryIfNeeded() async {
-        guard recoveryDraft == nil,
-              !LiveClimbSessionCoordinator.shared.hasActiveSession,
-              !ActiveHeadphoneWorkoutRuntimeRegistry.shared.hasActiveSession else { return }
+        guard recoveryDraft == nil else { return }
 
         do {
-            let draft = try ActiveHeadphoneWorkoutDraftStore().activeDraft(in: modelContext)
-            if let draft {
-                await LiveClimbBackgroundSessionService.shared.recoverActiveWorkoutSessionIfAvailable()
-                AppDiagnosticsRecorder.shared.record(
-                    "active_headphone_recovery_presented",
-                    level: .warning,
-                    details: draft.diagnosticDetails
-                )
-            }
+            guard let draft = try ActiveHeadphoneWorkoutDraftStore().activeDraft(in: modelContext) else { return }
+            guard !HeadphoneSessionScreenPresence.shared.isOnScreen(sessionID: draft.sessionID),
+                  !isRoutedToLiveActivity(sessionID: draft.sessionID) else { return }
+
+            await LiveClimbBackgroundSessionService.shared.recoverActiveWorkoutSessionIfAvailable()
+            guard recoveryDraft == nil, !isRoutedToLiveActivity(sessionID: draft.sessionID) else { return }
+            AppDiagnosticsRecorder.shared.record(
+                "active_headphone_recovery_presented",
+                level: .warning,
+                details: draft.diagnosticDetails
+            )
             recoveryDraft = draft
         } catch {
             AppDiagnosticsRecorder.shared.record(
@@ -402,6 +410,17 @@ struct MainTabView: View {
 #if DEBUG
             debugLog("Active headphone recovery lookup failed: \(error.localizedDescription)")
 #endif
+        }
+    }
+
+    /// Whether a Live Activity tap already routed this session to its own destination, which
+    /// then owns the draft instead of the recovery cover.
+    private func isRoutedToLiveActivity(sessionID: String) -> Bool {
+        homeNavigationPath.contains { destination in
+            if case .liveActivitySession(let routedSessionID, _) = destination {
+                return routedSessionID == sessionID
+            }
+            return false
         }
     }
 

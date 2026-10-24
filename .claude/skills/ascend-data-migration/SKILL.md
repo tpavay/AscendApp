@@ -17,9 +17,9 @@ Start from what is actually here.
 
 | Thing | Where |
 |---|---|
-| The shapes older installs wrote | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift`, `AscendSchemaV2.swift`, `AscendSchemaV3.swift` |
-| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV4.swift` |
-| The plan that carries V1 forward to V4 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
+| The shapes older installs wrote | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift`, `AscendSchemaV2.swift`, `AscendSchemaV3.swift`, `AscendSchemaV4.swift` |
+| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV5.swift` |
+| The plan that carries V1 forward to V5 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
 | The one declaration of which schema is live, read by everything that must cover the whole store | `AscendApp/Shared/Models/AscendLocalStore.swift` (`currentSchema`) |
 | Where the container is opened, and the interrupted-migration retry | `AscendApp/App/AscendApp.swift` (`createModelContainer`, `finishInterruptedMigrationIfNeeded`) |
 | Proof it works against a real V1 store | `AscendAppTests/WorkoutSourceSchemaMigrationTests.swift` |
@@ -31,8 +31,10 @@ It declares its own copies of `Workout`, `WorkoutSourceLink`, `WorkoutParticipat
 `AscendSchemaV2` is `Schema.Version(2, 0, 0)` and is frozen too; it carries its own `Routine` and `RoutineFolder`, unchanged from V1, because those two gained columns in V3.
 `AscendSchemaV3` is `Schema.Version(3, 0, 0)` and lists thirteen models.
 It needs no frozen copies of its own, because V4 changed no existing model - it only added one.
-`AscendSchemaV4` is `Schema.Version(4, 0, 0)` and lists the fourteen live models: V3's thirteen plus `WorkoutSyncOutboxEntry`, the persisted retry schedule for a workout that is not yet in the cloud.
-`AscendMigrationPlan.stages` holds three stages: `migrateV1toV2`, a `.custom` stage, then `migrateV2toV3` and `migrateV3toV4`, both lightweight.
+`AscendSchemaV4` is `Schema.Version(4, 0, 0)` and lists fourteen models: V3's thirteen plus `WorkoutSyncOutboxEntry`, the persisted retry schedule for a workout that is not yet in the cloud.
+It carries one frozen copy, `AscendSchemaV4.ActiveHeadphoneWorkoutDraft`, the pre-V5 draft shape, and V1, V2 and V3 name that same copy - the draft never changed between them, and a version that named the live type would have described a column it never shipped, so a real V1 store matched no version in the plan and `ModelContainer.init` aborted.
+`AscendSchemaV5` is `Schema.Version(5, 0, 0)` and lists the fourteen live models; it adds `ActiveHeadphoneWorkoutDraft.checkpointDiagnosticsData`, the optional device diagnostics of a session's last checkpoint (`docs/headphone-session-recovery.md`).
+`AscendMigrationPlan.stages` holds four stages: `migrateV1toV2`, a `.custom` stage, then `migrateV2toV3`, `migrateV3toV4` and `migrateV4toV5`, all lightweight.
 
 **Read `migrateV1toV2` before you write a migration of your own.**
 It is the worked example of the hardest case in the decision procedure below, and it is real code in this repository rather than a paraphrase of Apple's documentation.

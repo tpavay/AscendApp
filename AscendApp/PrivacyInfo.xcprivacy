@@ -174,6 +174,12 @@
           The machine count and discrepancy are stored for algorithm analysis
           only and never change the climb's own recorded step count.
 
+          Also covers the sixty-second liveness heartbeat a running headphone
+          session writes to users/{uid}/attempt_heartbeats/{sessionID} (steps,
+          duration, mode, start time, server clock, open/ended state and the
+          saved/discarded outcome), private to the owner, read by the server's
+          stall detector only (docs/headphone-session-recovery.md).
+
           Also covers step-accuracy raw motion capture: when a climb's app step
           count differs from the entered machine count by
           StepAccuracyRawCaptureRetentionPolicy.minimumDiscrepancyAbs (30) steps
@@ -364,6 +370,15 @@
           and because TelemetryEnvelope stamps `app_environment`, `build_config`,
           `app_version`, and `build_number` onto every analytics event and screen view.
 
+          Also covers the device readings a session checkpoint records so a
+          later launch can say why the process died: available process memory,
+          free disk, memory-warning count, battery level and state, the workout
+          session state and the motion status (HeadphoneSessionCheckpointDiagnostics,
+          stored on the device's own draft and sent to analytics and the crash
+          reporters only as the lost-session event and its breadcrumbs), plus the
+          daily MetricKit application-exit counts (MXAppExitMetric) forwarded as
+          app_exit_metrics.
+
           Also covers the connected headphone's raw name and port type
           (AVAudioSession.currentRoute), read once when a climb's recording
           begins and again when it is saved, persisted with the climb record
@@ -428,7 +443,11 @@
 
         <!--
           Disk Space - MapboxCommon / MapboxCoreMaps use disk-capacity APIs to
-          manage SDK-owned map tile caches and storage.
+          manage SDK-owned map tile caches and storage, and Ascend's own
+          LiveHeadphoneSessionDeviceDiagnostics reads
+          volumeAvailableCapacityForImportantUsage when a session checkpoint is
+          refused, to decide whether the draft can still be written and to record
+          how much room the phone had.
           Reason E174.1: check available disk space before writing files.
         -->
         <dict>
@@ -442,7 +461,10 @@
 
         <!--
           System Boot Time - MapboxCommon / MapboxCoreMaps use uptime APIs for
-          SDK timing, diagnostics, and cache/network coordination.
+          SDK timing, diagnostics, and cache/network coordination, and Ascend's
+          HeadphoneSessionRecoveryPlanner compares ProcessInfo.systemUptime with
+          the time since a session's last checkpoint to tell a reboot (the phone
+          was off) from a process death.
           Reason 35F9.1: measure elapsed time inside the app process.
         -->
         <dict>

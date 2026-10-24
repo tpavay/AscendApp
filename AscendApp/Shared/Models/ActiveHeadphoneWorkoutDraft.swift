@@ -49,6 +49,11 @@ final class ActiveHeadphoneWorkoutDraft {
     /// Kept alongside `heartRateData` so diagnostics never decode the whole
     /// series just to report how many samples the draft holds.
     var heartRateSampleCount: Int?
+    /// What the process knew about memory, disk, battery, the workout session and the motion
+    /// stream at the last checkpoint (`HeadphoneSessionCheckpointDiagnostics`). Optional because
+    /// every draft written before `AscendSchemaV5` has none, and a launch reading one of those
+    /// must say "unknown" rather than invent a reading.
+    var checkpointDiagnosticsData: Data?
 
     var kind: ActiveHeadphoneWorkoutDraftKind {
         get { ActiveHeadphoneWorkoutDraftKind(rawValue: kindRawValue) ?? .justClimb }
@@ -82,6 +87,11 @@ final class ActiveHeadphoneWorkoutDraft {
 
     var heartRateSamples: [HeartRateDataPoint] {
         Self.decode([HeartRateDataPoint].self, from: heartRateData) ?? []
+    }
+
+    var checkpointDiagnostics: HeadphoneSessionCheckpointDiagnostics? {
+        get { Self.decode(HeadphoneSessionCheckpointDiagnostics.self, from: checkpointDiagnosticsData) }
+        set { checkpointDiagnosticsData = Self.encode(newValue) }
     }
 
     var resumeState: HeadphoneMotionSessionResumeState {
@@ -145,6 +155,7 @@ final class ActiveHeadphoneWorkoutDraft {
         self.routineWeightConfiguration = routineWeightConfiguration
         self.heartRateData = nil
         self.heartRateSampleCount = 0
+        self.checkpointDiagnosticsData = nil
         self.trackingIntegrity = .verified
         self.stepCorrections = []
     }
@@ -159,6 +170,7 @@ final class ActiveHeadphoneWorkoutDraft {
         heartRateBuffer: HeartRateSessionSampleBuffer? = nil,
         status: ActiveHeadphoneWorkoutDraftStatus = .recording,
         skippedIntervalCount: Int? = nil,
+        diagnostics: HeadphoneSessionCheckpointDiagnostics? = nil,
         checkpointedAt: Date = Date()
     ) {
         self.steps = max(steps, 0)
@@ -174,6 +186,9 @@ final class ActiveHeadphoneWorkoutDraft {
         self.status = status
         if let skippedIntervalCount {
             self.routineSkippedIntervalCount = max(skippedIntervalCount, 0)
+        }
+        if let diagnostics {
+            self.checkpointDiagnostics = diagnostics
         }
         self.lastCheckpointAt = checkpointedAt
     }
@@ -214,6 +229,9 @@ extension ActiveHeadphoneWorkoutDraft {
         }
         if let targetDurationSeconds {
             details["target_duration_seconds"] = String(Int(targetDurationSeconds.rounded(.down)))
+        }
+        if let checkpointDiagnostics {
+            details.merge(checkpointDiagnostics.diagnosticDetails) { current, _ in current }
         }
 
         return details

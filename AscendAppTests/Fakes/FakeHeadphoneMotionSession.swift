@@ -22,11 +22,21 @@ final class FakeHeadphoneMotionSession: HeadphoneMotionSessionServicing {
     /// draft's checkpoint for one restored after the app was killed.
     private(set) var lastResumeState: HeadphoneMotionSessionResumeState?
 
+    /// What `applyStepCorrection` hands back. Left nil, a correction is refused the way the real
+    /// service refuses one outside a recording.
+    var correctionResult: HeadphoneMotionStepCorrection?
+    /// The last correction asked for, whatever the answer.
+    private(set) var lastCorrection: (correctedSteps: Int, trackingGapDuration: TimeInterval?)?
+
     func applyStepCorrection(
         correctedSteps: Int,
         trackingGapDuration: TimeInterval?
     ) -> HeadphoneMotionStepCorrection? {
-        nil
+        lastCorrection = (correctedSteps, trackingGapDuration)
+        guard let correctionResult else { return nil }
+        stepCount = correctionResult.correctedSteps
+        stepCorrectionsSnapshot.append(correctionResult)
+        return correctionResult
     }
 
     private var stepSampleHandler: ((LiveClimbStepSample) -> Void)?
@@ -42,6 +52,16 @@ final class FakeHeadphoneMotionSession: HeadphoneMotionSessionServicing {
             cumulativeSteps: stepCount,
             source: .headphoneMotion
         ))
+    }
+
+    func pauseRecording() throws {
+        guard status.isRecording else { throw HeadphoneMotionSessionError.notRecording }
+        status = .paused
+    }
+
+    func resumeRecording() throws {
+        guard status.isPaused else { throw HeadphoneMotionSessionError.notRecording }
+        status = .recording
     }
 
     func startRecording(

@@ -6,6 +6,8 @@ import Foundation
 @MainActor
 protocol LiveClimbBackgroundSessionControlling: AnyObject {
     var isRunning: Bool { get }
+    /// The `HKWorkoutSession` state by name, for the draft's checkpoint diagnostics.
+    var diagnosticState: String { get }
     func start(at startedAt: Date)
     func stop(at endedAt: Date)
 }
@@ -13,6 +15,10 @@ protocol LiveClimbBackgroundSessionControlling: AnyObject {
 extension LiveClimbBackgroundSessionControlling {
     func stop() {
         stop(at: Date())
+    }
+
+    var diagnosticState: String {
+        isRunning ? "running" : "not_running"
     }
 }
 
@@ -29,6 +35,10 @@ final class LiveClimbBackgroundSessionService: NSObject, LiveClimbBackgroundSess
 
     var isRunning: Bool {
         workoutSession != nil
+    }
+
+    var diagnosticState: String {
+        workoutSession?.state.diagnosticName ?? "none"
     }
 
     init(healthStore: HKHealthStore = HKHealthStore()) {

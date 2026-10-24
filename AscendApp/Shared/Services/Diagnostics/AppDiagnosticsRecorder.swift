@@ -49,6 +49,9 @@ final class AppDiagnosticsRecorder: AppDiagnosticsRecording, @unchecked Sendable
 
     private let userDefaults: UserDefaults
     private let maxEvents: Int
+    /// Where the mirror goes: Crashlytics as a log line and Sentry as a leveled breadcrumb, both
+    /// through the one telemetry manager so collection gating applies.
+    private let telemetry: () -> TelemetryManager
     private let eventsKey = "appDiagnostics.events.v1"
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -58,9 +61,15 @@ final class AppDiagnosticsRecorder: AppDiagnosticsRecording, @unchecked Sendable
         category: "Diagnostics"
     )
 
-    init(userDefaults: UserDefaults = .standard, maxEvents: Int = 250) {
+    init(
+        userDefaults: UserDefaults = .standard,
+        maxEvents: Int = 250,
+        telemetry: TelemetryManager? = nil
+    ) {
         self.userDefaults = userDefaults
         self.maxEvents = maxEvents
+        // Resolved lazily: the shared recorder is created before the shared telemetry manager.
+        self.telemetry = telemetry.map { manager in { manager } } ?? { TelemetryManager.shared }
     }
 
     @discardableResult
@@ -160,14 +169,15 @@ final class AppDiagnosticsRecorder: AppDiagnosticsRecording, @unchecked Sendable
             parameters[key] = .string(crashlyticsValue(for: key, value: value))
         }
 
-        TelemetryManager.shared.track(
+        let telemetry = telemetry()
+        telemetry.track(
             TelemetryRecord(
                 name: "diagnostic:\(event.name)",
                 parameters: parameters,
                 destinations: [.crashlytics]
             )
         )
-        TelemetryManager.shared.set(.lastDiagnosticEvent, value: event.name)
+        telemetry.set(.lastDiagnosticEvent, value: event.name)
     }
 
     private func crashlyticsValue(for key: String, value: String) -> String {
