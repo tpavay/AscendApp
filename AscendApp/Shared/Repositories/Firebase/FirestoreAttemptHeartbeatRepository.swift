@@ -11,14 +11,29 @@ final class FirestoreAttemptHeartbeatRepository: AttemptHeartbeatPublishing, @un
 
     static let collectionName = "attempt_heartbeats"
 
-    private let db = Firestore.firestore()
+    private let db: Firestore
+    private let diskGuard: FirestoreDiskGuard
     private let appVersion: String
 
-    init(appVersion: String = TelemetryBuildMetadata.current.appVersion) {
+    init(
+        db: Firestore = Firestore.firestore(),
+        diskGuard: FirestoreDiskGuard = .shared,
+        appVersion: String = TelemetryBuildMetadata.current.appVersion
+    ) {
+        self.db = db
+        self.diskGuard = diskGuard
         self.appVersion = appVersion
     }
 
     func publish(_ heartbeat: AttemptHeartbeat, userId: String) async throws {
+        // A heartbeat is a LevelDB write before it is a network call (`LocalStore::WriteLocally`),
+        // and on a volume at the floor that commit aborts the process - in the middle of the one
+        // activity the heartbeat exists to watch over. Refused here, the checkpointer records it
+        // with the other publish failures and the climb keeps counting; a heartbeat is a report
+        // about now, so nothing is queued (`docs/firestore-disk-full-guard.md`).
+        if let refusal = diskGuard.localCacheWriteRefusal() {
+            throw refusal
+        }
         try await db
             .collection("users")
             .document(userId)

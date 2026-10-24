@@ -17,8 +17,14 @@ final class WorkoutSyncCoordinator {
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private let buildIdentity: String
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let diskGuard: FirestoreDiskGuard
+    @ObservationIgnored private let diagnostics: any AppDiagnosticsRecording
     @ObservationIgnored private var isProcessingPendingWorkouts = false
     @ObservationIgnored private var shouldProcessPendingWorkoutsAgain = false
+    /// Whether the current run of low-disk deferrals has been recorded. Seven surfaces trigger a
+    /// pass, so the first deferral is the fact and the rest are the same fact; a pass that runs
+    /// again re-arms it.
+    @ObservationIgnored private var hasRecordedLowDiskDeferral = false
 
     /// Bumped once when a pass finishes, and never per workout.
     ///
@@ -80,7 +86,9 @@ final class WorkoutSyncCoordinator {
         settingReader: any RemoteConfigSettingReading = FirebaseRemoteConfigSettingReader(),
         userDefaults: UserDefaults = .standard,
         buildIdentity: String = TelemetryBuildMetadata.current.releaseName,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        diskGuard: FirestoreDiskGuard = .shared,
+        diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared
     ) {
         self.remoteRepository = remoteRepository
         self.heartRateStorageRepository = heartRateStorageRepository
@@ -91,6 +99,8 @@ final class WorkoutSyncCoordinator {
         self.userDefaults = userDefaults
         self.buildIdentity = buildIdentity
         self.now = now
+        self.diskGuard = diskGuard
+        self.diagnostics = diagnostics
     }
 
     /// Where the basis for a stopped series is remembered, so a change to it re-opens exactly once.
@@ -445,6 +455,29 @@ final class WorkoutSyncCoordinator {
 
         repeat {
             shouldProcessPendingWorkoutsAgain = false
+
+            // Deferred, exactly like a kill switch: in a persistent-cache process a Firestore
+            // upsert or delete commits to the on-device LevelDB cache before it goes anywhere,
+            // and on a volume at the floor that commit aborts the process
+            // (`docs/firestore-disk-full-guard.md`). Nothing is attempted, counted or marked; the
+            // outbox and the tombstones stay as they are and the next trigger after the phone has
+            // room runs the pass.
+            if let refusal = diskGuard.localCacheWriteRefusal() {
+                if !hasRecordedLowDiskDeferral {
+                    hasRecordedLowDiskDeferral = true
+                    diagnostics.record(
+                        "workout_sync_deferred_low_disk",
+                        level: .warning,
+                        details: [
+                            "path": "WorkoutSyncCoordinator.processPendingWorkouts",
+                            "free_bytes": refusal.availableBytes.map(String.init) ?? "unknown"
+                        ],
+                        mirrorToCrashlytics: true
+                    )
+                }
+                return
+            }
+            hasRecordedLowDiskDeferral = false
 
             do {
                 let deletedWorkoutIds = try await processPendingDeletions(

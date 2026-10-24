@@ -126,6 +126,13 @@
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off hides every unlock surface: no carried items drawn, no unlock moment, no editor row. Display only; nothing is written or deleted, and earned items return with the switch."
     },
+    "firestore_memory_cache_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off lets a process that launches with at least 200 MiB free run Firestore on a persistent cache bounded to 20 MiB instead of the memory cache; server reads, workout sync and the attempt heartbeat are refused, deferred or dropped once the volume reaches the floor, but the Home feed listener and the SDK's own garbage collection can still abort a full phone. Applied at the next cold launch."
+    },
     "attempt_heartbeats_enabled": {
       "defaultValue": {
         "value": "true"

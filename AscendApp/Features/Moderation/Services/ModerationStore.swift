@@ -13,6 +13,7 @@ final class ModerationStore {
 
     private let repository: any ModerationRepositoryProtocol
     private let serverSyncMarker: any BlockListServerSyncMarking
+    private let diskGuard: FirestoreDiskGuard
     private var activeUserId: String?
     private var sessionGeneration: UInt64 = 0
     private var blocksAddedDuringHydration: [String: BlockedClimber] = [:]
@@ -31,10 +32,12 @@ final class ModerationStore {
     init(
         repository: any ModerationRepositoryProtocol = ModerationRepository.shared,
         serverSyncMarker: any BlockListServerSyncMarking =
-            UserDefaultsBlockListServerSyncMarker()
+            UserDefaultsBlockListServerSyncMarker(),
+        diskGuard: FirestoreDiskGuard = .shared
     ) {
         self.repository = repository
         self.serverSyncMarker = serverSyncMarker
+        self.diskGuard = diskGuard
     }
 
     var blockedUserIds: Set<String> {
@@ -59,8 +62,10 @@ final class ModerationStore {
     ///
     /// An empty cache read is only trusted once `serverSyncMarker` says this
     /// account has synced here before, since an unsynced collection query
-    /// returns an empty snapshot rather than an error. Without that proof the
-    /// session stays un-hydrated and every cross-user identity stays masked.
+    /// returns an empty snapshot rather than an error - and only when Firestore
+    /// runs a persistent cache, because the memory cache starts every process
+    /// empty while the marker survives relaunch. Without both the session stays
+    /// un-hydrated and every cross-user identity stays masked.
     func hydrate(for userId: String) async {
         sessionGeneration &+= 1
         let generation = sessionGeneration
@@ -114,7 +119,8 @@ final class ModerationStore {
                 return
             }
             guard !cachedBlocks.isEmpty ||
-                serverSyncMarker.hasSyncedFromServer(userId: userId) else {
+                (diskGuard.cacheMode?.usesLocalDisk == true &&
+                    serverSyncMarker.hasSyncedFromServer(userId: userId)) else {
                 hydrationErrorMessage = Self.hydrationFailureMessage
                 return
             }

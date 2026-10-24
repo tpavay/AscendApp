@@ -12,6 +12,13 @@ import Foundation
 /// briefly and ask once more; on a refusal let the caller re-derive access and ask once more;
 /// then either hand back the device's last copy, flagged, or the error. Features decide what the
 /// climber is told - never whether or how to retry. Do not add a second retry beside this one.
+///
+/// One pre-flight runs before every attempt, server or cache: `FirestoreDiskGuard`. In a process
+/// running Firestore's persistent cache each read is a listen, each listen is a LevelDB
+/// transaction, and on a volume with no free blocks that transaction's commit aborts the process
+/// (`docs/firestore-disk-full-guard.md`). While the volume is at the floor the read is refused
+/// here, as `unreachable`, with no retry and no cache fallback - the SDK is never asked, so it
+/// can never abort. A memory-cache process is never refused.
 enum ServerPreferredRead {
     static let defaultRetryDelay: Duration = .seconds(2)
 
@@ -26,12 +33,14 @@ enum ServerPreferredRead {
     ///   - wait: The delay before the quiet retry. Injected so tests do not sleep.
     ///   - recoverRefusal: Called once after a refused attempt. Returns whether access was
     ///     re-derived and the read is worth asking again.
+    ///   - diskGuard: The low-disk pre-flight. Injected so a test can script the volume.
     static func run<Value>(
         isolation: isolated (any Actor)? = #isolation,
         policy: ServerPreferredReadPolicy,
         hasNetworkPath: @Sendable () async -> Bool = ServerPreferredRead.appHasNetworkPath,
         wait: @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
         recoverRefusal: (() async -> Bool)? = nil,
+        diskGuard: FirestoreDiskGuard = .shared,
         read: (ServerPreferredReadAttempt) async throws -> Value
     ) async -> ServerPreferredReadOutcome<Value> {
         var failures: [ServerReadFailure] = []
@@ -41,6 +50,9 @@ enum ServerPreferredRead {
         while true {
             let failure: ServerReadFailure
             do {
+                if let refusal = diskGuard.localCacheWriteRefusal() {
+                    throw refusal
+                }
                 let value = try await read(.server)
                 return ServerPreferredReadOutcome(
                     result: .success(value),
@@ -55,11 +67,13 @@ enum ServerPreferredRead {
 
             switch failure.failureClass {
             case .unreachable:
-                // A cancelled caller is not waiting for an answer, and a phone with no network
-                // path has no stream that two seconds could bring back.
+                // A cancelled caller is not waiting for an answer, a phone with no network
+                // path has no stream that two seconds could bring back, and a volume at the
+                // floor is not a dropped stream at all.
                 if policy.retriesUnreachable,
                    !didRetryUnreachable,
                    !Task.isCancelled,
+                   !(failure.error is FirestoreLowDiskRefusal),
                    await hasNetworkPath() {
                     didRetryUnreachable = true
                     await wait(policy.retryDelay)
@@ -74,7 +88,8 @@ enum ServerPreferredRead {
                 break
             }
 
-            if policy.fallsBackToCache, let cached = try? await read(.cache) {
+            // A cache read is a LevelDB transaction too, so it is refused on the same terms.
+            if policy.fallsBackToCache, diskGuard.allowsLocalCacheWrite(), let cached = try? await read(.cache) {
                 return ServerPreferredReadOutcome(
                     result: .success(cached),
                     isFromCache: true,
@@ -108,11 +123,13 @@ enum ServerPreferredRead {
     static func serverRequired<Value>(
         isolation: isolated (any Actor)? = #isolation,
         quietRetry: Bool = true,
+        diskGuard: FirestoreDiskGuard = .shared,
         _ read: () async throws -> Value
     ) async throws -> Value {
         try await run(
             isolation: isolation,
-            policy: ServerPreferredReadPolicy(retriesUnreachable: quietRetry)
+            policy: ServerPreferredReadPolicy(retriesUnreachable: quietRetry),
+            diskGuard: diskGuard
         ) { _ in
             try await read()
         }.result.get()

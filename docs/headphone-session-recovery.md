@@ -48,6 +48,7 @@ The regression suite `AscendAppTests/HeadphoneSessionSurvivesProcessDeathTests.s
    `MetricKitExitReporter` forwards each daily `MXAppExitMetric` as `app_exit_metrics`, the only count of background kills iOS offers.
    Every session writes `users/{uid}/attempt_heartbeats/{sessionID}` every sixty seconds (steps, duration, mode, `lastSeenAt` on the server clock, `state: open`), closes it with `state: ended` and the outcome, and the scheduled `flagStalledAttemptHeartbeats` writes `attempt_heartbeat_flags/{uid}__{sessionID}` for any heartbeat silent for five minutes before its end, then resolves the flag when the session resumes or ends.
    The heartbeat document is owner-only in `firestore.rules` (`tests/firebase-rules/attempt-heartbeat-contract.test.mjs`); the flags are server-only.
+   A heartbeat is a Firestore write, so on a persistent-cache process whose volume has reached the low-disk floor `FirestoreDiskGuard` refuses it before the SDK is asked and the checkpointer records `attempt_heartbeat_publish_failed`; nothing is queued (`docs/firestore-disk-full-guard.md`).
 
 ## Kill switches
 

@@ -77,6 +77,15 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// is written or deleted, and what was earned is offered and drawn again when it returns.
     case unlocks = "unlocks_enabled"
 
+    /// Firestore's memory cache, which keeps LevelDB - and the commit assertion that aborts the
+    /// process on a full volume - out of every process. Off gives a process that launches with
+    /// at least 200 MiB free a persistent cache bounded to 20 MiB, guarded by the pre-flight that
+    /// refuses server reads, defers workout sync and drops the attempt heartbeat once the volume
+    /// reaches the floor; that guard cannot reach the Home feed listener, the SDK's own garbage
+    /// collection, or the reads that bypass the shared read path. Decides how Firestore persists
+    /// at startup, which is why it has a switch (`docs/firestore-disk-full-guard.md`).
+    case firestoreMemoryCache = "firestore_memory_cache_enabled"
+
     /// Writing the sixty-second liveness document `users/{uid}/attempt_heartbeats/{sessionID}`
     /// during every headphone session, and the final write that closes it. Nothing to defer: a
     /// heartbeat is a report about now, so a blocked one is simply not sent and the server's
@@ -136,6 +145,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Shows the period recap after a week or month closes and marks it seen."
         case .unlocks:
             return "Shows unlockable items: drawn on the mountain, the unlock moment, the editor row."
+        case .firestoreMemoryCache:
+            return "Runs Firestore on a memory cache; off allows a 20 MiB disk cache from the next cold launch."
         case .attemptHeartbeats:
             return "Writes the sixty-second liveness heartbeat for a running climb to Firestore."
         case .headphoneSessionAutoResume:
