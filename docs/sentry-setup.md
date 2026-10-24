@@ -69,6 +69,7 @@ See `.claude/skills/ascend-analytics/SKILL.md` for the Mixpanel side.
   iOS writes `MXCrashDiagnostic` into system-reserved space from the same data as its own `.ips` report and hands it to the app on the next launch; the SDK's `SentryMetricKitIntegration` turns each one into an unhandled event with the call-stack tree, which `isSevere` admits and the flood guard never meters.
   It is a third delivery path for the same crash, not a third reporter: both existing handlers stay exactly as they are, and the SDK deduplicates a crash it already captured itself.
   The payload arrives on the next launch, after `HeadphoneSessionRecoveryPlanner` has already run, so it explains a loss rather than names it at the time.
+  The SDK's conversion (9.18) leaves out `exceptionReason`, so `MetricKitExitReporter` reads the same payloads and sends the assertion text itself as the message event `MetricKit crash diagnostic: <exception name>: <composed message>` (tag `ascend_error_code: metrickit_crash_diagnostic`, level error, never fatal so the flood guard still meters it and no screenshot is taken), beside an `app_crash_diagnostic_received` breadcrumb and the analytics event `app_crash_diagnostic`; `docs/firestore-disk-full-guard.md` (Visibility) has the field list and the dedupe.
 - **Nothing else new.** `tracesSampleRate` is `0`, `sendDefaultPii` is `false`, and auto performance, user-interaction and file-I/O tracing all stay off.
 
 ## Masking

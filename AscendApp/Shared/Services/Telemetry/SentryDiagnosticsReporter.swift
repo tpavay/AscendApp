@@ -106,6 +106,29 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
         }
     }
 
+    /// A message event, not an error event: Sentry groups it by its text, so every distinct
+    /// assertion string becomes its own issue and the text itself is what `message:` search
+    /// finds. Never fatal - it describes a crash that already happened, and a fatal level
+    /// would make `SentryEventClassification` bypass the flood guard and take a screenshot of a
+    /// launch that has nothing to do with it.
+    func record(
+        message: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {
+        guard didStart else { return }
+
+        SentrySDK.capture(message: message) { scope in
+            scope.setTag(value: code, key: "ascend_error_code")
+            scope.setLevel(severity.sentryLevel)
+
+            if let additionalInfo, !additionalInfo.isEmpty {
+                scope.setContext(value: additionalInfo, key: "ascend")
+            }
+        }
+    }
+
     private func closeIfNeeded() {
         lock.lock()
         defer { lock.unlock() }

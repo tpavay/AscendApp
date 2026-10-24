@@ -7,6 +7,7 @@ import MetricKit
 /// phone reports a background memory-pressure kill - and until this existed Ascend did not read
 /// it. Each daily payload is forwarded as one analytics event and one diagnostic, so a week of
 /// `memory_pressure` exits shows up in Mixpanel and Sentry rather than in a climber's complaint.
+/// The crash half of the same subscription is `AppCrashDiagnosticSummary`.
 struct AppExitMetricsSummary: Equatable, Sendable {
     struct Exits: Equatable, Sendable {
         var normal: Int
@@ -97,6 +98,47 @@ final class MetricKitExitReporter: NSObject, MXMetricManagerSubscriber, @uncheck
             guard let summary = Self.summary(from: payload) else { continue }
             Self.report(summary)
         }
+    }
+
+    /// Crash diagnostics arrive here on the launch after the crash, from system-reserved space
+    /// a full volume cannot block - the one crash channel that survives the disk-full death
+    /// that silenced both in-process reporters on 2026-10-23. Sentry's own MetricKit
+    /// integration receives the same payloads and converts the call-stack tree; this path
+    /// records what it leaves out, the `exceptionReason` text that names the assertion.
+    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        for payload in payloads {
+            for diagnostic in payload.crashDiagnostics ?? [] {
+                Self.report(AppCrashDiagnosticSummary(diagnostic: diagnostic, payload: payload))
+            }
+        }
+    }
+
+    /// One analytics event, one leveled diagnostic (which `CrashlyticsBreadcrumbSink` turns into
+    /// a Sentry breadcrumb) and one Sentry message event per crash, the message event being where
+    /// the full assertion text is searchable. Returns false when the ledger had already seen this
+    /// diagnostic and nothing was sent.
+    @discardableResult
+    static func report(
+        _ summary: AppCrashDiagnosticSummary,
+        ledger: CrashDiagnosticReportLedger = .shared,
+        telemetry: TelemetryManager = .shared,
+        diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared
+    ) -> Bool {
+        guard ledger.markReported(summary.fingerprint) else { return false }
+        telemetry.track(summary.record)
+        diagnostics.record(
+            "app_crash_diagnostic_received",
+            level: .error,
+            details: summary.diagnosticDetails,
+            mirrorToCrashlytics: true
+        )
+        telemetry.recordMessage(
+            summary.messageEventText,
+            code: "metrickit_crash_diagnostic",
+            additionalInfo: summary.diagnosticDetails,
+            severity: .error
+        )
+        return true
     }
 
     static func report(_ summary: AppExitMetricsSummary) {

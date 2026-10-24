@@ -52,4 +52,20 @@ final class CompositeCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
             )
         }
     }
+
+    func record(
+        message: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {
+        reporters.forEach {
+            $0.record(
+                message: message,
+                code: code,
+                additionalInfo: additionalInfo,
+                severity: severity
+            )
+        }
+    }
 }
