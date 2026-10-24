@@ -15,12 +15,23 @@ import SwiftData
 /// workout - no enrichment, no Live Climb attempt, while `integrityLevel` still claims verified.
 enum AscendMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [AscendSchemaV1.self, AscendSchemaV2.self, AscendSchemaV3.self, AscendSchemaV4.self]
+        [AscendSchemaV1.self, AscendSchemaV2.self, AscendSchemaV3.self, AscendSchemaV4.self, AscendSchemaV5.self]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3, migrateV3toV4]
+        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5]
     }
+
+    /// Adds `checkpointDiagnosticsData` to `ActiveHeadphoneWorkoutDraft`: what the process knew
+    /// about memory, disk, battery and its workout session at the last checkpoint.
+    ///
+    /// Lightweight because the column is optional. A draft written before this build has no
+    /// diagnostics and `HeadphoneSessionRecoveryPlanner` reads that as "unknown" - the honest
+    /// answer, and one no per-record computation could improve on.
+    static let migrateV4toV5 = MigrationStage.lightweight(
+        fromVersion: AscendSchemaV4.self,
+        toVersion: AscendSchemaV5.self
+    )
 
     /// Adds `WorkoutSyncOutboxEntry`, the persisted retry schedule for a workout that is not yet
     /// in the cloud.

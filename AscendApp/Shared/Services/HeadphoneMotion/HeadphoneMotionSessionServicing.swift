@@ -17,6 +17,8 @@ protocol HeadphoneMotionSessionServicing: AnyObject {
         trackingGapDuration: TimeInterval?
     ) -> HeadphoneMotionStepCorrection?
     func setStepSampleHandler(_ handler: ((LiveClimbStepSample) -> Void)?)
+    func pauseRecording() throws
+    func resumeRecording() throws
     func startRecording(
         targetStepCount: Int?,
         resumeState: HeadphoneMotionSessionResumeState?

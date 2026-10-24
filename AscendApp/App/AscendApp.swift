@@ -29,6 +29,9 @@ struct AscendApp: App {
         case .success(let modelContainer):
             self.modelContainer = modelContainer
             self.launchFailure = startupFailure
+            // The HealthKit workout relaunch resumes a session before any view asks for the
+            // container, so it is registered the moment it exists.
+            AppModelContainerRegistry.shared.register(modelContainer)
         case .failure(let failure):
             self.modelContainer = nil
             self.launchFailure = startupFailure ?? failure
@@ -43,6 +46,10 @@ struct AscendApp: App {
             TelemetryManager.shared.setAppMetadata()
             // The cache was decided before telemetry existed; a launch at the floor is reported now.
             FirestoreDiskGuard.shared.reportLaunchDecision()
+            // Both listen from the first instant: a memory warning before the first screen is
+            // still a warning, and MetricKit delivers the previous day's exits at launch.
+            _ = AppMemoryPressureMonitor.shared
+            MetricKitExitReporter.shared.start()
             // This must precede AuthenticationViewModel construction. Its Firebase listener owns
             // the identify call that joins this anonymous installation event to the signed-in user.
             AppInstallationTelemetryReporter.shared.recordFirstOpenIfNeeded()

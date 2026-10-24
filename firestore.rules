@@ -1340,6 +1340,63 @@ service cloud.firestore {
 
     // How the owner looks on Ascend Mountain: preset choices only, so there is no text or image
     // to moderate. Every field is one of the editor's options (`AthleteLook` in the app).
+    // One liveness report from a running headphone session, written by the
+    // owner every sixty seconds (docs/headphone-session-recovery.md). The
+    // server stamps the clock, so `lastSeenAt` has to be the request time, and
+    // `state` may only be `open` or `ended` from a client: `stalled` is the
+    // server's verdict in flagStalledAttemptHeartbeats and no phone may claim
+    // it. Small by design - this match has its own evaluation budget and the
+    // whole document is eleven keys.
+    function isValidAttemptHeartbeat(sessionID) {
+      return request.resource.data.keys().hasOnly([
+          "schemaVersion",
+          "sessionID",
+          "mode",
+          "steps",
+          "durationSeconds",
+          "startedAt",
+          "lastSeenAt",
+          "state",
+          "endedAt",
+          "outcome",
+          "climbId",
+          "appVersion"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "schemaVersion",
+          "sessionID",
+          "mode",
+          "steps",
+          "durationSeconds",
+          "startedAt",
+          "lastSeenAt",
+          "state"
+        ]) &&
+        request.resource.data.schemaVersion == 1 &&
+        request.resource.data.sessionID == sessionID &&
+        request.resource.data.mode in ["live_climb", "just_climb", "routine"] &&
+        request.resource.data.steps is int &&
+        request.resource.data.steps >= 0 &&
+        request.resource.data.steps <= 100000 &&
+        request.resource.data.durationSeconds is number &&
+        request.resource.data.durationSeconds >= 0 &&
+        request.resource.data.durationSeconds <= 432000 &&
+        request.resource.data.startedAt is timestamp &&
+        request.resource.data.lastSeenAt == request.time &&
+        request.resource.data.state in ["open", "ended"] &&
+        (request.resource.data.state == "open"
+          ? request.resource.data.get("endedAt", null) == null
+          : request.resource.data.endedAt == request.time) &&
+        (request.resource.data.get("outcome", null) == null ||
+          request.resource.data.outcome in ["saved", "discarded"]) &&
+        (request.resource.data.get("climbId", null) == null ||
+          (request.resource.data.climbId is string &&
+            request.resource.data.climbId.size() <= 128)) &&
+        (request.resource.data.get("appVersion", null) == null ||
+          (request.resource.data.appVersion is string &&
+            request.resource.data.appVersion.size() <= 32));
+    }
+
     function isValidAthleteLookDocument() {
       return request.resource.data.keys().hasOnly([
           "schemaVersion",
@@ -1656,6 +1713,30 @@ service cloud.firestore {
         allow update: if false;
         allow delete: if isOwner(userId);
       }
+
+      // The sixty-second liveness heartbeat of a running headphone session,
+      // one document per session. Owner-only in every direction: the owner
+      // writes it, reads it, and account deletion sweeps it with the rest of
+      // the subtree. The server reads it across every climber through a
+      // collection-group query (flagStalledAttemptHeartbeats) and writes only
+      // `state: stalled`, with the Admin SDK, so the owner's next merge write
+      // re-opens or ends it under the same validation. Owner-gated
+      // rather than paid-gated, like every owner-private collection: a climb
+      // that is counting right now is never refused its heartbeat over a
+      // lapsed subscription.
+      match /attempt_heartbeats/{sessionID} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) &&
+          isValidAttemptHeartbeat(sessionID);
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // A session whose heartbeat stopped more than five minutes before it ended,
+    // as flagStalledAttemptHeartbeats found it. Written and resolved by the
+    // Admin SDK only; the captain queries it with scripts/firestore-query.mjs.
+    match /attempt_heartbeat_flags/{flagId} {
+      allow read, write: if false;
     }
 
     // Global standings are server-derived. functions/src/leaderboardStats.ts

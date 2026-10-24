@@ -393,10 +393,23 @@ final class HeadphoneMotionSessionService {
         }
     }
 
+    /// A stream error the disposition called fatal. The session is parked in `.failed`, which
+    /// freezes the clock and stops checkpoints - so it is recorded loudly, because it used to be
+    /// invisible even on the device (`docs/headphone-session-recovery.md`). Only the entitlement
+    /// errors reach here now; everything that could clear on its own retries on the stall clock.
     private func handleSessionError(_ message: String) {
         status = .failed(message)
         isConnected = false
         markTrackingUnavailable(at: Date())
+        AppDiagnosticsRecorder.shared.record(
+            "headphone_motion_session_failed",
+            level: .error,
+            details: [
+                "error": message,
+                "steps": String(stepCount),
+                "duration_seconds": String(Int(duration.rounded(.down)))
+            ]
+        )
     }
 
     func handleMotionAccessDenied(at now: Date = Date()) {
@@ -764,10 +777,14 @@ enum HeadphoneMotionErrorDisposition: Equatable {
              CMErrorMotionActivityNotAuthorized:
             self = motionAccess.blocksStepCounting ? .awaitMotionAccess : .restart
         case CMErrorNotEntitled,
-             CMErrorNotAvailable,
-             CMErrorMotionActivityNotEntitled,
-             CMErrorMotionActivityNotAvailable:
+             CMErrorMotionActivityNotEntitled:
             self = .fatal
+        case CMErrorNotAvailable,
+             CMErrorMotionActivityNotAvailable:
+            // "Not available" is a report about this moment - the headphones dropped, the stream
+            // was pre-empted - not about the device. Treating it as terminal parked a session in
+            // `.failed` with a frozen clock and no banner; a dropout retries on the stall clock.
+            self = .restart
         default:
             self = .restart
         }

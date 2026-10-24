@@ -2,6 +2,21 @@
 import FirebaseStorage
 import Foundation
 
+/// How long a published Live Activity state stays believable without a newer one.
+///
+/// Every update used to publish `staleDate: nil`, so when the process died the Lock Screen kept
+/// showing the last steps and clock indefinitely - "66 steps, 1:02" for twenty minutes on
+/// 2026-10-23, with nothing to tell the climber that nothing was counting. Fifteen seconds is
+/// several update intervals past the per-second cadence, so a healthy session never goes stale and
+/// a dead one is marked within the time it takes to notice the clock has stopped.
+enum LiveClimbActivityStalenessPolicy {
+    static let staleAfter: TimeInterval = 15
+
+    static func staleDate(publishedAt: Date) -> Date {
+        publishedAt.addingTimeInterval(staleAfter)
+    }
+}
+
 @MainActor
 final class LiveClimbActivityManager {
     static let shared = LiveClimbActivityManager()
@@ -10,8 +25,23 @@ final class LiveClimbActivityManager {
     private var currentAttributes: LiveClimbActivityAttributes?
     private var lastState: LiveClimbActivityAttributes.ContentState?
     private var lastUpdateAt: Date?
+    /// The stale date of the last content published, for the tests that hold the Lock Screen
+    /// honest: a state with no stale date is a state that can lie forever.
+    private(set) var lastPublishedStaleDate: Date?
 
     private init() {}
+
+    /// Every live update travels with a stale date; only an end state publishes without one, since
+    /// an ended activity is already the truth.
+    func makeLiveContent(
+        state: LiveClimbActivityAttributes.ContentState,
+        now: Date = Date()
+    ) -> ActivityContent<LiveClimbActivityAttributes.ContentState> {
+        ActivityContent(
+            state: state,
+            staleDate: LiveClimbActivityStalenessPolicy.staleDate(publishedAt: now)
+        )
+    }
 
     func start(
         climb: Climb,
@@ -55,6 +85,27 @@ final class LiveClimbActivityManager {
             return
         }
 
+        // A session resumed after its process died - often in the background, where ActivityKit
+        // refuses a new request - keeps the card already on the Lock Screen and brings it current.
+        if let existing = Activity<LiveClimbActivityAttributes>.activities.first(where: {
+            $0.attributes.sessionID == sessionID && [.active, .stale].contains($0.activityState)
+        }) {
+            await endExistingActivities(except: existing.id)
+            activity = existing
+            currentAttributes = existing.attributes
+            lastState = existing.content.state
+            await update(
+                steps: steps,
+                rank: rank,
+                rankTotal: rankTotal,
+                standing: standing,
+                duration: duration,
+                progress: progress,
+                force: true
+            )
+            return
+        }
+
         await endExistingActivities()
 
         let attributes = LiveClimbActivityAttributes(
@@ -76,15 +127,17 @@ final class LiveClimbActivityManager {
         )
 
         do {
+            let content = makeLiveContent(state: state)
             let activity = try Activity<LiveClimbActivityAttributes>.request(
                 attributes: attributes,
-                content: ActivityContent(state: state, staleDate: nil),
+                content: content,
                 pushType: nil
             )
             self.activity = activity
             currentAttributes = attributes
             lastState = state
             lastUpdateAt = Date()
+            lastPublishedStaleDate = content.staleDate
         } catch {
 #if DEBUG
             debugLog("Live Climb Live Activity start failed: \(error.localizedDescription)")
@@ -130,9 +183,11 @@ final class LiveClimbActivityManager {
 
         guard force || shouldPublish(state) else { return }
 
-        await activity.update(ActivityContent(state: state, staleDate: nil))
+        let content = makeLiveContent(state: state)
+        await activity.update(content)
         lastState = state
         lastUpdateAt = Date()
+        lastPublishedStaleDate = content.staleDate
     }
 
     func end(status: LiveClimbActivityStatus = .ended) async {
@@ -164,6 +219,7 @@ final class LiveClimbActivityManager {
         currentAttributes = nil
         lastState = nil
         lastUpdateAt = nil
+        lastPublishedStaleDate = nil
     }
 
     func end(sessionID: String, status: LiveClimbActivityStatus = .ended) async {
@@ -218,9 +274,11 @@ final class LiveClimbActivityManager {
             updatedAt: Date()
         )
 
-        await activity.update(ActivityContent(state: state, staleDate: nil))
+        let content = makeLiveContent(state: state)
+        await activity.update(content)
         self.lastState = state
         lastUpdateAt = Date()
+        lastPublishedStaleDate = content.staleDate
     }
 
     private func shouldPublish(_ state: LiveClimbActivityAttributes.ContentState) -> Bool {
@@ -269,8 +327,8 @@ final class LiveClimbActivityManager {
         )
     }
 
-    private func endExistingActivities() async {
-        for activity in Activity<LiveClimbActivityAttributes>.activities {
+    private func endExistingActivities(except keptID: String? = nil) async {
+        for activity in Activity<LiveClimbActivityAttributes>.activities where activity.id != keptID {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
     }

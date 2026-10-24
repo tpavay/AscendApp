@@ -225,6 +225,7 @@ extension WorkoutSessionAnalyticsEvent {
     enum RoutineSurface: String, Sendable {
         case stopAlert = "stop_alert"
         case completionSheet = "completion_sheet"
+        case resumeSheet = "resume_sheet"
     }
 
     enum CountBucket: String {

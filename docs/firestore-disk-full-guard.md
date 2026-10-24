@@ -63,11 +63,13 @@ So the operations Ascend owns ask `FirestoreDiskGuard.shared.localCacheWriteRefu
   The live board takes its existing "fetch failed, keep counting" branch (`leaderboardFetchFailed`), and every other caller its unreachable branch.
   The refusal carries the reading it was made on.
 - `WorkoutSyncCoordinator.processPendingWorkouts` defers the whole pass exactly as a kill switch does: nothing attempted, counted or marked, the outbox and the tombstones untouched, and the next trigger after the phone has room runs it.
+- `FirestoreAttemptHeartbeatRepository.publish`, the sixty-second liveness heartbeat of a headphone session (`docs/headphone-session-recovery.md`), is refused before `setData(merge:)` is asked.
+  The checkpointer records it as `attempt_heartbeat_publish_failed` with the other publish failures and the climb keeps counting; a heartbeat is a report about now, so nothing is queued and the next due heartbeat after the phone has room is simply sent.
 
 A memory-cache process answers without reading the disk; it has nothing to protect.
 The gate cannot reach anything in the list above, so a persistent process whose volume fills mid-session is still exposed on those paths; that exposure is what the kill switch's off position costs, and why it ships on.
 
-Deferred to the follow-up after https://github.com/tpavay/AscendApp/pull/655 lands, because they live in its files: gating `FirestoreAttemptHeartbeatRepository.publish` (one `setData(merge:)` per minute per session) and extending `MetricKitExitReporter` with `MXDiagnosticPayload` so the assertion text itself reaches a report.
+Still deferred: extending `MetricKitExitReporter` with `MXDiagnosticPayload` so the assertion text itself reaches an Ascend diagnostic; Sentry already ingests those payloads as crash events through `enableMetricKit` (Visibility, below).
 
 ## The kill switch
 

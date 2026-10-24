@@ -80,11 +80,23 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// Firestore's memory cache, which keeps LevelDB - and the commit assertion that aborts the
     /// process on a full volume - out of every process. Off gives a process that launches with
     /// at least 200 MiB free a persistent cache bounded to 20 MiB, guarded by the pre-flight that
-    /// refuses server reads and defers workout sync once the volume reaches the floor; that
-    /// guard cannot reach the Home feed listener, the SDK's own garbage collection, or the reads
-    /// that bypass the shared read path. Decides how Firestore persists at startup, which is why
-    /// it has a switch (`docs/firestore-disk-full-guard.md`).
+    /// refuses server reads, defers workout sync and drops the attempt heartbeat once the volume
+    /// reaches the floor; that guard cannot reach the Home feed listener, the SDK's own garbage
+    /// collection, or the reads that bypass the shared read path. Decides how Firestore persists
+    /// at startup, which is why it has a switch (`docs/firestore-disk-full-guard.md`).
     case firestoreMemoryCache = "firestore_memory_cache_enabled"
+
+    /// Writing the sixty-second liveness document `users/{uid}/attempt_heartbeats/{sessionID}`
+    /// during every headphone session, and the final write that closes it. Nothing to defer: a
+    /// heartbeat is a report about now, so a blocked one is simply not sent and the server's
+    /// stall detector sees nothing for that session. The climb itself is untouched.
+    case attemptHeartbeats = "attempt_heartbeats_enabled"
+
+    /// Resuming a dead session automatically on the next launch - crediting the gap as wall clock
+    /// into the draft and restarting the sensor without a prompt. Off, every recovered draft goes
+    /// through the recovery screen instead, which credits nothing until the climber acts, so the
+    /// draft is left exactly as the dead process wrote it.
+    case headphoneSessionAutoResume = "headphone_session_auto_resume_enabled"
 
     var key: String { rawValue }
 
@@ -135,6 +147,10 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Shows unlockable items: drawn on the mountain, the unlock moment, the editor row."
         case .firestoreMemoryCache:
             return "Runs Firestore on a memory cache; off allows a 20 MiB disk cache from the next cold launch."
+        case .attemptHeartbeats:
+            return "Writes the sixty-second liveness heartbeat for a running climb to Firestore."
+        case .headphoneSessionAutoResume:
+            return "Resumes a dead session automatically on relaunch instead of asking first."
         }
     }
 }

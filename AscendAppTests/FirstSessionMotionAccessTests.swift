@@ -245,7 +245,11 @@ struct FirstSessionMotionAccessTests {
             (CMErrorMotionActivityNotAuthorized.rawValue, .denied, .awaitMotionAccess),
             (CMErrorNotAuthorized.rawValue, .restricted, .awaitMotionAccess),
             (CMErrorNotEntitled.rawValue, .authorized, .fatal),
-            (CMErrorMotionActivityNotAvailable.rawValue, .authorized, .fatal),
+            (CMErrorMotionActivityNotEntitled.rawValue, .authorized, .fatal),
+            // "Not available" describes the moment, not the device: a dropout, retried on the
+            // stall clock rather than parking the session in `.failed` with a frozen clock.
+            (CMErrorMotionActivityNotAvailable.rawValue, .authorized, .restart),
+            (CMErrorNotAvailable.rawValue, .authorized, .restart),
             (CMErrorDeviceRequiresMovement.rawValue, .authorized, .restart)
         ]
     )

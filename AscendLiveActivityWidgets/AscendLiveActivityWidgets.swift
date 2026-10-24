@@ -32,10 +32,16 @@ struct LiveClimbActivityWidget: Widget {
                     LiveClimbExpandedBottomView(context: context)
                 }
             } compactLeading: {
-                LiveClimbCompactMetricView(
-                    value: context.state.standingValue,
-                    label: context.state.standingCaption
-                )
+                if context.isStale && context.state.status == .recording {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color(red: 1.0, green: 0.72, blue: 0.2))
+                } else {
+                    LiveClimbCompactMetricView(
+                        value: context.state.standingValue,
+                        label: context.state.standingCaption
+                    )
+                }
             } compactTrailing: {
                 LiveClimbCompactMetricView(
                     value: context.state.compactStepsLabel,
@@ -57,6 +63,14 @@ private struct LiveClimbLockScreenView: View {
     let context: ActivityViewContext<LiveClimbActivityAttributes>
 
     var body: some View {
+        if context.isStale && context.state.status == .recording {
+            LiveClimbStaleLockScreenView(context: context)
+        } else {
+            liveBody
+        }
+    }
+
+    private var liveBody: some View {
         HStack(spacing: 14) {
             LiveClimbPhotoView(urlString: context.state.climbPhotoURLString)
                 .frame(width: 58, height: 58)
@@ -73,6 +87,40 @@ private struct LiveClimbLockScreenView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             LiveClimbControlButtons()
+        }
+        .padding(16)
+        .foregroundStyle(.white)
+    }
+}
+
+/// What the Lock Screen says once no update has arrived inside the stale window: the process
+/// that was counting is gone, and the only way to get the steps back is to open Ascend. The tap
+/// goes through the same deep link, which lands on the automatic resume.
+struct LiveClimbStaleLockScreenView: View {
+    let context: ActivityViewContext<LiveClimbActivityAttributes>
+
+    static let title = "Ascend stopped counting"
+    static let action = "Tap to resume"
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(Color(red: 1.0, green: 0.72, blue: 0.2))
+                .frame(width: 58, height: 58)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Self.title)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+
+                Text("\(Self.action) \(context.attributes.climbName) at \(context.state.compactStepsLabel) steps, \(context.state.durationLabel).")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
         .foregroundStyle(.white)

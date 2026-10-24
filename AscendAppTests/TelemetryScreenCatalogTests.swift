@@ -47,6 +47,7 @@ struct TelemetryScreenCatalogTests {
         "workout_detail": "WorkoutDetailView",
         "edit_workout": "EditWorkoutView",
         "active_headphone_workout_recovery": "ActiveHeadphoneWorkoutRecoveryView",
+        "headphone_session_resume": "HeadphoneSessionResumeSheet",
         "step_accuracy_calibration": "StepAccuracyCalibrationPromptView",
         "best_efforts": "BestEffortsListView",
         "best_effort_record_detail": "BestEffortRecordDetailView",

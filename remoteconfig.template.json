@@ -131,7 +131,21 @@
         "value": "true"
       },
       "valueType": "BOOLEAN",
-      "description": "Kill switch. Off lets a process that launches with at least 200 MiB free run Firestore on a persistent cache bounded to 20 MiB instead of the memory cache; server reads and workout sync are refused or deferred once the volume reaches the floor, but the Home feed listener and the SDK's own garbage collection can still abort a full phone. Applied at the next cold launch."
+      "description": "Kill switch. Off lets a process that launches with at least 200 MiB free run Firestore on a persistent cache bounded to 20 MiB instead of the memory cache; server reads, workout sync and the attempt heartbeat are refused, deferred or dropped once the volume reaches the floor, but the Home feed listener and the SDK's own garbage collection can still abort a full phone. Applied at the next cold launch."
+    },
+    "attempt_heartbeats_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops writing the sixty-second liveness heartbeat (users/{uid}/attempt_heartbeats) during a headphone session; nothing is queued, the climb itself is untouched, and the server's stall detector simply sees no heartbeat for that session."
+    },
+    "headphone_session_auto_resume_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops resuming a dead headphone session automatically on relaunch (the wall-clock gap credit and the sensor restart); every recovered draft goes through the recovery screen instead, untouched until the climber acts."
     }
   },
   "parameterGroups": {},
