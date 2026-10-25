@@ -69,7 +69,7 @@ So the operations Ascend owns ask `FirestoreDiskGuard.shared.localCacheWriteRefu
 A memory-cache process answers without reading the disk; it has nothing to protect.
 The gate cannot reach anything in the list above, so a persistent process whose volume fills mid-session is still exposed on those paths; that exposure is what the kill switch's off position costs, and why it ships on.
 
-The assertion text itself is recorded too: `MetricKitExitReporter` subscribes to `MXDiagnosticPayload` and reduces every `crashDiagnostics[]` entry to an `AppCrashDiagnosticSummary` (Visibility, below), and the launch that finds a draft names the loss from the last checkpoint's free-disk reading (`docs/headphone-session-recovery.md`).
+The assertion text itself is recorded too: `MetricKitExitReporter` subscribes to `MXDiagnosticPayload` and reduces every `crashDiagnostics[]` entry to an `AppCrashDiagnosticSummary` (Visibility, below), and the launch that finds a draft names the loss from the last checkpoint's `statfs` reading (`docs/headphone-session-recovery.md`).
 
 ## The kill switch
 

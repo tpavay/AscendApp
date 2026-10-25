@@ -60,6 +60,7 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         let diagnostics = try #require(draft.checkpointDiagnostics)
         #expect(diagnostics.availableMemoryBytes == Lab.deviceAvailableMemory)
         #expect(diagnostics.freeDiskBytes == Lab.deviceFreeDisk)
+        #expect(diagnostics.writableDiskBytes == Lab.deviceWritableDisk)
         #expect(diagnostics.batteryState == "unplugged")
         #expect(diagnostics.workoutSessionState == "running")
         #expect(diagnostics.memoryWarningCount == 0)
@@ -598,6 +599,7 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         init(clock: Clock) { self.clock = clock }
         func availableMemoryBytes() -> Int64? { Lab.deviceAvailableMemory }
         func freeDiskBytes() -> Int64? { Lab.deviceFreeDisk }
+        func writableDiskBytes() -> Int64? { Lab.deviceWritableDisk }
         func batteryLevel() -> Double? { 0.84 }
         func batteryState() -> String { "unplugged" }
         func systemUptime() -> TimeInterval { clock.systemUptime }
@@ -634,6 +636,7 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         static let userId = "ZVm34nndUxd9oHF7XnZ4cQmFK6Z2"
         static let deviceAvailableMemory: Int64 = 1_200 * 1_048_576
         static let deviceFreeDisk: Int64 = 8 * 1_024 * 1_048_576
+        static let deviceWritableDisk: Int64 = 6 * 1_024 * 1_048_576
 
         let mode: Mode
         let container: ModelContainer

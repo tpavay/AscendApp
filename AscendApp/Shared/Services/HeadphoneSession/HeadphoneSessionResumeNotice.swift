@@ -26,7 +26,7 @@ struct HeadphoneSessionResumeNotice: Identifiable, Equatable, Sendable {
     var phoneEstimateSteps: Int?
     /// How much of `gap` the resume credited to the climb's clock.
     var creditedGap: TimeInterval = 0
-    /// What the last checkpoint saw free on the volume, shown when the loss reason is the phone
+    /// What a write could still use on the volume at the last checkpoint, shown when the loss is the phone
     /// being out of space so the sentence carries the number it was named from.
     var freeDiskBytes: Int64?
 

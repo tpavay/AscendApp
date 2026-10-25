@@ -29,11 +29,13 @@ struct HeadphoneSessionRecoveryPlannerTests {
     private func diagnostics(
         availableMemoryBytes: Int64? = 1_000 * 1_048_576,
         freeDiskBytes: Int64? = 10 * 1_024 * 1_048_576,
+        writableDiskBytes: Int64? = 10 * 1_024 * 1_048_576,
         memoryWarningCount: Int = 0
     ) -> HeadphoneSessionCheckpointDiagnostics {
         HeadphoneSessionCheckpointDiagnostics(
             availableMemoryBytes: availableMemoryBytes,
             freeDiskBytes: freeDiskBytes,
+            writableDiskBytes: writableDiskBytes,
             memoryWarningCount: memoryWarningCount,
             batteryLevel: 0.84,
             batteryState: "unplugged",
@@ -95,29 +97,56 @@ struct HeadphoneSessionRecoveryPlannerTests {
     @Test("A volume under the Firestore disk floor at the last checkpoint names the phone being out of space, ahead of unknown")
     func outOfDiskSpaceFromTheLastCheckpoint() {
         let twelveMB: Int64 = 12 * 1_048_576
-        let full = HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: twelveMB)))
+        let full = HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(writableDiskBytes: twelveMB)))
         #expect(full.lossReason == .outOfDiskSpace)
         #expect(full.freeDiskBytesAtLastCheckpoint == twelveMB, "the reading travels with the reason so the sheet can show it")
         #expect(full.plan == .autoResume, "a full phone still resumes inside the hour; the reason is just named")
 
-        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: 0))).lossReason == .outOfDiskSpace, "zero free is a reading, and the fullest one")
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(writableDiskBytes: 0))).lossReason == .outOfDiskSpace, "zero free is a reading, and the fullest one")
         #expect(HeadphoneSessionRecoveryPlanner.lowDiskFloorBytes == FirestoreDiskPolicy.lowDiskFloorBytes, "one floor, the disk guard's")
-        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: FirestoreDiskPolicy.lowDiskFloorBytes - 1))).lossReason == .outOfDiskSpace)
-        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: FirestoreDiskPolicy.lowDiskFloorBytes))).lossReason == .unknown, "at the floor the guard still writes, so the phone was not out of space")
-        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: nil))).lossReason == .unknown, "a volume that was never read is unknown, not full")
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(writableDiskBytes: FirestoreDiskPolicy.lowDiskFloorBytes - 1))).lossReason == .outOfDiskSpace)
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(writableDiskBytes: FirestoreDiskPolicy.lowDiskFloorBytes))).lossReason == .unknown, "at the floor the guard still writes, so the phone was not out of space")
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(writableDiskBytes: nil))).lossReason == .unknown, "a volume that was never read is unknown, not full")
 
-        let unread = HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(freeDiskBytes: nil)))
+        let unread = HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(writableDiskBytes: nil)))
         #expect(unread.freeDiskBytesAtLastCheckpoint == nil)
         #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60)).freeDiskBytesAtLastCheckpoint == nil, "a draft from before V5 has no reading")
     }
 
+    @Test("A phone with no blocks left but a gigabyte iOS could purge was out of space: the write sees statfs, not the purge promise")
+    func purgeableSpaceDoesNotHideAFullVolume() {
+        let purgeableButFull = diagnostics(freeDiskBytes: 1_024 * 1_048_576, writableDiskBytes: 0)
+        let assessment = HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: purgeableButFull))
+        #expect(assessment.lossReason == .outOfDiskSpace)
+        #expect(assessment.freeDiskBytesAtLastCheckpoint == 0, "the sheet shows what a write could use, not what iOS might reclaim")
+        #expect(assessment.lossReason.climberFacingClause(freeDiskBytes: assessment.freeDiskBytesAtLastCheckpoint) == "Your phone ran out of space (0 MB free)")
+
+        let roomyButLowImportantUsage = diagnostics(freeDiskBytes: 12 * 1_048_576, writableDiskBytes: 10 * 1_024 * 1_048_576)
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: roomyButLowImportantUsage)).lossReason == .unknown, "the important-usage figure is recorded, never decided on")
+    }
+
+    @Test("A checkpoint written before the statfs reading existed decodes with no reading and gives no disk verdict")
+    func checkpointWithoutWritableReadingGivesNoVerdict() throws {
+        let stored = Data("""
+        {"availableMemoryBytes":1048576000,"freeDiskBytes":12582912,"memoryWarningCount":0,"batteryState":"unplugged","workoutSessionState":"running","motionStatus":"recording","systemUptimeSeconds":500000,"processUptimeSeconds":90,"recordedAt":0}
+        """.utf8)
+        let older = try JSONDecoder().decode(HeadphoneSessionCheckpointDiagnostics.self, from: stored)
+        let twelveMB: Int64 = 12 * 1_048_576
+        #expect(older.freeDiskBytes == twelveMB)
+        #expect(older.writableDiskBytes == nil)
+
+        let assessment = HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: older))
+        #expect(assessment.lossReason == .unknown, "a low important-usage figure alone is not a full volume")
+        #expect(assessment.freeDiskBytesAtLastCheckpoint == nil)
+    }
+
     @Test("Out of space sits between the proven reasons and the memory guess: a reboot or a written crash report outranks it, a memory warning does not")
     func outOfDiskSpacePrecedence() {
-        let fullDisk = diagnostics(availableMemoryBytes: 150 * 1_048_576, freeDiskBytes: 12 * 1_048_576, memoryWarningCount: 3)
+        let fullDisk = diagnostics(availableMemoryBytes: 150 * 1_048_576, writableDiskBytes: 12 * 1_048_576, memoryWarningCount: 3)
         #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 2 * 3_600, systemUptime: 20 * 60, diagnostics: fullDisk)).lossReason == .phoneOff)
         #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, crashedLastRun: true, diagnostics: fullDisk)).lossReason == .crashed, "a crash report that exists proves the volume could still take a file")
         #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: fullDisk)).lossReason == .outOfDiskSpace, "memory warnings on a full phone are the phone being full")
-        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(availableMemoryBytes: 150 * 1_048_576, freeDiskBytes: 12 * 1_048_576))).lossReason == .outOfDiskSpace)
+        #expect(HeadphoneSessionRecoveryPlanner.assess(inputs(gap: 60, diagnostics: diagnostics(availableMemoryBytes: 150 * 1_048_576, writableDiskBytes: 12 * 1_048_576))).lossReason == .outOfDiskSpace)
     }
 
     @Test("Every reason has words a climber can read")

@@ -66,8 +66,9 @@ struct HeadphoneSessionRecoveryAssessment: Equatable, Sendable {
     /// The climber had already ended the session (the draft is `.stopped`) and the process died
     /// before the save finished. Such a draft is never restarted: the screen offers to save it.
     let climberEndedSession: Bool
-    /// What the last checkpoint saw free on the volume, so a loss named `.outOfDiskSpace` can
-    /// show the number it was named from. Nil for a draft from before V5.
+    /// What a write could still use on the volume at the last checkpoint (`statfs`), so a loss
+    /// named `.outOfDiskSpace` can show the number it was named from. Nil for a checkpoint written
+    /// before that reading was recorded.
     let freeDiskBytesAtLastCheckpoint: Int64?
 
     var gapMinutes: Int {
@@ -84,9 +85,10 @@ enum HeadphoneSessionRecoveryPlanner {
     /// Below this much headroom at the last checkpoint, a death in the background reads as jetsam.
     static let lowMemoryThresholdBytes: Int64 = 200 * 1_048_576
 
-    /// Below this much free on the volume at the last checkpoint, the loss reads as the phone being
-    /// out of space. The same floor the Firestore disk guard refuses writes at, so the sheet names
-    /// the condition the guard exists for and no other number has to be kept in step with it.
+    /// Below this much writable on the volume at the last checkpoint, the loss reads as the phone
+    /// being out of space. The same floor, on the same `statfs` figure, the Firestore disk guard
+    /// refuses writes at, so the sheet names the condition the guard exists for and no other
+    /// number has to be kept in step with it.
     static let lowDiskFloorBytes: Int64 = FirestoreDiskPolicy.lowDiskFloorBytes
 
     /// Tolerance on the reboot comparison, so clock drift cannot invent a reboot.
@@ -119,7 +121,7 @@ enum HeadphoneSessionRecoveryPlanner {
             plan: plan,
             gapIsCreditable: creditable,
             climberEndedSession: inputs.climberEndedSession,
-            freeDiskBytesAtLastCheckpoint: inputs.diagnostics?.freeDiskBytes
+            freeDiskBytesAtLastCheckpoint: inputs.diagnostics?.writableDiskBytes
         )
     }
 
@@ -134,8 +136,9 @@ enum HeadphoneSessionRecoveryPlanner {
             return .crashed
         }
         if let diagnostics = inputs.diagnostics {
-            // A reading is required: an unanswered volume is unknown, not full.
-            if let freeDisk = diagnostics.freeDiskBytes, freeDisk < lowDiskFloorBytes {
+            // A `statfs` reading is required: an unanswered volume is unknown, not full, and the
+            // important-usage figure counts purgeable space a failed write never got.
+            if let writableDisk = diagnostics.writableDiskBytes, writableDisk < lowDiskFloorBytes {
                 return .outOfDiskSpace
             }
             if diagnostics.memoryWarningCount > 0 {
