@@ -55,6 +55,11 @@ Dropping the override reintroduces the bracket-key array-limit bypass (GHSA-x5fp
 Do not clear those advisories by bumping `firebase-functions` instead: 7.3.2 moves to Express 5, whose default `query parser` is `simple` rather than the `qs`-backed `extended`, so a security patch would silently change how every `onRequest` handler parses its own query string.
 Remove the override once the resolved Express line declares a `qs` range that admits only 6.16.0 or later.
 
+Express 4 declares `body-parser` as `~1.20.5`, a range that admits every release below the patched 1.20.9, so `functions/package.json` overrides `body-parser` to `^1.20.9`.
+Dropping the override reintroduces the trailing-bytes-after-a-compressed-body denial of service (GHSA-27r3-jxmh-p828), published 2026-10-23, which fails `Functions Verify` on every backend pull request.
+The 1.20.9 release only tightens how a compressed request body is drained, so no `onRequest` handler parses its body differently.
+Remove the override once the resolved Express line declares a `body-parser` range that admits only 1.20.9 or later.
+
 Lint runs on ESLint 10 flat config (`functions/eslint.config.mjs`) with `typescript-eslint`.
 ESLint 8 and 9 both resolve `minimatch` 3, whose only available `brace-expansion` line is vulnerable to the unbounded-expansion DoS advisory; ESLint 10 is the first release whose tree resolves the patched `brace-expansion` 5.
 `eslint-config-google` and `eslint-plugin-import` were dropped in the same move: the former is eslintrc-only and unmaintained, and the latter still pins `minimatch` 3.
@@ -71,6 +76,10 @@ Astro 7.1.0 through 7.3.2 are covered by the View Transitions CSS injection advi
 Astro 7.3.8 declares `sharp` as `^0.35.4`, past the inherited libvips advisory that covers every release below 0.35.0, so the `sharp` override that guarded the older `^0.34.0 || ^0.35.0` range was removed.
 Astro 7.3.8 no longer depends on `esbuild`, but its `vite` dependency still declares `esbuild` as an optional peer at `^0.27.0 || ^0.28.0`, which admits the releases covered by the dev-server path-traversal advisory (`>=0.27.3 <0.28.1`), so `web/package.json` overrides `esbuild` to `^0.28.1`.
 Remove that override once every declared range in the tree resolves only to patched releases, after `npm run build` passes.
+
+Astro 7.3.8 reaches `undici` through `unifont`, which declares it as `^8.0.0`, a range that admits the releases below 8.12.2 covered by three advisories published 2026-10-23: the EventSource parser unbounded-memory denial of service (GHSA-4qv8-2p9j-2685), the Subresource Integrity bypass via non-lowercase algorithm tokens (GHSA-f72v-6w45-q472), and the unhandled-error denial of service on excessive content-encodings (GHSA-xjj6-f33q-929c).
+They failed `Web Verify` on every pull request from that day, so `web/package.json` overrides `undici` to `^8.12.2`.
+Remove the override once the resolved `unifont` line declares an `undici` range that admits only 8.12.2 or later, after `npm run build` passes.
 
 ## Root
 
