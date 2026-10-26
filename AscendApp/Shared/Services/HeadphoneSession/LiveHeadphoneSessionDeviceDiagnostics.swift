@@ -8,7 +8,8 @@ import UIKit
 /// which is the class the draft write belongs to: a phone that refuses that class has refused the
 /// checkpoint. Reading it is a required-reason API, declared under E174.1 in
 /// `PrivacyInfo.xcprivacy` - the check decides whether a failed write can be retried or must fall
-/// back to the JSON file, and the reading is recorded so the recovery sheet can say so.
+/// back to the JSON file. The `statfs` figure beside it is the one a store write actually fails
+/// on, so it is what the recovery sheet names a full phone from.
 @MainActor
 final class LiveHeadphoneSessionDeviceDiagnostics: HeadphoneSessionDeviceDiagnosticsProviding {
     private let activityClock: AppActivityClock
@@ -30,6 +31,10 @@ final class LiveHeadphoneSessionDeviceDiagnostics: HeadphoneSessionDeviceDiagnos
             forKeys: [.volumeAvailableCapacityForImportantUsageKey]
         )
         return values?.volumeAvailableCapacityForImportantUsage
+    }
+
+    func writableDiskBytes() -> Int64? {
+        VolumeFreeSpaceReader().availableBytes()
     }
 
     func batteryLevel() -> Double? {

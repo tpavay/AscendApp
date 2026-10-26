@@ -255,7 +255,8 @@ final class HeadphoneSessionRecoveryCoordinator {
                 gap: credit.gapSeconds,
                 lossReason: assessment.lossReason,
                 detectedSteps: draft.steps,
-                creditedGap: creditedGapSeconds
+                creditedGap: creditedGapSeconds,
+                freeDiskBytes: assessment.freeDiskBytesAtLastCheckpoint
             )
             : nil
 

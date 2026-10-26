@@ -11,8 +11,12 @@ struct HeadphoneSessionCheckpointDiagnostics: Codable, Equatable, Sendable {
     /// before jetsam. Nil where the kernel did not answer.
     var availableMemoryBytes: Int64?
     /// Free space on the volume the store lives on, for the important-usage class the draft
-    /// write belongs to.
+    /// write belongs to. Includes what iOS would purge, so it is recorded, never decided on.
     var freeDiskBytes: Int64?
+    /// Bytes a `write(2)` could still use on that volume - `statfs` `f_bavail * f_bsize`, the
+    /// figure `FirestoreDiskPolicy.lowDiskFloorBytes` is set against and the one a store write
+    /// fails on. Nil in a checkpoint written before it was recorded.
+    var writableDiskBytes: Int64?
     /// How many `didReceiveMemoryWarning` notifications this process had seen since the session
     /// started counting.
     var memoryWarningCount: Int
@@ -35,6 +39,7 @@ struct HeadphoneSessionCheckpointDiagnostics: Codable, Equatable, Sendable {
     init(
         availableMemoryBytes: Int64? = nil,
         freeDiskBytes: Int64? = nil,
+        writableDiskBytes: Int64? = nil,
         memoryWarningCount: Int = 0,
         batteryLevel: Double? = nil,
         batteryState: String = "unknown",
@@ -46,6 +51,7 @@ struct HeadphoneSessionCheckpointDiagnostics: Codable, Equatable, Sendable {
     ) {
         self.availableMemoryBytes = availableMemoryBytes
         self.freeDiskBytes = freeDiskBytes
+        self.writableDiskBytes = writableDiskBytes
         self.memoryWarningCount = memoryWarningCount
         self.batteryLevel = batteryLevel
         self.batteryState = batteryState
@@ -72,6 +78,9 @@ struct HeadphoneSessionCheckpointDiagnostics: Codable, Equatable, Sendable {
         if let freeDiskBytes {
             details["free_disk_mb"] = String(freeDiskBytes / 1_048_576)
         }
+        if let writableDiskBytes {
+            details["writable_disk_mb"] = String(writableDiskBytes / 1_048_576)
+        }
         if let batteryLevel {
             details["battery_percent"] = String(Int((batteryLevel * 100).rounded()))
         }
@@ -85,6 +94,7 @@ struct HeadphoneSessionCheckpointDiagnostics: Codable, Equatable, Sendable {
 protocol HeadphoneSessionDeviceDiagnosticsProviding: AnyObject {
     func availableMemoryBytes() -> Int64?
     func freeDiskBytes() -> Int64?
+    func writableDiskBytes() -> Int64?
     func batteryLevel() -> Double?
     func batteryState() -> String
     func systemUptime() -> TimeInterval

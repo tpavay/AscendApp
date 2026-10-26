@@ -461,9 +461,10 @@
           byte counts are also recorded in the firestore_low_disk_mode diagnostic
           and analytics event, classified as Other Diagnostic Data above. Ascend's
           LiveHeadphoneSessionDeviceDiagnostics also reads
-          volumeAvailableCapacityForImportantUsage when a session checkpoint is
-          refused, to decide whether the draft can still be written and to record
-          how much room the phone had.
+          volumeAvailableCapacityForImportantUsage and statfs at each session
+          checkpoint, to decide whether a refused draft write can still be retried
+          and to record how much room the phone had, so the recovery sheet can say
+          the phone ran out of space.
           Reason E174.1: check available disk space before writing files.
         -->
         <dict>

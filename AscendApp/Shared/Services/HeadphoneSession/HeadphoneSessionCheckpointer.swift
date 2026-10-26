@@ -336,6 +336,7 @@ final class HeadphoneSessionCheckpointer {
         HeadphoneSessionCheckpointDiagnostics(
             availableMemoryBytes: deviceDiagnostics.availableMemoryBytes(),
             freeDiskBytes: deviceDiagnostics.freeDiskBytes(),
+            writableDiskBytes: deviceDiagnostics.writableDiskBytes(),
             memoryWarningCount: max(memoryMonitor.warningCount - memoryWarningCountAtStart, 0),
             batteryLevel: deviceDiagnostics.batteryLevel(),
             batteryState: deviceDiagnostics.batteryState(),

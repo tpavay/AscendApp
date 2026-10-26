@@ -26,6 +26,9 @@ struct HeadphoneSessionResumeNotice: Identifiable, Equatable, Sendable {
     var phoneEstimateSteps: Int?
     /// How much of `gap` the resume credited to the climb's clock.
     var creditedGap: TimeInterval = 0
+    /// What a write could still use on the volume at the last checkpoint, shown when the loss is the phone
+    /// being out of space so the sentence carries the number it was named from.
+    var freeDiskBytes: Int64?
 
     var gapMinutes: Int {
         max(Int((gap / 60).rounded()), 1)
@@ -54,7 +57,7 @@ struct HeadphoneSessionResumeNotice: Identifiable, Equatable, Sendable {
     }
 
     var explanation: String {
-        let clause = lossReason.climberFacingClause
+        let clause = lossReason.climberFacingClause(freeDiskBytes: freeDiskBytes)
         let credit = "The time counts. Enter the machine's step count to credit the steps, or keep climbing from \(detectedSteps.formatted())."
         return "\(clause) and the climb kept going without it. \(credit)"
     }

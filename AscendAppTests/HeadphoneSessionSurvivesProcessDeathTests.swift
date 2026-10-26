@@ -60,6 +60,7 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         let diagnostics = try #require(draft.checkpointDiagnostics)
         #expect(diagnostics.availableMemoryBytes == Lab.deviceAvailableMemory)
         #expect(diagnostics.freeDiskBytes == Lab.deviceFreeDisk)
+        #expect(diagnostics.writableDiskBytes == Lab.deviceWritableDisk)
         #expect(diagnostics.batteryState == "unplugged")
         #expect(diagnostics.workoutSessionState == "running")
         #expect(diagnostics.memoryWarningCount == 0)
@@ -521,6 +522,108 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         }
     }
 
+    // MARK: - 4b. A phone that ran out of space says so
+
+    /// 2026-10-23 again, as it really was: no blocks left, so neither crash reporter could write
+    /// its report and the next launch reads `crashedLastRun == false`. Only the last checkpoint's
+    /// `statfs` reading can name it, and a gigabyte iOS could purge must not hide it.
+    @Test("A full phone's session resumes nineteen minutes later and the sheet says the phone ran out of space", arguments: Mode.allCases)
+    func fullPhoneResumeSheetNamesTheSpace(mode: Mode) async throws {
+        let lab = try Lab(mode: mode)
+        lab.volume.importantUsageBytes = 1_024 * 1_048_576
+        lab.volume.writableBytes = 0
+        let session = try lab.startedSession()
+        lab.run(session, seconds: 62)
+        let draft = try #require(try lab.draftStore.activeDraft(in: lab.context))
+        lab.simulateProcessDeath(session)
+        #expect(draft.checkpointDiagnostics?.writableDiskBytes == 0, "the checkpoint persisted the statfs reading")
+        #expect(draft.checkpointDiagnostics?.freeDiskBytes == Int64(1_024 * 1_048_576), "the important-usage figure is kept beside it")
+
+        lab.clock.now = Self.recoveryShownAt
+        let assessment = lab.recovery.assess(draft)
+        #expect(assessment.lossReason == .outOfDiskSpace)
+        #expect(assessment.plan == .autoResume)
+
+        let resumption = try lab.recovery.resume(draft, modelContext: lab.context, assessment: assessment)
+        let notice: HeadphoneSessionResumeNotice
+        switch resumption.session {
+        case .liveClimb(let viewModel):
+            notice = try #require(viewModel.resumeNotice)
+        case .routine(let viewModel, _):
+            notice = try #require(viewModel.resumeNotice)
+        }
+        #expect(notice.explanation.hasPrefix("Your phone ran out of space (0 MB free) and the climb kept going without it."))
+
+        let sheet = HeadphoneSessionResumeSheet(notice: notice, sessionLabel: "climb", onSave: { _ in }, onKeepCounting: { _ in })
+            .themedBackground()
+        try await RenderedScreen.host(sheet) { hosted in
+            let copy = try await hosted.copy { $0.contains("ran out of space") }
+            #expect(copy.contains("ascend stopped counting for 19 minutes."))
+            #expect(copy.contains("your phone ran out of space (0 mb free) and the climb kept going without it."))
+            try hosted.photograph(named: "resume-sheet-out-of-space-\(mode.rawValue)")
+        }
+        lab.endResumedSession(resumption)
+    }
+
+    @Test("A full phone found two hours later lands on the recovery screen naming the space it had left")
+    func fullPhoneRecoveryScreenNamesTheSpace() async throws {
+        let lab = try Lab(mode: .liveClimb)
+        lab.volume.importantUsageBytes = 1_024 * 1_048_576
+        lab.volume.writableBytes = 12 * 1_048_576
+        let session = try lab.startedSession()
+        lab.run(session, seconds: 62)
+        let draft = try #require(try lab.draftStore.activeDraft(in: lab.context))
+        lab.simulateProcessDeath(session)
+
+        lab.clock.now = Self.goAt.addingTimeInterval(62 + 2 * 3_600)
+        let assessment = lab.recovery.assess(draft)
+        #expect(assessment.plan == .prompt)
+        #expect(assessment.lossReason == .outOfDiskSpace)
+
+        let screen = ActiveHeadphoneWorkoutRecoveryView(draft: draft, onResolved: {}, coordinator: lab.recovery)
+            .modelContainer(lab.container)
+        try await RenderedScreen.host(screen) { hosted in
+            let copy = try await hosted.copy { $0.contains("discard") }
+            #expect(copy.contains("your phone ran out of space (12 mb free) 2 hours ago, at 66 steps and 1:02"))
+            try hosted.photograph(named: "recovery-screen-out-of-space-liveClimb")
+        }
+    }
+
+    @Test("A checkpoint with no statfs reading and a low important-usage figure is not called a full phone")
+    func checkpointWithoutAStatfsReadingIsNotCalledFull() async throws {
+        let lab = try Lab(mode: .liveClimb)
+        lab.volume.importantUsageBytes = 12 * 1_048_576
+        lab.volume.writableBytes = nil
+        let session = try lab.startedSession()
+        lab.run(session, seconds: 62)
+        let draft = try #require(try lab.draftStore.activeDraft(in: lab.context))
+        lab.simulateProcessDeath(session)
+
+        lab.clock.now = Self.goAt.addingTimeInterval(62 + 2 * 3_600)
+        #expect(lab.recovery.assess(draft).lossReason == .unknown)
+
+        let screen = ActiveHeadphoneWorkoutRecoveryView(draft: draft, onResolved: {}, coordinator: lab.recovery)
+            .modelContainer(lab.container)
+        try await RenderedScreen.host(screen) { hosted in
+            let copy = try await hosted.copy { $0.contains("discard") }
+            #expect(copy.contains("ascend was closed 2 hours ago"))
+            #expect(!copy.contains("out of space"))
+            try hosted.photograph(named: "recovery-screen-no-statfs-reading-liveClimb")
+        }
+    }
+
+    @Test("The simulator's real device diagnostics answer the statfs reading the planner decides on")
+    func realDeviceDiagnosticsReadStatfs() throws {
+        let live = LiveHeadphoneSessionDeviceDiagnostics()
+        let writable = try #require(live.writableDiskBytes())
+        var stats = statfs()
+        #expect(statfs(NSHomeDirectory(), &stats) == 0)
+        let expected = Int64(clamping: stats.f_bavail) * Int64(stats.f_bsize)
+        #expect(abs(writable - expected) < 64 * 1_048_576, "the same statfs figure, read moments apart")
+        #expect(live.freeDiskBytes() != nil)
+        print("LIVE_DISK_READING writable_bytes=\(writable) important_usage_bytes=\(live.freeDiskBytes() ?? -1) home=\(NSHomeDirectory())")
+    }
+
     // MARK: - 5. A refused checkpoint goes to the file, loudly
 
     @Test("A checkpoint the store refuses records a diagnostic with the free disk and lands in the JSON fallback, which the next launch reads back", arguments: Mode.allCases)
@@ -595,13 +698,25 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
     @MainActor
     final class RecordedDeviceDiagnostics: HeadphoneSessionDeviceDiagnosticsProviding {
         let clock: Clock
-        init(clock: Clock) { self.clock = clock }
+        let volume: Volume
+        init(clock: Clock, volume: Volume) {
+            self.clock = clock
+            self.volume = volume
+        }
         func availableMemoryBytes() -> Int64? { Lab.deviceAvailableMemory }
-        func freeDiskBytes() -> Int64? { Lab.deviceFreeDisk }
+        func freeDiskBytes() -> Int64? { volume.importantUsageBytes }
+        func writableDiskBytes() -> Int64? { volume.writableBytes }
         func batteryLevel() -> Double? { 0.84 }
         func batteryState() -> String { "unplugged" }
         func systemUptime() -> TimeInterval { clock.systemUptime }
         func processUptime() -> TimeInterval { 90 }
+    }
+
+    /// The phone's volume as the two disk readings see it, settable so a test can fill it.
+    @MainActor
+    final class Volume {
+        var importantUsageBytes: Int64? = Lab.deviceFreeDisk
+        var writableBytes: Int64? = Lab.deviceWritableDisk
     }
 
     final class RecordingHeartbeatPublisher: AttemptHeartbeatPublishing, @unchecked Sendable {
@@ -634,11 +749,13 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
         static let userId = "ZVm34nndUxd9oHF7XnZ4cQmFK6Z2"
         static let deviceAvailableMemory: Int64 = 1_200 * 1_048_576
         static let deviceFreeDisk: Int64 = 8 * 1_024 * 1_048_576
+        static let deviceWritableDisk: Int64 = 6 * 1_024 * 1_048_576
 
         let mode: Mode
         let container: ModelContainer
         let context: ModelContext
         let clock: Clock
+        let volume = Volume()
         let defaults: UserDefaults
         let fallbackStore: ActiveHeadphoneWorkoutDraftFallbackStore
         let draftStore: ActiveHeadphoneWorkoutDraftStore
@@ -715,7 +832,7 @@ struct HeadphoneSessionSurvivesProcessDeathTests {
             HeadphoneSessionCheckpointer(
                 draftStore: draftStore,
                 fallbackStore: fallbackStore,
-                deviceDiagnostics: RecordedDeviceDiagnostics(clock: clock),
+                deviceDiagnostics: RecordedDeviceDiagnostics(clock: clock, volume: volume),
                 memoryMonitor: memoryMonitor,
                 backgroundSession: background,
                 heartbeatPublisher: heartbeats,

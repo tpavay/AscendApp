@@ -69,7 +69,7 @@ So the operations Ascend owns ask `FirestoreDiskGuard.shared.localCacheWriteRefu
 A memory-cache process answers without reading the disk; it has nothing to protect.
 The gate cannot reach anything in the list above, so a persistent process whose volume fills mid-session is still exposed on those paths; that exposure is what the kill switch's off position costs, and why it ships on.
 
-Still deferred: extending `MetricKitExitReporter` with `MXDiagnosticPayload` so the assertion text itself reaches an Ascend diagnostic; Sentry already ingests those payloads as crash events through `enableMetricKit` (Visibility, below).
+The assertion text itself is recorded too: `MetricKitExitReporter` subscribes to `MXDiagnosticPayload` and reduces every `crashDiagnostics[]` entry to an `AppCrashDiagnosticSummary` (Visibility, below), and the launch that finds a draft names the loss from the last checkpoint's `statfs` reading (`docs/headphone-session-recovery.md`).
 
 ## The kill switch
 
@@ -96,6 +96,8 @@ Two things are recorded so the next investigation can see how full the phone was
 And the crash channel a full phone cannot silence: `options.enableMetricKit = true` in `SentryOptionsFactory`, pinned by `SentryDiagnosticsConfigurationTests.metricKitCrashDiagnosticsAreOn`.
 iOS writes `MXCrashDiagnostic` into system-reserved space from the same data as its own `.ips` and hands it to the app on the next launch; the SDK turns it into an unhandled event with the call-stack tree.
 Both existing crash handlers stay; this is a third delivery path, not a third reporter (`docs/sentry-setup.md`).
+Sentry 9.18 converts the call-stack tree and leaves out `exceptionReason`, the one string that names the failing assertion and its `errno`, so `MetricKitExitReporter.didReceive(_: [MXDiagnosticPayload])` records it itself: each `MXCrashDiagnostic` becomes an `AppCrashDiagnosticSummary`, sent once as the analytics event `app_crash_diagnostic` (exception name, class and the first 100 characters of the composed message, termination reason, signal, Mach exception type and code, whether a virtual-memory region was attached, the build and OS from the diagnostic's metadata, the payload's time range), as the error-level diagnostic `app_crash_diagnostic_received` that `CrashlyticsBreadcrumbSink` turns into a Sentry breadcrumb, and as one Sentry message event (`TelemetryManager.recordMessage`, tag `ascend_error_code: metrickit_crash_diagnostic`) carrying the whole text, so `message:"No space left on device"` finds the next one.
+`CrashDiagnosticReportLedger` keeps the fingerprints already reported in `UserDefaults`, bounded to 64, so a payload MetricKit redelivers or replays is reported once; `AscendAppTests/MetricKitCrashDiagnosticTests.swift` holds the record, the message, the fingerprint and the dedupe.
 
 ## The laboratory
 
