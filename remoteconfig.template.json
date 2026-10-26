@@ -131,7 +131,7 @@
         "value": "true"
       },
       "valueType": "BOOLEAN",
-      "description": "Kill switch. Off lets a process that launches with at least 200 MiB free run Firestore on a persistent cache bounded to 20 MiB instead of the memory cache; server reads, workout sync and the attempt heartbeat are refused, deferred or dropped once the volume reaches the floor, but the Home feed listener and the SDK's own garbage collection can still abort a full phone. Applied at the next cold launch."
+      "description": "Kill switch. Off lets a process launched with 200 MiB+ free run Firestore on a 20 MiB persistent cache instead of the memory cache; server reads, sync and the heartbeat still stop at the low-disk floor, but other reads can abort a full phone. Cold launch."
     },
     "attempt_heartbeats_enabled": {
       "defaultValue": {
