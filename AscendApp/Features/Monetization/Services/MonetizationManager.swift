@@ -164,6 +164,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         _ customer: MonetizationCustomerIdentity
     ) -> MonetizationIdentityTransition {
         invalidatePaywallAttempt()
+        cancelUnattributedGrantSettle()
         identifiedUserID = customer.userID
 
         // The pass that opened before auth belongs to whoever just claimed it; a different account
@@ -193,6 +194,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     @discardableResult
     func prepareIdentityReset() -> MonetizationIdentityTransition {
         invalidatePaywallAttempt()
+        cancelUnattributedGrantSettle()
         // The paywall screen view dedupes per pass, and retiring the pass is what makes every step
         // reportable again - including this one.
         identifiedUserID = nil
@@ -327,12 +329,13 @@ final class MonetizationManager: MonetizationIdentityManaging {
         _ state: MonetizationEntitlementState,
         for identity: MonetizationIdentityTransition
     ) -> Bool {
-        // Recorded before the state is adopted, because adopting is what turns the entitlement
-        // active and lets Home route. The paywall's own `.purchased` outcome cannot be relied on:
-        // the same flip retires the paywall attempt, so the outcome that follows is dropped and the
-        // grant would stay unattributed until the next launch.
-        if state.hasActiveEntitlement(configuration.revenueCatEntitlementID),
-           entitlementService.identityGeneration == identity {
+        // Every purchase Apple completed for this account reaches here, whether or not RevenueCat's
+        // answer already carries the entitlement - when it does not, a refresh turns it active
+        // without passing back through. Recorded before the state is adopted, because adopting is
+        // what turns the entitlement active and lets Home route. The paywall's own `.purchased`
+        // outcome cannot be relied on: the same flip retires the paywall attempt, so the outcome
+        // that follows is dropped and the grant would stay unattributed until the next launch.
+        if entitlementService.identityGeneration == identity {
             recordOnboardingAccessGranted(.purchase)
         }
 
@@ -485,6 +488,11 @@ final class MonetizationManager: MonetizationIdentityManaging {
             guard !Task.isCancelled else { return }
             self?.settleUnattributedAccessGrant()
         }
+    }
+
+    private func cancelUnattributedGrantSettle() {
+        unattributedGrantSettleTask?.cancel()
+        unattributedGrantSettleTask = nil
     }
 
     private func settleUnattributedAccessGrant() {

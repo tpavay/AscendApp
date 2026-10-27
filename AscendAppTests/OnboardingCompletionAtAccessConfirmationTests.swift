@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import AscendApp
 
@@ -96,6 +97,70 @@ struct OnboardingCompletionAtAccessConfirmationTests {
         #expect(fixture.manager.onboardingCompletionReasonForActiveAccess == .purchase)
     }
 
+    /// RevenueCat can finish Apple's transaction before its entitlement projection reaches the
+    /// returned CustomerInfo, and the executor's refresh then turns access on without handing the
+    /// manager the active state. That is still the purchase the climber just made.
+    @Test
+    func aPurchaseWhoseEntitlementArrivesThroughTheRefreshStaysAPurchase() async {
+        let fixture = Fixture(settlesImmediately: true)
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.start()
+        let executor = RevenueCatPurchaseExecutor(
+            telemetry: fixture.telemetry,
+            entitlementID: "app_access",
+            applySubscriptionStatus: { _ in },
+            refreshEntitlementState: {
+                fixture.entitlements.setEntitlementState(Self.entitlement)
+                fixture.coordinator.entitlementDidChange(Self.entitlement)
+                return .refreshed(Self.entitlement)
+            },
+            currentIdentityGeneration: { fixture.manager.identityGeneration },
+            adoptEntitlementState: { state, identity in
+                fixture.manager.adoptPurchaseEntitlementState(state, for: identity)
+            }
+        )
+
+        _ = await executor.executePurchase(productID: "ascend_annual") {
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false, entitlementState: .inactive)
+        }
+        await fixture.manager.settleUnattributedAccessGrantForTesting()
+
+        fixture.completeIfRouted()
+
+        let completed = fixture.records(named: "onboarding_flow_completed")
+        #expect(completed.count == 1)
+        #expect(completed.first?.parameters["completion_reason"] == .string("purchase"))
+    }
+
+    /// The settle window belongs to the account it was opened for. Switching accounts closes it, so
+    /// the next account's own grant opens a window of its own instead of waiting on the old one.
+    @Test(.timeLimit(.minutes(1)))
+    func switchingAccountsClosesTheSettleWindowItOpened() async {
+        let switched = OSAllocatedUnfairLock(initialState: false)
+        let (windowsOpened, opened) = AsyncStream<Void>.makeStream()
+        let fixture = Fixture(settleSleep: { _ in
+            opened.yield()
+            if !switched.withLock({ $0 }) {
+                try await Task.sleep(for: .seconds(3_600))
+            }
+        })
+        defer { fixture.cleanUp() }
+
+        fixture.coordinator.start()
+        fixture.entitlements.setEntitlementState(Self.entitlement)
+        for await _ in windowsOpened { break }
+
+        switched.withLock { $0 = true }
+        fixture.entitlements.identityResolution = Self.entitlement
+        let next = MonetizationCustomerIdentity(userID: "next-user", email: nil)
+        let transition = fixture.manager.prepareIdentity(next)
+        await fixture.manager.identify(next, transition: transition)
+        await fixture.manager.settleUnattributedAccessGrantForTesting()
+
+        #expect(fixture.manager.onboardingCompletionReasonForActiveAccess == .unknown)
+    }
+
     @Test
     func anExistingEntitlementStillCompletesAsExisting() {
         let fixture = Fixture(initialState: Self.entitlement)
@@ -123,7 +188,8 @@ struct OnboardingCompletionAtAccessConfirmationTests {
 
         init(
             initialState: MonetizationEntitlementState = .inactive,
-            settlesImmediately: Bool = false
+            settlesImmediately: Bool = false,
+            settleSleep: (@Sendable (Duration) async throws -> Void)? = nil
         ) {
             defaults = UserDefaults(suiteName: suiteName)!
             defaults.removePersistentDomain(forName: suiteName)
@@ -137,7 +203,8 @@ struct OnboardingCompletionAtAccessConfirmationTests {
                 paywallPresenter: paywallPresenter,
                 telemetry: telemetry,
                 onboardingLifecycle: lifecycle,
-                unattributedGrantSettleDelay: settlesImmediately ? .zero : .seconds(3_600)
+                unattributedGrantSettleDelay: settlesImmediately ? .zero : .seconds(3_600),
+                unattributedGrantSleep: settleSleep ?? { try await Task.sleep(for: $0) }
             )
             manager.configure()
             coordinator = AppAccessPaywallCoordinator(
