@@ -125,6 +125,27 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off hides every unlock surface: no carried items drawn, no unlock moment, no editor row. Display only; nothing is written or deleted, and earned items return with the switch."
+    },
+    "firestore_memory_cache_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off lets a process launched with 200 MiB+ free run Firestore on a 20 MiB persistent cache instead of the memory cache; server reads, sync and the heartbeat still stop at the low-disk floor, but other reads can abort a full phone. Cold launch."
+    },
+    "attempt_heartbeats_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops writing the sixty-second liveness heartbeat (users/{uid}/attempt_heartbeats) during a headphone session; nothing is queued, the climb itself is untouched, and the server's stall detector simply sees no heartbeat for that session."
+    },
+    "headphone_session_auto_resume_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops resuming a dead headphone session automatically on relaunch (the wall-clock gap credit and the sensor restart); every recovered draft goes through the recovery screen instead, untouched until the climber acts."
     }
   },
   "parameterGroups": {},

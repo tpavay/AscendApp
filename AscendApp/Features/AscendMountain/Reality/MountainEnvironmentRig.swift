@@ -230,7 +230,7 @@ final class MountainEnvironmentRig {
         case .post where marker.design == MountainHauntedStretch.lanternDesign:
             entity = MountainHauntedProps.lantern(for: marker)
         case .post:
-            entity = makePost(for: marker)
+            entity = MountainTrailPost.make(for: marker, stone: resources.stairMaterials[0])
         case .line:
             entity = makeLine(for: marker)
         }
@@ -287,7 +287,7 @@ final class MountainEnvironmentRig {
         }
 
         let width = proportions.plaqueWidth
-        let face = Self.plaqueFace(width: width, height: width / 2, cornerRadius: 0.06, title: marker.title, subtitle: marker.subtitle)
+        let face = MountainPlaque.face(width: width, height: width / 2, cornerRadius: 0.06, title: marker.title, subtitle: marker.subtitle)
         face.position = [0, lintelY, lintelDepth / 2 + 0.01]
         gate.addChild(face)
         if hauntedSteps?.contains(marker.step) == true {
@@ -295,9 +295,6 @@ final class MountainEnvironmentRig {
         }
         return gate
     }
-
-    /// Ascend lime, the colour of what the climber has earned.
-    private static let earnedLime = UIColor(red: 0.53, green: 0.83, blue: 0.04, alpha: 1)
 
     /// A lime flag on a mast rising from a summit gate's crown, so a summit reads from far down
     /// the stairs as the top of something rather than one more gate.
@@ -321,8 +318,8 @@ final class MountainEnvironmentRig {
         let clothHeight: Float = 0.78
         if let cloth = try? MeshResource.generate(from: [Self.clothDescriptor(width: 1.35, height: clothHeight)]) {
             var material = PhysicallyBasedMaterial()
-            material.baseColor = .init(tint: earnedLime)
-            material.emissiveColor = .init(color: earnedLime)
+            material.baseColor = .init(tint: MountainPlaque.earnedAccent.uiColor)
+            material.emissiveColor = .init(color: MountainPlaque.earnedAccent.uiColor)
             material.emissiveIntensity = 0.45
             material.roughness = .init(floatLiteral: 0.85)
             material.metallic = .init(floatLiteral: 0)
@@ -365,29 +362,6 @@ final class MountainEnvironmentRig {
         return descriptor
     }
 
-    /// A stone trail post just outside the right kerb, its sign turned in toward the climber.
-    private func makePost(for marker: MountainMarker) -> Entity {
-        let post = Entity()
-        let stone = resources.stairMaterials[0]
-        let side = Float(MountainStairGeometry.width / 2 + MountainChunkGeometry.kerbWidth) + 0.3
-        let top: Float = 1.15
-        let bottom: Float = -1
-        let shaft = ModelEntity(mesh: .generateBox(size: [0.2, top - bottom, 0.2], cornerRadius: 0.03), materials: [stone])
-        shaft.position = [side, (top + bottom) / 2, 0]
-        post.addChild(shaft)
-
-        let sign = Entity()
-        sign.position = [side - 0.06, top - 0.04, 0]
-        sign.orientation = simd_quatf(angle: -0.35, axis: [0, 1, 0])
-        let board = ModelEntity(mesh: .generateBox(size: [0.86, 0.46, 0.07], cornerRadius: 0.03), materials: [stone])
-        sign.addChild(board)
-        let face = Self.plaqueFace(width: 0.8, height: 0.4, cornerRadius: 0.04, title: marker.title, subtitle: marker.subtitle)
-        face.position = [0, 0, 0.04]
-        sign.addChild(face)
-        post.addChild(sign)
-        return post
-    }
-
     /// Gold, the colour of the climber's best everywhere it appears.
     private static let bestGold = UIColor(red: 0.83, green: 0.69, blue: 0.22, alpha: 1)
 
@@ -406,74 +380,12 @@ final class MountainEnvironmentRig {
         let sign = Entity()
         sign.position = [side - 0.06, 1.05, 0]
         sign.orientation = simd_quatf(angle: -0.35, axis: [0, 1, 0])
-        sign.addChild(Self.plaqueFace(
+        sign.addChild(MountainPlaque.face(
             width: 0.9, height: 0.45, cornerRadius: 0.05,
             title: marker.title, subtitle: marker.subtitle, accent: MountainColor(red: 0.83, green: 0.69, blue: 0.22), titleSize: 170
         ))
         mark.addChild(sign)
         return mark
-    }
-
-    /// A plaque carrying the marker's words. The words are drawn off the main actor - a plaque
-    /// image is tens of milliseconds, more than a frame - and a marker appears far up the stairs,
-    /// so its face shows plain stone for the moment until they arrive.
-    private static func plaqueFace(
-        width: Float,
-        height: Float,
-        cornerRadius: Float,
-        title: String,
-        subtitle: String?,
-        accent: MountainColor = MountainColor(red: 0.53, green: 0.83, blue: 0.04),
-        titleSize: CGFloat = 250
-    ) -> ModelEntity {
-        let face = ModelEntity(
-            mesh: .generatePlane(width: width, height: height, cornerRadius: cornerRadius),
-            materials: [UnlitMaterial(color: UIColor(red: 0.12, green: 0.13, blue: 0.14, alpha: 1))]
-        )
-        Task { [weak face] in
-            let image = await Task.detached(priority: .utility) {
-                plaqueImage(title: title, subtitle: subtitle, accent: accent, titleSize: titleSize)
-            }.value
-            guard let image, let face,
-                  let texture = try? await TextureResource(image: image, withName: nil, options: .init(semantic: .color)) else { return }
-            var material = UnlitMaterial(applyPostProcessToneMap: false)
-            material.color = .init(tint: .white, texture: .init(texture))
-            face.model?.materials = [material]
-        }
-        return face
-    }
-
-    /// The marker's words on dark stone: the number large, the unit in the accent.
-    private nonisolated static func plaqueImage(title: String, subtitle: String?, accent: MountainColor, titleSize: CGFloat) -> CGImage? {
-        let size = CGSize(width: 1_024, height: 512)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
-            UIColor(red: 0.12, green: 0.13, blue: 0.14, alpha: 1).setFill()
-            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 36).fill()
-            UIColor(white: 1, alpha: 0.14).setStroke()
-            let border = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 14, dy: 14), cornerRadius: 26)
-            border.lineWidth = 6
-            border.stroke()
-
-            let style = NSMutableParagraphStyle()
-            style.alignment = .center
-            let titleFont = UIFont(name: "Montserrat-Bold", size: titleSize) ?? .systemFont(ofSize: titleSize, weight: .heavy)
-            let subtitleFont = UIFont(name: "Montserrat-Bold", size: 92) ?? .systemFont(ofSize: 92, weight: .bold)
-            let titleHeight: CGFloat = subtitle == nil ? 330 : 290
-            (title as NSString).draw(
-                // A smaller title sits lower in the same band, so it stays centred over the unit.
-                in: CGRect(x: 0, y: (subtitle == nil ? 80 : 30) + (250 - titleSize) * 0.6, width: size.width, height: titleHeight),
-                withAttributes: [.font: titleFont, .foregroundColor: UIColor.white, .paragraphStyle: style]
-            )
-            if let subtitle {
-                (subtitle as NSString).draw(
-                    in: CGRect(x: 0, y: 330, width: size.width, height: 130),
-                    withAttributes: [.font: subtitleFont, .foregroundColor: UIColor(red: accent.red, green: accent.green, blue: accent.blue, alpha: 1), .kern: 14, .paragraphStyle: style]
-                )
-            }
-        }
-        return image.cgImage
     }
 
     /// A colour rounded coarsely enough that the sky is rebuilt only for a visible change.

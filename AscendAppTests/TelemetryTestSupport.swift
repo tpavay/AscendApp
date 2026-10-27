@@ -176,13 +176,27 @@ final class RecordingCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
         let severity: TelemetryErrorSeverity
     }
 
+    struct RecordedMessage: Equatable {
+        let message: String
+        let code: String
+        let additionalInfo: [String: String]?
+        let severity: TelemetryErrorSeverity
+    }
+
     private let lock = NSLock()
     private var recorded: [RecordedError] = []
+    private var recordedMessageList: [RecordedMessage] = []
 
     var recordedErrors: [RecordedError] {
         lock.lock()
         defer { lock.unlock() }
         return recorded
+    }
+
+    var recordedMessages: [RecordedMessage] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedMessageList
     }
 
     func setCollectionEnabled(_ enabled: Bool) {}
@@ -203,6 +217,24 @@ final class RecordingCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
         recorded.append(
             RecordedError(
                 context: context,
+                code: code,
+                additionalInfo: additionalInfo,
+                severity: severity
+            )
+        )
+        lock.unlock()
+    }
+
+    func record(
+        message: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {
+        lock.lock()
+        recordedMessageList.append(
+            RecordedMessage(
+                message: message,
                 code: code,
                 additionalInfo: additionalInfo,
                 severity: severity

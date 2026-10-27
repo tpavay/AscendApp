@@ -54,6 +54,9 @@ struct HomeView: View {
     /// evaluated with the state Home's last body pass captured - so a climb started on the
     /// Mountain held a Classic session, which is what the Live Activity then reopened.
     @State private var activeJustClimbSession: LiveClimbSessionViewModel?
+    /// Whether any headphone session is running, which is when the globe stands down. Injected so
+    /// a hosted test can give Home a registry no other suite's session is writing into.
+    private let sessionRegistry: ActiveHeadphoneWorkoutRuntimeRegistry
     @State private var showingTodayActivityList = false
     @State private var sheetDetent: BrowseSheetDetent
     @State private var selectedStepTier: ClimbTier?
@@ -88,11 +91,13 @@ struct HomeView: View {
         globeViewModel: GlobeViewModel = GlobeViewModel(),
         enrichmentService: AppleHealthEnrichmentService = .shared,
         initialSheetDetent: BrowseSheetDetent = .compact,
-        makeJustClimbSession: @escaping JustClimbSessionFactory = HomeView.liveJustClimbSession
+        makeJustClimbSession: @escaping JustClimbSessionFactory = HomeView.liveJustClimbSession,
+        sessionRegistry: ActiveHeadphoneWorkoutRuntimeRegistry = .shared
     ) {
         self.homeDashboard = homeDashboard
         self.tabRouter = tabRouter
         self.makeJustClimbSession = makeJustClimbSession
+        self.sessionRegistry = sessionRegistry
         _todayActivity = State(initialValue: todayActivity)
         _globeViewModel = State(initialValue: globeViewModel)
         _enrichmentService = State(initialValue: enrichmentService)
@@ -140,13 +145,21 @@ struct HomeView: View {
                     // gradient's darkest stop: a hard line across the bottom of the
                     // globe, just above the fold.
                     ZStack {
-                        GlobeView(
-                            viewModel: globeViewModel,
-                            onSelectClimb: { climb in
-                                selectGlobePin(climb)
-                            }
-                        )
-                        .offset(y: globeVerticalOffset(sheetHeight: sheetVisibleHeight))
+                        if ActiveSessionFootprintPolicy.mountsGlobe(sessionIsActive: sessionRegistry.hasActiveSession) {
+                            GlobeView(
+                                viewModel: globeViewModel,
+                                onSelectClimb: { climb in
+                                    selectGlobePin(climb)
+                                }
+                            )
+                            .offset(y: globeVerticalOffset(sheetHeight: sheetVisibleHeight))
+                        } else {
+                            // The MapKit globe is the heaviest thing in the process and nobody can
+                            // see it under a pushed climb, so it is unmounted for the session and
+                            // rebuilt when the climb pops (docs/headphone-session-recovery.md).
+                            Color.black
+                                .accessibilityIdentifier(ActiveSessionFootprintPolicy.unmountedGlobeIdentifier)
+                        }
 
                         GlobeEdgeOverlays()
 

@@ -9,6 +9,13 @@ import type {
 export const transactionalEmailConfig =
   defineSecret("TRANSACTIONAL_EMAIL_CONFIG");
 export const DEFAULT_MARKETING_WEBSITE_URL = "https://ascendstepper.com";
+/**
+ * Ascend's production App Store Connect app id (data/app-setup-runbook.md).
+ * Deliberately environment-invariant, unlike `getMarketingWebsiteUrl()`: this
+ * is the one public App Store listing, the same regardless of which Firebase
+ * project the sweep happens to run in.
+ */
+export const APP_STORE_URL = "https://apps.apple.com/app/id6757202987";
 export const DEFAULT_TRANSACTIONAL_REPLY_TO_EMAIL =
   "support@ascendstepper.com";
 export const MIN_UNSUBSCRIBE_SIGNING_KEY_LENGTH = 32;

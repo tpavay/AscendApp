@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   APP_PARAMETER_SOURCE_PATHS,
+  MAX_PARAMETER_DESCRIPTION_LENGTH,
   SETTING_PARAMETERS,
   appFlagKeys,
   findActiveKillSwitches,
@@ -69,6 +70,25 @@ test("a malformed checked-in parameter is reported by shape", () => {
   assert.ok(problems.some((problem) => /must be declared BOOLEAN/.test(problem)));
   assert.ok(problems.some((problem) => /must ship on/.test(problem)));
   assert.ok(problems.some((problem) => /needs a description/.test(problem)));
+});
+
+test("a description Firebase would refuse at publish time is reported by shape", () => {
+  const parameter = (length) => ({
+    valueType: "BOOLEAN",
+    defaultValue: {value: "true"},
+    description: "x".repeat(length),
+  });
+
+  assert.deepEqual(
+    templateShapeProblems({parameters: {at_the_cap_enabled: parameter(MAX_PARAMETER_DESCRIPTION_LENGTH)}}),
+    [],
+  );
+
+  const problems = templateShapeProblems({
+    parameters: {over_the_cap_enabled: parameter(MAX_PARAMETER_DESCRIPTION_LENGTH + 1)},
+  });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /over_the_cap_enabled has a 257-character description/);
 });
 
 test("the template is wired into firebase.json", () => {

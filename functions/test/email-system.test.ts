@@ -195,7 +195,7 @@ test("onboarding templates render action CTAs and privacy footer", () => {
   );
   assert.match(beforePaywall.text, /Privacy Policy:/);
 
-  assert.equal(afterPaywall.subject, "Race real climbs");
+  assert.equal(afterPaywall.subject, "Every climb ranked");
   assert.match(afterPaywall.text, /Leaderboards, First Ascents/);
   assert.match(afterPaywall.text, /Start climbing:/);
   assert.match(

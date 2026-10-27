@@ -28,6 +28,7 @@ interface FakePortOptions {
   revenueCatAnalyticsOutbox?: number;
   homeTodayActivityRows?: number;
   stravaRecords?: number;
+  attemptHeartbeatFlags?: number;
   failOn?: string[];
   failListing?: boolean;
 }
@@ -192,6 +193,14 @@ function makeFakePort(options: FakePortOptions = {}): {
       }
       deleted.push("strava");
       return options.stravaRecords ?? 0;
+    },
+
+    async deleteAttemptHeartbeatFlags() {
+      if (failOn.has("attempt_heartbeat_flags")) {
+        throw new Error("cannot delete attempt_heartbeat_flags");
+      }
+      deleted.push("attempt_heartbeat_flags");
+      return options.attemptHeartbeatFlags ?? 0;
     },
   };
 
@@ -1358,6 +1367,25 @@ test("disconnects the deleted climber's Strava", async () => {
   const summary = await cleanupDeletedUser("user-a", port);
 
   assert.equal(summary.deletedStravaRecords, 3);
+  assert.ok(deleted.includes("strava"));
+});
+
+test("deletes the stall flags that name the deleted climber", async () => {
+  const {deleted, port} = makeFakePort({attemptHeartbeatFlags: 2});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedAttemptHeartbeatFlags, 2);
+  assert.ok(deleted.includes("attempt_heartbeat_flags"));
+});
+
+test("a failed stall-flag sweep is reported and costs nothing else", async () => {
+  const {deleted, port} = makeFakePort({failOn: ["attempt_heartbeat_flags"]});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedAttemptHeartbeatFlags, 0);
+  assert.ok(summary.failures.some((failure) => failure.startsWith("attempt_heartbeat_flags:")));
   assert.ok(deleted.includes("strava"));
 });
 

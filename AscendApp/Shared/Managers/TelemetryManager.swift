@@ -411,6 +411,27 @@ final class TelemetryManager: @unchecked Sendable {
         }
     }
 
+    /// Records a message event: a fact worth an issue of its own that is not an error thrown in
+    /// this process, such as the crash diagnostic iOS hands over about the previous one.
+    /// - additionalInfo uses [String: String] to prevent PII leakage
+    /// - The message is the event, so it is delivered whole; the caller bounds it
+    func recordMessage(
+        _ message: String,
+        code: String,
+        additionalInfo: [String: String]? = nil,
+        severity: TelemetryErrorSeverity = .error
+    ) {
+        deliveryLane.withLock {
+            guard lock.withLock(\.isCollectionEnabled) else { return }
+            crashlyticsReporter.record(
+                message: message,
+                code: code,
+                additionalInfo: additionalInfo,
+                severity: severity
+            )
+        }
+    }
+
     @discardableResult
     func recordError(
         _ error: Error,

@@ -5,7 +5,9 @@ import SwiftUI
 /// Compiled into Dev builds only; Staging and Release never contain it.
 struct AscendMountainDebugOverlay: View {
     @Bindable var state: MountainDebugState
-    @State private var isExpanded = true
+    /// Starts collapsed when launched with `-AscendMountainDebugOverlayCollapsed 1`, so a
+    /// headless capture of the scene is not hidden under the readout.
+    @State private var isExpanded = !UserDefaults.standard.bool(forKey: "AscendMountainDebugOverlayCollapsed")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

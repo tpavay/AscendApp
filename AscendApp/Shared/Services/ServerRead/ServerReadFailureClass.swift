@@ -37,6 +37,11 @@ enum ServerReadFailureClass: String, Sendable, CaseIterable {
         if error is CancellationError || error is any ServerReadTimeoutError {
             return .unreachable
         }
+        // The server was never asked: the volume is at the low-disk floor and the read was
+        // refused before it could become a LevelDB write. Clears on its own, like a dropped stream.
+        if error is FirestoreLowDiskRefusal {
+            return .unreachable
+        }
 
         let nsError = error as NSError
         switch nsError.domain {

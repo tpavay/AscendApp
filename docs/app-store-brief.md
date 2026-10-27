@@ -9,24 +9,24 @@ for App Store listing work and for evaluating onboarding screen templates.
 - [`docs/onboarding-design-guide.md`](onboarding-design-guide.md) — existing template
   analysis (Puff Count chosen as the structural reference) and the onboarding North Star.
   Read this alongside the brief when picking a template.
-- [`docs/app-store-racing-repositioning-proposal.md`](app-store-racing-repositioning-proposal.md)
-  owns the proposed racing name, subtitle, keywords, and description. This brief describes
+- [`docs/app-store-ranked-repositioning-proposal.md`](app-store-ranked-repositioning-proposal.md)
+  owns the proposed ranked name, subtitle, keywords, and description. This brief describes
   the product; that file is the listing copy itself.
 
 ---
 
 ## What it is
 
-Ascend is a **stair stepper racing app for iOS**. Racing is the product; measuring the
-session is a byproduct. Users pick a real tower, race its actual step count in real time
-against every climber already on it, each at their best, via headphone-motion step
-counting, and either reach the target (completion) or don't (failed attempt). The
+Ascend is the iOS app for **ranked stair stepper workouts**. Ranking is the product;
+measuring the session is a byproduct. Users pick a real tower, climb its actual step count
+in real time beside every climber already on it, each at their best, via headphone-motion
+step counting, and either reach the target (completion) or don't (failed attempt). The
 leaderboard is the conversation.
 
-`CLAUDE.md` ("What Is Ascend") owns the positioning statement and the tower-running market
-framing behind it. Read it there rather than from a second copy.
+`CLAUDE.md` ("What Is Ascend") owns the positioning statement and the framing behind it.
+Read it there rather than from a second copy.
 
-**The core promise:** Race real towers. From any gym.
+**The core promise:** Every stair stepper workout, ranked. Real towers, from any gym.
 
 ## Who it's for
 
@@ -50,7 +50,7 @@ First Ascent slot. This is the core retention loop.
 
 ## Core features
 
-- **Live Climbs** (the hero) — race to a landmark's step target
+- **Live Climbs** (the hero) - a ranked climb to a landmark's step target
 - **Leaderboards** — per-climb completion times + global aggregate (steps is canonical)
 - **First Ascents** — permanent "world first" prestige per climb
 - **Best Efforts** — a personal record book (most steps, longest climb, highest avg SPM…)
@@ -109,8 +109,8 @@ Visual rules the chosen template must satisfy:
 
 ## What the onboarding must accomplish
 
-Sell the competitive hook fast — *you're racing real people up real landmarks, and First
-Ascents can never be reclaimed* — collect the required profile fields, prime, and convert
+Sell the competitive hook fast - *you're ranked against real people on real landmarks, and
+First Ascents can never be reclaimed* - collect the required profile fields, prime, and convert
 to a hard paywall. Assume a serious user; no tutorial scaffolding.
 
 ## Template direction (for whoever's browsing templates)

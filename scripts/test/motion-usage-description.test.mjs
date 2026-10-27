@@ -16,20 +16,33 @@ const infoPlistPath = join(repositoryRoot, "AscendApp/Info.plist");
 const MAXIMUM_USAGE_DESCRIPTION_LENGTH = 140;
 
 // The audited Core Motion surface: one CMHeadphoneMotionManager feed, its sample
-// type, the manager seam behind it, the pre-countdown access gate, and the
-// readiness probe. Any other file reaching for Core Motion means a
-// second sensor consumer exists and the usage string no longer describes it.
+// type, the manager seam behind it, the pre-countdown access gate, the
+// readiness probe, and the one CMPedometer read that fills the gap after a
+// session's process died (docs/headphone-session-recovery.md). Any other file
+// reaching for Core Motion means a sensor consumer exists that the usage string
+// no longer describes.
 const CORE_MOTION_SOURCE_PATHS = [
   "AscendApp/Features/Climbs/Services/HeadphoneMotionReadinessService.swift",
   "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionAccessGate.swift",
   "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionManaging.swift",
   "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionSample.swift",
-  "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionSessionService.swift"
+  "AscendApp/Shared/Services/HeadphoneMotion/HeadphoneMotionSessionService.swift",
+  "AscendApp/Shared/Services/HeadphoneSession/PhoneStepEstimator.swift"
 ];
 
-// Every Core Motion type that starts a sensor feed. CMHeadphoneMotionManager is
-// the only one Ascend is allowed to use; the rest would each add a feature the
-// usage string does not mention.
+// The Core Motion readers Ascend starts, each with the words in the usage
+// description that tell the climber about it: the headphone feed, and the
+// phone's own step count across a gap after a session's process died, read once
+// at resume and never live. A reader is allowed exactly when the alert iOS shows
+// describes it.
+const DESCRIBED_CORE_MOTION_READERS = {
+  CMHeadphoneMotionManager: "headphones",
+  CMPedometer: "phone's steps"
+};
+
+// Every Core Motion type that starts a sensor feed. Any of them outside
+// DESCRIBED_CORE_MOTION_READERS would add a feature the usage string does not
+// mention.
 const CORE_MOTION_READER_TYPES = [
   "CMAltimeter",
   "CMBatchedSensorManager",
@@ -117,8 +130,10 @@ test("the motion usage description stays plain, short, and feature-named", async
   );
 });
 
-test("the only Core Motion reader in the app is the headphone motion feed", async () => {
+test("every Core Motion reader in the app is one the usage description describes", async () => {
   const sources = await swiftSources();
+  const plist = await readFile(infoPlistPath, "utf8");
+  const description = infoPlistString(plist, "NSMotionUsageDescription");
 
   const importers = sources
     .filter(([, source]) => /^@?\w*\s*import CoreMotion$/m.test(source))
@@ -134,16 +149,13 @@ test("the only Core Motion reader in the app is the headphone motion feed", asyn
   const readerPattern = new RegExp(`\\b(${CORE_MOTION_READER_TYPES.join("|")})\\b`, "g");
 
   for (const [path, source] of sources) {
-    const readers = [...new Set([...source.matchAll(readerPattern)].map(([, type]) => type))];
-    if (readers.length === 0) {
-      continue;
+    for (const [, reader] of source.matchAll(readerPattern)) {
+      const phrase = DESCRIBED_CORE_MOTION_READERS[reader];
+      assert.ok(
+        phrase !== undefined && description.includes(phrase),
+        `${path} starts ${reader}, a Core Motion feed the usage description does not describe: "${description}"`
+      );
     }
-
-    assert.deepEqual(
-      readers,
-      ["CMHeadphoneMotionManager"],
-      `${path} starts a Core Motion feed the usage description does not describe: ${readers}`
-    );
   }
 });
 

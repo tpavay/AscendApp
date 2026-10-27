@@ -25,6 +25,7 @@ A *new* top-level server-owned collection still needs its own `allow read, write
 - The derivation reads the private canonical record - `users/{uid}/workouts` for standings - and writes the projection through the Admin SDK, which bypasses rules. One derivation, called by every trigger and by the backfill script; never a per-trigger copy.
 - A public projection that names climbers carries their identity from the public snapshot read inside the same transaction, refreshes it when the public profile changes, and is scrubbed by the account-deletion sweep. `home_today_activity/global` (`functions/src/homeTodayActivity.ts`) is the worked example: one document, rows rewritten on `public_profile/current` changes, rows removed by `cleanupDeletedUser`.
 - **Deriving is not verifying.** The canonical records are still client-authored, and Ascend has no App Check and no server-side sensor ingestion, so the server's own evidence is only as good as the device that produced it. Bound what you derive by what is physically possible (see `ascend-leaderboards` for the standings envelope) and say plainly that the remainder is open. Claiming a derived number is "verified" is how a known gap becomes an assumed guarantee.
+- `users/{uid}/attempt_heartbeats/{sessionID}` is the one owner-written liveness document: the running session writes it every sixty seconds and the server only reads it (collection-group query, `flagStalledAttemptHeartbeats`) and marks it `stalled`. The flags it derives, `attempt_heartbeat_flags`, are server-only like every other projection. `docs/headphone-session-recovery.md`.
 - A seeded fixture row in a server-owned collection needs a synthetic marker (`isSynthetic: true`), or the derivation will delete it for having no evidence behind it. See `ascend-dev-fixtures`.
 
 When changing Firestore document schemas, always update in this order:
@@ -257,7 +258,12 @@ A network handoff is enough: the stream runs on gRPC with its own DNS and TLS, s
 - `quietRetry: false` is for a caller that already has an immediate, designed answer for an unreachable server.
   `ModerationStore.hydrate` is the one such caller: it falls back to the cached block list at once, and every cross-user identity stays masked until it does.
 
-`ServerReadFailureClass` sorts a failure into unreachable (14, 4, 1, 13, transport errors, app timeouts), refused (7, 16) or unexpected (everything else, a missing index included).
+Ascend runs Firestore on a memory cache, so no read or write touches LevelDB, whose commit aborts the process on a volume with no free blocks - which is how a Live Climb died on 2026-10-23.
+Before every attempt, server or cache, the path still asks `FirestoreDiskGuard.shared.localCacheWriteRefusal()`, for a process the `firestore_memory_cache_enabled` kill switch put on the persistent cache: while that volume is at the floor the read is refused as `unreachable` before the SDK is asked, with no retry and no fallback, and `WorkoutSyncCoordinator` defers its pass on the same answer.
+A memory-cache process is never refused.
+`docs/firestore-disk-full-guard.md` owns the policy, the numbers and what the gate cannot reach in a persistent process.
+
+`ServerReadFailureClass` sorts a failure into unreachable (14, 4, 1, 13, transport errors, app timeouts, and the low-disk refusal), refused (7, 16) or unexpected (everything else, a missing index included).
 Keep them apart in whatever a feature shows and records: a refusal and a dropped stream shared one sentence on the Leaderboards tab, which is why a five-minute blip on 2026-10-03 read as a repeat of the 2026-09-25 outage.
 A new app-side timeout error conforms to `ServerReadTimeoutError` so it classifies as unreachable.
 

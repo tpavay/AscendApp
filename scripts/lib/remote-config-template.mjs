@@ -338,6 +338,13 @@ export function flagParityProblems(localTemplate, swiftSource) {
 }
 
 /**
+ * Firebase refuses a parameter description longer than this (`DESCRIPTION_EXCEEDS_MAXIMUM_SIZE`)
+ * at publish time only: the dry run and the template's own validation both pass it, so a long
+ * description surfaced as a failed Deploy Staging publish (run 40143561727, 403 characters).
+ */
+export const MAX_PARAMETER_DESCRIPTION_LENGTH = 256;
+
+/**
  * Where the checked-in template departs from the shape every kill switch must have.
  *
  * The template is the *healthy* state, so every parameter ships on: a checked-in `false` would
@@ -382,6 +389,12 @@ export function templateShapeProblems(localTemplate) {
 
     if (!(parameter?.description?.length > 0)) {
       problems.push(`${key} needs a description saying what turning it off stops.`);
+    } else if (parameter.description.length > MAX_PARAMETER_DESCRIPTION_LENGTH) {
+      problems.push(
+        `${key} has a ${parameter.description.length}-character description; Firebase refuses ` +
+          `anything over ${MAX_PARAMETER_DESCRIPTION_LENGTH} at publish time, after every ` +
+          "dry run has passed it.",
+      );
     }
 
     return problems;

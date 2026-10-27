@@ -8,10 +8,10 @@
     "preview": "astro preview"
   },
   "dependencies": {
-    "astro": "^7.1.5"
+    "astro": "^7.3.8"
   },
   "overrides": {
     "esbuild": "^0.28.1",
-    "sharp": "^0.35.0"
+    "undici": "^8.12.2"
   }
 }

@@ -251,7 +251,7 @@ The catalogue ships the organiser's own current number, 2,149, and the 10-step g
 The TWA record for the Tokyo Tower stair race is 500 stairs over a 150 m height gain, across 14 editions.
 Tokyo Tower's own site advertises the Open-Air Outdoor Stairs Walk as about 600 steps to the 150 m Main Deck: <https://en.tokyotower.co.jp/plan/open_air_stair/>.
 Both routes end at 150 m; they start in different places.
-Ascend is a racing app, so the catalogue ships the sanctioned race distance, 500.
+Ascend ranks climbs on the real course, so the catalogue ships the sanctioned race distance, 500.
 The catalogue's previous 1,832 came from the 333 m antenna height and corresponds to no route at all.
 
 **El Penon de Guatape. 649 / 659 / 708 / 740.**

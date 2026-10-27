@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 ---
-<BaseLayout title="Privacy Policy - Ascend" description="Privacy Policy for Ascend, the iOS stair stepper racing app.">
+<BaseLayout title="Privacy Policy - Ascend" description="Privacy Policy for Ascend, the iOS app for ranked stair stepper workouts.">
 
   <style>
     .privacy-page {
@@ -96,18 +96,18 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   <div class="privacy-page">
     <main>
       <h1>Privacy Policy</h1>
-      <p class="last-updated">Last updated: September 29, 2026</p>
+      <p class="last-updated">Last updated: October 23, 2026</p>
 
       <h2>Introduction</h2>
-      <p>Ascend ("we", "our", or "us") is a stair stepper racing app. You race real landmark climbs on a stair stepper, and Ascend records those climbs and the leaderboards, achievements, and progress that come out of them. This Privacy Policy explains what information we collect, how we use it, how we share it, and the choices you have.</p>
+      <p>Ascend ("we", "our", or "us") ranks stair stepper workouts. You climb real landmarks on a stair stepper, and Ascend records those climbs and the leaderboards, achievements, and progress that come out of them. This Privacy Policy explains what information we collect, how we use it, how we share it, and the choices you have.</p>
       <p>Every climb, routine, and record in Ascend comes from a session you performed in Ascend. Ascend does not import workouts from Apple Health or any other app, and it does not accept manually entered workouts.</p>
 
       <h2>Information We Collect</h2>
       <p>Depending on how you use Ascend, we may collect the following information:</p>
       <ul>
         <li><strong>Account information:</strong> Your email address, authentication provider, user ID, display name, profile photo, joined date, and account settings.</li>
-        <li><strong>Profile and onboarding information:</strong> Display name, private date of birth, derived age, gender, body height, body weight, city, region, country, stair-stepper access, exercise baseline, goals, motivation, notification preference, and first-climb recommendation. Ascend publishes only your derived age for leaderboard and profile context, never your date of birth.</li>
-        <li><strong>Climb and fitness data:</strong> Steps, floors, duration, cadence, heart rate, calories, session dates, Live Climb attempt state, climb completion state, personal records, leaderboard entries, achievements, and related session metrics, all produced by sessions you perform in Ascend.</li>
+        <li><strong>Profile and onboarding information:</strong> Display name, private date of birth, derived age, gender, body height, body weight, city, region, country, stair-stepper access, exercise baseline, goals, motivation, notification preference, and first-climb recommendation. Ascend publishes only your derived age for leaderboard and profile context, never your date of birth. Ascend also uses your date of birth to send you a birthday email on your birthday, if you have chosen to receive climb and progress emails.</li>
+        <li><strong>Climb and fitness data:</strong> Steps, floors, duration, cadence, heart rate, calories, session dates, Live Climb attempt state, climb completion state, personal records, leaderboard entries, achievements, and related session metrics, all produced by sessions you perform in Ascend. While a session is running, Ascend also writes a liveness heartbeat to your account about once a minute (steps, duration, session type and the time) so we can tell when a climb stopped counting because the app was closed; if that happens, Ascend may read your iPhone's own step count for the gap and offer it to you as an estimate to check against the machine - it is never recorded without your confirmation.</li>
         <li><strong>Step-accuracy debugging data:</strong> If you enter what your stair-stepper's own display showed after a climb and it differs from Ascend's count by 30 steps or more in either direction, and your headphones stayed connected for the whole climb, Ascend may upload that climb's raw motion data and detected step events to help us fix where the count drifted. This is private to your account and used only to improve step-counting accuracy - it never changes the climb's recorded result.</li>
         <li><strong>Routines you create:</strong> The name, description, interval plan, folder organization, and completion history of routines you build yourself. These are backed up to your account so they survive a reinstall and appear on your other devices. They are private to you and are never shown to other users.</li>
         <li><strong>Apple Health data:</strong> With your permission, Ascend reads heart-rate and active-energy samples from Apple HealthKit for the time window of a climb you performed in Ascend, and attaches your average and maximum heart rate, the heart-rate series, and active-energy calories to that climb. Those two types are the only Apple Health data Ascend asks for. Ascend does not read workouts from Apple Health, does not read anything outside a climb's own time window, and does not write anything to Apple Health.</li>
@@ -140,7 +140,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       </ul>
 
       <h2>Public and Shared Surfaces</h2>
-      <p>Ascend is built around racing other climbers, so some information is visible to other users on profiles, leaderboards, climb history, and achievement surfaces. This may include your display name, profile photo, your Ascend Mountain athlete's look, public profile statistics, city-level profile location, joined date, achievements, climb completions, leaderboard rankings, and public climb summaries. Public profile statistics include your average and maximum heart rate across your climbs when any of your climbs carries heart rate, unless you turn off "Show my heart rate on my profile" in Settings under Privacy. Your email address, authentication provider details, personal block list, the climbers you choose to race, submitted reports, private account fields, and private workout backups are not meant for public display.</p>
+      <p>Ascend is built around ranking you against other climbers, so some information is visible to other users on profiles, leaderboards, climb history, and achievement surfaces. This may include your display name, profile photo, your Ascend Mountain athlete's look, public profile statistics, city-level profile location, joined date, achievements, climb completions, leaderboard rankings, and public climb summaries. Public profile statistics include your average and maximum heart rate across your climbs when any of your climbs carries heart rate, unless you turn off "Show my heart rate on my profile" in Settings under Privacy. Your email address, authentication provider details, personal block list, the climbers you choose to race, submitted reports, private account fields, and private workout backups are not meant for public display.</p>
 
       <h2>Apple HealthKit</h2>
       <p>Ascend uses Apple HealthKit only with your permission, and only to enrich a climb you performed in Ascend. When you finish a climb, Ascend reads the heart-rate and active-energy samples Apple Health holds for that climb's own time window, and attaches your average and maximum heart rate, the heart-rate series, and active-energy calories to the climb. This is how an Apple Watch, or any other wearable that writes to Apple Health, can supply your heart rate for a climb.</p>

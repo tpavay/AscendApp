@@ -1,14 +1,19 @@
 {
-  "currentSchema": "AscendSchemaV4",
+  "currentSchema": "AscendSchemaV5",
   "versionIdentifier": [
-    4,
+    5,
     0,
     0
   ],
   "customStageCount": 1,
-  "lightweightStageCount": 2,
+  "lightweightStageCount": 3,
   "models": {
     "ActiveHeadphoneWorkoutDraft": {
+      "checkpointDiagnosticsData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
       "climbId": {
         "type": "String?",
         "optional": true,
@@ -1683,6 +1688,163 @@
       },
       "order": {
         "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      }
+    },
+    "AscendSchemaV4.ActiveHeadphoneWorkoutDraft": {
+      "climbId": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "createdAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "durationSeconds": {
+        "type": "TimeInterval",
+        "optional": false,
+        "hasDefault": true
+      },
+      "heartRateData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateSampleCount": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "id": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
+      },
+      "justClimbDurationMinutes": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "justClimbGoalKindRawValue": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "justClimbStepCount": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "kindRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "lastCheckpointAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "routineDifficulty": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineId": {
+        "type": "UUID?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineIntervalCount": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineSkippedIntervalCount": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineSourceRawValue": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineTemplateId": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "routineWeightConfigurationData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "sampleCount": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "sessionID": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "splitCurveData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "startedAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "statusRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "stepCorrectionsData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "steps": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "subtitle": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "targetDurationSeconds": {
+        "type": "TimeInterval?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "targetStepCount": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "title": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "trackingIntegrityData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "workoutName": {
+        "type": "String",
         "optional": false,
         "hasDefault": true
       }

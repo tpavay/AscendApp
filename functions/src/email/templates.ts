@@ -2,8 +2,10 @@ import {
   getMarketingWebsiteUrl,
   getTransactionalReplyToEmail,
 } from "./config";
+import {birthdaySubject, cleanFirstName} from "./birthday";
 import {escapeHtml} from "./html";
 import type {
+  BirthdayEmailPayload,
   EmailJobPayload,
   EmailRenderContext,
   EmptyEmailPayload,
@@ -487,19 +489,19 @@ export function renderOnboardingAbandonedAfterPaywallEmail(
 
   return renderBrandedEmail({
     unsubscribeUrl: context.unsubscribeUrl,
-    subject: "Race real climbs",
+    subject: "Every climb ranked",
     preheader: [
       "Leaderboards, First Ascents, and stair-stepper records",
       "live inside Ascend.",
     ].join(" "),
-    eyebrow: "Race The Board",
-    headline: "RACE REAL CLIMBS.",
+    eyebrow: "Ranked Climbs",
+    headline: "EVERY CLIMB RANKED.",
     bodyParagraphs: [
       [
         "Ascend turns stair-stepper sessions into climbs, ranks,",
         "and permanent records.",
       ].join(" "),
-      "Start with one landmark. Race the board from there.",
+      "Start with one landmark. Take your rank from there.",
     ],
     ctaLabel: "Start climbing",
     ctaUrl: appUrl,
@@ -1375,6 +1377,21 @@ function renderRecapCtaHtml(label: string, url: string): string {
 }
 
 /**
+ * Renders the closing row that holds the centered CTA button, the row the
+ * active recap and the birthday email end their body with.
+ * @param {string} label - Button label
+ * @param {string} url - Button destination
+ * @return {string} CTA `<tr>` HTML
+ */
+function renderRecapCtaRowHtml(label: string, url: string): string {
+  return [
+    "<tr><td style=\"padding:0 30px 40px;text-align:center;\">",
+    renderRecapCtaHtml(label, url),
+    "</td></tr>",
+  ].join("");
+}
+
+/**
  * Builds the plain-text "Achievement earned" lines for a set of earned
  * badges, shared by both cadences and both variants' plain-text renders -
  * plain text has no images, so this is where a badge's fact still has to
@@ -1501,9 +1518,7 @@ function renderRecapActiveEmail(
     `${RECAP_TEXT};">Your activity</h2>`,
     renderCalendarHtml(payload.calendar),
     "</td></tr>",
-    "<tr><td style=\"padding:0 30px 40px;text-align:center;\">",
-    renderRecapCtaHtml(copy.ctaLabel, payload.ctaUrl),
-    "</td></tr>",
+    renderRecapCtaRowHtml(copy.ctaLabel, payload.ctaUrl),
     renderRecapFooterHtml(copy.whyReceivedActive, context.unsubscribeUrl),
   ].join("");
 
@@ -1755,6 +1770,110 @@ export function renderMonthlyRecapInactiveEmailFromPayload(
     ),
     context
   );
+}
+
+// =============================================================================
+// Birthday
+//
+// The simple warm greeting with the birthday challenge under it: a hello from
+// everyone at Ascend, one plain line of challenge and one action. It is built
+// from the same recap shell, footer and centered CTA row as the active recap,
+// with a left-aligned headline and body, so it reads as the same family. It
+// never states the climber's age, and it carries no eyebrow label.
+// =============================================================================
+
+const BIRTHDAY_CTA_LABEL = "Start my birthday climb";
+const BIRTHDAY_PREHEADER = "Everyone at Ascend is wishing you a great one.";
+const BIRTHDAY_WHY_RECEIVED = "You get this because you shared your birthday " +
+  "in Ascend.";
+
+/**
+ * Parses and validates a stored birthday payload.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @return {BirthdayEmailPayload} Validated payload, name cleaned
+ */
+function parseBirthdayPayload(payload: EmailJobPayload): BirthdayEmailPayload {
+  const errorCode = "invalid_birthday_payload";
+  if (!isPlainObject(payload)) {
+    throw new Error(errorCode);
+  }
+
+  const firstName = cleanFirstName(payload.firstName);
+  return {
+    ctaUrl: requiredUrl(payload, "ctaUrl", errorCode),
+    ...(firstName ? {firstName} : {}),
+  };
+}
+
+/**
+ * Renders the birthday email.
+ * @param {BirthdayEmailPayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderBirthdayEmail(
+  payload: BirthdayEmailPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  const firstName = cleanFirstName(payload.firstName) ?? undefined;
+  const headline = firstName ?
+    `HAPPY BIRTHDAY, ${firstName.toLocaleUpperCase("en-US")}!` :
+    "HAPPY BIRTHDAY!";
+  const greeting = "Everyone at Ascend is wishing you a great one. " +
+    "Thanks for climbing with us.";
+  const challenge = "Climb one floor for every year of your age today.";
+
+  const bodyRowsHtml = [
+    "<tr><td style=\"padding:40px 30px 34px;\">",
+    "<p style=\"margin:0 0 6px;font-size:48px;line-height:1.1;\">",
+    "\u{1F382}</p>",
+    "<h1 style=\"margin:0 0 18px;font-size:34px;line-height:1.1;",
+    "font-weight:800;color:#ffffff;letter-spacing:-0.02em;\">",
+    escapeHtml(headline),
+    "</h1>",
+    "<p style=\"margin:0;font-size:16px;line-height:1.6;color:",
+    `${RECAP_TEXT_MUTED};">${escapeHtml(greeting)}</p>`,
+    "<p style=\"margin:14px 0 0;font-size:16px;line-height:1.6;color:",
+    `${RECAP_TEXT};">${escapeHtml(challenge)}</p>`,
+    "</td></tr>",
+    renderRecapCtaRowHtml(BIRTHDAY_CTA_LABEL, payload.ctaUrl),
+    renderRecapFooterHtml(BIRTHDAY_WHY_RECEIVED, context.unsubscribeUrl),
+  ].join("");
+
+  const text = [
+    headline,
+    "",
+    greeting,
+    "",
+    challenge,
+    "",
+    `${BIRTHDAY_CTA_LABEL}: ${payload.ctaUrl}`,
+    "",
+    BIRTHDAY_WHY_RECEIVED,
+    `Privacy Policy: ${getMarketingWebsiteUrl()}/privacy`,
+    ...(context.unsubscribeUrl ?
+      [`Unsubscribe: ${context.unsubscribeUrl}`] :
+      []),
+  ].join("\n");
+
+  return {
+    html: renderRecapShellHtml(BIRTHDAY_PREHEADER, bodyRowsHtml),
+    subject: birthdaySubject(firstName),
+    text,
+  };
+}
+
+/**
+ * Validates and renders the birthday email.
+ * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
+ * @return {TransactionalEmailRenderResult} Rendered email
+ */
+export function renderBirthdayEmailFromPayload(
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
+): TransactionalEmailRenderResult {
+  return renderBirthdayEmail(parseBirthdayPayload(payload), context);
 }
 
 // =============================================================================

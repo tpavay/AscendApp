@@ -63,8 +63,11 @@ struct LiveClimbSessionReturnTests {
         await session.discard(modelContext: container.mainContext)
     }
 
-    @Test("A Live Activity tap reopens a running session whose screen is gone")
-    func liveActivityTapReopensASessionWhoseScreenIsGone() async throws {
+    /// The recovery cover adopts any running session whose draft no screen is showing
+    /// (`docs/headphone-session-recovery.md`), so the session is back before the climber reaches
+    /// for the Live Activity, and the tap then leaves that one screen alone.
+    @Test("A running session whose screen is gone comes back by itself, and a Live Activity tap adds no second screen")
+    func runningSessionWhoseScreenIsGoneComesBack() async throws {
         let container = try RetainedModelContainer.inMemory(schema: AscendLocalStore.schema)
         let session = Self.recordingSession(steps: 1_842, container: container)
         let screen = AppNavigationHost()
@@ -74,12 +77,18 @@ struct LiveClimbSessionReturnTests {
             .modelContainer(container)
 
         try await RenderedScreen.host(screen, settle: .turns(30, interval: .milliseconds(100))) { hosted in
-            #expect(!LiveClimbActivityCommandCenter.shared.isAnswering(sessionID: session.liveActivitySessionID))
+            let reopened = try await hosted.copy { $0.contains("end attempt") }
+            #expect(reopened.contains("1,842"), "the running session is back on screen: \(reopened)")
+            #expect(LiveClimbActivityCommandCenter.shared.isAnswering(sessionID: session.liveActivitySessionID))
 
             LiveClimbActivityRouter.shared.route(sessionID: session.liveActivitySessionID, climbID: "just-climb")
+            try await hosted.settle(.turns(30, interval: .milliseconds(100)))
 
-            let reopened = try await hosted.copy { $0.contains("end attempt") }
-            #expect(reopened.contains("1,842"), "the tap is the way back into the running session: \(reopened)")
+            let elements = try await hosted.elements { $0.contains { $0.accessibilityLabel == "End attempt" } }
+            #expect(
+                elements.filter { $0.accessibilityLabel == "End attempt" }.count == 1,
+                "one session, one screen: the tap built no second one"
+            )
             #expect(LiveClimbActivityCommandCenter.shared.isAnswering(sessionID: session.liveActivitySessionID))
         }
         await session.discard(modelContext: container.mainContext)

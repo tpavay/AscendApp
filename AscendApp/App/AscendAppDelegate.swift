@@ -11,6 +11,18 @@ final class AscendAppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    /// Names the scene delegate that reads the iOS 26 workout-recovery flag. SwiftUI keeps the
+    /// window; the delegate only listens (`AscendSceneDelegate`).
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        configuration.delegateClass = AscendSceneDelegate.self
+        return configuration
+    }
+
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data

@@ -25,7 +25,7 @@ struct ClimbBrowseHelpSheet: View {
             ),
             (
                 title: "Browse or search",
-                description: "Spin the globe or use search to find a landmark climb you want to race."
+                description: "Spin the globe or use search to find a landmark you want to climb."
             ),
             (
                 title: "Start live",
@@ -50,7 +50,7 @@ struct ClimbBrowseHelpSheet: View {
     var body: some View {
         AppSheetScaffold(
             title: "How Live Climbs Work",
-            message: "Race real landmarks with headphone motion and earn climb cards.",
+            message: "Rank on real landmarks with headphone motion and earn climb cards.",
             headerAlignment: .leading,
             contentAlignment: .leading
         ) {

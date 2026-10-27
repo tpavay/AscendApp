@@ -31,6 +31,10 @@ final class CompositeCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
         reporters.forEach { $0.log(message) }
     }
 
+    func addBreadcrumb(_ breadcrumb: TelemetryBreadcrumb) {
+        reporters.forEach { $0.addBreadcrumb(breadcrumb) }
+    }
+
     func record(
         error: Error,
         context: String,
@@ -42,6 +46,22 @@ final class CompositeCrashlyticsReporter: CrashlyticsReporting, @unchecked Senda
             $0.record(
                 error: error,
                 context: context,
+                code: code,
+                additionalInfo: additionalInfo,
+                severity: severity
+            )
+        }
+    }
+
+    func record(
+        message: String,
+        code: String,
+        additionalInfo: [String: String]?,
+        severity: TelemetryErrorSeverity
+    ) {
+        reporters.forEach {
+            $0.record(
+                message: message,
                 code: code,
                 additionalInfo: additionalInfo,
                 severity: severity

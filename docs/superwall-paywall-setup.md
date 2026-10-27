@@ -84,7 +84,7 @@ Miss the third and the paywall clears while every server-guarded screen fails, e
    App Review and TestFlight see Lifetime only through the native fallback paywall, and that screen only appears when the hosted paywall fails, times out, or is dismissed without a purchase.
    Confirm the live hosted paywall can be closed into the native fallback, and that the fallback shows Annual and Lifetime.
    No hosted paywall and no Superwall audience offers Lifetime at this step.
-4. Submit 1.2.3 with `ascend_lifetime` attached to the version, and say in the review notes where Lifetime is (`docs/app-store-racing-repositioning-proposal.md` holds the template).
+4. Submit 1.2.3 with `ascend_lifetime` attached to the version, and say in the review notes where Lifetime is (`docs/app-store-ranked-repositioning-proposal.md` holds the template).
    Set 1.2.3 to release manually, not automatically, until `ascend_lifetime` is approved: Apple reviews the in-app purchase separately and can approve the version while holding the product, and a released build must never reach a climber who could see an unavailable product.
 5. After Apple approves `ascend_lifetime`: add the `lifetime` card to the hosted paywall, then release 1.2.3.
 
