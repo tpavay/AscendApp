@@ -191,15 +191,14 @@ struct MonetizationManagerPaywallTests {
         manager.presentPaywall(.appAccessGate, params: ["source": "onboarding"])
         entitlementService.setEntitlementState(.active(["app_access"]))
 
-        #expect(manager.onboardingCompletionReasonForActiveAccess == .purchase)
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .unknown)
     }
 
-    /// A dismissal, a skip or a failure is not evidence that the climber already owned access. If
-    /// the entitlement turns on afterwards - a webhook-delayed purchase, a Superwall presentation
-    /// that reported skip while the purchase still went through - the grant this pass asked for is
-    /// what turned it on.
+    /// A dismissal, a skip or a failure is not evidence that the climber already owned access, but
+    /// it is not evidence of a sale either. A purchase confirmed in the app names itself; whatever
+    /// turns the entitlement on afterwards is a grant this pass asked for and cannot vouch for.
     @Test
-    func accessGrantedAfterAPaywallOutcomeThatReportedNothingIsStillAPurchase() {
+    func accessGrantedAfterAPaywallOutcomeThatReportedNothingIsUnknownNotAPurchase() {
         let fixture = OnboardingLifecycleFixture()
         defer { fixture.cleanUp() }
 
@@ -215,7 +214,7 @@ struct MonetizationManagerPaywallTests {
         paywallPresenter.send(.skipped(reason: "no_audience_match"))
         entitlementService.setEntitlementState(.active(["app_access"]))
 
-        #expect(manager.onboardingCompletionReasonForActiveAccess == .purchase)
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .unknown)
     }
 
     @Test
@@ -233,7 +232,7 @@ struct MonetizationManagerPaywallTests {
         try await manager.restorePurchases()
         entitlementService.setEntitlementState(.active(["app_access"]))
 
-        #expect(manager.onboardingCompletionReasonForActiveAccess == .purchase)
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .unknown)
     }
 
     @Test

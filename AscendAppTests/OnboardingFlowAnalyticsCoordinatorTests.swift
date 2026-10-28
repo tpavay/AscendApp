@@ -261,15 +261,16 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
 
     /// A request the process died holding can never report, so the next process closes it rather
     /// than deferring a completion nothing is left to release - and the access it finds is still
-    /// the grant this pass asked for, never an entitlement the climber arrived with.
+    /// a grant this pass asked for, never an entitlement the climber arrived with. Nothing survived
+    /// to say it was a sale, so it is `unknown`.
     @Test
-    func aRequestLeftInFlightByADeadProcessStillCompletesAsAGrant() {
+    func aRequestLeftInFlightByADeadProcessStillCompletesAsAnUnattributedGrant() {
         let fixture = makeFixture()
         defer { fixture.cleanUp() }
 
         fixture.startPassAndRecordPaywallOutcome(nil)
 
-        #expect(fixture.completionReasonAfterProcessRestart() == .string("purchase"))
+        #expect(fixture.completionReasonAfterProcessRestart() == .string("unknown"))
     }
 
     /// A completed pass gives way to the next one without a manual reset, so a climber who finishes
