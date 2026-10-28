@@ -12,16 +12,33 @@ struct StickerTile: View {
     let onCopy: () -> Void
     let onSave: () -> Void
 
+    /// The sticker's size as the exporter draws it, before the tile scales it down.
+    @State private var naturalSize: CGSize = .zero
+
     private let lime = Color(shareHex: PresetAccent.lime.hex)
+    /// The copy badge's corner: 8 pt inset plus its 24 pt circle. The sticker stays below it.
+    private static let badgeInset: CGFloat = 32
 
     var body: some View {
-        StickerItemView(item: item, subject: subject, totals: totals, style: style, year: year)
-            // Masked here and not inside the sticker: the exporter renders the same view through
-            // `ImageRenderer`, which cannot draw the marker's UIKit view.
-            .sentryMasked()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(8)
+        // The tile takes exactly its grid column and the sticker is drawn as an overlay, so a
+        // sticker wider than the column (Strip with five-digit steps) cannot widen the tile.
+        Color.clear
             .frame(height: 150)
+            .overlay {
+                GeometryReader { proxy in
+                    StickerItemView(item: item, subject: subject, totals: totals, style: style, year: year)
+                        .fixedSize()
+                        .onGeometryChange(for: CGSize.self) { $0.size } action: { naturalSize = $0 }
+                        .scaleEffect(scale(fitting: proxy.size))
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                .padding(.top, Self.badgeInset)
+                // Masked here and not inside the sticker: the exporter renders the same view
+                // through `ImageRenderer`, which cannot draw the marker's UIKit view.
+                .sentryMasked()
+            }
             .background { StickerCheckerboard(isLight: style.color == .black) }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(alignment: .topTrailing) {
@@ -49,5 +66,11 @@ struct StickerTile: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityAction(named: "Save to Photos") { onSave() }
             .accessibilityAction { onCopy() }
+    }
+
+    /// Shrinks a sticker that does not fit, never enlarges one that does.
+    private func scale(fitting available: CGSize) -> CGFloat {
+        guard naturalSize.width > 0, naturalSize.height > 0 else { return 1 }
+        return min(1, available.width / naturalSize.width, available.height / naturalSize.height)
     }
 }
