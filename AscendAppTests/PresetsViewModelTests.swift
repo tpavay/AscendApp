@@ -169,6 +169,15 @@ struct PresetsViewModelTests {
     }
 
     @Test
+    func theBackgroundPanelOffersSeasonalBackgroundsOnlyInsideTheirWindow() {
+        #expect(!make(now: date(2026, 10, 1)).seasonalBackgrounds.isEmpty)
+        #expect(!make(now: date(2026, 10, 31)).seasonalBackgrounds.isEmpty)
+        for outside in [date(2026, 2, 1), date(2026, 6, 15), date(2026, 9, 30)] {
+            #expect(make(now: outside).seasonalBackgrounds.isEmpty, "a seasonal background was offered on \(outside)")
+        }
+    }
+
+    @Test
     func aSeasonalBackgroundOutOfItsWindowCannotBeChosen() {
         let model = make(now: date(2027, 3, 3))
         model.selectSeasonal(.snowfall)

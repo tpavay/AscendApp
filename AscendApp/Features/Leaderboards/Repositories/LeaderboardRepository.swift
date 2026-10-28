@@ -120,19 +120,25 @@ final class LeaderboardRepository: Sendable {
             return nil
         }
 
-        let board = db.collection("leaderboard_stats")
-            .whereField("timeFrame", isEqualTo: timeFrame.rawValue)
-            .whereField("periodStartAt", isEqualTo: Timestamp(date: period.startAt))
-        let ahead = try await board
-            .whereField(LeaderboardMetric.climb.sortField, isGreaterThan: stat.totalSteps)
+        let ahead = try await stepsBoardQuery(timeFrame: timeFrame, period: period, above: stat.totalSteps)
             .count
             .getServerAggregation()
-        let field = try await board
-            .whereField(LeaderboardMetric.climb.sortField, isGreaterThan: 0)
+        let field = try await stepsBoardQuery(timeFrame: timeFrame, period: period, above: 0)
             .count
             .getServerAggregation()
         let rank = ahead.count.intValue + 1
         return (rank: rank, total: max(field.count.intValue, rank))
+    }
+
+    /// The climbers on a period's steps board with more than `steps`. Ordered by steps descending
+    /// so the count is served by the same (timeFrame, periodStartAt, totalSteps DESC) index as the
+    /// board itself; a range filter left unordered would need an ascending index that does not exist.
+    func stepsBoardQuery(timeFrame: LeaderboardTimeFrame, period: LeaderboardPeriod, above steps: Int) -> Query {
+        db.collection("leaderboard_stats")
+            .whereField("timeFrame", isEqualTo: timeFrame.rawValue)
+            .whereField("periodStartAt", isEqualTo: Timestamp(date: period.startAt))
+            .whereField(LeaderboardMetric.climb.sortField, isGreaterThan: steps)
+            .order(by: LeaderboardMetric.climb.sortField, descending: true)
     }
 
     func parseStat(_ data: [String: Any]) -> FirestoreLeaderboardStats? {

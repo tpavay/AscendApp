@@ -51,9 +51,10 @@ There are no "2nd best ever" pills or other moments.
 
 ## Seasonal themes
 
-Seasonal backgrounds and stickers appear only inside their window, by local date: Halloween Oct 1-31, Thanksgiving-season autumn Nov 1-30, Holiday Dec 1-31, New Year's Jan 1-31.
+Each theme has a window by local date: Halloween Oct 1-31, Thanksgiving-season autumn Nov 1-30, Holiday Dec 1-31, New Year's Jan 1-31.
+Outside its window a seasonal option is not shown at all: not in the Presets Background panel, and not in the Stickers seasonal row.
+A seasonal background a climber saved earlier falls back to the Black background once its window has closed.
 The year is generated, never hard-coded.
-A saved seasonal choice outside its window falls back to the Black background.
 
 ## Fonts
 
