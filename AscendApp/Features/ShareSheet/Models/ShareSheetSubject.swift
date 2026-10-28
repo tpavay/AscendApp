@@ -96,6 +96,12 @@ struct ShareSheetSubject: Equatable, Sendable {
         "\(durationText) · \(stepsText) steps · \(stepsPerMinuteText) SPM"
     }
 
+    /// The Curve card's axis ends, named for the measure the frozen rank counted: a landmark
+    /// finish ranks on that climb's own time, every other ranked climb on its steps.
+    var rankAxis: (lower: String, upper: String) {
+        kind == .landmark ? ("SLOWER", "FASTER") : ("FEWER STEPS", "MORE STEPS")
+    }
+
     var hasSplits: Bool { splits.count >= 2 }
     var hasHeartRate: Bool { averageHeartRate != nil }
     var hasRank: Bool { rank != nil }

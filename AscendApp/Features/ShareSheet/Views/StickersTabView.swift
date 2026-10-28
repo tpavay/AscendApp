@@ -52,7 +52,8 @@ struct StickersTabView: View {
                 Rectangle().fill(Color(shareHex: 0x1A1A1A)).frame(height: 1)
             }
         }
-        .task(id: model.period) {
+        .task(id: model.scope == .totals ? model.period : nil) {
+            guard model.scope == .totals else { return }
             await model.loadTotals()
         }
     }

@@ -1,3 +1,4 @@
+import ImageIO
 import Observation
 import Photos
 import UIKit
@@ -107,18 +108,41 @@ final class PresetPhotoLibrary {
         }
     }
 
+    /// The shorter side a card photograph is loaded at, enough to fill a 1080 point export.
+    nonisolated static let cardImageSide: CGFloat = 1620
+
     /// A photograph at the card's export resolution, enough to fill 1080 points square.
     nonisolated func cardImage(for id: String) async -> UIImage? {
         guard let asset = Self.asset(id) else { return nil }
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
-        let target = CGSize(width: 1620, height: 1620)
+        let target = CGSize(width: Self.cardImageSide, height: Self.cardImageSide)
         return await withCheckedContinuation { continuation in
             imageManager.requestImage(for: asset, targetSize: target, contentMode: .aspectFill, options: options) { image, _ in
                 continuation.resume(returning: SendableImage(image: image).image)
             }
         }
+    }
+
+    /// A photograph picked from the full library, decoded no larger than a library photo: its
+    /// shorter side at `cardImageSide`, never upscaled, and the orientation applied.
+    nonisolated static func cardImage(from data: Data) async -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber).map({ CGFloat($0.doubleValue) }),
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber).map({ CGFloat($0.doubleValue) }),
+              min(width, height) > 0 else { return nil }
+        let longest = max(width, height)
+        let bound = min(longest, (cardImageSide * longest / min(width, height)).rounded(.up))
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: bound
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
     }
 
     nonisolated private static func asset(_ id: String) -> PHAsset? {

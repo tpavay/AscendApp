@@ -19,13 +19,14 @@ A rank counts people, and the card says which population (`ascend-leaderboards`,
 The finish rank on a card is the frozen at-completion standing, never recomputed, so a reopened climb and its card say what they said at the finish.
 A card without a standing hides Rank and drops the layouts that need it.
 It never says global.
-Totals ranks are the exception on purpose: weekly, monthly and yearly boards by steps are read live when the tab opens, and a rank that cannot be read is hidden.
+Totals ranks are the exception on purpose: weekly, monthly and yearly boards by steps are read live the first time Totals is opened in a sheet, and a rank that cannot be read is hidden.
 
 ## Floors
 
-Floors are steps divided by 16 (`FloorsClimbed.stepsPerFloor`).
-A landmark shows its building's published floor count scaled to the climb.
-Totals use the same ratio.
+Floors are steps divided by 16 (`FloorsClimbed.stepsPerFloor`) for a Just Climb and a routine.
+A landmark is the one deliberate exception: it keeps its building's own floor count, scaled to the share of the climb the attempt covered, so the card reads the same number Climb Detail shows.
+That count is the published storey count, else the reference step count divided by 19.8 (`live-climb-content`), so a landmark card does not read steps divided by 16.
+Totals use steps divided by 16.
 
 ## Splits
 

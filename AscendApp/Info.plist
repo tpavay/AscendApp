@@ -66,8 +66,9 @@
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ascend uses photos from your library as backgrounds for the climbs you share.</string>
-	<!-- The picker owns an in-context "Add more" control, so iOS must stop re-prompting
-	     limited-access climbers on the first PhotoKit call after every launch. -->
+	<!-- The photo background sheet's "All photos" button opens the system picker, which reaches
+	     every photo whatever access was granted, so iOS must stop re-prompting limited-access
+	     climbers on the first PhotoKit call after every launch. -->
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>NSHealthShareUsageDescription</key>
@@ -92,10 +93,6 @@
 		<string>Montserrat-Medium.ttf</string>
 		<string>Montserrat-Bold.ttf</string>
 		<string>Montserrat-SemiBold.ttf</string>
-		<string>Anton-Regular.ttf</string>
-		<string>PlayfairDisplay-Italic-VariableFont_wght.ttf</string>
-		<string>SpaceMono-Regular.ttf</string>
-		<string>SpaceMono-Bold.ttf</string>
 		<string>Montserrat-ExtraBold.ttf</string>
 		<string>Montserrat-Black.ttf</string>
 		<string>BarlowCondensed-ExtraBold.ttf</string>

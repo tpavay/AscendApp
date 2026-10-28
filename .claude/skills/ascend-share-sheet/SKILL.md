@@ -63,7 +63,7 @@ Apply `View.sentryMasked()` inside the view's own definition and add the surface
   The subject, the splits, the best efforts and the totals are built once; a view reads values.
 - `ShareTotalsRepository` is a bounded fetch with `propertiesToFetch`, for the current week, month and year only.
   Never a whole-store scan.
-- A standing read for Totals goes through `ShareStandingReading` with `withLeaderboardTimeout`, and a rank that cannot be read is hidden.
+- A standing read for Totals goes through `ShareStandingReading` with `withLeaderboardTimeout`: one own-document read and two count aggregations per board, read once per sheet when Totals first opens, and a rank that cannot be read is hidden.
 
 ## Boundaries
 
@@ -75,5 +75,5 @@ Apply `View.sentryMasked()` inside the view's own definition and add the surface
 - Everything is bundled and rendered on device.
   No remote template service, no server-rendered images, no remote-configured layouts.
 - The Live Climb completion summary stays the emotional payoff; its Share button opens this sheet and never replaces the summary.
-- Analytics: `share_sheet_action` through `ShareSheetAnalyticsEvent`, screen `TelemetryScreenName.shareComposer` (the raw value `share_composer` is kept so the funnel stays continuous).
+- Analytics: the screen only, `TelemetryScreenName.shareComposer` (the raw value `share_composer` is kept so the funnel stays continuous).
 - Legacy `share-card-templates/...` objects may still sit in Storage; nothing here reads them.

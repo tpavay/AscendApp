@@ -49,7 +49,7 @@ struct ShareSheetView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .task(id: bestEffortCacheEntries.count) {
+        .task(id: SubjectInputs(bestEffortCount: bestEffortCacheEntries.count, rankPosition: rankPosition, rankField: rankField)) {
             buildModels()
         }
         .task(id: climb?.id) {
@@ -59,8 +59,15 @@ struct ShareSheetView: View {
         .trackOnce(screen: .shareComposer)
     }
 
-    /// The best-effort cache arrives through `@Query` after the sheet is up, so the subject is
-    /// rebuilt when it changes, keeping the climber's choices.
+    /// What the subject is built from that can arrive after the sheet is up: the best-effort
+    /// cache through `@Query`, and the frozen standing the presenter resolves after Share is tapped.
+    private struct SubjectInputs: Hashable {
+        let bestEffortCount: Int
+        let rankPosition: Int?
+        let rankField: Int?
+    }
+
+    /// Rebuilds the subject whenever its inputs change, keeping the climber's choices.
     private func buildModels() {
         let snapshot = BestEffortCacheSnapshot(entries: bestEffortCacheEntries, workouts: [workout])
         let subject = ShareSheetSubjectBuilder.make(
@@ -74,7 +81,6 @@ struct ShareSheetView: View {
 
         if presets == nil {
             presets = PresetsViewModel(subject: subject, hasTower: climb != nil)
-            sheet = ShareSheetViewModel(climbKind: subject.kind.analyticsValue)
             stickers = StickersViewModel(
                 subject: subject,
                 modelContext: modelContext,

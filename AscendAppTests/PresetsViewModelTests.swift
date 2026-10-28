@@ -158,8 +158,10 @@ struct PresetsViewModelTests {
         let store = makeStore()
         let december = date(2026, 12, 10)
         let inWindow = make(store: store, now: december)
+        inWindow.selectBackground(.dots)
         inWindow.selectSeasonal(.snowfall)
         #expect(inWindow.background == .seasonal(.snowfall))
+        #expect(store.load().background == .dots)
 
         let after = make(store: store, now: date(2027, 2, 10))
         #expect(after.background == .flat(.black))
@@ -195,14 +197,19 @@ struct PresetsViewModelTests {
     }
 
     @Test
-    func framingAPhotoIsClampedAndResetByANewPhoto() {
+    func framingAPhotoIsClampedToCoverTheCardAndResetByANewPhoto() {
         let model = make()
         model.selectPhoto(UIImage())
         #expect(model.background == .photo)
         model.frame(scale: 9, offset: CGSize(width: 0.2, height: 0.1))
         #expect(model.artwork.photoScale == 4)
+        #expect(model.artwork.photoOffset == CGSize(width: 0.2, height: 0.1))
         model.frame(scale: 0.2, offset: .zero)
         #expect(model.artwork.photoScale == 1)
+        model.frame(scale: 1, offset: CGSize(width: 0.3, height: -0.2))
+        #expect(model.artwork.photoOffset == .zero, "a photo at fit scale was dragged off the card")
+        model.frame(scale: 2, offset: CGSize(width: 0.9, height: -0.9))
+        #expect(model.artwork.photoOffset == CGSize(width: 0.5, height: -0.5), "the photo was panned past its own edge")
         model.selectPhoto(UIImage())
         #expect(model.artwork.photoScale == 1)
         #expect(model.artwork.photoOffset == .zero)

@@ -81,10 +81,12 @@ struct PresetCardPager: View {
     /// The artwork with the in-flight pinch and drag applied, so framing follows the fingers.
     private var framedArtwork: PresetCardArtwork {
         var artwork = model.artwork
-        artwork.photoScale = min(max(artwork.photoScale * liveScale, 1), 4)
-        artwork.photoOffset = CGSize(
-            width: artwork.photoOffset.width + liveOffset.width,
-            height: artwork.photoOffset.height + liveOffset.height
+        artwork.frame(
+            scale: artwork.photoScale * liveScale,
+            offset: CGSize(
+                width: artwork.photoOffset.width + liveOffset.width,
+                height: artwork.photoOffset.height + liveOffset.height
+            )
         )
         return artwork
     }

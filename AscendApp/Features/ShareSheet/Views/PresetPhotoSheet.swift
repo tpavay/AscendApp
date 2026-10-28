@@ -63,7 +63,8 @@ struct PresetPhotoSheet: View {
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = await PresetPhotoLibrary.cardImage(from: data) {
                     model.selectPhoto(image)
                     dismiss()
                 }

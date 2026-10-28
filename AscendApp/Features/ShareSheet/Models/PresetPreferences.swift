@@ -8,7 +8,7 @@ struct PresetPreferences: Codable, Equatable, Sendable {
     var font: PresetFont
     var accent: PresetAccent
     /// The seasonal background last chosen, if any. It is only used while its window is live; after
-    /// that the card falls back to `background`.
+    /// that the card falls back to Black.
     var seasonal: SeasonalBackground?
     /// A stat's presence means on; absence means off.
     var stats: Set<PresetStat>

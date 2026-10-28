@@ -84,12 +84,13 @@ final class PresetsViewModel {
         return "\(currentLayout.title) · \(hint)"
     }
 
-    /// What is behind the card: this climb's own tower or photo, else a live seasonal background,
-    /// else the remembered flat one.
+    /// What is behind the card: this climb's own tower or photo, else the saved seasonal
+    /// background while its window is live and Black once it has closed, else the remembered flat
+    /// one.
     var background: PresetCardBackground {
         if let sessionBackground { return sessionBackground }
-        if let seasonal = preferences.seasonal, seasonal.isAvailable(on: clock(), calendar: calendar) {
-            return .seasonal(seasonal)
+        if let seasonal = preferences.seasonal {
+            return seasonal.isAvailable(on: clock(), calendar: calendar) ? .seasonal(seasonal) : .flat(.black)
         }
         return .flat(preferences.background)
     }
@@ -169,8 +170,7 @@ final class PresetsViewModel {
     }
 
     func frame(scale: CGFloat, offset: CGSize) {
-        artwork.photoScale = min(max(scale, 1), 4)
-        artwork.photoOffset = offset
+        artwork.frame(scale: scale, offset: offset)
     }
 
     func setFont(_ font: PresetFont) {

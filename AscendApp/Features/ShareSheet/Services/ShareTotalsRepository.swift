@@ -20,45 +20,42 @@ struct ShareTotalsRepository {
         self.calendar = calendar
     }
 
-    /// The workout figures alone, with no network read, so the stickers can draw at once.
+    /// Where the climber stands on the weekly, monthly and yearly steps boards. These do not
+    /// depend on the period a sticker shows, so a sheet reads them once.
+    struct Standings: Equatable, Sendable {
+        var week: ShareTotalsSnapshot.Standing?
+        var month: ShareTotalsSnapshot.Standing?
+        var year: ShareTotalsSnapshot.Standing?
+
+        static let none = Standings()
+    }
+
+    /// The workout figures for `period`, local and immediate, with whatever standings are known.
     func snapshot(
         period: SharePeriod,
         modelContext: ModelContext,
+        standings: Standings = .none,
         now: Date = Date()
     ) -> ShareTotalsSnapshot {
         ShareTotalsBuilder.make(
             samples: samples(modelContext: modelContext, now: now),
             period: period,
             now: now,
-            calendar: calendar
+            calendar: calendar,
+            weekStanding: standings.week,
+            monthStanding: standings.month,
+            yearStanding: standings.year
         )
     }
 
-    /// The same snapshot with the three standings read from the leaderboards. Each standing that
-    /// cannot be read stays nil, so its sticker is hidden rather than drawn wrong.
-    func snapshotWithStandings(
-        period: SharePeriod,
-        userId: String?,
-        modelContext: ModelContext,
-        now: Date = Date()
-    ) async -> ShareTotalsSnapshot {
-        let samples = samples(modelContext: modelContext, now: now)
-        guard let userId else {
-            return ShareTotalsBuilder.make(samples: samples, period: period, now: now, calendar: calendar)
-        }
-
+    /// The three standings read from the leaderboards. Each one that cannot be read stays nil,
+    /// so its sticker is hidden rather than drawn wrong.
+    func standings(userId: String?) async -> Standings {
+        guard let userId else { return .none }
         async let week = standings.standing(userId: userId, timeFrame: .weekly)
         async let month = standings.standing(userId: userId, timeFrame: .monthly)
         async let year = standings.standing(userId: userId, timeFrame: .yearly)
-        return ShareTotalsBuilder.make(
-            samples: samples,
-            period: period,
-            now: now,
-            calendar: calendar,
-            weekStanding: await week,
-            monthStanding: await month,
-            yearStanding: await year
-        )
+        return Standings(week: await week, month: await month, year: await year)
     }
 
     private func samples(modelContext: ModelContext, now: Date) -> [ShareTotalsBuilder.Sample] {

@@ -101,24 +101,38 @@ final class LeaderboardRepository: Sendable {
         return document.data().flatMap { intValue(for: "totalSteps", in: $0) } ?? 0
     }
 
-    func getUserRank(
+    /// Where a climber stands on the current steps board for `timeFrame`, without reading the
+    /// board: their own server-derived total, then two counts over the same period - the climbers
+    /// ahead of that total (ties share a rank, as on the board) and every climber with steps.
+    /// Nil when the climber has no steps this period.
+    func fetchOwnStepsStanding(
         userId: String,
-        metric: LeaderboardMetric,
         timeFrame: LeaderboardTimeFrame
     ) async throws -> (rank: Int, total: Int)? {
-        let allStats = try await fetchLeaderboard(
-            metric: metric,
-            timeFrame: timeFrame,
-            limit: 1000
-        )
-
-        guard let index = allStats.firstIndex(where: { $0.userId == userId }),
-              let rank = CompetitionRanking.rank(at: index, in: allStats, key: { $0.value(for: metric) })
-        else {
+        let period = timeFrame.currentPeriod()
+        let own = try await db.collection("leaderboard_stats")
+            .document(documentID(userId: userId, timeFrame: timeFrame, period: period))
+            .getServerDocument()
+        guard let data = own.data(),
+              let stat = parseStat(data),
+              stat.periodStartAt == period.startAt,
+              stat.totalSteps > 0 else {
             return nil
         }
 
-        return (rank: rank, total: allStats.count)
+        let board = db.collection("leaderboard_stats")
+            .whereField("timeFrame", isEqualTo: timeFrame.rawValue)
+            .whereField("periodStartAt", isEqualTo: Timestamp(date: period.startAt))
+        let ahead = try await board
+            .whereField(LeaderboardMetric.climb.sortField, isGreaterThan: stat.totalSteps)
+            .count
+            .getServerAggregation()
+        let field = try await board
+            .whereField(LeaderboardMetric.climb.sortField, isGreaterThan: 0)
+            .count
+            .getServerAggregation()
+        let rank = ahead.count.intValue + 1
+        return (rank: rank, total: max(field.count.intValue, rank))
     }
 
     func parseStat(_ data: [String: Any]) -> FirestoreLeaderboardStats? {

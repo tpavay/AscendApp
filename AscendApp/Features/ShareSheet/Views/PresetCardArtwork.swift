@@ -10,5 +10,16 @@ struct PresetCardArtwork {
     var photoScale: CGFloat = 1
     var photoOffset: CGSize = .zero
 
+    /// Applies a framing, scale bounded to 1...4 and each offset axis bounded so the scaled photo
+    /// always covers the card: at scale `s` it overhangs each edge by `(s - 1) / 2` of the card.
+    mutating func frame(scale: CGFloat, offset: CGSize) {
+        photoScale = min(max(scale, 1), 4)
+        let limit = (photoScale - 1) / 2
+        photoOffset = CGSize(
+            width: min(max(offset.width, -limit), limit),
+            height: min(max(offset.height, -limit), limit)
+        )
+    }
+
     static let none = PresetCardArtwork()
 }

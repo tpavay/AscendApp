@@ -19,6 +19,7 @@ struct PresetCurveLayout: View {
 
     private func content(rank: ShareSheetSubject.Rank) -> some View {
         let palette = model.palette
+        let axis = model.subject.rankAxis
         return VStack(alignment: .leading, spacing: 0) {
             Text(model.label)
                 .presetText(model.font, size: 10, weight: 700, trackingEm: 0.2, color: Color(share: palette.secondary))
@@ -35,11 +36,11 @@ struct PresetCurveLayout: View {
             Spacer(minLength: 0)
             curve(rank: rank)
             HStack(spacing: 0) {
-                Text("FEWER STEPS")
+                Text(axis.lower)
                 Spacer(minLength: 0)
                 Text("BEAT \(rank.beatPercent)%")
                 Spacer(minLength: 0)
-                Text("MORE STEPS")
+                Text(axis.upper)
             }
             .presetText(model.font, size: 8, weight: 800, trackingEm: 0.14, color: Color(share: palette.secondary))
             .padding(.top, 6)

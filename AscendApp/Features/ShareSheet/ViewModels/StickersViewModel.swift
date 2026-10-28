@@ -30,7 +30,8 @@ final class StickersViewModel {
     private let repository: ShareTotalsRepository
     private let store: StickerStyleStore
     private let now: @Sendable () -> Date
-    private var loadGeneration = 0
+    private var standings: ShareTotalsRepository.Standings?
+    private var standingsRead: Task<ShareTotalsRepository.Standings, Never>?
 
     init(
         subject: ShareSheetSubject,
@@ -110,17 +111,15 @@ final class StickersViewModel {
 
     // MARK: - Totals
 
-    /// Draws the workout figures at once, then fills in the three standings when they arrive.
+    /// Draws the workout figures at once, then fills in the three standings, which are read once
+    /// per sheet the first time Totals asks and reused for every period after.
     func loadTotals() async {
-        loadGeneration += 1
-        let generation = loadGeneration
-        totals = repository.snapshot(period: period, modelContext: modelContext)
-        let full = await repository.snapshotWithStandings(
-            period: period,
-            userId: userId,
-            modelContext: modelContext
-        )
-        guard generation == loadGeneration else { return }
-        totals = full
+        totals = repository.snapshot(period: period, modelContext: modelContext, standings: standings ?? .none)
+        guard standings == nil else { return }
+        let read = standingsRead ?? Task { [repository, userId] in await repository.standings(userId: userId) }
+        standingsRead = read
+        let loaded = await read.value
+        standings = loaded
+        totals = repository.snapshot(period: period, modelContext: modelContext, standings: loaded)
     }
 }

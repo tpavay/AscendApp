@@ -25,16 +25,10 @@ final class ShareSheetViewModel {
     private(set) var busyAction: CardAction?
 
     private let exporter: ShareSheetExporter
-    private let climbKind: String
     private var toastTask: Task<Void, Never>?
 
-    init(exporter: ShareSheetExporter = ShareSheetExporter(), climbKind: String = "unknown") {
+    init(exporter: ShareSheetExporter = ShareSheetExporter()) {
         self.exporter = exporter
-        self.climbKind = climbKind
-    }
-
-    private func track(_ action: ShareSheetAnalyticsEvent.Action) {
-        TelemetryManager.shared.track(ShareSheetAnalyticsEvent.action(action, climbKind: climbKind))
     }
 
     var shareExporter: ShareSheetExporter { exporter }
@@ -62,13 +56,11 @@ final class ShareSheetViewModel {
 
         switch action {
         case .story:
-            track(.story)
             let story = exporter.storyImage(from: card)
             if !exporter.shareToInstagramStory(story) {
                 exporter.presentShareSheet(image: story)
             }
         case .copy:
-            track(.copy)
             if exporter.copyToClipboard(card) {
                 HapticsManager.shared.trigger(.lightImpact)
                 showToast("Copied. Paste it in your story.")
@@ -76,7 +68,6 @@ final class ShareSheetViewModel {
                 showToast("Couldn't copy the card")
             }
         case .save:
-            track(.save)
             if await exporter.saveToPhotos(card) {
                 HapticsManager.shared.trigger(.success)
                 showToast("Saved to Photos")
@@ -84,14 +75,12 @@ final class ShareSheetViewModel {
                 showToast("Allow Photos access in Settings")
             }
         case .more:
-            track(.more)
             exporter.presentShareSheet(image: card)
         }
     }
 
     /// Copies a sticker's PNG to the clipboard.
     func copySticker(_ image: UIImage?) {
-        track(.stickerCopy)
         guard let image, exporter.copyToClipboard(image) else {
             showToast("Couldn't copy the sticker")
             return
@@ -102,7 +91,6 @@ final class ShareSheetViewModel {
 
     /// Saves a sticker's PNG to Photos.
     func saveSticker(_ image: UIImage?) async {
-        track(.stickerSave)
         guard let image else {
             showToast("Couldn't save the sticker")
             return

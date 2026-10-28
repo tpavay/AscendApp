@@ -38,6 +38,18 @@ struct ShareSheetSubjectTests {
     }
 
     @Test
+    func theCurveAxisNamesTheMeasureTheRankCounted() {
+        let landmark = ShareSheetSubject.fixture(kind: .landmark).rankAxis
+        #expect(landmark.lower == "SLOWER")
+        #expect(landmark.upper == "FASTER")
+        for kind in [ShareSheetSubject.Kind.justClimb, .routine] {
+            let axis = ShareSheetSubject.fixture(kind: kind).rankAxis
+            #expect(axis.lower == "FEWER STEPS")
+            #expect(axis.upper == "MORE STEPS")
+        }
+    }
+
+    @Test
     func splitsFormatTheirOwnText() {
         let split = ShareSheetSubject.Split(index: 6, durationSeconds: 530, steps: 747, stepsPerMinute: 84.6)
         #expect(split.number == "7")

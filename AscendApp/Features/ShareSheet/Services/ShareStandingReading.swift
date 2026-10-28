@@ -12,9 +12,8 @@ struct LeaderboardShareStandingReader: ShareStandingReading {
     func standing(userId: String, timeFrame: LeaderboardTimeFrame) async -> ShareTotalsSnapshot.Standing? {
         do {
             let result = try await withLeaderboardTimeout(seconds: LeaderboardRefreshPolicy.networkTimeoutSeconds) {
-                try await LeaderboardRepository.shared.getUserRank(
+                try await LeaderboardRepository.shared.fetchOwnStepsStanding(
                     userId: userId,
-                    metric: .climb,
                     timeFrame: timeFrame
                 )
             }
