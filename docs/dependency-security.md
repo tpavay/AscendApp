@@ -50,10 +50,11 @@ Keep `firebase-admin` on the latest 13.x release until a dedicated 14.x migratio
 The 13.x tree still requests `uuid` 9 through Google Cloud clients, so `functions/package.json` overrides `uuid` to `^11.1.1`.
 Those clients exercise the unchanged `v4` API, and dropping the override reintroduces the buffer-bounds advisory.
 
-Express 4 declares `qs` as `~6.15.1`, a range that cannot admit the patched 6.16.0 and for which no 6.15.x patch release exists, so `functions/package.json` overrides `qs` to `^6.16.0`.
+Express 4 declares `qs` as `~6.15.1`, a range that cannot admit the patched 6.16.0 and for which no 6.15.x patch release exists, so `functions/package.json` overrides `qs` to `~6.16.1`.
 Dropping the override reintroduces the bracket-key array-limit bypass (GHSA-x5fp-wj9c-mxmx) and the attacker-controlled `isBuffer` denial of service (GHSA-4mjr-xmp4-gh2g), which fail the audit gate on every backend pull request.
+The floor is 6.16.1 because 6.16.0 still throws on a `comma`-format `qs.stringify` of an array element with a non-callable own `toString` (GHSA-6pq8-jhm2-2vcw, published 2026-10-27), and the tilde keeps the override on the 6.16 patch line so an unreviewed `qs` minor cannot change how a handler parses its query string.
 Do not clear those advisories by bumping `firebase-functions` instead: 7.3.2 moves to Express 5, whose default `query parser` is `simple` rather than the `qs`-backed `extended`, so a security patch would silently change how every `onRequest` handler parses its own query string.
-Remove the override once the resolved Express line declares a `qs` range that admits only 6.16.0 or later.
+Remove the override once the resolved Express line declares a `qs` range that admits only 6.16.1 or later.
 
 Express 4 declares `body-parser` as `~1.20.5`, a range that admits every release below the patched 1.20.9, so `functions/package.json` overrides `body-parser` to `^1.20.9`.
 Dropping the override reintroduces the trailing-bytes-after-a-compressed-body denial of service (GHSA-27r3-jxmh-p828), published 2026-10-23, which fails `Functions Verify` on every backend pull request.
