@@ -10,7 +10,7 @@ import UIKit
 ///
 /// `View.sentryMasked()` overlays a full-frame `UIViewRepresentable` on top of
 /// surfaces that are interactive: chart scrubbing, video transport controls, the
-/// share composer's pan and pinch. `allowsHitTesting(false)` and
+/// share sheet's photo pan and pinch. `allowsHitTesting(false)` and
 /// `isUserInteractionEnabled = false` cover the marker itself, but SwiftUI hosts
 /// a representable inside platform views of its own, and a host that claims a
 /// touch swallows it in silence - no crash, no log, just a chart that stops

@@ -117,18 +117,18 @@ struct SentryMaskingEvidenceTests {
     // into its host view and is neither text nor an image as far as the SDK is
     // concerned. Without `sentryMasked()` a climber's own footage reaches a
     // crash screenshot at full fidelity, and the privacy policy promises the
-    // opposite - so these three cases are that promise's evidence, one per
+    // opposite - so these two cases are that promise's evidence, one per
     // surface that plays video.
     //
     // Every frame of the fixture movie is the same picture, which is what makes
-    // the comparison sound: two of the three surfaces start playing on their
-    // own, so the two renders cannot be pinned to the same playback position,
+    // the comparison sound: a surface that starts playing on its own cannot
+    // have its two renders pinned to the same playback position,
     // and a movie that looks the same at every instant removes the question.
     // The permutation is the mirror of that picture.
     //
-    // **These three do not have equal force, and the difference matters.** Emptying
-    // `maskedViewClasses` fails the workout card and the share composer with a
-    // worst channel of 255 - their footage really is on the wire without
+    // **These two do not have equal force, and the difference matters.** Emptying
+    // `maskedViewClasses` fails the workout card with a worst channel of
+    // 255 - its footage really is on the wire without
     // Ascend's marker. The full-screen player still passes, because
     // `SentryUIRedactBuilder` redacts `AVPlayerView` by default and
     // `AVPlayerViewController` renders through one. So that case is evidence
