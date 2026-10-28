@@ -113,21 +113,14 @@ struct LiveClimbLongClimbSummaryTests {
     }
 
     @Test
-    func theShareCardDoesNotOfferSplitsItCannotLabel() throws {
+    func theShareSheetDoesNotOfferSplitsItCannotLabel() throws {
         let climb = try Self.preFixSamplerClimb(named: "steady-84-spm-1h30m")
 
-        func resolver(for workout: Workout) -> ShareStatResolver {
-            ShareStatResolver(
-                workout: workout,
-                measurementSystem: .imperial,
-                stepHeight: MeasurementSystem.imperial.defaultStepHeight
-            )
-        }
-
-        #expect(resolver(for: Self.preFixWorkout(climb)).resolveSplits() == nil)
+        #expect(ShareSheetSplitResolver.resolve(for: Self.preFixWorkout(climb)).isEmpty)
         #expect(
-            resolver(for: Self.recordedSteadySession(durationSeconds: 5_408, stepsPerMinute: 84))
-                .resolveSplits()?.rows.count == 10
+            ShareSheetSplitResolver.resolve(
+                for: Self.recordedSteadySession(durationSeconds: 5_408, stepsPerMinute: 84)
+            ).count == 10
         )
     }
 

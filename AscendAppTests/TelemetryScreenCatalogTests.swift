@@ -82,7 +82,7 @@ struct TelemetryScreenCatalogTests {
         "apple_health_manage": "AppleHealthManageSheet",
         "heart_rate_monitor_manage": "HeartRateMonitorManageSheet",
         "strava_manage": "StravaManageSheet",
-        "share_composer": "ShareComposerView",
+        "share_composer": "ShareSheetView",
         "app_update_nudge": "AppUpdateSheet"
     ]
 

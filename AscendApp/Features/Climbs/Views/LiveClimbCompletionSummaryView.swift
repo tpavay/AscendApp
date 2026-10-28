@@ -118,17 +118,19 @@ struct LiveClimbCompletionSummaryView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
-        .fullScreenCover(isPresented: $showingShareSheet) {
+        .sheet(isPresented: $showingShareSheet) {
             // The hero on screen may be showing a rank recomputed against today's rows. That is
             // right for a screen and wrong for a card, which keeps asserting its number after the
             // next climber finishes, so only the frozen standing is forwarded.
             let frozen = hero?.standing?.frozen
-            ShareComposerView(
+            ShareSheetView(
                 workout: workout,
                 climb: climb,
                 climbRank: frozen?.rank,
                 climbRankTotal: frozen?.renderableTotal
             )
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color(hex: "0B0B0B"))
         }
         .task(id: workout.id) {
             // Resolved before any await: the hero refuses to render a rank over a

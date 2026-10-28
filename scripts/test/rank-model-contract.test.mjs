@@ -37,7 +37,7 @@ const LONGEST_DECLARATION = 4000;
 /** Skills and guides that reference the model instead of restating it. */
 const POINTER_FILES = [
   ".claude/skills/ascend-live-climbs/SKILL.md",
-  ".claude/skills/ascend-share-composer/SKILL.md",
+  ".claude/skills/ascend-share-sheet/SKILL.md",
   "CLAUDE.md",
 ];
 

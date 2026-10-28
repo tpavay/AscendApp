@@ -203,7 +203,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .appleHealthManage: "AppleHealthManageSheet"
         case .heartRateMonitorManage: "HeartRateMonitorManageSheet"
         case .stravaManage: "StravaManageSheet"
-        case .shareComposer: "ShareComposerView"
+        case .shareComposer: "ShareSheetView"
         case .appUpdateNudge: "AppUpdateSheet"
         }
     }

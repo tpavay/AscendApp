@@ -57,7 +57,7 @@ AscendApp/
 ├── App/                # Entry point, Firebase init, env plists, deep links
 ├── Features/           # Account · AscendMountain · Athlete · Authentication · Climbs · Debug · Home
 │                       # Integrations · Leaderboards · Moderation · Monetization · Onboarding
-│                       # Profile · Progress · Routines · ShareComposer · Workouts
+│                       # Profile · Progress · Routines · ShareSheet · Workouts
 └── Shared/             # Components · Extensions · Managers · Models · Repositories · Services · Views
 AscendAppTests/         # Swift Testing suite
 AscendLiveActivityWidgets/  # Live Activity / Dynamic Island extension
@@ -289,7 +289,7 @@ Ascend domains - load before touching the area:
 | Profile, demographics, public mirrors, block/report moderation | `ascend-profile` |
 | Onboarding, auth routing, paywall priming | `ascend-onboarding` |
 | Analytics, telemetry, events | `ascend-analytics` |
-| Sharing, stickers, export | `ascend-share-composer` |
+| Sharing, share sheet, stickers, export | `ascend-share-sheet` |
 | Firestore, Storage, rules, connectivity | `ascend-firebase-data` |
 | Investigating what is actually in a database or bucket | `ascend-data-investigation` |
 | Comping free app access, revoking it, seeing who holds one | `ascend-comp-access` |
