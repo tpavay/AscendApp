@@ -21,6 +21,9 @@ enum ShareStandingWording {
 }
 
 extension ShareStanding {
+    /// `987,654`: the rank's digits grouped the way `fieldText` groups the field beside it.
+    var groupedPosition: String { position.formatted(.number.grouping(.automatic)) }
+
     /// Whether this standing is worded as a percentage rather than a rank. Compared as exact
     /// fractions, not the rounded percent, so 458th of 914 (50.1%) never claims `TOP 50%`.
     var leadsWithPercent: Bool {
@@ -30,7 +33,7 @@ extension ShareStanding {
 
     /// `TOP 12%` in the top half of a real field, `#806` everywhere else.
     var headline: String {
-        leadsWithPercent ? "TOP \(topPercent)%" : "#\(position)"
+        leadsWithPercent ? "TOP \(topPercent)%" : "#\(groupedPosition)"
     }
 }
 

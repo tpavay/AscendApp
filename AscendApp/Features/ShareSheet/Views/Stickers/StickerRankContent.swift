@@ -133,14 +133,14 @@ struct StickerRankContent: View {
             guard let standing = totals?.weekStanding else { return nil }
             return .hero(
                 header: "WEEKLY RANK",
-                position: "\(standing.position)",
+                position: standing.groupedPosition,
                 caption: "OF \(standing.fieldText) \u{00B7} BY STEPS"
             )
         case .monthlyRank:
             guard let totals, let standing = totals.monthStanding else { return nil }
             return .beside(
                 header: "\(totals.calendarMonthName.uppercased()) RANK",
-                position: "\(standing.position)",
+                position: standing.groupedPosition,
                 field: "of \(standing.fieldText)",
                 footer: standing.stickerFooter
             )
@@ -148,7 +148,7 @@ struct StickerRankContent: View {
             guard let standing = totals?.yearStanding else { return nil }
             return .ticket(
                 header: "\(StickerCalendarYear.current()) RANK",
-                position: "\(standing.position)",
+                position: standing.groupedPosition,
                 caption: "OF \(standing.fieldText) CLIMBERS"
             )
         case .rankTrio:

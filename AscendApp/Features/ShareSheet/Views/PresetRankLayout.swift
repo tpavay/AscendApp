@@ -26,7 +26,7 @@ struct PresetRankLayout: View {
                 // sits on the hairline row. Tracking does not scale with the text, so a long number,
                 // which is scaled the most, gets a looser fit than the design's -0.06em or its
                 // digits would overlap.
-                Text("\(model.font.run("#", size: 52, weight: 900, color: Color(share: palette.accentText)))\(model.font.run(rank.positionText, size: 104, weight: 900, trackingEm: rank.positionText.count <= 4 ? -0.06 : -0.02, color: Color(share: palette.foreground)))")
+                Text("\(model.font.run("#", size: 52, weight: 900, color: Color(share: palette.accentText)))\(model.font.run(rank.positionText, size: 104, weight: 900, trackingEm: rank.position <= 9_999 ? -0.06 : -0.02, color: Color(share: palette.foreground)))")
                     .presetOneLine()
                     .frame(height: 104 * 0.82)
                 Text("of \(rank.fieldText)")

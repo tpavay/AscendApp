@@ -13,6 +13,14 @@ struct ShareSheetSubjectTests {
     }
 
     @Test
+    func aLargeRankGroupsItsDigitsLikeTheFieldBesideIt() throws {
+        let rank = try #require(ShareSheetSubject.Rank(position: 987_654, field: 1_234_567))
+        #expect(rank.positionText == "987,654")
+        #expect(rank.fieldText == "1,234,567")
+        #expect(rank.headline == "#987,654")
+    }
+
+    @Test
     func lastPlaceBeatNobodyAndAFieldOfOneIsAFirstAscent() throws {
         let last = try #require(ShareSheetSubject.Rank(position: 64, field: 64))
         #expect(last.beatPercent == 0)

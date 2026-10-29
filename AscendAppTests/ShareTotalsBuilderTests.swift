@@ -115,6 +115,13 @@ struct ShareTotalsBuilderTests {
     }
 
     @Test
+    func aLargeTotalsStandingGroupsItsDigits() throws {
+        let standing = try #require(ShareTotalsSnapshot.Standing(position: 12_345, field: 20_000))
+        #expect(standing.positionText == "#12,345")
+        #expect(standing.headline == "#12,345")
+    }
+
+    @Test
     func theEarliestNeededDateCoversTheYearTheBarsAndThePaceWindow() {
         let earliest = ShareTotalsBuilder.earliestNeededDate(now: now, calendar: calendar)
         let yearStart = calendar.date(from: DateComponents(year: 2026, month: 1, day: 1))!

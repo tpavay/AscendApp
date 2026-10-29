@@ -15,7 +15,7 @@ struct ShareTotalsSnapshot: Equatable, Sendable {
             self.field = field
         }
 
-        var positionText: String { "#\(position)" }
+        var positionText: String { "#\(groupedPosition)" }
         var fieldText: String { field.formatted(.number.grouping(.automatic)) }
 
         /// `TOP 3%`, never below 1.

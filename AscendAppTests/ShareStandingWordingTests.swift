@@ -28,7 +28,7 @@ struct ShareStandingWordingTests {
         (458, 914, "#458"),
         (806, 914, "#806"),
         (64, 64, "#64"),
-        (987_654, 1_234_567, "#987654"),
+        (987_654, 1_234_567, "#987,654"),
     ])
     func theLowerHalfLeadsWithTheRank(position: Int, field: Int, headline: String) throws {
         let standing = try rank(position, of: field)

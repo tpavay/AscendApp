@@ -23,7 +23,7 @@ struct ShareSheetSubject: Equatable, Sendable {
             self.field = field
         }
 
-        var positionText: String { "\(position)" }
+        var positionText: String { groupedPosition }
         var fieldText: String { field.formatted(.number.grouping(.automatic)) }
 
         /// `TOP 11%` for 7 of 64: the share of the field at or above this finish, never under 1.

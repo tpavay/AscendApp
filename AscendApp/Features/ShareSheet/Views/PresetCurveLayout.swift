@@ -59,7 +59,7 @@ struct PresetCurveLayout: View {
             height: Double(Self.curveHeight)
         )
         let marker = geometry.marker
-        let tag = Self.tag(markerX: marker.x, markerY: marker.y, isWide: rank.positionText.count >= 5)
+        let tag = Self.tag(markerX: marker.x, markerY: marker.y, isWide: rank.position >= 10_000)
         return ZStack(alignment: .topLeading) {
             Path { path in
                 path.move(to: CGPoint(x: 0, y: Self.curveHeight))
