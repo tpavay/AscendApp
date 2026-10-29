@@ -38,6 +38,9 @@ struct PresetCardView: View {
                     .strokeBorder(Color(shareHex: 0x262626), lineWidth: 1)
             }
         }
+        // The card is an image: the wordmark's scaled font would otherwise make the preview differ
+        // from the export, which draws at the default size, for anyone running larger text.
+        .dynamicTypeSize(.large)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(model.layout.title) preset on \(model.background.title) background")
     }

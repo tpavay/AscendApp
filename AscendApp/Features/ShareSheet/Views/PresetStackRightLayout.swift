@@ -22,9 +22,10 @@ struct PresetStackRightLayout: View {
         VStack(alignment: .trailing, spacing: 0) {
             Text(label)
                 .presetText(model.font, size: 9, weight: 700, trackingEm: 0.14, color: Color(share: labelColor))
+                .presetOneLine(floor: PresetFitGeometry.labelFloor)
             Text(value)
                 .presetText(model.font, size: 26, weight: 900, trackingEm: -0.02, color: Color(share: model.palette.foreground))
-                .lineLimit(1)
+                .presetOneLine()
                 .frame(height: 26)
         }
     }

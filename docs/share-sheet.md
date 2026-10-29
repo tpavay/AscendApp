@@ -83,6 +83,19 @@ A swatch draws the card's real background, which is non-interactive, so the tile
 The swatch is also laid out as exactly its own square, because a zoomed pattern clipped to a tile still lays out at the card's size and used to sit over the tiles beside it.
 `PresetBackgroundRowHitTargetTests` pins the tile frames: 44 points each way, no overlap, no gap.
 
+## Fitting numbers
+
+A card draws at one fixed type size and is exported as an image, so no figure on it may wrap, drop a digit to a second line or end in an ellipsis.
+That holds at the largest values a climb can reach: a 100 hour time, thousands of floors, a six digit rank in a seven digit pool.
+Every layout shares one approach, in `PresetFitGeometry` (pure widths) with `PresetStatColumns`, `PresetBesideOrBelow` and `PresetHeadlineLine` (the layouts that apply it) and `presetOneLine` (the modifier every figure and label carries).
+- **Stat rows** (Classic, Rank, Centered) keep their design gap while the columns fit. Past that the gap closes toward 8 points, then the labels give up width down to 60% of their size, and only then does the whole row scale, every column by the same factor.
+- **A big number beside its caption** (the Classic steps, the Rank position, the Curve and Splits headlines) scales before its caption moves: the headlines by at most 15%, the others by at most half. Past that the caption drops to its own line under the number.
+- **Minimal** may break between one stat and the next and never inside one, and the dot stays with the stat before it.
+- A long rank number gets looser tracking, because tracking does not scale with the text and the design's -0.06em would overlap its digits.
+- The card pins `dynamicTypeSize(.large)`, so the wordmark's scaled font cannot make the preview differ from the export for a climber running larger text.
+`PresetFitGeometryTests` pins the rules, and `PresetCardFitTests` reads every layout through Vision at the captain's own figures and at the extremes, and fails when a figure is split or cut.
+The Splits and Split table layouts draw one bar or row per split, so a climb with very many splits (a 24 hour one has 144) meets a different limit, which this section does not cover.
+
 ## Story
 
 Story hands Instagram the card alone: the 1080 x 1080 rounded square as `com.instagram.sharedSticker.stickerImage`, corners transparent, with the app's bundle id as `source_application`.

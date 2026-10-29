@@ -22,16 +22,9 @@ struct PresetSplitsLayout: View {
         return VStack(alignment: .leading, spacing: 0) {
             Text(model.label)
                 .presetText(model.font, size: 10, weight: 700, trackingEm: 0.2, color: Color(share: palette.secondary))
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(fastest.stepsPerMinuteText)
-                    .presetText(model.font, size: 34, weight: 900, trackingEm: -0.03, color: Color(share: palette.foreground))
-                    .lineLimit(1)
-                    .frame(height: 34)
-                Text("SPM · FASTEST SPLIT")
-                    .presetText(model.font, size: 10, weight: 800, trackingEm: 0.14, color: Color(share: palette.accentText))
-                    .lineLimit(1)
-            }
-            .padding(.top, 2)
+                .presetOneLine(floor: PresetFitGeometry.labelFloor)
+            PresetHeadlineLine(model: model, headline: fastest.stepsPerMinuteText, caption: "SPM · FASTEST SPLIT")
+                .padding(.top, 2)
             bars(splits: splits, fastest: fastest)
                 .padding(.top, 8)
             footer(count: splits.count)
@@ -69,11 +62,11 @@ struct PresetSplitsLayout: View {
     private func footer(count: Int) -> some View {
         let palette = model.palette
         return HStack(spacing: 0) {
-            Text("\(count) SPLITS")
-            Spacer(minLength: 0)
-            Text("\(model.subject.stepsText) STEPS")
-            Spacer(minLength: 0)
-            Text(model.subject.durationText)
+            Text("\(count) SPLITS").presetOneLine(floor: 0.5)
+            Spacer(minLength: 8)
+            Text("\(model.subject.stepsText) STEPS").presetOneLine(floor: 0.5)
+            Spacer(minLength: 8)
+            Text(model.subject.durationText).presetOneLine(floor: 0.5)
         }
         .presetText(model.font, size: 10, weight: 800, trackingEm: 0.1, color: Color(share: palette.foreground))
         .padding(.top, 8)

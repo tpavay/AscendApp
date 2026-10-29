@@ -11,11 +11,14 @@ struct PresetClassicLayout: View {
             Spacer(minLength: 0)
             Text(model.label)
                 .presetText(model.font, size: 10, weight: 700, trackingEm: 0.2, color: Color(share: palette.secondary))
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                .presetOneLine(floor: PresetFitGeometry.labelFloor)
+            PresetBesideOrBelow {
                 Text(model.subject.stepsText)
                     .presetText(model.font, size: 60, weight: 900, trackingEm: -0.04, color: Color(share: palette.foreground))
+                    .presetOneLine()
                 Text("STEPS")
                     .presetText(model.font, size: 12, weight: 800, trackingEm: 0.14, color: Color(share: palette.accentText))
+                    .presetOneLine(floor: PresetFitGeometry.labelFloor)
             }
             .padding(.top, 2)
             PresetStatRow(model: model)

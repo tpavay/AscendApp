@@ -55,10 +55,10 @@ struct PresetGridLayout: View {
                     trackingEm: 0.14,
                     color: Color(share: cell.isSteps ? palette.accentText : palette.secondary)
                 )
+                .presetOneLine(floor: PresetFitGeometry.labelFloor)
             Text(cell.value)
                 .presetText(model.font, size: 30, weight: 900, trackingEm: -0.03, color: Color(share: palette.foreground))
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
+                .presetOneLine()
                 .frame(height: 30 * 1.05)
         }
         .padding(.vertical, 12)

@@ -17,6 +17,7 @@ Read it before editing a card or a sticker; do not re-litigate those rules here.
   A card is a layout, a background, a font, an accent and a chip set, all stored in `PresetPreferences` and read back through `PresetPreferencesStore`.
   Cards page through `PresetCardPager`, a custom drag pager whose rules live in `PresetPagerGeometry` (1:1 tracking, 45% rubber band, 60 pt or 350 pt/s release, one card a gesture); `docs/share-sheet.md` (Swiping the cards) owns the detail.
   Background tiles are whole-tile tap targets (`contentShape` on the label, swatch laid out as its own square); `docs/share-sheet.md` (Background tiles) owns the detail.
+  Card figures never wrap or truncate: every layout fits through `PresetFitGeometry` and `presetOneLine`, never a bare `lineLimit`; `docs/share-sheet.md` (Fitting numbers) owns the rules.
   Actions: Story, Copy, Save, More.
 - **Stickers** are transparent PNGs for the climber to drop on their own photo or video.
   A tap copies the PNG, a hold saves it.

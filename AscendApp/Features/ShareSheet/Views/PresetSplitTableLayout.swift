@@ -27,7 +27,7 @@ struct PresetSplitTableLayout: View {
             Spacer(minLength: 0)
             Text("\(model.label) · SPLITS")
                 .presetText(model.font, size: 10, weight: 700, trackingEm: 0.2, color: Color(share: palette.secondary))
-                .lineLimit(1)
+                .presetOneLine(floor: PresetFitGeometry.labelFloor)
             header
                 .padding(.top, 8)
             ForEach(splits) { split in
@@ -74,7 +74,7 @@ struct PresetSplitTableLayout: View {
             weight: 800,
             color: Color(share: isFastest ? palette.accentText : palette.foreground)
         )
-        .lineLimit(1)
+        .presetOneLine(floor: 0.5)
         .padding(.vertical, padding)
         .overlay(alignment: .bottom) { hairline }
     }

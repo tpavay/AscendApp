@@ -6,6 +6,9 @@ import Foundation
 extension ShareSheetSubject {
     static func fixture(
         kind: Kind = .justClimb,
+        stepsText: String = "5,004",
+        durationText: String = "1:02:50",
+        stepsPerMinuteText: String = "79.6",
         floorsText: String? = "313",
         averageHeartRate: Int? = 127,
         heartRateTrace: [Double] = [120, 124, 130, 127, 133, 138, 144],
@@ -19,9 +22,9 @@ extension ShareSheetSubject {
             title: kind == .landmark ? "Shanghai Tower" : "Just Climb",
             label: kind == .landmark ? "SHANGHAI TOWER · 632 M" : "JUST CLIMB",
             dateText: "OCT 9",
-            stepsText: "5,004",
-            durationText: "1:02:50",
-            stepsPerMinuteText: "79.6",
+            stepsText: stepsText,
+            durationText: durationText,
+            stepsPerMinuteText: stepsPerMinuteText,
             floorsText: floorsText,
             averageHeartRate: averageHeartRate,
             maxHeartRate: averageHeartRate == nil ? nil : 144,

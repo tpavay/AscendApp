@@ -23,22 +23,15 @@ struct PresetCurveLayout: View {
         return VStack(alignment: .leading, spacing: 0) {
             Text(model.label)
                 .presetText(model.font, size: 10, weight: 700, trackingEm: 0.2, color: Color(share: palette.secondary))
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("TOP \(rank.topPercent)%")
-                    .presetText(model.font, size: 34, weight: 900, trackingEm: -0.03, color: Color(share: palette.foreground))
-                    .lineLimit(1)
-                    .frame(height: 34)
-                Text("OF \(rank.fieldText) CLIMBERS")
-                    .presetText(model.font, size: 10, weight: 800, trackingEm: 0.14, color: Color(share: palette.accentText))
-                    .lineLimit(1)
-            }
-            .padding(.top, 2)
+                .presetOneLine(floor: PresetFitGeometry.labelFloor)
+            PresetHeadlineLine(model: model, headline: "TOP \(rank.topPercent)%", caption: "OF \(rank.fieldText) CLIMBERS")
+                .padding(.top, 2)
             Spacer(minLength: 0)
             curve(rank: rank)
             HStack(spacing: 0) {
                 Text(axis.lower)
                 Spacer(minLength: 0)
-                Text("BEAT \(rank.beatPercent)%")
+                Text("BEAT \(rank.beatPercent)%").presetOneLine(floor: PresetFitGeometry.labelFloor)
                 Spacer(minLength: 0)
                 Text(axis.upper)
             }
@@ -91,7 +84,7 @@ struct PresetCurveLayout: View {
                 .offset(x: marker.x - 4.5, y: marker.y - 4.5)
             Text("YOU · #\(rank.positionText)")
                 .presetText(model.font, size: 10, weight: 800, color: accent)
-                .lineLimit(1)
+                .presetOneLine(floor: PresetFitGeometry.labelFloor)
                 .frame(width: Self.tagBoxWidth, alignment: tag.alignment)
                 .position(x: marker.x + tag.boxOffset, y: tag.centerY)
         }
