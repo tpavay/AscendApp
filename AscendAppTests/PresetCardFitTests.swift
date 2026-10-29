@@ -34,6 +34,9 @@ struct PresetCardFitTests {
         Climb(name: "just under it, 33rd of 64", steps: "5,004", duration: "1:02:50", pace: "79.6", floors: "313", heartRate: 127, position: 33, field: 64),
         Climb(name: "first ascent, 1 of 1", steps: "5,004", duration: "1:02:50", pace: "79.6", floors: "313", heartRate: 127, position: 1, field: 1),
         Climb(name: "a pool of two, 1 of 2", steps: "5,004", duration: "1:02:50", pace: "79.6", floors: "313", heartRate: 127, position: 1, field: 2),
+        // The right tail of the Curve card, where the curve climbs toward the peak under the tag.
+        // (A field of 100 or more reads TOP 1%, whose bold `1%` Vision misreads.)
+        Climb(name: "the front of the field, 1 of 50", steps: "5,004", duration: "1:02:50", pace: "79.6", floors: "313", heartRate: 127, position: 1, field: 50),
     ]
 
     nonisolated static let layouts: [PresetLayout] = [.classic, .rank, .curve, .splits, .centered, .grid, .stackRight, .minimal]
