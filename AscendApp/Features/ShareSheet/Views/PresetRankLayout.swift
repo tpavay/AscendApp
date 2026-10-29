@@ -46,7 +46,7 @@ struct PresetRankLayout: View {
 
     private func statRow(rank: ShareSheetSubject.Rank) -> some View {
         PresetStatRow(model: model, columns: [
-            PresetStatColumn(id: "percentile", value: rank.leadsWithPercent ? "TOP \(rank.topPercent)%" : "BEAT \(rank.beatPercent)%", label: "PERCENTILE"),
+            PresetStatColumn(id: "percentile", value: rank.percentileColumnValue, label: "PERCENTILE"),
             PresetStatColumn(id: "steps", value: model.subject.stepsText, label: "STEPS"),
             PresetStatColumn(id: "time", value: model.subject.durationText, label: "TIME")
         ])

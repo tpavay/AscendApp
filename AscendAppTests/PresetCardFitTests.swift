@@ -113,7 +113,7 @@ struct PresetCardFitTests {
             // the extremes the words beside it are legitimately small.
             return [subject.stepsText] + values + model.stats.map(\.label).filter { $0.contains(where: \.isNumber) }
         case .rank:
-            let percentile = rank.map { $0.leadsWithPercent ? "TOP \($0.topPercent)%" : "BEAT \($0.beatPercent)%" }
+            let percentile = rank.map(\.percentileColumnValue)
             // A one or two digit rank has nothing to scale, and Vision is shaky on a short tracked-in word.
             return [rank.map(\.positionText).flatMap { $0.count >= 3 ? $0 : nil }, rank.map { "of \($0.fieldText)" }, percentile, subject.stepsText, subject.durationText]
                 .compactMap { $0 }

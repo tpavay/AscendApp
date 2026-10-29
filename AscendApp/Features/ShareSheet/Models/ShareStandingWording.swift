@@ -51,6 +51,13 @@ extension ShareSheetSubject.Rank: ShareStanding {
         guard let beat = beatCaption else { return "FIRST ASCENT" }
         return leadsWithPercent ? "TOP \(topPercent)% \u{00B7} \(beat)" : beat
     }
+
+    /// The Rank card's percentile column: the percentile it earned, else what it beat, and
+    /// `FIRST ASCENT` for a field of one, which beat nobody.
+    var percentileColumnValue: String {
+        if leadsWithPercent { return "TOP \(topPercent)%" }
+        return beatCaption ?? "FIRST ASCENT"
+    }
 }
 
 extension ShareTotalsSnapshot.Standing: ShareStanding {

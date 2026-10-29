@@ -58,6 +58,14 @@ struct ShareStandingWordingTests {
         #expect(only.fieldCaption == "FIRST ASCENT")
         #expect(only.beatCaption == nil)
         #expect(only.stickerFooter == "FIRST ASCENT")
+        #expect(only.percentileColumnValue == "FIRST ASCENT")
+    }
+
+    @Test
+    func theRankCardPercentileColumnNeverClaimsAPercentageItDidNotEarn() throws {
+        #expect(try rank(7, of: 64).percentileColumnValue == "TOP 11%")
+        #expect(try rank(806, of: 914).percentileColumnValue == "BEAT 11%")
+        #expect(try rank(3, of: 5).percentileColumnValue == "BEAT 40%")
     }
 
     @Test
