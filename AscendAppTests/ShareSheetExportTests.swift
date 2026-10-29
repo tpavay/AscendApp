@@ -98,6 +98,33 @@ struct ShareSheetExportTests {
         }
     }
 
+    // MARK: - Story
+
+    @Test
+    func storyHandsInstagramTheCardAloneAsASticker() throws {
+        for background in [PresetCardBackground.flat(.black), .flat(.aurora)] {
+            let model = presets(on: date(10, 28))
+            if case .flat(let flat) = background { model.selectBackground(flat) }
+            let card = try #require(exporter.renderCard(model: model.cardModel, artwork: model.artwork))
+
+            let items = try #require(exporter.instagramStoryItems(for: card))
+            #expect(items.count == 1)
+            let item = try #require(items.first)
+            // Only the sticker key: a `backgroundImage` is what drew a dark rectangle behind the card.
+            #expect(Set(item.keys) == [ShareSheetExporter.instagramStickerKey])
+
+            let data = try #require(item[ShareSheetExporter.instagramStickerKey] as? Data)
+            let sent = try #require(UIImage(data: data))
+            let pixels = try Pixels(sent)
+            #expect(pixels.width == 1080 && pixels.height == 1080, "the Story image is \(pixels.width)x\(pixels.height)")
+            for corner in [(1, 1), (pixels.width - 2, 1), (1, pixels.height - 2), (pixels.width - 2, pixels.height - 2)] {
+                #expect(pixels.alpha(x: corner.0, y: corner.1) == 0, "a Story corner is opaque")
+            }
+            #expect(pixels.alpha(x: 540, y: 540) == 255)
+            try Self.keep(sent, named: "story-\(model.background.title.lowercased())")
+        }
+    }
+
     // MARK: - Stickers
 
     @Test
@@ -160,7 +187,7 @@ struct ShareSheetExportTests {
         try image.pngData()?.write(to: directory.appending(path: "share-sheet-\(name).png"))
     }
 
-    private struct Pixels {
+    struct Pixels {
         let width: Int
         let height: Int
         private let bytes: [UInt8]
@@ -184,6 +211,24 @@ struct ShareSheetExportTests {
         }
 
         func alpha(x: Int, y: Int) -> UInt8 { bytes[(y * width + x) * 4 + 3] }
+
+        func channel(_ channel: Int, x: Int, y: Int) -> Int { Int(bytes[(y * width + x) * 4 + channel]) }
+
+        /// The mean step between neighbouring pixels inside `region`: near zero for a smooth
+        /// gradient, high for a pattern or grain.
+        func edgeEnergy(in region: CGRect) -> Double {
+            var total = 0
+            var count = 0
+            for y in Int(region.minY)..<Int(region.maxY) {
+                for x in Int(region.minX)..<Int(region.maxX) - 1 {
+                    for channel in 0..<3 {
+                        total += abs(self.channel(channel, x: x, y: y) - self.channel(channel, x: x + 1, y: y))
+                    }
+                    count += 3
+                }
+            }
+            return Double(total) / Double(max(count, 1))
+        }
 
         func distinctColours(stride step: Int) -> Int {
             var seen = Set<UInt32>()

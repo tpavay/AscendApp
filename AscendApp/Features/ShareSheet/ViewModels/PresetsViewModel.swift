@@ -108,6 +108,15 @@ final class PresetsViewModel {
     }
 
     func cardModel(for layout: PresetLayout) -> PresetCardModel {
+        cardModel(for: layout, background: background)
+    }
+
+    /// The card as it would draw on `background`, which a swatch renders to show that choice.
+    func swatchModel(for background: PresetCardBackground) -> PresetCardModel {
+        cardModel(for: currentLayout, background: background)
+    }
+
+    private func cardModel(for layout: PresetLayout, background: PresetCardBackground) -> PresetCardModel {
         PresetCardModel(
             subject: subject,
             preferences: preferences,

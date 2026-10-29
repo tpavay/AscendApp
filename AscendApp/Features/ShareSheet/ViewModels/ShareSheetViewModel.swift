@@ -56,9 +56,8 @@ final class ShareSheetViewModel {
 
         switch action {
         case .story:
-            let story = exporter.storyImage(from: card)
-            if !exporter.shareToInstagramStory(story) {
-                exporter.presentShareSheet(image: story)
+            if !exporter.shareToInstagramStory(card) {
+                exporter.presentShareSheet(image: card)
             }
         case .copy:
             if exporter.copyToClipboard(card) {

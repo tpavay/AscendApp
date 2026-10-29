@@ -70,7 +70,8 @@ Apply `View.sentryMasked()` inside the view's own definition and add the surface
 - Photos: reading a library photo for a background asks `.readWrite` at the moment the climber opens the photo sheet; saving asks `.addOnly` at the first save.
   Never in onboarding.
   `NSPhotoLibraryUsageDescription` is stored in four places that change together (`ascend-privacy-manifest`).
-- Story is the existing Instagram hand-off: the card on a 1080 x 1920 dark canvas, the bundle id as `source_application`.
+- Story hands Instagram the card alone as `com.instagram.sharedSticker.stickerImage` (1080 x 1080, transparent corners), the bundle id as `source_application`.
+  Never a `backgroundImage` and never a 9:16 canvas: Instagram draws the rounded square only.
   Stickers never go to Story directly; they are clipboard and Photos only.
 - Everything is bundled and rendered on device.
   No remote template service, no server-rendered images, no remote-configured layouts.

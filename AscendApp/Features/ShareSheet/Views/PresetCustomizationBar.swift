@@ -10,8 +10,7 @@ struct PresetCustomizationBar: View {
         HStack(spacing: 6) {
             button("Background", panel: .background) {
                 HStack(spacing: 5) {
-                    PresetBackgroundThumb(background: model.background, accent: model.preferences.accent)
-                        .frame(width: 11, height: 11)
+                    PresetBackgroundThumb(model: card, artwork: model.artwork, size: 11)
                     Text(model.background.title)
                 }
             }

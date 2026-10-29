@@ -63,4 +63,6 @@ The four families ship under the SIL Open Font License 1.1; `docs/font-licenses.
 
 ## Story
 
-Story is unchanged from before the redesign: the card on a 1080 x 1920 dark canvas, handed to Instagram with the app's bundle id as `source_application`.
+Story hands Instagram the card alone: the 1080 x 1080 rounded square as `com.instagram.sharedSticker.stickerImage`, corners transparent, with the app's bundle id as `source_application`.
+There is no 9:16 canvas and no `backgroundImage`, because an opaque background image is what put a dark rectangle around the card on Instagram's side.
+Instagram still supplies the Story's own backdrop behind a sticker; the app cannot remove it.

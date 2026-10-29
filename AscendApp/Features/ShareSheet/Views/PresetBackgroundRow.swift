@@ -96,9 +96,7 @@ struct PresetBackgroundRow: View {
             action()
         } label: {
             VStack(spacing: 5) {
-                PresetBackgroundThumb(background: background, accent: model.preferences.accent)
-                    .frame(width: 46, height: 46)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                PresetBackgroundThumb(model: model.swatchModel(for: background), artwork: model.artwork, size: 46)
                     .overlay(alignment: .topTrailing) {
                         if seasonalDot {
                             Circle().fill(lime).frame(width: 8, height: 8).padding(3)

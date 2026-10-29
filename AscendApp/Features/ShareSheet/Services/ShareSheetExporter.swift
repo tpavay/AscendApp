@@ -9,8 +9,10 @@ import UniformTypeIdentifiers
 struct ShareSheetExporter {
     /// A card is exported square at 1080 points, the size the design specifies.
     static let cardExportSize: CGFloat = 1080
-    /// Stories are 9:16; the square card sits centred on a dark canvas of this size.
-    static let storySize = CGSize(width: 1080, height: 1920)
+    /// Instagram's pasteboard key for an image placed over the Story as a movable sticker. The card
+    /// goes here, never under `backgroundImage`, so Instagram draws only the rounded square and
+    /// the transparent corners stay transparent.
+    static let instagramStickerKey = "com.instagram.sharedSticker.stickerImage"
     /// A sticker is drawn at 3x so it stays crisp when pasted at any size.
     static let stickerScale: CGFloat = 3
 
@@ -38,20 +40,6 @@ struct ShareSheetExporter {
         renderer.scale = Self.stickerScale
         renderer.isOpaque = false
         return renderer.uiImage
-    }
-
-    /// The card placed on a dark 9:16 canvas for Stories.
-    func storyImage(from card: UIImage) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: Self.storySize, format: format)
-        return renderer.image { context in
-            UIColor(red: 0.043, green: 0.043, blue: 0.043, alpha: 1).setFill()
-            context.fill(CGRect(origin: .zero, size: Self.storySize))
-            let side = Self.storySize.width
-            card.draw(in: CGRect(x: 0, y: (Self.storySize.height - side) / 2, width: side, height: side))
-        }
     }
 
     func loadClimbArtwork(for climb: Climb) async -> UIImage? {
@@ -100,22 +88,26 @@ struct ShareSheetExporter {
 
     // MARK: - Instagram Stories and the share sheet
 
-    /// Hands the image to Instagram Stories through its pasteboard scheme. Returns false when
+    /// The pasteboard payload for a Story: the card's own PNG as the sticker, with no canvas and no
+    /// background keys, so nothing but the rounded square travels.
+    func instagramStoryItems(for card: UIImage) -> [[String: Any]]? {
+        guard let data = card.pngData() else { return nil }
+        return [[Self.instagramStickerKey: data]]
+    }
+
+    /// Hands the card to Instagram Stories through its pasteboard scheme. Returns false when
     /// Instagram is not installed, so the caller falls back to the system share sheet. Requires
     /// `instagram-stories` in `LSApplicationQueriesSchemes`.
-    func shareToInstagramStory(_ image: UIImage) -> Bool {
+    func shareToInstagramStory(_ card: UIImage) -> Bool {
         guard
-            let data = image.pngData(),
+            let items = instagramStoryItems(for: card),
             let url = URL(string: "instagram-stories://share?source_application=\(Bundle.main.bundleIdentifier ?? "")"),
             UIApplication.shared.canOpenURL(url)
         else {
             return false
         }
 
-        UIPasteboard.general.setItems(
-            [["com.instagram.sharedSticker.backgroundImage": data]],
-            options: [.expirationDate: Date().addingTimeInterval(60 * 5)]
-        )
+        UIPasteboard.general.setItems(items, options: [.expirationDate: Date().addingTimeInterval(60 * 5)])
         UIApplication.shared.open(url)
         return true
     }
