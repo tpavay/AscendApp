@@ -61,6 +61,20 @@ The year is generated, never hard-coded.
 Bold is Montserrat Black, Condensed is Barlow Condensed ExtraBold, Mono is JetBrains Mono ExtraBold and Serif is Instrument Serif.
 The four families ship under the SIL Open Font License 1.1; `docs/font-licenses.md` records each file and its author.
 
+## Swiping the cards
+
+`PresetCardPager` is a custom drag pager built to the captain's handoff (`SWIPE_SPEC.md`), and `PresetPagerGeometry` holds every number so tests pin them.
+The row follows the finger one for one with no animation while it is down, and the neighbours slide in with it.
+Pulling past the first or last card moves the card at 45% of the finger and brings nothing in.
+A release pages when the drag passes 60 points or the velocity passes 350 points a second in that direction, never by more than one card, and otherwise springs back.
+The page change and the drag reset share one transaction, so the spring starts from where the finger let go.
+Scale (1 down to 0.9), opacity (1 down to 0.45), the text parallax of 24 points a card and the shadow are all driven by a card's distance from the centre, continuously.
+The page marks and the caption live in the pager so they follow the drag too: the active mark is an 18 x 6 pill that blends with the drag, and the caption cross-fades with a 6 point slide.
+A light haptic fires when a new card lands and not on a spring-back.
+VoiceOver gets one adjustable element that moves a card at a time, and Reduce Motion swaps the spring for a 0.2 second ease-out and drops the parallax.
+A chosen photograph is framed by the same drag instead, so paging then goes through the marks or a tap on a neighbour.
+Do not layer a `TabView` or a second gesture on the pager; the rubber band, the peeking neighbours and the continuous depth are not possible with one.
+
 ## Story
 
 Story hands Instagram the card alone: the 1080 x 1080 rounded square as `com.instagram.sharedSticker.stickerImage`, corners transparent, with the app's bundle id as `source_application`.

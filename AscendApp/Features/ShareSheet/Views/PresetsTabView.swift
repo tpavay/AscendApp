@@ -11,28 +11,10 @@ struct PresetsTabView: View {
 
     @State private var showsPhotoSheet = false
 
-    private let lime = Color(shareHex: PresetAccent.lime.hex)
-
     var body: some View {
         VStack(spacing: 0) {
             PresetCardPager(model: model)
                 .padding(.top, 20)
-
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    ForEach(model.layouts) { layout in
-                        Capsule()
-                            .fill(layout == model.currentLayout ? lime : Color(shareHex: 0x3A3A3A))
-                            .frame(width: layout == model.currentLayout ? 18 : 6, height: 6)
-                            .onTapGesture { model.select(layout: layout) }
-                            .accessibilityLabel("\(layout.title) layout")
-                    }
-                }
-                Text(model.layoutCaption)
-                    .font(.montserratSemiBold(size: 12))
-                    .foregroundStyle(Color(shareHex: 0x8A8A8A))
-            }
-            .padding(.top, 14)
 
             Spacer(minLength: 0)
 

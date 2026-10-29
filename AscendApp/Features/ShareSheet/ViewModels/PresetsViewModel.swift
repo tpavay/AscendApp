@@ -79,9 +79,15 @@ final class PresetsViewModel {
     }
 
     var layoutCaption: String {
-        let index = layoutIndex
+        caption(at: layoutIndex)
+    }
+
+    /// The line under the page marks for the layout at `index`.
+    func caption(at index: Int) -> String {
+        let layouts = layouts
+        guard layouts.indices.contains(index) else { return "" }
         let hint = index == 0 ? "swipe for more" : "\(index + 1) of \(layouts.count)"
-        return "\(currentLayout.title) · \(hint)"
+        return "\(layouts[index].title) · \(hint)"
     }
 
     /// What is behind the card: this climb's own tower or photo, else the saved seasonal

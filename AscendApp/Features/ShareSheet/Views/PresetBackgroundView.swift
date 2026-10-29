@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// What sits behind a Presets card, filling its 310 by 310 design space.
+/// What sits behind a Presets card, filling its 310 by 310 design space. It is `Equatable` so a
+/// swipe, which redraws the cards every frame to move them, does not redraw a background that has
+/// not changed: the grain alone is thousands of specks.
 struct PresetBackgroundView: View {
     let model: PresetCardModel
     var artwork: PresetCardArtwork = .none
@@ -35,5 +37,15 @@ struct PresetBackgroundView: View {
         case .seasonal(let seasonal):
             SeasonalBackgroundArt(background: seasonal)
         }
+    }
+}
+
+/// `@preconcurrency` because a `View`'s members are main actor isolated and `Equatable.==` is not;
+/// SwiftUI only ever calls it on the main thread while diffing.
+extension PresetBackgroundView: @preconcurrency Equatable {
+    static func == (lhs: PresetBackgroundView, rhs: PresetBackgroundView) -> Bool {
+        lhs.model == rhs.model
+            && lhs.artwork.tower === rhs.artwork.tower
+            && lhs.artwork.photo === rhs.artwork.photo
     }
 }

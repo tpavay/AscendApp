@@ -8,10 +8,14 @@ struct PresetCardView: View {
 
     let model: PresetCardModel
     var artwork: PresetCardArtwork = .none
+    /// How far the text slides against the background, for the swipe's parallax. Zero everywhere
+    /// else, so an exported card is never offset.
+    var contentOffset: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             PresetBackgroundView(model: model, artwork: artwork)
+                .equatable()
                 .scaleEffect(model.background == .photo ? artwork.photoScale : 1)
                 .offset(
                     x: model.background == .photo ? artwork.photoOffset.width * Self.designSize : 0,
@@ -20,8 +24,10 @@ struct PresetCardView: View {
 
             layout
                 .frame(width: Self.designSize, height: Self.designSize)
+                .offset(x: contentOffset)
 
             PresetCardTopRow(model: model)
+                .offset(x: contentOffset)
         }
         .frame(width: Self.designSize, height: Self.designSize)
         .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
@@ -58,9 +64,10 @@ struct PresetCardCanvas: View {
     let model: PresetCardModel
     var artwork: PresetCardArtwork = .none
     let size: CGFloat
+    var contentOffset: CGFloat = 0
 
     var body: some View {
-        PresetCardView(model: model, artwork: artwork)
+        PresetCardView(model: model, artwork: artwork, contentOffset: contentOffset)
             .scaleEffect(size / PresetCardView.designSize, anchor: .topLeading)
             .frame(width: size, height: size, alignment: .topLeading)
     }
