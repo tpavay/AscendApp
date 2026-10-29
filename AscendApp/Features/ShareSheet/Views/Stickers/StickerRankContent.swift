@@ -127,7 +127,7 @@ struct StickerRankContent: View {
                 header: "VS. \(subject.stickerFieldName)",
                 position: rank.positionText,
                 field: "of \(rank.fieldText)",
-                footer: "TOP \(rank.topPercent)% \u{00B7} BEAT \(rank.beatPercent)%"
+                footer: rank.stickerFooter
             )
         case .weeklyRank:
             guard let standing = totals?.weekStanding else { return nil }
@@ -142,7 +142,7 @@ struct StickerRankContent: View {
                 header: "\(totals.calendarMonthName.uppercased()) RANK",
                 position: "\(standing.position)",
                 field: "of \(standing.fieldText)",
-                footer: "TOP \(standing.topPercent)% \u{00B7} BY STEPS"
+                footer: standing.stickerFooter
             )
         case .yearlyRank:
             guard let standing = totals?.yearStanding else { return nil }

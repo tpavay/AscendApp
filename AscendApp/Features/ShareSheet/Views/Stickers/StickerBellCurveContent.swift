@@ -72,8 +72,8 @@ struct StickerBellCurveContent: View {
             guard let subject, let rank = subject.rank else { return nil }
             return Copy(
                 header: "VS. \(subject.stickerFieldName)",
-                headline: "TOP \(rank.topPercent)%",
-                footer: "#\(rank.positionText) OF \(rank.fieldText) \u{00B7} BEAT \(rank.beatPercent)%",
+                headline: rank.headline,
+                footer: Self.footer(for: rank),
                 beaten: Double(rank.field - rank.position) / Double(rank.field)
             )
         case .weeklyBellCurve:
@@ -90,11 +90,19 @@ struct StickerBellCurveContent: View {
         }
     }
 
+    /// The line under the curve: the rank is in the headline when the percentile is not, so it is
+    /// only repeated here when the headline is `TOP 12%`.
+    private static func footer(for rank: ShareSheetSubject.Rank) -> String {
+        guard let beat = rank.beatCaption else { return rank.fieldCaption }
+        let pool = "OF \(rank.fieldText)"
+        return "\(rank.leadsWithPercent ? "#\(rank.positionText) " : "")\(pool) \u{00B7} \(beat)"
+    }
+
     private static func totalsCopy(header: String, standing: ShareTotalsSnapshot.Standing) -> Copy {
         Copy(
             header: header,
-            headline: "TOP \(standing.topPercent)%",
-            footer: "\(standing.positionText) OF \(standing.fieldText) \u{00B7} BY STEPS",
+            headline: standing.headline,
+            footer: "\(standing.leadsWithPercent ? "\(standing.positionText) " : "")OF \(standing.fieldText) \u{00B7} BY STEPS",
             beaten: standing.beatFraction
         )
     }

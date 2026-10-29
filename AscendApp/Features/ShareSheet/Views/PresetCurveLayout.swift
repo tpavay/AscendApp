@@ -5,9 +5,14 @@ import SwiftUI
 struct PresetCurveLayout: View {
     let model: PresetCardModel
 
-    private static let curveWidth: CGFloat = 270
-    private static let curveHeight: CGFloat = 120
-    private static let tagBoxWidth: CGFloat = 120
+    static let curveWidth: CGFloat = 270
+    static let curveHeight: CGFloat = 120
+    static let tagBoxWidth: CGFloat = 120
+    /// The marker's dot is 9 points across and the tag's line about 12 tall.
+    static let dotRadius: CGFloat = 4.5
+    static let tagLineHeight: CGFloat = 12
+    /// Above this height the tag no longer fits over the marker, so it moves beside it.
+    private static let tagBesideBelow: Double = 20
 
     var body: some View {
         if let rank = model.subject.rank {
@@ -24,14 +29,14 @@ struct PresetCurveLayout: View {
             Text(model.label)
                 .presetText(model.font, size: 10, weight: 700, trackingEm: 0.2, color: Color(share: palette.secondary))
                 .presetOneLine(floor: PresetFitGeometry.labelFloor)
-            PresetHeadlineLine(model: model, headline: "TOP \(rank.topPercent)%", caption: "OF \(rank.fieldText) CLIMBERS")
+            PresetHeadlineLine(model: model, headline: rank.headline, caption: rank.fieldCaption)
                 .padding(.top, 2)
             Spacer(minLength: 0)
             curve(rank: rank)
             HStack(spacing: 0) {
                 Text(axis.lower)
                 Spacer(minLength: 0)
-                Text("BEAT \(rank.beatPercent)%").presetOneLine(floor: PresetFitGeometry.labelFloor)
+                Text(rank.beatCaption ?? "").presetOneLine(floor: PresetFitGeometry.labelFloor)
                 Spacer(minLength: 0)
                 Text(axis.upper)
             }
@@ -54,7 +59,7 @@ struct PresetCurveLayout: View {
             height: Double(Self.curveHeight)
         )
         let marker = geometry.marker
-        let tag = Self.tag(markerX: marker.x, markerY: marker.y)
+        let tag = Self.tag(markerX: marker.x, markerY: marker.y, isWide: rank.positionText.count >= 5)
         return ZStack(alignment: .topLeading) {
             Path { path in
                 path.move(to: CGPoint(x: 0, y: Self.curveHeight))
@@ -92,9 +97,20 @@ struct PresetCurveLayout: View {
     }
 
     /// Where the `YOU` tag sits: above the marker, flipping to a start or end anchor near an edge so
-    /// it never leaves the curve's box.
-    private static func tag(markerX: Double, markerY: Double) -> (alignment: Alignment, boxOffset: CGFloat, centerY: CGFloat) {
+    /// it never leaves the curve's box. A marker near the top of the curve, which is where a finish
+    /// in the middle of the field lands, has no room above it, so the tag moves beside it on the
+    /// side the curve falls away from.
+    /// A wide tag (a rank of five digits or more) is anchored to the low side of the marker instead
+    /// of centred on it, because centred it reaches across the curve's rising or falling line.
+    static func tag(markerX: Double, markerY: Double, isWide: Bool = false) -> (alignment: Alignment, boxOffset: CGFloat, centerY: CGFloat) {
         let width = Double(curveWidth)
+        if markerY < tagBesideBelow {
+            let gap = dotRadius + 6
+            let centerY = CGFloat(markerY) - 1
+            return markerX <= width / 2
+                ? (.trailing, -(gap + tagBoxWidth / 2), centerY)
+                : (.leading, gap + tagBoxWidth / 2, centerY)
+        }
         // The design places the text baseline 10 units above the marker; a 10 point face centres
         // about 3.6 units above its baseline.
         let baseline = max(10, markerY - 10)
@@ -104,6 +120,12 @@ struct PresetCurveLayout: View {
         }
         if markerX < 30 {
             return (.leading, tagBoxWidth / 2, centerY)
+        }
+        if isWide {
+            // The curve is lower on the outside of the peak, so the text sits there.
+            return markerX <= width / 2
+                ? (.trailing, -tagBoxWidth / 2 + 4, centerY)
+                : (.leading, tagBoxWidth / 2 - 4, centerY)
         }
         return (.center, 0, centerY)
     }

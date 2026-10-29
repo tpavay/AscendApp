@@ -29,6 +29,11 @@ struct PresetCardFitTests {
         Climb(name: "1:30:07 and 806 of 914", steps: "5,004", duration: "1:30:07", pace: "85.5", floors: "482", heartRate: nil, position: 806, field: 914),
         Climb(name: "24:00:00 in a pool of thousands", steps: "115,200", duration: "24:00:00", pace: "123.4", floors: "12,345", heartRate: 188, position: 12_345, field: 98_765),
         Climb(name: "100:00:00 in a pool of millions", steps: "480,000", duration: "100:00:00", pace: "123.4", floors: "54,321", heartRate: 188, position: 123_456, field: 1_234_567),
+        Climb(name: "100:00:00 in the lower half of millions", steps: "480,000", duration: "100:00:00", pace: "123.4", floors: "54,321", heartRate: 188, position: 987_654, field: 1_234_567),
+        Climb(name: "on the line, 32nd of 64", steps: "5,004", duration: "1:02:50", pace: "79.6", floors: "313", heartRate: 127, position: 32, field: 64),
+        Climb(name: "just under it, 33rd of 64", steps: "5,004", duration: "1:02:50", pace: "79.6", floors: "313", heartRate: 127, position: 33, field: 64),
+        Climb(name: "first ascent, 1 of 1", steps: "5,004", duration: "1:02:50", pace: "79.6", floors: "313", heartRate: 127, position: 1, field: 1),
+        Climb(name: "a pool of two, 1 of 2", steps: "5,004", duration: "1:02:50", pace: "79.6", floors: "313", heartRate: 127, position: 1, field: 2),
     ]
 
     nonisolated static let layouts: [PresetLayout] = [.classic, .rank, .curve, .splits, .centered, .grid, .stackRight, .minimal]
@@ -108,10 +113,12 @@ struct PresetCardFitTests {
             // the extremes the words beside it are legitimately small.
             return [subject.stepsText] + values + model.stats.map(\.label).filter { $0.contains(where: \.isNumber) }
         case .rank:
-            return [rank?.positionText, rank.map { "of \($0.fieldText)" }, rank.map { "TOP \($0.topPercent)%" }, subject.stepsText, subject.durationText]
+            let percentile = rank.map { $0.leadsWithPercent ? "TOP \($0.topPercent)%" : "BEAT \($0.beatPercent)%" }
+            // A one or two digit rank has nothing to scale, and Vision is shaky on a short tracked-in word.
+            return [rank.map(\.positionText).flatMap { $0.count >= 3 ? $0 : nil }, rank.map { "of \($0.fieldText)" }, percentile, subject.stepsText, subject.durationText]
                 .compactMap { $0 }
         case .curve:
-            return [rank.map { "TOP \($0.topPercent)%" }, rank.map { "OF \($0.fieldText) CLIMBERS" }].compactMap { $0 }
+            return [rank?.headline, rank?.fieldCaption, rank?.beatCaption].compactMap { $0 }
         case .splits:
             return [subject.fastestSplit?.stepsPerMinuteText, "\(subject.stepsText) STEPS", subject.durationText].compactMap { $0 }
         case .grid, .stackRight:
@@ -143,7 +150,7 @@ struct PresetCardFitTests {
 
     @Test(arguments: PresetFont.allCases, layouts)
     func everyFaceKeepsTheWidestClimbWhole(font: PresetFont, layout: PresetLayout) async throws {
-        let climb = Self.climbs[2]
+        let climb = Self.climbs[3]
         let model = card(climb, layout: layout, font: font)
         let text = try await read(model)
         #expect(!text.contains("…") && !text.contains("..."), "\(layout.title) in \(font.title) is truncated: \(text)")
@@ -166,11 +173,11 @@ struct PresetCardFitTests {
         }
     }
 
-    @Test
-    func theCardDrawsTheSameAtAnyTextSize() throws {
+    @Test(arguments: [PresetLayout.classic, .rank, .curve])
+    func theCardDrawsTheSameAtAnyTextSize(layout: PresetLayout) throws {
         // A card draws at one fixed type size, so what Story and Save export is what the preview
         // showed whatever Dynamic Type the climber runs.
-        let model = card(Self.climbs[2], layout: .classic, font: .bold)
+        let model = card(Self.climbs[3], layout: layout, font: .bold)
         func png(_ size: DynamicTypeSize) throws -> Data {
             let renderer = ImageRenderer(
                 content: PresetCardCanvas(model: model, size: PresetCardView.designSize)

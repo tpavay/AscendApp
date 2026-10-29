@@ -18,6 +18,7 @@ Read it before editing a card or a sticker; do not re-litigate those rules here.
   Cards page through `PresetCardPager`, a custom drag pager whose rules live in `PresetPagerGeometry` (1:1 tracking, 45% rubber band, 60 pt or 350 pt/s release, one card a gesture); `docs/share-sheet.md` (Swiping the cards) owns the detail.
   Background tiles are whole-tile tap targets (`contentShape` on the label, swatch laid out as its own square); `docs/share-sheet.md` (Background tiles) owns the detail.
   Card figures never wrap or truncate: every layout fits through `PresetFitGeometry` and `presetOneLine`, never a bare `lineLimit`; `docs/share-sheet.md` (Fitting numbers) owns the rules.
+  A standing is worded by `ShareStandingWording` (`TOP 12%` in the top half of a real field, `#806` below it, `FIRST ASCENT` for a field of one); never write `TOP \(topPercent)%` in a view. `docs/share-sheet.md` (How a standing is worded) owns the rule.
   Actions: Story, Copy, Save, More.
 - **Stickers** are transparent PNGs for the climber to drop on their own photo or video.
   A tap copies the PNG, a hold saves it.

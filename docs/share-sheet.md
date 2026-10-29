@@ -21,6 +21,18 @@ A card without a standing hides Rank and drops the layouts that need it.
 It never says global.
 Totals ranks are the exception on purpose: weekly, monthly and yearly boards by steps are read live the first time Totals is opened in a sheet, and a rank that cannot be read is hidden.
 
+## How a standing is worded
+
+One rule in `ShareStandingWording` words a finish on every card and sticker, so two surfaces never say different things about the same finish.
+In the top half of a field (`topShareLimit`, one in two, compared as exact fractions so 32nd of 64 is `TOP 50%` and 458th of 914 is not) the headline is `TOP 12%` and the caption is `OF 914 CLIMBERS`.
+In the lower half the headline leads with the rank, `#806`, the caption is the same, and the footer keeps `BEAT 11%`.
+A field smaller than 10 (`minimumFieldForPercent`) always leads with the rank, because `TOP 33% OF 3 CLIMBERS` is not a statement.
+A field of one is the climb's first ascent: `#1` over `FIRST ASCENT`, and nothing about what it beat.
+Tied climbers hold the same frozen position, so they read the same.
+The rule reaches the Curve card's headline, the Rank card's percentile column (`BEAT 19%` where it would have claimed a percentile), the climb and monthly rank stickers' footers, and the bell-curve stickers' headlines.
+The profile's `TOP 25% OF CLIMBERS` subtitle is a different standing and is not part of this.
+On the Curve card the `YOU` tag moves beside the marker when the marker is near the top of the curve, which the middle of the field is, and a rank of five digits or more anchors it to the low side of the marker so it does not cross the curve.
+
 ## Floors
 
 Floors are steps divided by 16 (`FloorsClimbed.stepsPerFloor`) for a Just Climb and a routine.
