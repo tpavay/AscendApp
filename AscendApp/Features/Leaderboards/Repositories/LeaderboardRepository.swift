@@ -101,24 +101,44 @@ final class LeaderboardRepository: Sendable {
         return document.data().flatMap { intValue(for: "totalSteps", in: $0) } ?? 0
     }
 
-    func getUserRank(
+    /// Where a climber stands on the current steps board for `timeFrame`, without reading the
+    /// board: their own server-derived total, then two counts over the same period - the climbers
+    /// ahead of that total (ties share a rank, as on the board) and every climber with steps.
+    /// Nil when the climber has no steps this period.
+    func fetchOwnStepsStanding(
         userId: String,
-        metric: LeaderboardMetric,
         timeFrame: LeaderboardTimeFrame
     ) async throws -> (rank: Int, total: Int)? {
-        let allStats = try await fetchLeaderboard(
-            metric: metric,
-            timeFrame: timeFrame,
-            limit: 1000
-        )
-
-        guard let index = allStats.firstIndex(where: { $0.userId == userId }),
-              let rank = CompetitionRanking.rank(at: index, in: allStats, key: { $0.value(for: metric) })
-        else {
+        let period = timeFrame.currentPeriod()
+        let own = try await db.collection("leaderboard_stats")
+            .document(documentID(userId: userId, timeFrame: timeFrame, period: period))
+            .getServerDocument()
+        guard let data = own.data(),
+              let stat = parseStat(data),
+              stat.periodStartAt == period.startAt,
+              stat.totalSteps > 0 else {
             return nil
         }
 
-        return (rank: rank, total: allStats.count)
+        let ahead = try await stepsBoardQuery(timeFrame: timeFrame, period: period, above: stat.totalSteps)
+            .count
+            .getServerAggregation()
+        let field = try await stepsBoardQuery(timeFrame: timeFrame, period: period, above: 0)
+            .count
+            .getServerAggregation()
+        let rank = ahead.count.intValue + 1
+        return (rank: rank, total: max(field.count.intValue, rank))
+    }
+
+    /// The climbers on a period's steps board with more than `steps`. Ordered by steps descending
+    /// so the count is served by the same (timeFrame, periodStartAt, totalSteps DESC) index as the
+    /// board itself; a range filter left unordered would need an ascending index that does not exist.
+    func stepsBoardQuery(timeFrame: LeaderboardTimeFrame, period: LeaderboardPeriod, above steps: Int) -> Query {
+        db.collection("leaderboard_stats")
+            .whereField("timeFrame", isEqualTo: timeFrame.rawValue)
+            .whereField("periodStartAt", isEqualTo: Timestamp(date: period.startAt))
+            .whereField(LeaderboardMetric.climb.sortField, isGreaterThan: steps)
+            .order(by: LeaderboardMetric.climb.sortField, descending: true)
     }
 
     func parseStat(_ data: [String: Any]) -> FirestoreLeaderboardStats? {

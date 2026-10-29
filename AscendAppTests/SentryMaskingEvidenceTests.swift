@@ -65,6 +65,30 @@ struct SentryMaskingEvidenceTests {
     }
 
     @Test
+    func aHeartRateStickerRendersIdenticallyWhateverTheClimbersHeartDid() async throws {
+        let series = (0..<60).map { Double(90 + $0 * 2) }
+
+        try await Self.expectSensitiveContentMasked(
+            Self.stickerTile(.heartRate, trace: series),
+            Self.stickerTile(.heartRate, trace: series.reversed()),
+            named: "share-heart-rate-sticker"
+        )
+    }
+
+    @Test
+    func aShareCardRendersIdenticallyWhereverTheClimberFinished() async throws {
+        // The SDK fills a mask with the average of what it covered, and the filled part of the
+        // curve is ink, so two finishes can only be compared when they put nearly the same amount
+        // of it under the mask: 48th and 52nd of 100 keep the area within a few percent while the
+        // marker still moves far enough for the unmasked control to see.
+        try await Self.expectSensitiveContentMasked(
+            Self.cardPreview(layout: .curve, position: 48),
+            Self.cardPreview(layout: .curve, position: 52),
+            named: "share-card-curve"
+        )
+    }
+
+    @Test
     func healthReadoutsRenderIdenticallyWhateverTheyMeasured() async throws {
         try await Self.expectSensitiveContentMasked(
             Self.readout(bpm: "188", calories: "947", weight: "264"),
@@ -93,18 +117,18 @@ struct SentryMaskingEvidenceTests {
     // into its host view and is neither text nor an image as far as the SDK is
     // concerned. Without `sentryMasked()` a climber's own footage reaches a
     // crash screenshot at full fidelity, and the privacy policy promises the
-    // opposite - so these three cases are that promise's evidence, one per
+    // opposite - so these two cases are that promise's evidence, one per
     // surface that plays video.
     //
     // Every frame of the fixture movie is the same picture, which is what makes
-    // the comparison sound: two of the three surfaces start playing on their
-    // own, so the two renders cannot be pinned to the same playback position,
+    // the comparison sound: a surface that starts playing on its own cannot
+    // have its two renders pinned to the same playback position,
     // and a movie that looks the same at every instant removes the question.
     // The permutation is the mirror of that picture.
     //
-    // **These three do not have equal force, and the difference matters.** Emptying
-    // `maskedViewClasses` fails the workout card and the share composer with a
-    // worst channel of 255 - their footage really is on the wire without
+    // **These two do not have equal force, and the difference matters.** Emptying
+    // `maskedViewClasses` fails the workout card with a worst channel of
+    // 255 - its footage really is on the wire without
     // Ascend's marker. The full-screen player still passes, because
     // `SentryUIRedactBuilder` redacts `AVPlayerView` by default and
     // `AVPlayerViewController` renders through one. So that case is evidence
@@ -122,19 +146,6 @@ struct SentryMaskingEvidenceTests {
             VideoPlayerView(player: AVPlayer(url: footage.original)).frame(height: 320),
             VideoPlayerView(player: AVPlayer(url: footage.mirrored)).frame(height: 320),
             named: "workout-card-footage",
-            showingFootage: true
-        )
-    }
-
-    @Test
-    func theShareComposerBackgroundRendersIdenticallyWhateverItShows() async throws {
-        let footage = try await Self.footage()
-        defer { footage.discard() }
-
-        try await Self.expectSensitiveContentMasked(
-            ShareBackgroundView(source: .video(footage.original)),
-            ShareBackgroundView(source: .video(footage.mirrored)),
-            named: "share-composer-background",
             showingFootage: true
         )
     }
@@ -585,6 +596,35 @@ struct SentryMaskingEvidenceTests {
             maxHeartRateBpm: 180
         )
         .padding(20)
+    }
+
+    private static func stickerTile(_ kind: StickerKind, trace: [Double]) -> some View {
+        StickerTile(
+            item: .standard(kind),
+            subject: .fixture(averageHeartRate: 140, heartRateTrace: trace),
+            totals: nil,
+            style: StickerStyle(),
+            year: 2026,
+            isActive: false,
+            onCopy: {},
+            onSave: {}
+        )
+        .frame(width: 180)
+        .padding(20)
+        .background(Color.black)
+    }
+
+    private static func cardPreview(layout: PresetLayout, position: Int) -> some View {
+        let model = PresetsViewModel(
+            subject: .fixture(rank: .init(position: position, field: 100)),
+            hasTower: false,
+            store: PresetPreferencesStore(defaults: UserDefaults(suiteName: "SentryMaskingEvidence.\(UUID().uuidString)")!)
+        )
+        model.select(layout: layout)
+        model.setAccent(.white)
+        return PresetCardPager(model: model)
+            .padding(20)
+            .background(Color.black)
     }
 
     private static func readout(bpm: String, calories: String, weight: String) -> some View {

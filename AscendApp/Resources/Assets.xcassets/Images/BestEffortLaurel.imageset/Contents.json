@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "best-effort-laurel.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

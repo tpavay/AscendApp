@@ -56,11 +56,6 @@ const TEST_TARGET = "AscendAppTests";
  * remainder runs in one serial host (the numbers are in
  * `run-ios-test-passes.sh`'s header).
  *
- * One suite stays out. `ShareComposerBackgroundFillEvidenceTests` peaks at
- * 2,200-2,350 MB across five tests because three of them each export a real
- * movie through the AVFoundation pipeline at the 1080x2340 story frame - the
- * cost is the assertion, so it keeps a host entirely to itself.
- *
  * The suites that host the RealityKit Mountain get a host of their own too,
  * and that one is for a crash, not memory. On 2026-09-30 (job 109735737306)
  * the shared host was killed once by a RealityKit render-thread assertion -
@@ -102,7 +97,6 @@ const TEST_TARGET = "AscendAppTests";
  * how this job started exhausting its runner.
  */
 export const ISOLATED_PASSES = [
-    ["ShareComposerBackgroundFillEvidenceTests"],
     ["AscendMountainSessionEvidenceTests", "SentryMaskingEvidenceTests", "SentryMaskInteractionTests"],
     ["FirestoreDiskFullSurvivalTests"],
 ];

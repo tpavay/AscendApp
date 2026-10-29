@@ -11,7 +11,7 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
 
 This is what a rank means on every Ascend surface.
 It is stated once, here.
-`ascend-live-climbs` and `ascend-share-composer` point at this section; nothing restates it.
+`ascend-live-climbs` and `ascend-share-sheet` point at this section; nothing restates it.
 
 Ascend counts different populations on different screens on purpose, and that is correct rather than a smell - a board that lists every time and a rank that counts people are answering two different questions.
 What breaks is a screen that counts one population and names another.

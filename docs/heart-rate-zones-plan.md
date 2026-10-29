@@ -40,7 +40,7 @@ heart-rate zones + pace zones:
    (see below).
 
 Both use the same visual language: live zone indicator during a climb, time-in-zone chart in the
-post-climb summary, and zone stats as draggable stickers in the share composer. Splits break each
+post-climb summary, and zone stats as stickers in the share sheet. Splits break each
 climb into landmark segments (floors, base-camp-to-summit stages) with avg SPM, avg HR, and
 dominant zone per segment — reads like a Strava split table, on-brand with the landmark framing.
 

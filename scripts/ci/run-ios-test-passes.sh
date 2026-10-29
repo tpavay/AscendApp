@@ -36,16 +36,13 @@
 # 2,929 MB parallel before the helper and a run that never finished at all
 # (the 2,090 MB parallel and 1,708-2,109 MB serial peaks of 2026-09-03 were
 # taken before nine hosted screens were restored to the paywall gate and the
-# leaderboard window-label suites). So the plan is two passes: the movie
-# host, and everything else. Each pass beyond that is ~2 minutes of host
+# leaderboard window-label suites). So the plan keeps the isolated hosts to the few
+# that need them, plus everything else. Each pass beyond that is ~2 minutes of host
 # launch bought for no memory the runner needs.
 #
-# The one suite that still gets its own host is
-# `ShareComposerBackgroundFillEvidenceTests` (2,200-2,350 MB): three of its
-# five tests each export a real movie through the AVFoundation pipeline at the
-# 1080x2340 story frame, and that cost is the assertion. See `ISOLATED_PASSES`
-# in `plan-test-passes.mjs`, which is why this script runs however many pass
-# files the planner wrote rather than a fixed number.
+# `ISOLATED_PASSES` in `plan-test-passes.mjs` names the suites that get a host
+# of their own, which is why this script runs however many pass files the
+# planner wrote rather than a fixed number.
 #
 # The suites that host the RealityKit Mountain - `AscendMountainSessionEvidenceTests`
 # and the two Sentry mask proofs, `SentryMaskingEvidenceTests` and
