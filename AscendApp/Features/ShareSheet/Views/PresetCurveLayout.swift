@@ -7,12 +7,13 @@ struct PresetCurveLayout: View {
 
     static let curveWidth: CGFloat = 270
     static let curveHeight: CGFloat = 120
-    static let tagBoxWidth: CGFloat = 120
     /// The marker's dot is 9 points across and the tag's line about 12 tall.
     static let dotRadius: CGFloat = 4.5
     static let tagLineHeight: CGFloat = 12
-    /// Above this height the tag no longer fits over the marker, so it moves beside it.
-    private static let tagBesideBelow: Double = 20
+    /// A generous width per character of the tag's 10 point face, so the estimate is never short.
+    static let tagCharacterWidth: CGFloat = 6.5
+    /// Air kept between the tag's text and the curve's stroke or the marker's dot.
+    private static let tagClearance: CGFloat = 2
 
     var body: some View {
         if let rank = model.subject.rank {
@@ -59,7 +60,8 @@ struct PresetCurveLayout: View {
             height: Double(Self.curveHeight)
         )
         let marker = geometry.marker
-        let tag = Self.tag(markerX: marker.x, markerY: marker.y, isWide: rank.position >= 10_000)
+        let tagText = Self.tagText(rank)
+        let tag = Self.tagFrame(text: tagText, geometry: geometry)
         return ZStack(alignment: .topLeading) {
             Path { path in
                 path.move(to: CGPoint(x: 0, y: Self.curveHeight))
@@ -87,46 +89,61 @@ struct PresetCurveLayout: View {
                 .fill(accent)
                 .frame(width: 9, height: 9)
                 .offset(x: marker.x - 4.5, y: marker.y - 4.5)
-            Text("YOU · #\(rank.positionText)")
+            Text(tagText)
                 .presetText(model.font, size: 10, weight: 800, color: accent)
                 .presetOneLine(floor: PresetFitGeometry.labelFloor)
-                .frame(width: Self.tagBoxWidth, alignment: tag.alignment)
-                .position(x: marker.x + tag.boxOffset, y: tag.centerY)
+                .frame(width: tag.width, height: tag.height)
+                .position(x: tag.midX, y: tag.midY)
         }
         .frame(width: Self.curveWidth, height: Self.curveHeight + 4, alignment: .topLeading)
     }
 
-    /// Where the `YOU` tag sits: above the marker, flipping to a start or end anchor near an edge so
-    /// it never leaves the curve's box. A marker near the top of the curve, which is where a finish
-    /// in the middle of the field lands, has no room above it, so the tag moves beside it on the
-    /// side the curve falls away from.
-    /// A wide tag (a rank of five digits or more) is anchored to the low side of the marker instead
-    /// of centred on it, because centred it reaches across the curve's rising or falling line.
-    static func tag(markerX: Double, markerY: Double, isWide: Bool = false) -> (alignment: Alignment, boxOffset: CGFloat, centerY: CGFloat) {
-        let width = Double(curveWidth)
-        if markerY < tagBesideBelow {
-            let gap = dotRadius + 6
-            let centerY = CGFloat(markerY) - 1
-            return markerX <= width / 2
-                ? (.trailing, -(gap + tagBoxWidth / 2), centerY)
-                : (.leading, gap + tagBoxWidth / 2, centerY)
+    static func tagText(_ rank: ShareSheetSubject.Rank) -> String {
+        "YOU · #\(rank.positionText)"
+    }
+
+    /// Where the `YOU` tag's text sits in the curve's box: as close to the marker as it can be while
+    /// staying wholly above the curve's outline, clear of the dot and inside the box. Near a tail the
+    /// curve climbs toward the peak under the text, and at the peak it falls away on both sides, so
+    /// no fixed offset from the marker clears it everywhere; every horizontal placement is tried and
+    /// lifted until the outline under its whole width is below it.
+    static func tagFrame(text: String, geometry: BellCurveGeometry) -> CGRect {
+        let width = min(CGFloat(text.count) * tagCharacterWidth, curveWidth)
+        let height = tagLineHeight
+        let marker = geometry.marker
+        let dot = CGRect(x: marker.x - dotRadius, y: marker.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
+            .insetBy(dx: -tagClearance, dy: -tagClearance)
+        var best: (frame: CGRect, distance: CGFloat, drift: CGFloat)?
+        var minX: CGFloat = 0
+        while minX + width <= curveWidth {
+            var bottom = lowestOutlineTop(geometry.outline, from: minX, to: minX + width) - tagClearance
+            if minX < dot.maxX, minX + width > dot.minX {
+                bottom = min(bottom, dot.minY)
+            }
+            let frame = CGRect(x: minX, y: bottom - height, width: width, height: height)
+            if frame.minY >= 0 {
+                let dx = max(frame.minX - marker.x, 0, marker.x - frame.maxX)
+                let dy = max(frame.minY - marker.y, 0, marker.y - frame.maxY)
+                let distance = (dx * dx + dy * dy).squareRoot()
+                let drift = abs(frame.midX - marker.x)
+                if best.map({ distance < $0.distance - 0.01 || (abs(distance - $0.distance) <= 0.01 && drift < $0.drift) }) ?? true {
+                    best = (frame, distance, drift)
+                }
+            }
+            minX += 1
         }
-        // The design places the text baseline 10 units above the marker; a 10 point face centres
-        // about 3.6 units above its baseline.
-        let baseline = max(10, markerY - 10)
-        let centerY = CGFloat(baseline - 3.6)
-        if markerX > width - 30 {
-            return (.trailing, -tagBoxWidth / 2, centerY)
+        return best?.frame ?? CGRect(x: 0, y: 0, width: width, height: height)
+    }
+
+    /// The smallest y (the highest point) the outline polyline reaches between two x positions.
+    private static func lowestOutlineTop(_ outline: [CGPoint], from minX: CGFloat, to maxX: CGFloat) -> CGFloat {
+        var top = CGFloat.infinity
+        for (a, b) in zip(outline, outline.dropFirst()) where b.x >= minX && a.x <= maxX {
+            let ends = [max(a.x, minX), min(b.x, maxX)].map { x in
+                b.x == a.x ? min(a.y, b.y) : a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x)
+            }
+            top = min(top, ends[0], ends[1])
         }
-        if markerX < 30 {
-            return (.leading, tagBoxWidth / 2, centerY)
-        }
-        if isWide {
-            // The curve is lower on the outside of the peak, so the text sits there.
-            return markerX <= width / 2
-                ? (.trailing, -tagBoxWidth / 2 + 4, centerY)
-                : (.leading, tagBoxWidth / 2 - 4, centerY)
-        }
-        return (.center, 0, centerY)
+        return top
     }
 }

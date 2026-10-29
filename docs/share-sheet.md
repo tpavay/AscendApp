@@ -31,7 +31,7 @@ A field of one is the climb's first ascent: `#1` over `FIRST ASCENT`, and nothin
 Tied climbers hold the same frozen position, so they read the same.
 The rule reaches the Curve card's headline, the Rank card's percentile column (`BEAT 19%` where it would have claimed a percentile), the climb and monthly rank stickers' footers, and the bell-curve stickers' headlines.
 The profile's `TOP 25% OF CLIMBERS` subtitle is a different standing and is not part of this.
-On the Curve card the `YOU` tag moves beside the marker when the marker is near the top of the curve, which the middle of the field is, and a rank of five digits or more anchors it to the low side of the marker so it does not cross the curve.
+On the Curve card the `YOU` tag sits as close to the marker as it can while staying wholly above the curve's line, clear of the dot and inside the curve's box, for any rank up to seven digits and a finish anywhere on the curve, the tails and the peak included (`PresetCurveLayout.tagFrame`).
 
 ## Floors
 
