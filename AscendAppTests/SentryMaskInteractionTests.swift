@@ -10,7 +10,7 @@ import UIKit
 ///
 /// `View.sentryMasked()` overlays a full-frame `UIViewRepresentable` on top of
 /// surfaces that are interactive: chart scrubbing, video transport controls, the
-/// share composer's pan and pinch. `allowsHitTesting(false)` and
+/// share sheet's photo pan and pinch. `allowsHitTesting(false)` and
 /// `isUserInteractionEnabled = false` cover the marker itself, but SwiftUI hosts
 /// a representable inside platform views of its own, and a host that claims a
 /// touch swallows it in silence - no crash, no log, just a chart that stops
@@ -124,6 +124,36 @@ struct SentryMaskInteractionTests {
     }
 
     @Test
+    func aStickerTileStillCopiesAndSaves() async throws {
+        try await Self.expectNoTouchSwallowed(
+            by: StickerTile(
+                item: .standard(.heartRate),
+                subject: .fixture(),
+                totals: nil,
+                style: StickerStyle(),
+                year: 2026,
+                isActive: false,
+                onCopy: {},
+                onSave: {}
+            )
+            .frame(width: 180)
+            .padding(16),
+            named: "StickerTile"
+        )
+    }
+
+    @Test
+    func theCardPreviewStillPagesAndFramesItsPhoto() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "SentryMaskInteraction.\(UUID().uuidString)"))
+        let model = PresetsViewModel(
+            subject: .fixture(),
+            hasTower: false,
+            store: PresetPreferencesStore(defaults: defaults)
+        )
+        try await Self.expectNoTouchSwallowed(by: PresetCardPager(model: model).padding(16), named: "PresetCardPager")
+    }
+
+    @Test
     func theProgressLineChartStaysScrubbable() async throws {
         try await Self.expectNoTouchSwallowed(by: Self.progressLineChart(), named: "ProgressLineChartView")
     }
@@ -154,17 +184,6 @@ struct SentryMaskInteractionTests {
         try await Self.expectNoTouchSwallowed(
             by: VideoPlayerView(player: AVPlayer(url: url)).frame(height: 300),
             named: "VideoPlayerView"
-        )
-    }
-
-    @Test
-    func theShareComposerVideoBackgroundStaysPannable() async throws {
-        let url = try await Self.videoFile()
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        try await Self.expectNoTouchSwallowed(
-            by: ShareBackgroundView(source: .video(url)),
-            named: "ShareBackgroundView(.video)"
         )
     }
 

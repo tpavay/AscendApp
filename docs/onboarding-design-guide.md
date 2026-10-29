@@ -907,27 +907,26 @@ Success condition:
 Design principle:
 - Prestige is a retention loop. First Ascents, active standings, and records should be more prominent than generic activity recap.
 
-### 9. Share Composer
+### 9. Share Sheet
 
-User goal: turn a climb or workout result into a composed share asset.
+User goal: turn a climb or workout result into a share asset.
 
 Primary path:
 1. Open share from summary or workout detail
-2. Pick background or preset
-3. Add stat stickers
-4. Arrange stickers
-5. Export or share
+2. Pick a preset card and its background, or switch to Stickers
+3. Copy, save, or send the card to a Story
+4. Tap a sticker to copy it, hold to save it
 
 App surfaces:
-- Share composer
-- Background picker
-- Sticker editor
-- Photo/video export pipeline
+- Share sheet
+- Presets tab and its customization bar
+- Stickers tab
+- Image export pipeline
 
 State and data:
 - Stickers read from canonical workout and climb result data.
-- Backgrounds and stats stay independent.
-- The composer never becomes the source of truth for metrics.
+- Cards and stickers are rendered on device from one subject built from the saved climb.
+- The share sheet never becomes the source of truth for metrics.
 
 Success condition:
 - Sharing converts pride into growth without adding a social network.
@@ -1218,7 +1217,7 @@ Ship:
 - Workout history.
 - Best Efforts / records.
 - Profile collection and prestige sections.
-- Share composer entry from real results.
+- Share sheet entry from real results.
 
 Verify:
 - Workout mutations repair derived data.
@@ -1277,7 +1276,7 @@ Track analytics by workflow so the dashboard can answer where the app is losing 
 - Best Effort earned.
 - Profile viewed.
 - Collection card tapped.
-- Share composer opened.
+- Share sheet opened.
 - Share exported.
 - Share target selected when available.
 

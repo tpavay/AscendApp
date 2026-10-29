@@ -15,6 +15,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private let telemetry: TelemetryManager
     private let userDefaults: UserDefaults
     private let verdictBudget: MonetizationVerdictBudget
+    private let unattributedGrantSettleDelay: Duration
+    private let unattributedGrantSleep: @Sendable (Duration) async throws -> Void
+    @ObservationIgnored
+    private var unattributedGrantSettleTask: Task<Void, Never>?
     @ObservationIgnored
     private let onboardingLifecycle: OnboardingFlowAnalyticsCoordinator
     @ObservationIgnored
@@ -93,9 +97,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
             return nil
         case .resolved(let reason):
             // A request that reported no grant of its own - dismissed, skipped, failed, or a
-            // restore that found nothing - still asked for one, so a webhook-delayed purchase that
-            // lands afterwards is that purchase, not a pre-existing entitlement.
-            return reason ?? .purchase
+            // restore that found nothing - still asked for one, so what lands afterwards is not a
+            // pre-existing entitlement. A purchase confirmed in the app names itself, so what is
+            // left is a grant nothing here can vouch for, and it is not counted as a sale.
+            return reason ?? .unknown
         }
     }
 
@@ -107,8 +112,14 @@ final class MonetizationManager: MonetizationIdentityManaging {
         telemetry: TelemetryManager = .shared,
         onboardingLifecycle: OnboardingFlowAnalyticsCoordinator = .shared,
         userDefaults: UserDefaults = .standard,
-        verdictBudget: MonetizationVerdictBudget = MonetizationVerdictBudget()
+        verdictBudget: MonetizationVerdictBudget = MonetizationVerdictBudget(),
+        unattributedGrantSettleDelay: Duration = .seconds(15),
+        unattributedGrantSleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
+        }
     ) {
+        self.unattributedGrantSettleDelay = unattributedGrantSettleDelay
+        self.unattributedGrantSleep = unattributedGrantSleep
         self.configuration = configuration
         self.entitlementService = entitlementService
         self.paywallPresenter = paywallPresenter
@@ -126,14 +137,16 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     func configure(configuration: MonetizationConfiguration = .live) {
         self.configuration = configuration
-        entitlementService.setEntitlementStateObserver { [weak paywallPresenter] state in
+        entitlementService.setEntitlementStateObserver { [weak self] state in
+            guard let self else { return }
             let entitlementIDs: Set<String>
             if case .active(let activeIDs) = state {
                 entitlementIDs = activeIDs
             } else {
                 entitlementIDs = []
             }
-            paywallPresenter?.updateSubscriptionStatus(entitlementIDs: entitlementIDs)
+            self.paywallPresenter.updateSubscriptionStatus(entitlementIDs: entitlementIDs)
+            self.settleUnattributedAccessGrantIfNeeded(for: state)
         }
         entitlementService.configure(configuration: configuration)
         paywallPresenter.configure(configuration: configuration)
@@ -151,6 +164,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         _ customer: MonetizationCustomerIdentity
     ) -> MonetizationIdentityTransition {
         invalidatePaywallAttempt()
+        cancelUnattributedGrantSettle()
         identifiedUserID = customer.userID
 
         // The pass that opened before auth belongs to whoever just claimed it; a different account
@@ -180,6 +194,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     @discardableResult
     func prepareIdentityReset() -> MonetizationIdentityTransition {
         invalidatePaywallAttempt()
+        cancelUnattributedGrantSettle()
         // The paywall screen view dedupes per pass, and retiring the pass is what makes every step
         // reportable again - including this one.
         identifiedUserID = nil
@@ -314,6 +329,16 @@ final class MonetizationManager: MonetizationIdentityManaging {
         _ state: MonetizationEntitlementState,
         for identity: MonetizationIdentityTransition
     ) -> Bool {
+        // Every purchase Apple completed for this account reaches here, whether or not RevenueCat's
+        // answer already carries the entitlement - when it does not, a refresh turns it active
+        // without passing back through. Recorded before the state is adopted, because adopting is
+        // what turns the entitlement active and lets Home route. The paywall's own `.purchased`
+        // outcome cannot be relied on: the same flip retires the paywall attempt, so the outcome
+        // that follows is dropped and the grant would stay unattributed until the next launch.
+        if entitlementService.identityGeneration == identity {
+            recordOnboardingAccessGranted(.purchase)
+        }
+
         guard entitlementService.adoptTransactionState(state, for: identity) else {
             return false
         }
@@ -447,6 +472,40 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     private func recordOnboardingAccessGranted(_ reason: OnboardingFlowCompletionReason) {
         onboardingLifecycle.recordAccessGranted(reason)
+    }
+
+    /// Entitlement can turn active through the stream a moment before the purchase that caused it
+    /// confirms itself, so a pending request is given a short window to be attributed. A grant that
+    /// nobody claims in that window - a comp landing while the gate is up - settles as `unknown`
+    /// instead of waiting for a relaunch to be mislabelled a purchase.
+    private func settleUnattributedAccessGrantIfNeeded(for state: MonetizationEntitlementState) {
+        guard state.hasActiveEntitlement(configuration.revenueCatEntitlementID),
+              onboardingLifecycle.accessGrantProvenance == .pending,
+              unattributedGrantSettleTask == nil else { return }
+
+        unattributedGrantSettleTask = Task { @MainActor [weak self, unattributedGrantSettleDelay, unattributedGrantSleep] in
+            try? await unattributedGrantSleep(unattributedGrantSettleDelay)
+            guard !Task.isCancelled else { return }
+            self?.settleUnattributedAccessGrant()
+        }
+    }
+
+    private func cancelUnattributedGrantSettle() {
+        unattributedGrantSettleTask?.cancel()
+        unattributedGrantSettleTask = nil
+    }
+
+    private func settleUnattributedAccessGrant() {
+        unattributedGrantSettleTask = nil
+        guard onboardingLifecycle.accessGrantProvenance == .pending,
+              entitlementState.hasActiveEntitlement(configuration.revenueCatEntitlementID) else { return }
+
+        recordOnboardingAccessGranted(.unknown)
+    }
+
+    /// Internal seam so a test can wait out the settle window without sleeping through it.
+    func settleUnattributedAccessGrantForTesting() async {
+        await unattributedGrantSettleTask?.value
     }
 
     private func recordOnboardingAccessGrantRequestReportedNothing() {

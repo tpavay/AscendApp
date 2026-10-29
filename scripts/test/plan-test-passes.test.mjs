@@ -58,18 +58,15 @@ function isSerial(pass) {
   return index >= 0 && pass.arguments[index + 1] === "NO";
 }
 
-test("every suite is named exactly once, and the movie-export, Mountain and disk-full suites keep their own hosts", () => {
+test("every suite is named exactly once, and the Mountain and disk-full suites keep their own hosts", () => {
   const suites = namedSuites();
 
   assert.equal(new Set(suites).size, suites.length, "a suite is named in more than one pass");
-  // The movie suite keeps its own host: three of its five tests each export a
-  // real movie, and that cost is the assertion.
   // The Mountain suites share one host so a RealityKit render-thread
   // assertion cannot kill the remainder pass.
   // The disk-full suite tests whether the process survives a full volume, so a
   // regression kills its host; alone, the kill names the suite.
   assert.deepEqual(ISOLATED_PASSES, [
-    ["ShareComposerBackgroundFillEvidenceTests"],
     ["AscendMountainSessionEvidenceTests", "SentryMaskingEvidenceTests", "SentryMaskInteractionTests"],
     ["FirestoreDiskFullSurvivalTests"],
   ]);
@@ -115,16 +112,15 @@ test("the last pass is the complement: it skips exactly what every other pass ru
   );
 });
 
-test("the plan is four passes: the movie host, the Mountain host, the disk-full host and one host for everything else", () => {
+test("the plan is three passes: the Mountain host, the disk-full host and one host for everything else", () => {
   const passes = planTestPasses();
 
-  assert.equal(passes.length, 4, "every extra pass costs ~2 minutes of host launch; measure before adding one");
-  assert.deepEqual(selectors(passes[3], "-skip-testing"), [
+  assert.equal(passes.length, 3, "every extra pass costs ~2 minutes of host launch; measure before adding one");
+  assert.deepEqual(selectors(passes[2], "-skip-testing"), [
     "AscendAppTests/AscendMountainSessionEvidenceTests",
     "AscendAppTests/FirestoreDiskFullSurvivalTests",
     "AscendAppTests/SentryMaskInteractionTests",
     "AscendAppTests/SentryMaskingEvidenceTests",
-    "AscendAppTests/ShareComposerBackgroundFillEvidenceTests",
   ]);
 });
 
@@ -159,8 +155,8 @@ test("the CLI writes one argument-per-line file per pass, in run order", () => {
 test("a suite named twice refuses to plan", () => {
   const source = readFileSync(scriptPath, "utf8");
   const duplicated = source.replace(
-    '    ["ShareComposerBackgroundFillEvidenceTests"],\n',
-    '    ["ShareComposerBackgroundFillEvidenceTests"],\n    ["ShareComposerBackgroundFillEvidenceTests"],\n'
+    '    ["FirestoreDiskFullSurvivalTests"],\n',
+    '    ["FirestoreDiskFullSurvivalTests"],\n    ["FirestoreDiskFullSurvivalTests"],\n'
   );
   assert.notEqual(duplicated, source);
 
@@ -173,7 +169,7 @@ test("a suite named twice refuses to plan", () => {
   });
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /named in only one pass: ShareComposerBackgroundFillEvidenceTests/);
+  assert.match(result.stderr, /named in only one pass: FirestoreDiskFullSurvivalTests/);
   assert.equal(readdirSync(dir).filter((name) => name.startsWith("test-pass-")).length, 0);
 });
 

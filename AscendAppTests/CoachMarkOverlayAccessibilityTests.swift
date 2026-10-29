@@ -9,18 +9,8 @@ struct CoachMarkOverlayAccessibilityTests {
     private static let screenSize = CGSize(width: 393, height: 852)
 
     @Test(.bug(id: 491))
-    func everyWalkthroughKeepsItsCardAndActionsReachableAtAccessibility5() async throws {
-        let sharePresentations = ShareComposerCoachMark.allCases.map { mark in
-            CoachMarkPresentation(
-                title: mark.title,
-                message: mark.message,
-                stepCount: ShareComposerCoachMark.allCases.count,
-                stepIndex: mark.rawValue,
-                primaryActionTitle: mark == .filters ? "Got it" : "Next",
-                showsSkip: true
-            )
-        }
-        let presentations = sharePresentations + [RoutineBuilderCoachMark.timeline.presentation]
+    func theWalkthroughKeepsItsCardAndActionsReachableAtAccessibility5() async throws {
+        let presentations = [RoutineBuilderCoachMark.timeline.presentation]
 
         for (index, presentation) in presentations.enumerated() {
             try await verifyAccessibilityLayout(

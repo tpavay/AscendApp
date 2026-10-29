@@ -64,6 +64,9 @@ enum OnboardingFlowCompletionReason: String, Codable, Equatable, Sendable {
     case purchase
     case restore
     case existingEntitlement = "existing_entitlement"
+    /// Access arrived after the pass asked for it and nothing in the app confirmed how - a comp, a
+    /// promotional grant, or a purchase made outside the app. Never counted as a sale.
+    case unknown
 }
 
 enum OnboardingAnalyticsEvent: TelemetryEvent {

@@ -8,9 +8,8 @@ import UIKit
 ///
 /// The captain's report, reproduced against staging's own numbers: an Empire State Building climb
 /// finished in 16:46 over 1,576 steps, ranked 32nd of 85 by the server. Opening its completion
-/// summary showed that rank; opening the share composer from the saved climb offered no rank
-/// cluster, no rank sticker and a recap card with an empty top-right corner - because Workout
-/// Detail built the composer with no rank at all.
+/// summary showed that rank; opening the share sheet from the saved climb offered no rank - because
+/// Workout Detail built it with no rank at all.
 ///
 /// The two symptoms have one cause, and these tests prove that rather than assume it: the picker's
 /// clusters and the recap card's rank tab both read the single rank pair the composer is
@@ -110,99 +109,6 @@ struct SavedClimbShareRankTests {
         #expect(clamped.totalClimbers == 85)
     }
 
-    // MARK: - What that standing restores in the composer
-
-    /// The Climb tab offers the rank cluster and both rank stickers once the saved path supplies
-    /// the standing, and the recap card can build its rank tab from the same pair.
-    @Test
-    func theResolvedStandingRestoresTheRankClusterStickersAndRecapTab() throws {
-        let standing = try #require(SavedClimbShareStanding(snapshot: Self.snapshot()))
-        let viewModel = Self.savedClimbViewModel(standing: standing)
-
-        #expect(
-            viewModel.availablePresets().contains { $0.id == "rank" },
-            "the Climb tab offered no rank cluster"
-        )
-        #expect(viewModel.climbStats().contains { $0.kind == .climbRank })
-        #expect(viewModel.climbStats().contains { $0.kind == .climbRankWithTotal })
-
-        let resolved = try #require(
-            ResolvedShareStanding(rank: standing.rank, totalClimbers: standing.totalClimbers)
-        )
-        #expect(resolved.ordinalRank == "32nd")
-        #expect(resolved.formattedFieldSize == "85")
-        #expect(
-            ShareCardTemplateStore().templates(for: [.climb, .standing]).contains { $0.id == "standing" },
-            "the Recaps tab dropped the standing card for a ranked climb"
-        )
-    }
-
-    /// The pre-fix state, pinned: with no rank the same view model offers no rank cluster, no rank
-    /// stickers, and the recap requirements exclude `.standing` - so the standing template drops out
-    /// rather than rendering a hollow frame. Both symptoms, one missing pair.
-    @Test
-    func withoutAStandingBothTheClusterAndTheRecapTabDropCleanly() {
-        let viewModel = Self.savedClimbViewModel(standing: nil)
-
-        #expect(viewModel.availablePresets().allSatisfy { $0.id != "rank" })
-        #expect(viewModel.climbStats().allSatisfy { $0.kind != .climbRank })
-        #expect(viewModel.climbStats().allSatisfy { $0.kind != .climbRankWithTotal })
-        #expect(ResolvedShareStanding(rank: nil, totalClimbers: nil) == nil)
-        #expect(
-            ShareCardTemplateStore().templates(for: [.climb]).allSatisfy { $0.id != "standing" },
-            "an unranked climb was offered a standing card with nothing to fill it"
-        )
-        // The other recap templates still stand; only their rank tab is withheld.
-        #expect(!ShareCardTemplateStore().templates(for: [.climb]).isEmpty)
-    }
-
-    /// The background is not part of the answer: a camera-roll photograph does not change which
-    /// stats resolve, so the rank cards stay on offer against the climber's own picture.
-    @Test
-    func aCameraRollBackgroundKeepsTheRankCardsOnOffer() throws {
-        let standing = try #require(SavedClimbShareStanding(snapshot: Self.snapshot()))
-        let viewModel = Self.savedClimbViewModel(standing: standing)
-        let onArtwork = viewModel.availablePresets().map(\.id)
-
-        viewModel.background = .photo(Self.photograph())
-        let onPhoto = viewModel.availablePresets().map(\.id)
-
-        #expect(onPhoto == onArtwork)
-        #expect(onPhoto.contains("rank"))
-    }
-
-    // MARK: - A standing that lands after the composer opens
-
-    /// The composer opens on the frame Share was tapped, so the standing is applied to a view model
-    /// that is already on screen. Every derived value has to be dropped with it: a cluster list, a
-    /// sticker list or a resolved standing computed while the rank was missing would keep answering
-    /// the old question for the whole presentation.
-    @Test
-    func aStandingAppliedAfterTheComposerOpensRestoresTheClusterAndBothStickers() throws {
-        let viewModel = Self.savedClimbViewModel(standing: nil)
-        #expect(viewModel.availablePresets().allSatisfy { $0.id != "rank" })
-        #expect(viewModel.climbStats().allSatisfy { $0.kind != .climbRank })
-
-        let standing = try #require(SavedClimbShareStanding(snapshot: Self.snapshot()))
-        viewModel.setClimbRank(standing.rank, total: standing.totalClimbers)
-
-        #expect(
-            viewModel.availablePresets().contains { $0.id == "rank" },
-            "the standing landed and the Climb tab still offered no rank cluster"
-        )
-        #expect(viewModel.climbStats().contains { $0.kind == .climbRank })
-        #expect(viewModel.climbStats().contains { $0.kind == .climbRankWithTotal })
-        #expect(
-            ResolvedShareStanding(
-                rank: viewModel.climbRank,
-                totalClimbers: viewModel.climbRankTotal
-            ) != nil,
-            "the recap card could not build the standing it renders its rank tab from"
-        )
-    }
-
-    // MARK: - Only a frozen standing reaches a card
-
     /// A card publishes; a screen reports. The completion summary keeps showing where the climber
     /// stands right now, and it forwards a rank to the composer only when that rank is the
     /// permanent one - so a climb the server has not ranked yet shares without a rank rather than
@@ -277,84 +183,6 @@ struct SavedClimbShareRankTests {
         #expect(leaderboard.completionRankSnapshotFetchCount == 0)
     }
 
-    // MARK: - A recap redrawn for a late standing
-
-    /// The redraw swaps the baked image and nothing else. A climber who placed stickers on the card
-    /// while the read was out keeps them: routing this through the canvas reset that a fresh
-    /// background gets would wipe their work to fix a missing rank tab, which is the worse trade.
-    @Test
-    func redrawingAnAppliedRecapKeepsEverythingTheClimberPlacedOnIt() throws {
-        let viewModel = Self.savedClimbViewModel(standing: nil)
-        let baked = Self.card(.darkGray)
-        viewModel.resetForNewBackground(.recap(baked))
-        viewModel.addSticker(kind: .steps)
-        let placed = try #require(viewModel.stickers.first)
-
-        let redrawn = Self.card(.systemTeal)
-        viewModel.replaceRecapBackground(redrawn)
-
-        guard case .recap(let shown)? = viewModel.background else {
-            Issue.record("the canvas lost its recap background")
-            return
-        }
-        #expect(shown === redrawn, "the applied card was not redrawn")
-        #expect(viewModel.stickers.map(\.id) == [placed.id], "the redraw wiped the climber's work")
-    }
-
-    /// Only a recap is redrawn. A stale template cannot repaint over the photograph a climber
-    /// picked afterwards.
-    @Test
-    func redrawingLeavesANonRecapBackgroundAlone() {
-        let viewModel = Self.savedClimbViewModel(standing: nil)
-        let photo = Self.card(.darkGray)
-        viewModel.resetForNewBackground(.photo(photo))
-
-        viewModel.replaceRecapBackground(Self.card(.systemTeal))
-
-        guard case .photo(let shown)? = viewModel.background else {
-            Issue.record("the canvas lost the photograph the climber picked")
-            return
-        }
-        #expect(shown === photo)
-    }
-
-    // MARK: - The card itself
-
-    /// The reported symptom and its fix on the artifact a climber actually posts.
-    ///
-    /// The other tests judge which cards are offered; this one lays the recap out through the
-    /// shipping template view, the way the composer bakes it, and reads the rank corner off both
-    /// halves: the card Workout Detail used to build, with its top-right corner empty, and the
-    /// same card once the frozen standing lands. Cheap on purpose - a 1x off-screen lay-out, no
-    /// window hosting, because hosting a window is what put `iOS Verify (Staging)` past its cap.
-    /// Both halves are photographed under `ASCEND_EVIDENCE_DIR`.
-    @Test
-    func theRecapCardDrawsItsRankTabOnceTheStandingLands() throws {
-        let viewModel = Self.savedClimbViewModel(standing: nil)
-        let template = try #require(
-            ShareCardTemplateStore(bundle: .main).templates(for: [.climb]).first { $0.id == "result" }
-        )
-
-        let withoutRank = try Self.rankTabCorner(
-            of: template,
-            for: viewModel,
-            photographedAs: "saved-climb-recap-card-1-without-rank"
-        )
-
-        let standing = try #require(SavedClimbShareStanding(snapshot: Self.snapshot()))
-        viewModel.setClimbRank(standing.rank, total: standing.totalClimbers)
-        let withRank = try Self.rankTabCorner(
-            of: template,
-            for: viewModel,
-            photographedAs: "saved-climb-recap-card-2-with-rank"
-        )
-
-        #expect(
-            withoutRank != withRank,
-            "the standing landed and the card's rank corner was drawn exactly as it was without one"
-        )
-    }
-
     // MARK: - Fixtures
 
     private static func hero(
@@ -370,42 +198,6 @@ struct SavedClimbShareRankTests {
             ),
             copy: LiveClimbSummaryRankHero.Copy()
         )
-    }
-
-
-    private static func savedClimbViewModel(
-        standing: SavedClimbShareStanding?
-    ) -> ShareComposerViewModel {
-        ShareComposerViewModel(
-            workout: ShareStatClusterPresetTests.recordedWorkout(
-                name: "Empire State Building",
-                trackingMode: .liveClimb,
-                climbId: Climb.preview.id,
-                heartRate: true,
-                recordedSteps: 1_576
-            ),
-            measurementSystem: .imperial,
-            stepHeight: MeasurementSystem.imperial.defaultStepHeight,
-            climb: .preview,
-            climbName: Climb.preview.name,
-            climbRank: standing?.rank,
-            climbRankTotal: standing?.totalClimbers
-        )
-    }
-
-    /// A one-colour image stands in for the camera roll: this suite judges which cards are offered,
-    /// not how they read, so the pixels are irrelevant and a bundled photograph would only make the
-    /// test slower.
-    private static func photograph() -> UIImage {
-        card(.darkGray)
-    }
-
-    /// A fixture image handed to the view model as a background - input to the app, not a render.
-    private static func card(_ color: UIColor) -> UIImage {
-        UIGraphicsImageRenderer(size: CGSize(width: 120, height: 214)).image { context in
-            color.setFill()
-            context.fill(CGRect(origin: .zero, size: CGSize(width: 120, height: 214)))
-        }
     }
 
     private static func frozenStore(
@@ -430,54 +222,5 @@ struct SavedClimbShareRankTests {
             rankingMetric: "completionDurationSeconds",
             tiePolicy: "competition_rank_equal_durations_share_rank"
         )
-    }
-
-    // MARK: - Rendering the card
-
-    /// The recap exactly as the composer bakes it: the same template view, over the same context
-    /// `makeRecapPreview` builds, at the size the share button exports.
-    private static func recapCard(
-        _ template: ShareCardTemplate,
-        for viewModel: ShareComposerViewModel
-    ) -> some View {
-        let context = ShareCardRenderContext.template(
-            stats: viewModel.climbStats(),
-            bestEfforts: viewModel.bestEffortStats,
-            weeklyTotals: viewModel.weeklyTotalStats,
-            splits: viewModel.splits(),
-            standing: ResolvedShareStanding(
-                rank: viewModel.climbRank,
-                totalClimbers: viewModel.climbRankTotal
-            )
-        )
-        let size = ShareComposerExporter.exportSize
-        return ShareCardTemplateView(template: template, context: context, artwork: heroArtwork)
-            .frame(width: size.width, height: size.height)
-            .clipped()
-    }
-
-    /// The pixels of the corner the rank tab lives in, read off a 1x lay-out of the card. Read
-    /// from the pixels rather than from the render context, because what the card publishes is
-    /// the image. The card is photographed at the same 1x under `ASCEND_EVIDENCE_DIR`.
-    private static func rankTabCorner(
-        of template: ShareCardTemplate,
-        for viewModel: ShareComposerViewModel,
-        photographedAs name: String
-    ) throws -> [RGBA] {
-        let card = recapCard(template, for: viewModel)
-        let size = ShareComposerExporter.exportSize
-        let corner = CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height / 4)
-
-        try RenderedScreen.photograph(card, named: name, scale: 1, proposedSize: ProposedViewSize(size))
-        return try RenderedScreen.withOffscreenPixels(of: card, proposedSize: ProposedViewSize(size)) {
-            $0.pixels(in: corner)
-        }
-    }
-
-    /// The bundled Empire State photograph stands in for the climb's hosted hero artwork, which a
-    /// test cannot download.
-    private static var heroArtwork: ShareCardArtworkSource {
-        let image = UIImage(named: "OnboardingLandmarkEmpireCard")
-        return ShareCardArtworkSource(overrides: image.map { [.hero: $0] } ?? [:])
     }
 }

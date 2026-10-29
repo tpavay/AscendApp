@@ -24,7 +24,7 @@ It should be updated to match whatever is actually applied to App Store Connect,
 Written against the app as it stands after [#437](https://github.com/tpavay/AscendApp/issues/437), which merged on 2026-08-08.
 
 Gone: Apple Health workout import, manual workout logging, and any framing of Ascend as a place to log or import training.
-Kept: connecting Apple Health to enrich a climb performed *in Ascend*, live heart rate from a Bluetooth chest strap, Live Climbs, leaderboards, First Ascents, Best Efforts, guided routines, and the share composer.
+Kept: connecting Apple Health to enrich a climb performed *in Ascend*, live heart rate from a Bluetooth chest strap, Live Climbs, leaderboards, First Ascents, Best Efforts, guided routines, and the share sheet.
 
 For that enrichment, Ascend reads exactly two Apple Health types - heart rate and active energy - over the climb's own time window, and attaches your heart rate and active-energy calories to that climb.
 It never requests `workoutType()`, so Workouts does not appear in the Health permission sheet, and it never writes to Apple Health.
@@ -218,7 +218,7 @@ Every claim in the description, and where the app makes it true. Checked against
 | Best Efforts record book | `BestEffortMetric` - most steps, longest climb, highest average SPM, most steps in a time window, fastest step target. |
 | Guided routines with chest-strap heart rate | `AscendApp/Features/Routines/`; `HeartRateMonitorIntegrationCard` names the Bluetooth chest strap, and `LiveHeartRateSourceKind` ranks it above the watch. |
 | Just Climb, open-ended with an optional goal | `HomeStartAction.justClimb` -> `LiveClimbSessionViewModel(justClimbGoal:experience:)`. |
-| Share card from a ranked result | `AscendApp/Features/ShareComposer/`. |
+| Share card from a ranked result | `AscendApp/Features/ShareSheet/`. |
 | No manual entry, no import | `WorkoutSource.filterOptions == [.headphoneMotion]`, and `AscendAppTests/ManualLoggingAndImportRemovalEvidenceTests.swift` reads the removal back off rendered pixels. |
 | Apple Health is heart rate and active energy only, over the session's own window | `HealthKitAuthorizationClient.readTypes`; `workoutType()` is never requested and no share types are requested. |
 

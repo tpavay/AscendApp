@@ -59,8 +59,8 @@ First Ascent slot. This is the core retention loop.
   in `CLAUDE.md` under "What Ascend Is NOT"; take it from there for any listing or disclosure
   copy. Manual workout logging and Apple Health workout import were removed on 2026-08-08
   (#437), so neither is a feature to sell.
-- **Share composer** — Instagram-Story-style canvas: pick a background, drag stat
-  "stickers" onto it
+- **Share sheet** — Presets cards and transparent stat stickers: copy a card or a
+  sticker anywhere, hold a sticker to save it, or send a card to a Story
 
 ## Monetization (relevant to onboarding)
 

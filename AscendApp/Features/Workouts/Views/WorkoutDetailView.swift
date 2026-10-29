@@ -115,13 +115,15 @@ struct WorkoutDetailView: View {
             )
             .interactiveDismissDisabled()
         }
-        .fullScreenCover(isPresented: $showingShareWorkoutView) {
-            ShareComposerView(
+        .sheet(isPresented: $showingShareWorkoutView) {
+            ShareSheetView(
                 workout: workout,
                 climb: liveClimbDetailClimb,
                 climbRank: shareStanding?.rank,
                 climbRankTotal: shareStanding?.totalClimbers
             )
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color(hex: "0B0B0B"))
             // Only for a workout whose snapshot this install has never read: the Share tap has
             // already seeded everything else, so no climber waits on a read to open the composer.
             .task { await resolveShareStandingIfNeeded() }
