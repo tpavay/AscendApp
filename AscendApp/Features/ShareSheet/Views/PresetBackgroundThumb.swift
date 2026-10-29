@@ -37,9 +37,15 @@ struct PresetBackgroundThumb: View {
     var body: some View {
         let window = window
         let corner = size * 0.22
-        PresetBackgroundView(model: model, artwork: artwork)
-            .scaleEffect(size * window.zoom / PresetCardView.designSize, anchor: window.anchor)
-            .frame(width: size, height: size, alignment: window.alignment)
+        // The 310 point drawing is an overlay on a tile-sized clear square, not the tile's own
+        // content: a clip bounds only what is drawn, so the layout (and the button's frame) would
+        // otherwise be the size of the card and spill over the neighbouring tiles.
+        Color.clear
+            .frame(width: size, height: size)
+            .overlay(alignment: window.alignment) {
+                PresetBackgroundView(model: model, artwork: artwork)
+                    .scaleEffect(size * window.zoom / PresetCardView.designSize, anchor: window.anchor)
+            }
             .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: corner, style: .continuous)

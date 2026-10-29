@@ -11,7 +11,9 @@ struct PresetBackgroundRow: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                // No spacing: each tile carries its own 4 point margin inside its tap area, so the
+                // strip has no dead ground between swatches.
+                HStack(spacing: 0) {
                     ForEach(model.seasonalBackgrounds) { seasonal in
                         tile(
                             id: "seasonal.\(seasonal.rawValue)",
@@ -36,7 +38,6 @@ struct PresetBackgroundRow: View {
                         ) { model.selectBackground(flat) }
                     }
                 }
-                .padding(.horizontal, 4)
                 .padding(.vertical, 4)
             }
             .onAppear {
@@ -77,6 +78,7 @@ struct PresetBackgroundRow: View {
                     .font(.montserratBold(size: 10))
                     .foregroundStyle(model.background == .photo ? .white : Color(shareHex: 0x8A8A8A))
             }
+            .tileHitArea()
         }
         .buttonStyle(.plain)
         .id("photo")
@@ -112,11 +114,23 @@ struct PresetBackgroundRow: View {
                     .foregroundStyle(selected ? .white : Color(shareHex: 0x8A8A8A))
                     .lineLimit(1)
             }
-            .frame(minWidth: 46)
+            .tileHitArea()
         }
         .buttonStyle(.plain)
         .id(id)
         .accessibilityLabel("\(title) background")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+private extension View {
+    /// The whole tile is the target: swatch, caption and the margin around them, at least 46 points
+    /// wide and well over 44 tall. A plain-style button only answers where its label has something
+    /// to hit, and a swatch draws a non-interactive background, so without this a tap landed only
+    /// on the caption's glyphs.
+    func tileHitArea() -> some View {
+        frame(minWidth: 46)
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
     }
 }

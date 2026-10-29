@@ -59,7 +59,8 @@ The year is generated, never hard-coded.
 ## Fonts
 
 Bold is Montserrat Black, Condensed is Barlow Condensed ExtraBold, Mono is JetBrains Mono ExtraBold and Serif is Instrument Serif.
-The four families ship under the SIL Open Font License 1.1; `docs/font-licenses.md` records each file and its author.
+The four families ship under the SIL Open Font License 1.1.
+`docs/font-licenses.md` records each file, its author and its copyright notice, and `docs/licenses/OFL-1.1.txt` holds the licence text those notices go with.
 
 ## Swiping the cards
 
@@ -74,6 +75,13 @@ A light haptic fires when a new card lands and not on a spring-back.
 VoiceOver gets one adjustable element that moves a card at a time, and Reduce Motion swaps the spring for a 0.2 second ease-out and drops the parallax.
 A chosen photograph is framed by the same drag instead, so paging then goes through the marks or a tap on a neighbour.
 Do not layer a `TabView` or a second gesture on the pager; the rubber band, the peeking neighbours and the continuous depth are not possible with one.
+
+## Background tiles
+
+Each tile in the Background panel is one tap target: the swatch, its caption and a 4 point margin on each side, at least 46 points wide and over 44 tall, with no gap between neighbours.
+A swatch draws the card's real background, which is non-interactive, so the tile's `contentShape` is what makes the swatch answer a tap; without it only the caption's glyphs did.
+The swatch is also laid out as exactly its own square, because a zoomed pattern clipped to a tile still lays out at the card's size and used to sit over the tiles beside it.
+`PresetBackgroundRowHitTargetTests` pins the tile frames: 44 points each way, no overlap, no gap.
 
 ## Story
 
