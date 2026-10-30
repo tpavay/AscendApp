@@ -15,12 +15,34 @@ import SwiftData
 /// workout - no enrichment, no Live Climb attempt, while `integrityLevel` still claims verified.
 enum AscendMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [AscendSchemaV1.self, AscendSchemaV2.self, AscendSchemaV3.self, AscendSchemaV4.self, AscendSchemaV5.self]
+        [
+            AscendSchemaV1.self,
+            AscendSchemaV2.self,
+            AscendSchemaV3.self,
+            AscendSchemaV4.self,
+            AscendSchemaV5.self,
+            AscendSchemaV6.self
+        ]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5]
+        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateV5toV6]
     }
+
+    /// Adds `leaderboardStatusRawValue` to `Workout`: whether a climb counts toward leaderboards.
+    ///
+    /// Lightweight because a blanket default is true of every existing row. Every climb recorded
+    /// before this build was eligible - the only way to create one was a live sensor flow, and the
+    /// server derives standings from the workout's own evidence regardless of what the device
+    /// stores - so `eligible` claims nothing the old column could have contradicted. Nothing is
+    /// interpreted per record, which is the only kind of work that belongs in a stage that runs
+    /// inside `ModelContainer.init` where no kill switch reaches it. A climb written by a build
+    /// before this one keeps its `source` untouched: `headphone_motion` is still a live climb, and
+    /// a legacy `manual` row is still a hand-logged one.
+    static let migrateV5toV6 = MigrationStage.lightweight(
+        fromVersion: AscendSchemaV5.self,
+        toVersion: AscendSchemaV6.self
+    )
 
     /// Adds `checkpointDiagnosticsData` to `ActiveHeadphoneWorkoutDraft`: what the process knew
     /// about memory, disk, battery and its workout session at the last checkpoint.
@@ -78,7 +100,10 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
             try stashLegacySources(from: context)
         },
         didMigrate: { context in
-            applyStashedSourcesReportingFailure(to: context)
+            // The context is the V2 store, so it reads the frozen copy of `Workout` that V2
+            // shipped. Reading the live type here would ask a V2 store for columns it has never
+            // had.
+            applyStashedSourcesReportingFailure(to: context, records: AscendSchemaV5.Workout.self)
         }
     )
 
@@ -102,8 +127,18 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         to context: ModelContext,
         stash: WorkoutSourceMigrationStash = .shared
     ) {
+        applyStashedSourcesReportingFailure(to: context, stash: stash, records: Workout.self)
+    }
+
+    /// The same write against whichever shape of `Workout` the context's store actually holds -
+    /// the V2 copy from inside the stage, the live one from every launch after it.
+    static func applyStashedSourcesReportingFailure<Record: SourceRepairableWorkout>(
+        to context: ModelContext,
+        stash: WorkoutSourceMigrationStash = .shared,
+        records: Record.Type
+    ) {
         do {
-            try applyStashedSources(to: context, stash: stash)
+            try applyStashedSources(to: context, stash: stash, records: records)
         } catch let failure as WorkoutSourceMigrationSweepFailure {
             report(
                 "workout_source_migration_write_failed",
@@ -213,6 +248,18 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         to context: ModelContext,
         stash: WorkoutSourceMigrationStash = .shared
     ) throws -> SweepReport {
+        try applyStashedSources(to: context, stash: stash, records: Workout.self)
+    }
+
+    /// `applyStashedSources` over an explicit `Workout` shape. The stage runs while the store is
+    /// still V2 and the app's live `Workout` has since gained columns that store does not have, so
+    /// the stage names the frozen copy and every later launch names the live one.
+    @discardableResult
+    static func applyStashedSources<Record: SourceRepairableWorkout>(
+        to context: ModelContext,
+        stash: WorkoutSourceMigrationStash = .shared,
+        records: Record.Type
+    ) throws -> SweepReport {
         let stashed = stash.load()
 
         // A stash that exists but will not decode is not the same thing as a finished migration,
@@ -235,7 +282,7 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         var repairedCount = 0
 
         do {
-            try forEachPage(of: Workout.self, in: context, report: &sweep) { page in
+            try forEachPage(of: records, in: context, report: &sweep) { page in
                 for workout in page {
                     guard let rawValue = stashed.sourcesByWorkoutID[workout.id],
                           workout.sourceRawValue != rawValue else { continue }
@@ -389,6 +436,19 @@ struct WorkoutSourceMigrationSweepFailure: Error {
     let sweep: AscendMigrationPlan.SweepReport
     let underlying: any Error
 }
+
+/// A shape of `Workout` whose `source` the V1 -> V2 stage can repair: the one the V2 store
+/// carries while the stage runs, and the live one every later launch carries.
+///
+/// Only the two columns the repair touches, so a future shape that drops either one fails to
+/// compile at its conformance instead of silently skipping rows.
+protocol SourceRepairableWorkout: PersistentModel {
+    var id: UUID { get }
+    var sourceRawValue: String { get set }
+}
+
+extension Workout: SourceRepairableWorkout {}
+extension AscendSchemaV5.Workout: SourceRepairableWorkout {}
 
 enum WorkoutSourceMigrationError: Error, CustomStringConvertible {
     case pageDidNotFullyResolve(requested: Int, resolved: Int)

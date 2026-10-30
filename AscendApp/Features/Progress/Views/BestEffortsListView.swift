@@ -537,6 +537,10 @@ private struct BestEffortRecordHeroView: View {
                         .frame(width: 4, height: 4)
 
                     Text(effort.workout.name)
+
+                    if effort.origin != .live {
+                        ClimbOriginMark(origin: effort.origin, pointSize: 11)
+                    }
                 }
                 .font(.montserratRegular(size: 12))
                 .foregroundStyle(.white.opacity(0.5))

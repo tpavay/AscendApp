@@ -23,12 +23,13 @@
  * device: there is no App Check attestation and no server-side sensor
  * ingestion, so the server holds no evidence a determined client could not
  * manufacture. What it does hold is a physical envelope - a session cannot
- * exceed 220 steps per minute, cannot run longer than a day, and a period's
- * sessions cannot total more wall clock than the period contains - so a forged
- * standing is now bounded by what a human could conceivably have climbed
- * instead of by the range of a 64-bit integer. Closing the remainder means
- * building the evidence path (attestation and per-workout provenance), which
- * is a separate piece of work.
+ * exceed 220 steps per minute (200 for a climb typed in or brought in rather
+ * than measured by Ascend's own sensor), cannot run longer than a day, and a
+ * period's sessions cannot total more wall clock than the period contains - so
+ * a forged standing is now bounded by what a human could conceivably have
+ * climbed instead of by the range of a 64-bit integer. Closing the remainder
+ * means building the evidence path (attestation and per-workout provenance),
+ * which is a separate piece of work.
  *
  * WHERE THE ENVELOPE DOES NOT REACH. The wall-clock bound is real for daily,
  * weekly, monthly and yearly, whose windows are fixed calendar spans the
@@ -91,6 +92,12 @@ export const COMPETITION_ELIGIBLE_SOURCES = new Set([
   "headphone_motion",
 ]);
 
+/** The one origin Ascend measures itself: the headphones' motion sensor. */
+export const LIVE_SENSOR_SOURCE = "headphone_motion";
+
+/** Typed in by hand. The one origin a climber can author without a sensor. */
+export const MANUAL_SOURCE = "manual";
+
 /**
  * The physical envelope a single session must fall inside to be counted.
  * `MAX_AVERAGE_STEPS_PER_MINUTE` mirrors
@@ -98,11 +105,42 @@ export const COMPETITION_ELIGIBLE_SOURCES = new Set([
  * server applies it again because it cannot know the device applied it.
  */
 export const MAX_AVERAGE_STEPS_PER_MINUTE = 220;
+
+/**
+ * The fastest average cadence a climb Ascend did not measure may carry and
+ * still rank. A live climb is bounded by what the headphone detector can
+ * physically report (a 0.3 second minimum between peaks, about 200 a minute)
+ * and by the 220 above; a typed or imported climb has no sensor behind it, so
+ * its pace is the only evidence there is and it is held to a tighter line.
+ *
+ * Mirrors `ClimbPacePolicy.leaderboardCeilingStepsPerMinute` on the device,
+ * and `SharedTestVectors/climb-pace-policy-vector.json` holds the two to the
+ * same answers. The station's own ceiling is StairMaster's top console setting,
+ * 190 steps a minute; the fastest of the 104 production climbs measured on
+ * 2026-10-30 averaged 127.
+ *
+ * The server applies this itself and never reads a device verdict: the
+ * climber's phone writes `leaderboardStatus` for its own screens, and a
+ * request that lies about it changes nothing here.
+ */
+export const MAX_UNMEASURED_AVERAGE_STEPS_PER_MINUTE = 200;
 export const MAX_WORKOUT_DURATION_SECONDS = 24 * 60 * 60;
+
+/**
+ * The cadence ceiling for one workout origin.
+ * @param {string} source The workout's stored `source`.
+ * @return {number} The highest average steps a minute that still counts.
+ */
+export function maxAverageStepsPerMinute(source: string): number {
+  return source === LIVE_SENSOR_SOURCE ?
+    MAX_AVERAGE_STEPS_PER_MINUTE :
+    MAX_UNMEASURED_AVERAGE_STEPS_PER_MINUTE;
+}
 
 /** A workout reduced to the fields a standing is derived from. */
 export interface EligibleWorkout {
   workoutId: string;
+  source: string;
   startedAtMillis: number;
   durationSeconds: number;
   steps: number;
@@ -116,6 +154,14 @@ export interface LeaderboardAggregate {
   totalWorkouts: number;
   totalDuration: number;
   stepsPerMinute: number;
+  /**
+   * How many of `totalWorkouts` were typed in by hand, and how many were
+   * brought in from another provider. What a row's source icon reads: a row
+   * with neither was recorded entirely by Ascend's own sensor. Counted from
+   * the same workouts the totals are, so the two cannot disagree.
+   */
+  typedWorkouts: number;
+  healthWorkouts: number;
 }
 
 /** One derived row, keyed by the document it belongs in. */
@@ -320,11 +366,26 @@ export function parseEligibleWorkout(
     return null;
   }
 
-  if (steps / (durationSeconds / 60) > MAX_AVERAGE_STEPS_PER_MINUTE) {
+  const ceiling = maxAverageStepsPerMinute(data.source);
+  if (steps / (durationSeconds / 60) > ceiling) {
     return null;
   }
 
-  return {workoutId, startedAtMillis, durationSeconds, steps, floors};
+  // A climb nobody measured and nobody gave steps for is an entry waiting for
+  // its number, not a climb: counting it would put a zero-step "workout" on
+  // the workouts board. A live session's zero is a real finished measurement.
+  if (steps === 0 && data.source !== LIVE_SENSOR_SOURCE) {
+    return null;
+  }
+
+  return {
+    workoutId,
+    source: data.source,
+    startedAtMillis,
+    durationSeconds,
+    steps,
+    floors,
+  };
 }
 
 /**
@@ -343,12 +404,19 @@ export function aggregateForPeriod(
   let totalFloors = 0;
   let totalWorkouts = 0;
   let totalDuration = 0;
+  let typedWorkouts = 0;
+  let healthWorkouts = 0;
 
   for (const workout of workouts) {
     totalSteps += workout.steps;
     totalFloors += workout.floors;
     totalWorkouts += 1;
     totalDuration += workout.durationSeconds;
+    if (workout.source === MANUAL_SOURCE) {
+      typedWorkouts += 1;
+    } else if (workout.source !== LIVE_SENSOR_SOURCE) {
+      healthWorkouts += 1;
+    }
   }
 
   const minutes = totalDuration / 60;
@@ -358,6 +426,8 @@ export function aggregateForPeriod(
     totalWorkouts,
     totalDuration,
     stepsPerMinute: minutes > 0 ? totalSteps / minutes : 0,
+    typedWorkouts,
+    healthWorkouts,
   };
 }
 
@@ -827,6 +897,8 @@ export function leaderboardDocumentData(
     totalWorkouts: row.aggregate.totalWorkouts,
     totalDuration: row.aggregate.totalDuration,
     stepsPerMinute: row.aggregate.stepsPerMinute,
+    typedWorkouts: row.aggregate.typedWorkouts,
+    healthWorkouts: row.aggregate.healthWorkouts,
     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
   };
 

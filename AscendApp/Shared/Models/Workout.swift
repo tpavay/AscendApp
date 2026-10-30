@@ -9,7 +9,7 @@ import Foundation
 import SwiftData
 
 enum WorkoutSource: String, CaseIterable, Codable {
-    case manual = "manual"           // User entered manually
+    case manual = "manual"           // Typed in by the climber
     case appleHealth = "apple_health" // Imported from Apple Health
     // Placeholders for integrations that were never built. No build has ever set either, and both
     // are now refused on the way out: `WorkoutRemoteSyncMapper.supportedSourceRawValues` throws
@@ -22,16 +22,16 @@ enum WorkoutSource: String, CaseIterable, Codable {
     case headphoneMotion = "headphone_motion" // Live tracking from compatible headphones
 
     /// Only sources Ascend can still produce. The other cases stay readable so stored rows from
-    /// before manual logging and Apple Health import were removed keep rendering everywhere, but
-    /// offering them as filters advertises features that are gone.
+    /// before Apple Health import was removed keep rendering everywhere, but offering them as
+    /// filters advertises features that are gone. A climber can log a climb by hand again.
     static var filterOptions: [WorkoutSource] {
-        [.headphoneMotion]
+        [.headphoneMotion, .manual]
     }
 
     var displayName: String {
         switch self {
         case .manual:
-            return "Manual Entry"
+            return "Logged by Hand"
         case .appleHealth:
             return "Apple Health"
         case .garmin:
@@ -162,6 +162,19 @@ class Workout {
     var source: WorkoutSource {
         get { WorkoutSource(rawValue: sourceRawValue) ?? .manual }
         set { sourceRawValue = newValue.rawValue }
+    }
+
+    /// Whether this climb counts toward leaderboards, as this device last concluded.
+    ///
+    /// Stored as a raw value for the same reason `source` is. `eligible` is the default every row
+    /// written before the column existed takes, which is honest: each one was counted. The server
+    /// never reads it - it re-derives eligibility from `source`, `steps` and `duration` - so this
+    /// is the device's record of that verdict, kept current by `refreshLeaderboardStatus()`.
+    var leaderboardStatusRawValue: String = LeaderboardStatus.eligible.rawValue
+
+    var leaderboardStatus: LeaderboardStatus {
+        get { LeaderboardStatus(rawValue: leaderboardStatusRawValue) ?? .eligible }
+        set { leaderboardStatusRawValue = newValue.rawValue }
     }
     var deviceModel: String? // "Apple Watch Series 9", "iPhone 15 Pro", etc.
     var sourceMetadata: String? // Additional source-specific data (JSON string)
@@ -411,6 +424,56 @@ class Workout {
         sourceLinks
             .map(\.provider)
             .sorted { $0.displayName < $1.displayName }
+    }
+
+    /// How this climb came to exist, in the vocabulary a climber and a leaderboard row use.
+    var origin: ClimbOrigin {
+        source.climbOrigin
+    }
+
+    /// Whether the steps are a measurement or an entry the climber has yet to make.
+    ///
+    /// `steps` stays a non-optional `Int` - it feeds the leaderboard derivation, the sync document
+    /// and every total, and an optional would be a column type change that rewrites every stored
+    /// row. For a climb that was typed in or brought in, zero is the absence of a number: a
+    /// hand-logged climb cannot be saved without steps, and an import with none is stored as zero
+    /// and prompts for them. A live climb with zero steps is a real, finished measurement.
+    var isMissingSteps: Bool {
+        steps == 0 && origin != .live
+    }
+
+    /// The steps to show, or nil where the climber has not given any.
+    var recordedSteps: Int? {
+        isMissingSteps ? nil : steps
+    }
+
+    /// Whether the pace check kept this climb off the leaderboards and the records that feed them.
+    ///
+    /// Read from the totals rather than from `leaderboardStatus`, because a climb can be excluded
+    /// for a reason that has nothing to do with pace and still earn a personal record.
+    var exceedsPaceCeiling: Bool {
+        guard origin != .live else { return false }
+        if case .aboveCeiling = ClimbPacePolicy.verdict(steps: steps, duration: duration) {
+            return true
+        }
+        return false
+    }
+
+    /// Re-derives `leaderboardStatus` from the climb's own totals.
+    ///
+    /// Called when a climb is saved and when its steps or time are edited, and nowhere else: a note,
+    /// a photo or an effort rating changes nothing the pace depends on, and nothing re-runs this on
+    /// a schedule. Returns whether the status changed, so the caller can refresh what reads it.
+    @discardableResult
+    func refreshLeaderboardStatus() -> Bool {
+        let updated = ClimbPacePolicy.leaderboardStatus(
+            origin: origin,
+            steps: steps,
+            duration: duration
+        )
+        guard updated != leaderboardStatus else { return false }
+        leaderboardStatus = updated
+        return true
     }
 
     var isInAppSensorWorkout: Bool {

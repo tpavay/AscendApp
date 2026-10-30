@@ -214,12 +214,22 @@ private struct LeaderboardPodiumSlotView: View {
                 .minimumScaleFactor(0.72)
 
             if let entry {
-                Text(entry.formattedValue)
-                    .font(.montserratMedium(size: 12))
-                    .foregroundStyle(valueColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .accessibilityLabel("\(metric.displayName) \(entry.formattedValue)")
+                HStack(spacing: 4) {
+                    Text(entry.formattedValue)
+                        .font(.montserratMedium(size: 12))
+                        .foregroundStyle(valueColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .accessibilityLabel("\(metric.displayName) \(entry.formattedValue)")
+
+                    if let origin = entry.origin {
+                        ClimbOriginMark(
+                            origin: origin,
+                            pointSize: 10,
+                            tint: colorScheme == .dark ? .white.opacity(0.5) : .black.opacity(0.42)
+                        )
+                    }
+                }
             } else {
                 Text("CLAIM IT")
                     .font(.montserratBold(size: 10))

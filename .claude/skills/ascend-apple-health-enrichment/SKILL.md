@@ -6,12 +6,12 @@ description: Use when working on Ascend's Apple Health integration - connecting 
 # Apple Health enrichment
 
 Ascend ranks stair stepper workouts, it does not track them.
-It does not import workouts and it has no manual entry: **every `Workout` is created by an in-app sensor flow** (Live Climbs and routines captured via headphone motion).
+It does not import workouts: **a `Workout` is created by an in-app sensor flow** (Live Climbs and routines captured via headphone motion) **or typed in on the Log a climb screen** (`WorkoutSource.manual`, 1.3.0), and Health enriches only the first kind - `isInAppSensorWorkout` is what gates it.
 Apple Health does exactly one job - it fills in the heart rate and calories a phone cannot measure, for a climb Ascend already recorded.
 
-Manual logging and Apple Health workout import were removed on 2026-08-08 (#437).
-Do not reintroduce either behind a flag, a debug toggle, or a "just in case" path.
-`WorkoutSource.manual` and `.appleHealth` survive only because older stored rows carry those raw values; nothing writes them.
+Apple Health workout import was removed on 2026-08-08 (#437), together with manual logging; logging by hand came back in 1.3.0 as its own screen.
+Do not reintroduce import behind a flag, a debug toggle, or a "just in case" path.
+`WorkoutSource.appleHealth` survives only because older stored rows carry that raw value; nothing writes it.
 
 ## The boundary that defines this integration
 

@@ -11,6 +11,9 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
     let isCurrentUser: Bool
     /// Whether at least one other entry shares this rank.
     let isTied: Bool
+    /// How the climbs behind this row were recorded: live, imported or typed in. Nil where the
+    /// row is not built from a period's workouts, such as a frozen past board that stored none.
+    let origin: ClimbOrigin?
 
     init(
         userId: String,
@@ -20,7 +23,8 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         value: Double,
         formattedValue: String,
         isCurrentUser: Bool = false,
-        isTied: Bool = false
+        isTied: Bool = false,
+        origin: ClimbOrigin? = nil
     ) {
         self.id = userId
         self.userId = userId
@@ -33,6 +37,7 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         self.formattedValue = formattedValue
         self.isCurrentUser = isCurrentUser
         self.isTied = isTied
+        self.origin = origin
     }
 
     init(
@@ -42,7 +47,8 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         value: Double,
         formattedValue: String,
         isCurrentUser: Bool = false,
-        isTied: Bool = false
+        isTied: Bool = false,
+        origin: ClimbOrigin? = nil
     ) {
         self.id = userId
         self.userId = userId
@@ -52,6 +58,7 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         self.formattedValue = formattedValue
         self.isCurrentUser = isCurrentUser
         self.isTied = isTied
+        self.origin = origin
     }
 
     /// A copy carrying a refreshed profile identity. Every ranking field is preserved:
@@ -68,7 +75,8 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
             value: value,
             formattedValue: formattedValue,
             isCurrentUser: isCurrentUser,
-            isTied: isTied
+            isTied: isTied,
+            origin: origin
         )
     }
 }
@@ -87,6 +95,11 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
     let totalWorkouts: Int
     let totalDuration: Double
     let stepsPerMinute: Double
+    /// How many of `totalWorkouts` were typed in, and how many imported. The server counts them
+    /// from the same workouts as the totals; a row written before it did carries neither, which
+    /// reads as entirely live.
+    let typedWorkouts: Int
+    let healthWorkouts: Int
     let lastUpdated: Date
     let age: Int?
     let weightKg: Double?
@@ -109,6 +122,8 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         totalWorkouts: Int,
         totalDuration: Double,
         stepsPerMinute: Double,
+        typedWorkouts: Int = 0,
+        healthWorkouts: Int = 0,
         lastUpdated: Date,
         age: Int? = nil,
         weightKg: Double? = nil,
@@ -132,6 +147,8 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         self.totalWorkouts = totalWorkouts
         self.totalDuration = totalDuration
         self.stepsPerMinute = stepsPerMinute
+        self.typedWorkouts = typedWorkouts
+        self.healthWorkouts = healthWorkouts
         self.lastUpdated = lastUpdated
         self.age = age
         self.weightKg = weightKg
@@ -154,6 +171,8 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         totalWorkouts: Int,
         totalDuration: Double,
         stepsPerMinute: Double,
+        typedWorkouts: Int = 0,
+        healthWorkouts: Int = 0,
         lastUpdated: Date,
         age: Int? = nil,
         weightKg: Double? = nil,
@@ -174,12 +193,23 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         self.totalWorkouts = totalWorkouts
         self.totalDuration = totalDuration
         self.stepsPerMinute = stepsPerMinute
+        self.typedWorkouts = typedWorkouts
+        self.healthWorkouts = healthWorkouts
         self.lastUpdated = lastUpdated
         self.age = age
         self.weightKg = weightKg
         self.locationCity = locationCity
         self.locationCountry = locationCountry
         self.locationRegion = locationRegion
+    }
+
+    /// What a row's source icon reads. The least-measured origin among the climbs it counts wins:
+    /// one typed climb in the period makes the row typed, because a row is only as measured as its
+    /// least measured climb.
+    var origin: ClimbOrigin {
+        if typedWorkouts > 0 { return .manual }
+        if healthWorkouts > 0 { return .healthImport }
+        return .live
     }
 
     func identityApplyingOverrides(

@@ -71,6 +71,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
 
     case workoutDetail = "workout_detail"
     case editWorkout = "edit_workout"
+    case logClimb = "log_climb"
+    case loggedClimbResult = "logged_climb_result"
     case activeHeadphoneWorkoutRecovery = "active_headphone_workout_recovery"
     case headphoneSessionResume = "headphone_session_resume"
     case stepAccuracyCalibration = "step_accuracy_calibration"
@@ -167,6 +169,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .dailyWorkoutDetail: "DailyWorkoutDetailView"
         case .workoutDetail: "WorkoutDetailView"
         case .editWorkout: "EditWorkoutView"
+        case .logClimb: "LogClimbView"
+        case .loggedClimbResult: "LoggedClimbResultView"
         case .activeHeadphoneWorkoutRecovery: "ActiveHeadphoneWorkoutRecoveryView"
         case .headphoneSessionResume: "HeadphoneSessionResumeSheet"
         case .stepAccuracyCalibration: "StepAccuracyCalibrationPromptView"

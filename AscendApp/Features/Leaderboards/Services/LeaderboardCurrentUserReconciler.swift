@@ -76,6 +76,11 @@ enum LeaderboardCurrentUserReconciler {
                 totalWorkouts: localStats.totalWorkouts,
                 totalDuration: localStats.totalDuration,
                 stepsPerMinute: localStats.stepsPerMinute,
+                // The server counts these from the workouts it derives the row from, and the
+                // local overlay does not track them, so the published counts stand until the
+                // next derivation lands.
+                typedWorkouts: existing.typedWorkouts,
+                healthWorkouts: existing.healthWorkouts,
                 lastUpdated: max(existing.lastUpdated, localStats.lastUpdated),
                 age: existing.age,
                 weightKg: existing.weightKg,

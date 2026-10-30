@@ -202,7 +202,7 @@ struct RoutineBackupSchemaMigrationTests {
     }
 
     private static func openMigratedStore(at url: URL) throws -> ModelContext {
-        let schema = Schema(versionedSchema: AscendSchemaV3.self)
+        let schema = Schema(versionedSchema: AscendLocalStore.currentSchema)
         let container = try ModelContainer(
             for: schema,
             migrationPlan: AscendMigrationPlan.self,

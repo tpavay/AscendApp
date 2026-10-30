@@ -37,6 +37,7 @@ enum LeaderboardMutationImpact: Equatable, Sendable {
         before.date != after.date ||
         before.duration != after.duration ||
         before.steps != after.steps ||
-        before.floors != after.floors
+        before.floors != after.floors ||
+        before.countsTowardLeaderboards != after.countsTowardLeaderboards
     }
 }

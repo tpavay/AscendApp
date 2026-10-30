@@ -165,6 +165,8 @@ final class LeaderboardRepository: Sendable {
         let totalWorkouts = intValue(for: "totalWorkouts", in: data) ?? 0
         let totalDuration = doubleValue(for: "totalDuration", in: data) ?? 0
         let stepsPerMinute = doubleValue(for: "stepsPerMinute", in: data) ?? 0
+        let typedWorkouts = max(intValue(for: "typedWorkouts", in: data) ?? 0, 0)
+        let healthWorkouts = max(intValue(for: "healthWorkouts", in: data) ?? 0, 0)
         let identity = if identityState == "published" {
             PublicClimberIdentity.resolve(
                 userId: userId,
@@ -198,6 +200,8 @@ final class LeaderboardRepository: Sendable {
             totalWorkouts: totalWorkouts,
             totalDuration: totalDuration,
             stepsPerMinute: stepsPerMinute,
+            typedWorkouts: typedWorkouts,
+            healthWorkouts: healthWorkouts,
             lastUpdated: lastUpdated,
             age: intValue(for: "age", in: data),
             weightKg: doubleValue(for: "weight_kg", in: data),

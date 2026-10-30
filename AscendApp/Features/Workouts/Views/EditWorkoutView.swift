@@ -108,6 +108,34 @@ struct EditWorkoutView: View {
         )
     }
     
+    /// What the pace check says about the totals as they are typed, for a climb Ascend did not
+    /// measure: a refusal that blocks Update, or the note that the climb stays off the
+    /// leaderboards. A live climb has no such band, so it says nothing.
+    @ViewBuilder
+    private var totalsVerdictMessage: some View {
+        if workout.origin != .live,
+           let steps = Int(stepsValue),
+           let minutes = Int(durationMinutes),
+           let seconds = Int(durationSeconds) {
+            let hours = Int(durationHours) ?? 0
+            let duration = TimeInterval(hours * 3_600 + minutes * 60 + seconds)
+            switch ClimbPacePolicy.verdict(steps: steps, duration: duration) {
+            case .withinCeiling:
+                EmptyView()
+            case .aboveCeiling(let pace):
+                Text(LoggedClimbCopy.offTheBoardsNote(stepsPerMinute: pace))
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(Color.ascendCaution)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .absurd(let pace):
+                Text(LoggedClimbValidation.Refusal.impossiblePace(stepsPerMinute: Int(pace.rounded())).message)
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(Color.ascendCaution)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private var isFormValid: Bool {
         let stepsValid = WorkoutInputValidation.isValidOptionalSteps(stepsValue)
 
@@ -133,6 +161,7 @@ struct EditWorkoutView: View {
         let totalDurationSeconds = hours * 3600 + minutes * 60 + seconds
         let durationValid = totalDurationSeconds > 0
         let workoutTotalsValid = WorkoutInputValidation.isValidWorkoutTotals(
+            origin: workout.origin,
             stepsValue: stepsValue,
             durationHours: hours,
             durationMinutes: minutes,
@@ -409,6 +438,8 @@ struct EditWorkoutView: View {
                         stepsValue = WorkoutInputValidation.filterNumericInput(newValue)
                     }
 
+                    totalsVerdictMessage
+
                     // Effort Rating
                     FormButton(
                         label: "Effort rating",
@@ -528,7 +559,7 @@ struct EditWorkoutView: View {
             durationFormatted = "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
         }
         
-        stepsValue = String(workout.steps)
+        stepsValue = workout.recordedSteps.map(String.init) ?? ""
         
         // Health metrics
         avgHeartRate = workout.avgHeartRate != nil ? String(workout.avgHeartRate!) : ""
@@ -716,6 +747,8 @@ struct EditWorkoutView: View {
                 newlyUploadedPhotos = try await photoService.uploadSelectedPhotos(selectedImagesSnapshot)
             }
             
+            let totalsChanged = workout.steps != steps || workout.duration != totalDuration
+
             // Update the workout properties
             workout.name = workoutName.isEmpty ? Workout.generateDefaultName(for: workoutDate) : workoutName
             workout.date = workoutDate
@@ -735,6 +768,12 @@ struct EditWorkoutView: View {
             workout.steps = steps
             workout.floors = floors
             workout.stepsPerFloor = Workout.defaultStepsPerFloor
+            // The pace check runs again only when the steps or the time moved. A note, a photo or
+            // an effort rating changes nothing the pace depends on, so it can never put a climb on
+            // or take it off the leaderboards.
+            if totalsChanged {
+                workout.refreshLeaderboardStatus()
+            }
             
             // Persist new/existing photos
             let combinedPhotos = existingPhotos + newlyUploadedPhotos

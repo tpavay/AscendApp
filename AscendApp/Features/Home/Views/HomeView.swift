@@ -43,6 +43,11 @@ struct HomeView: View {
     @State private var showingHelpSheet = false
     @State private var showingJustClimbSetup = false
     @State private var pendingStartAction: HomeStartAction?
+    @State private var pendingLogIt = false
+    /// The Log a climb screen on screen. Everything it is built from - the climb its "Same as"
+    /// chip repeats - travels in this one item, because a cover's closure reads Home's state as
+    /// the last body pass captured it.
+    @State private var logClimbRequest: LogClimbRequest?
     @State private var pendingJustClimbGoal: JustClimbGoal?
     @State private var selectedDetailClimb: Climb?
     @State private var unlocks = UnlockStore.shared
@@ -228,11 +233,20 @@ struct HomeView: View {
         .sheet(isPresented: $showingStartActionSheet, onDismiss: {
             consumePendingStartAction()
         }) {
-            HomeStartActionSheet { action in
-                pendingStartAction = action
-                showingStartActionSheet = false
-            }
+            HomeStartActionSheet(
+                onSelect: { action in
+                    pendingStartAction = action
+                    showingStartActionSheet = false
+                },
+                onLogIt: {
+                    pendingLogIt = true
+                    showingStartActionSheet = false
+                }
+            )
             .appSheetStyle(.fitted())
+        }
+        .fullScreenCover(item: $logClimbRequest) { request in
+            LogClimbView(lastClimb: request.lastClimb)
         }
         .sheet(isPresented: $showingJustClimbSetup, onDismiss: {
             pendingJustClimbGoal = nil
@@ -687,6 +701,13 @@ struct HomeView: View {
     }
 
     private func consumePendingStartAction() {
+        if pendingLogIt {
+            pendingLogIt = false
+            logClimbRequest = LogClimbRequest(
+                lastClimb: workouts.lazy.compactMap(LastClimbPreset.init(workout:)).first
+            )
+            return
+        }
         guard let action = pendingStartAction else { return }
         pendingStartAction = nil
 
@@ -794,6 +815,11 @@ struct HomeView: View {
             forceRemote: forceRank
         )
     }
+}
+
+private struct LogClimbRequest: Identifiable {
+    let id = UUID()
+    let lastClimb: LastClimbPreset?
 }
 
 #Preview {
