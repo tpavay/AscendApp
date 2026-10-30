@@ -214,6 +214,58 @@ struct LoggedClimbSaveTests {
         #expect(weekly.totalWorkouts == 1)
     }
 
+    // MARK: - The kill switch
+
+    private func storeWithLoggingOff() -> RemoteFeatureFlagStore {
+        RemoteFeatureFlagStore(
+            snapshot: RemoteFeatureFlagSnapshot.resolving(
+                remoteValues: [RemoteFeatureFlag.climbLogging.key: false]
+            )
+        )
+    }
+
+    @Test
+    func withLoggingSwitchedOffLogItIsNotOfferedAndASaveStoresNothing() throws {
+        let context = try makeContext()
+        let off = storeWithLoggingOff()
+        let workout = try #require(
+            LoggedClimbService.makeWorkout(
+                input: input(steps: 3_000, seconds: 1_800),
+                details: LoggedClimbDetails(),
+                now: Self.now
+            )
+        )
+
+        #expect(LoggedClimbService.isOffered(featureFlags: off) == false)
+        #expect(LoggedClimbService.isOffered(featureFlags: RemoteFeatureFlagStore()))
+        #expect(throws: LoggedClimbService.LoggingPaused.self) {
+            try LoggedClimbService.save(workout, modelContext: context, featureFlags: off)
+        }
+        #expect(try context.fetch(FetchDescriptor<Workout>()).isEmpty)
+
+        try LoggedClimbService.save(workout, modelContext: context, featureFlags: RemoteFeatureFlagStore())
+        #expect(try context.fetch(FetchDescriptor<Workout>()).count == 1)
+    }
+
+    @Test
+    func withLoggingSwitchedOffAnEditLeavesTheStoredStatusAsItIs() throws {
+        let workout = try #require(
+            LoggedClimbService.makeWorkout(
+                input: input(steps: 6_000, seconds: 1_800),
+                details: LoggedClimbDetails(),
+                now: Self.now
+            )
+        )
+        #expect(workout.leaderboardStatus == .eligible)
+
+        workout.steps = 6_300
+        #expect(workout.refreshLeaderboardStatus(featureFlags: storeWithLoggingOff()) == false)
+        #expect(workout.leaderboardStatus == .eligible)
+
+        #expect(workout.refreshLeaderboardStatus(featureFlags: RemoteFeatureFlagStore()))
+        #expect(workout.leaderboardStatus == .excluded)
+    }
+
     @Test
     func aFullRebuildAgreesWithTheIncrementalOverlay() throws {
         let context = try makeContext()

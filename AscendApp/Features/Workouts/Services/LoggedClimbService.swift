@@ -60,8 +60,30 @@ enum LoggedClimbService {
         return workout
     }
 
+    /// Refused by `climb_logging_enabled`: a climb the switch keeps out is never inserted.
+    struct LoggingPaused: Error {
+        let message = "Logging is paused right now. Try again later."
+    }
+
+    /// Whether Log it is on offer. A plain read for the entry point, which renders every pass;
+    /// the save itself goes through the gate.
+    static func isOffered(featureFlags: RemoteFeatureFlagStore = .shared) -> Bool {
+        featureFlags.isEnabled(.climbLogging)
+    }
+
     /// Inserts and saves the workout, then announces it so every derived surface catches up.
-    static func save(_ workout: Workout, modelContext: ModelContext) throws {
+    static func save(
+        _ workout: Workout,
+        modelContext: ModelContext,
+        featureFlags: RemoteFeatureFlagStore = .shared
+    ) throws {
+        guard RemoteFeatureGate.allows(
+            .climbLogging,
+            path: "LoggedClimbService.save",
+            store: featureFlags
+        ) else {
+            throw LoggingPaused()
+        }
         modelContext.insert(workout)
         try modelContext.save()
         try WorkoutMutationHandler.shared.workoutsDidChange(

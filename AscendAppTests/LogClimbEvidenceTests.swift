@@ -206,7 +206,6 @@ struct LogClimbEvidenceTests {
     func everyRowCarriesItsSourceIcon() async throws {
         let rows: [(ClimbOrigin, String)] = [
             (.live, "recorded live"),
-            (.healthImport, "imported from apple health"),
             (.manual, "logged by hand")
         ]
 
@@ -231,7 +230,7 @@ struct LogClimbEvidenceTests {
             .background(Color.black),
             size: CGSize(width: 402, height: 260)
         ) { screen in
-            let elements = try await screen.elements { $0.count >= 3 }
+            let elements = try await screen.elements { $0.count >= 2 }
             let labels = elements.compactMap { ($0 as? NSObject)?.accessibilityLabel?.lowercased() }
 
             for (_, spoken) in rows {

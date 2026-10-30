@@ -55,15 +55,13 @@ test("a complete leaderboard document renders with its published identity", () =
   assert.equal(judged.row.usesGenericAvatar, false);
 });
 
-test("a leaderboard row reads as the least measured origin among its climbs", () => {
+test("a leaderboard row reads as typed when any of its climbs was typed", () => {
   const render = (overrides) =>
     renderedLeaderboardRow(leaderboardDocument(overrides), {periodStartAtMs: PERIOD_START}).row.origin;
 
   assert.equal(render({}), "live");
-  assert.equal(render({typedWorkouts: 0, healthWorkouts: 0}), "live");
-  assert.equal(render({healthWorkouts: 2}), "healthImport");
+  assert.equal(render({typedWorkouts: 0}), "live");
   assert.equal(render({typedWorkouts: 1}), "manual");
-  assert.equal(render({typedWorkouts: 1, healthWorkouts: 2}), "manual");
 });
 
 test("a leaderboard row from an older identity policy is dropped, and says so", () => {

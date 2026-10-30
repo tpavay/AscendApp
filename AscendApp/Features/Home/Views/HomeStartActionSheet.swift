@@ -2,7 +2,8 @@ import SwiftUI
 
 struct HomeStartActionSheet: View {
     let onSelect: (HomeStartAction) -> Void
-    let onLogIt: () -> Void
+    /// Nil when logging is switched off, which takes the whole section away.
+    let onLogIt: (() -> Void)?
 
     var body: some View {
         AppSheetScaffold(
@@ -17,8 +18,10 @@ struct HomeStartActionSheet: View {
                     HomeStartActionRow(action: action, onSelect: onSelect)
                 }
 
-                alreadyClimbed
-                    .padding(.top, 10)
+                if let onLogIt {
+                    alreadyClimbed(onLogIt: onLogIt)
+                        .padding(.top, 10)
+                }
             }
         }
         .preferredColorScheme(.dark)
@@ -27,7 +30,7 @@ struct HomeStartActionSheet: View {
 
     /// Logging is the second way to land a climb, not a fourth way to start one, so it sits apart
     /// from the three rows above and says what it is for.
-    private var alreadyClimbed: some View {
+    private func alreadyClimbed(onLogIt: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("ALREADY CLIMBED?")
                 .font(.montserratBold(size: 11))

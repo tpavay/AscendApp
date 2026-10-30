@@ -205,20 +205,13 @@ export function isTrustedSyntheticRecord(data) {
 /**
  * The origin a leaderboard row's source icon reads.
  *
- * Mirrors `FirestoreLeaderboardStats.origin`: the least-measured origin among the
- * counted climbs wins, and a row written before the server counted them reads as
- * entirely live.
+ * Mirrors `FirestoreLeaderboardStats.origin`: one typed climb in the period makes
+ * the row typed, and a row written before the server counted them reads as live.
  * @param {object} data Stored document fields.
- * @return {"live"|"healthImport"|"manual"} The origin.
+ * @return {"live"|"manual"} The origin.
  */
 function renderedOrigin(data) {
-  if ((numberValue(data?.typedWorkouts) ?? 0) > 0) {
-    return "manual";
-  }
-  if ((numberValue(data?.healthWorkouts) ?? 0) > 0) {
-    return "healthImport";
-  }
-  return "live";
+  return (numberValue(data?.typedWorkouts) ?? 0) > 0 ? "manual" : "live";
 }
 
 /**

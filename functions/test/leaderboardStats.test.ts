@@ -226,7 +226,6 @@ test("editing a typed climb across the ceiling moves it on and off the board",
       durationSeconds: 1800,
     });
 
-    assert.equal(parseEligibleWorkout("w1", typed(6001)), null);
     assert.ok(parseEligibleWorkout("w1", typed(6000)));
     assert.equal(parseEligibleWorkout("w1", typed(6001)), null);
   });
@@ -241,7 +240,7 @@ test("a typed climb the device calls eligible still has to pass the server",
     })), null);
   });
 
-test("a row counts the typed and imported climbs it was built from", () => {
+test("a row counts only the typed climbs it was built from", () => {
   const rows = deriveLeaderboardRows(userId, [
     {
       workoutId: "live",
@@ -272,7 +271,6 @@ test("a row counts the typed and imported climbs it was built from", () => {
   const weekly = rows.find((row) => row.timeFrame === "weekly");
   assert.equal(weekly?.aggregate.totalWorkouts, 3);
   assert.equal(weekly?.aggregate.typedWorkouts, 1);
-  assert.equal(weekly?.aggregate.healthWorkouts, 1);
 });
 
 // One policy, stated once. `isValidWorkoutSource` in `firestore.rules` decides
@@ -463,7 +461,6 @@ test("one honest session lands on every board window", () => {
     totalDuration: 1800,
     stepsPerMinute: 100,
     typedWorkouts: 0,
-    healthWorkouts: 0,
   });
   assert.equal(weekly?.periodKey, "2026-W31");
   assert.equal(

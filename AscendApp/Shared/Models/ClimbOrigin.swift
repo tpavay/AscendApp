@@ -14,13 +14,13 @@ enum ClimbOrigin: String, CaseIterable, Sendable {
     /// Typed in by hand.
     case manual
 
-    /// What a leaderboard row's source icon says, spoken.
+    /// What a climb's source icon says, spoken.
     var accessibilityLabel: String {
         switch self {
         case .live:
             return "Recorded live"
         case .healthImport:
-            return "Imported from Apple Health"
+            return "Imported"
         case .manual:
             return "Logged by hand"
         }

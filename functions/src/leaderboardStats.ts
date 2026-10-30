@@ -119,9 +119,9 @@ export const MAX_AVERAGE_STEPS_PER_MINUTE = 220;
  * 190 steps a minute; the fastest of the 104 production climbs measured on
  * 2026-10-30 averaged 127.
  *
- * The server applies this itself and never reads a device verdict: the
- * climber's phone writes `leaderboardStatus` for its own screens, and a
- * request that lies about it changes nothing here.
+ * The server applies this itself and never reads a device verdict:
+ * `leaderboardStatus` is a local SwiftData column on the climber's phone that
+ * is never synced, so no workout document carries one for this to trust.
  */
 export const MAX_UNMEASURED_AVERAGE_STEPS_PER_MINUTE = 200;
 export const MAX_WORKOUT_DURATION_SECONDS = 24 * 60 * 60;
@@ -155,13 +155,11 @@ export interface LeaderboardAggregate {
   totalDuration: number;
   stepsPerMinute: number;
   /**
-   * How many of `totalWorkouts` were typed in by hand, and how many were
-   * brought in from another provider. What a row's source icon reads: a row
-   * with neither was recorded entirely by Ascend's own sensor. Counted from
-   * the same workouts the totals are, so the two cannot disagree.
+   * How many of `totalWorkouts` were typed in by hand. What a row's source
+   * icon reads: a row with none carries the live mark. Counted from the same
+   * workouts the totals are, so the two cannot disagree.
    */
   typedWorkouts: number;
-  healthWorkouts: number;
 }
 
 /** One derived row, keyed by the document it belongs in. */
@@ -405,7 +403,6 @@ export function aggregateForPeriod(
   let totalWorkouts = 0;
   let totalDuration = 0;
   let typedWorkouts = 0;
-  let healthWorkouts = 0;
 
   for (const workout of workouts) {
     totalSteps += workout.steps;
@@ -414,8 +411,6 @@ export function aggregateForPeriod(
     totalDuration += workout.durationSeconds;
     if (workout.source === MANUAL_SOURCE) {
       typedWorkouts += 1;
-    } else if (workout.source !== LIVE_SENSOR_SOURCE) {
-      healthWorkouts += 1;
     }
   }
 
@@ -427,7 +422,6 @@ export function aggregateForPeriod(
     totalDuration,
     stepsPerMinute: minutes > 0 ? totalSteps / minutes : 0,
     typedWorkouts,
-    healthWorkouts,
   };
 }
 
@@ -898,7 +892,6 @@ export function leaderboardDocumentData(
     totalDuration: row.aggregate.totalDuration,
     stepsPerMinute: row.aggregate.stepsPerMinute,
     typedWorkouts: row.aggregate.typedWorkouts,
-    healthWorkouts: row.aggregate.healthWorkouts,
     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
   };
 

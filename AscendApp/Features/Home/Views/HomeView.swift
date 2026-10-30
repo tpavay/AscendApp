@@ -238,10 +238,10 @@ struct HomeView: View {
                     pendingStartAction = action
                     showingStartActionSheet = false
                 },
-                onLogIt: {
+                onLogIt: LoggedClimbService.isOffered() ? {
                     pendingLogIt = true
                     showingStartActionSheet = false
-                }
+                } : nil
             )
             .appSheetStyle(.fitted())
         }

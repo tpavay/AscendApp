@@ -31,14 +31,17 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
 
     /// Adds `leaderboardStatusRawValue` to `Workout`: whether a climb counts toward leaderboards.
     ///
-    /// Lightweight because a blanket default is true of every existing row. Every climb recorded
-    /// before this build was eligible - the only way to create one was a live sensor flow, and the
-    /// server derives standings from the workout's own evidence regardless of what the device
-    /// stores - so `eligible` claims nothing the old column could have contradicted. Nothing is
-    /// interpreted per record, which is the only kind of work that belongs in a stage that runs
-    /// inside `ModelContainer.init` where no kill switch reaches it. A climb written by a build
-    /// before this one keeps its `source` untouched: `headphone_motion` is still a live climb, and
-    /// a legacy `manual` row is still a hand-logged one.
+    /// Lightweight, and every existing row defaults to `eligible`. Most were recorded by a live
+    /// sensor flow, but a store may still hold pre-#443 `manual`, `apple_health` or `hevy` rows,
+    /// and those default to `eligible` too even where `ClimbPacePolicy` would exclude them - a
+    /// zero-step row, or one between 200 and 220 steps a minute. That is accepted: the column only
+    /// drives the device's own screens and optimistic overlay, the server derives standings from
+    /// the workout's own evidence regardless of what the device stores, and such rows exist only in
+    /// TestFlight-era stores. Nothing is interpreted per record, which is the only kind of work
+    /// that belongs in a stage that runs inside `ModelContainer.init` where no kill switch reaches
+    /// it. A climb written by a build before this one keeps its `source` untouched:
+    /// `headphone_motion` is still a live climb, and a legacy `manual` row is still a hand-logged
+    /// one.
     static let migrateV5toV6 = MigrationStage.lightweight(
         fromVersion: AscendSchemaV5.self,
         toVersion: AscendSchemaV6.self

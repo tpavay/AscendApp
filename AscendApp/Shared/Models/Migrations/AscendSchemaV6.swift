@@ -10,10 +10,9 @@ import SwiftData
 /// climb counts toward leaderboards, so a climber can log a climb by hand and the plausibility
 /// check can keep an implausible one off the boards without hiding it from their history.
 ///
-/// The stage is lightweight because the one added column has an honest blanket default. Every
-/// climb recorded before this build was counted toward leaderboards - the server derives standings
-/// from the workout's own evidence either way - so `eligible` is true of every existing row and
-/// nothing has to be computed per record. The server never reads this column: it re-derives
+/// The stage is lightweight, and every existing row defaults to `eligible`. A store may still hold
+/// pre-#443 `manual`, `apple_health` or `hevy` rows that `ClimbPacePolicy` would exclude, and they
+/// default to `eligible` too: nothing is computed per record. The server never reads this column: it re-derives
 /// eligibility from `source`, `steps` and `durationSeconds`, so what this stores is the device's
 /// record of that verdict, for the surfaces that explain it.
 ///

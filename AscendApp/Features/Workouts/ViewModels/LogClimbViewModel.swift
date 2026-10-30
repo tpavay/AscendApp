@@ -205,7 +205,8 @@ final class LogClimbViewModel {
                 let orphaned = uploadedPhotos
                 Task { try? await photoService.deletePhotos(orphaned) }
             }
-            saveErrorMessage = error.userFriendlyMessage
+            saveErrorMessage = (error as? LoggedClimbService.LoggingPaused)?.message
+                ?? error.userFriendlyMessage
         }
     }
 

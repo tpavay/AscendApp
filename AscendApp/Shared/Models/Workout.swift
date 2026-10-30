@@ -464,8 +464,16 @@ class Workout {
     /// Called when a climb is saved and when its steps or time are edited, and nowhere else: a note,
     /// a photo or an effort rating changes nothing the pace depends on, and nothing re-runs this on
     /// a schedule. Returns whether the status changed, so the caller can refresh what reads it.
+    /// `climb_logging_enabled` off leaves the stored status exactly as it is.
     @discardableResult
-    func refreshLeaderboardStatus() -> Bool {
+    func refreshLeaderboardStatus(featureFlags: RemoteFeatureFlagStore = .shared) -> Bool {
+        guard RemoteFeatureGate.allows(
+            .climbLogging,
+            path: "Workout.refreshLeaderboardStatus",
+            store: featureFlags
+        ) else {
+            return false
+        }
         let updated = ClimbPacePolicy.leaderboardStatus(
             origin: origin,
             steps: steps,

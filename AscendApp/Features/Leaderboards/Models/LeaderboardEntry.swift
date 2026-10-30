@@ -95,11 +95,10 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
     let totalWorkouts: Int
     let totalDuration: Double
     let stepsPerMinute: Double
-    /// How many of `totalWorkouts` were typed in, and how many imported. The server counts them
-    /// from the same workouts as the totals; a row written before it did carries neither, which
-    /// reads as entirely live.
-    let typedWorkouts: Int
-    let healthWorkouts: Int
+    /// How many of `totalWorkouts` were typed in. The server counts them from the same workouts as
+    /// the totals, and a row written before it did reads as live. `nil` when the totals are the
+    /// device's own overlay and nothing says which climbs are behind them.
+    let typedWorkouts: Int?
     let lastUpdated: Date
     let age: Int?
     let weightKg: Double?
@@ -122,8 +121,7 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         totalWorkouts: Int,
         totalDuration: Double,
         stepsPerMinute: Double,
-        typedWorkouts: Int = 0,
-        healthWorkouts: Int = 0,
+        typedWorkouts: Int? = 0,
         lastUpdated: Date,
         age: Int? = nil,
         weightKg: Double? = nil,
@@ -148,7 +146,6 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         self.totalDuration = totalDuration
         self.stepsPerMinute = stepsPerMinute
         self.typedWorkouts = typedWorkouts
-        self.healthWorkouts = healthWorkouts
         self.lastUpdated = lastUpdated
         self.age = age
         self.weightKg = weightKg
@@ -171,8 +168,7 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         totalWorkouts: Int,
         totalDuration: Double,
         stepsPerMinute: Double,
-        typedWorkouts: Int = 0,
-        healthWorkouts: Int = 0,
+        typedWorkouts: Int? = 0,
         lastUpdated: Date,
         age: Int? = nil,
         weightKg: Double? = nil,
@@ -194,7 +190,6 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         self.totalDuration = totalDuration
         self.stepsPerMinute = stepsPerMinute
         self.typedWorkouts = typedWorkouts
-        self.healthWorkouts = healthWorkouts
         self.lastUpdated = lastUpdated
         self.age = age
         self.weightKg = weightKg
@@ -203,13 +198,17 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         self.locationRegion = locationRegion
     }
 
-    /// What a row's source icon reads. The least-measured origin among the climbs it counts wins:
-    /// one typed climb in the period makes the row typed, because a row is only as measured as its
-    /// least measured climb.
-    var origin: ClimbOrigin {
-        if typedWorkouts > 0 { return .manual }
-        if healthWorkouts > 0 { return .healthImport }
-        return .live
+    /// What a row's source icon reads: one typed climb in the period makes the row typed, because
+    /// a row is only as measured as its least measured climb. No icon when the climbs are unknown.
+    var origin: ClimbOrigin? {
+        guard let typedWorkouts else { return nil }
+        return typedWorkouts > 0 ? .manual : .live
+    }
+
+    /// The published typed count, while it still describes these totals. Once the device's own
+    /// totals have moved past the published row, which climbs are behind them is not known.
+    func publishedTypedWorkouts(describingSteps steps: Int, workouts: Int) -> Int? {
+        steps == totalSteps && workouts == totalWorkouts ? typedWorkouts : nil
     }
 
     func identityApplyingOverrides(
