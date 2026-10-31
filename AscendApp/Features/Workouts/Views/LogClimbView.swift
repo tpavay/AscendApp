@@ -110,17 +110,13 @@ struct LogClimbView: View {
 
     // MARK: - Chips
 
+    /// One row, never stacked: a second row of chips pushes the OPTIONAL chips under the keypad
+    /// once the pace warning shows, so the Same as chip shrinks to fit beside the date instead.
     private var chipRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                dateChip
-                sameAsLastChip
-                Spacer(minLength: 0)
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                dateChip
-                sameAsLastChip
-            }
+        HStack(spacing: 10) {
+            dateChip
+            sameAsLastChip
+            Spacer(minLength: 0)
         }
     }
 
@@ -131,9 +127,11 @@ struct LogClimbView: View {
             Text(viewModel.dateChipTitle())
                 .font(.montserratBold(size: 14))
                 .foregroundStyle(.white)
+                .lineLimit(1)
                 .padding(.horizontal, 16)
                 .frame(height: 36)
                 .background(Capsule().fill(Color.white.opacity(0.1)))
+                .fixedSize()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("When: \(viewModel.dateChipTitle())")
@@ -151,7 +149,7 @@ struct LogClimbView: View {
                     .font(.montserratSemiBold(size: 13))
                     .foregroundStyle(.white.opacity(0.78))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.7)
                     .padding(.horizontal, 14)
                     .frame(height: 36)
                     .background(

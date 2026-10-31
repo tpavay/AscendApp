@@ -101,7 +101,10 @@ struct LogClimbEvidenceTests {
 
     @Test("A pace between the ceiling and the line says the climb saves and stays off the boards")
     func aPaceOverTheCeilingSaysSo() async throws {
-        let viewModel = LogClimbViewModel(now: Self.now)
+        // A returning climber with a long Same as chip, which once stacked the chip row and pushed
+        // the OPTIONAL chips under the keypad.
+        let last = LastClimbPreset(date: Self.now.addingTimeInterval(-86_400), steps: 12_345, duration: 4_500)
+        let viewModel = LogClimbViewModel(lastClimb: last, now: Self.now)
         Self.typed(viewModel, steps: "7500", time: "3000")
 
         try await RenderedScreen.host(
@@ -119,6 +122,9 @@ struct LogClimbEvidenceTests {
             let texts = try await screen.texts()
             let firstKey = try #require(texts.first { $0.text == "1" }?.frame)
             let chips = texts.filter { $0.text.hasPrefix("Add ") }.map(\.frame)
+            let dateChip = try #require(texts.first { $0.text.hasPrefix("When: ") }?.frame)
+            let sameAsChip = try #require(texts.first { $0.text.hasPrefix("Same as ") }?.frame)
+            #expect(abs(sameAsChip.midY - dateChip.midY) < 1, "the Same as chip sits beside the date: \(dateChip) \(sameAsChip)")
             #expect(chips.count == 4, "\(texts.map(\.text))")
             for chip in chips {
                 #expect(chip.maxY <= firstKey.minY - 8, "chip \(chip) runs under the keypad at \(firstKey)")
