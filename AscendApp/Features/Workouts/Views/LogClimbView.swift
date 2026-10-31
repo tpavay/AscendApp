@@ -40,7 +40,7 @@ struct LogClimbView: View {
                 header
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         chipRow
                         amountCard
                         timeCard
@@ -310,8 +310,8 @@ struct LogClimbView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("log-climb-refusal")
         case .ready(let verdict):
-            if case .aboveCeiling(let pace) = verdict {
-                Text(LoggedClimbCopy.offTheBoardsNote(stepsPerMinute: pace))
+            if case .aboveCeiling = verdict {
+                Text(LoggedClimbCopy.offTheBoardsNote)
                     .font(.montserratMedium(size: 13))
                     .foregroundStyle(Color.ascendCaution)
                     .fixedSize(horizontal: false, vertical: true)
@@ -468,8 +468,10 @@ struct LogClimbView: View {
 /// result screen cannot drift apart.
 enum LoggedClimbCopy {
     /// The note under a climb that has not been saved yet and will stay off the leaderboards.
-    static func offTheBoardsNote(stepsPerMinute: Double) -> String {
-        "\(paceOverLimit(stepsPerMinute)). This climb saves and stays off the leaderboards. Fix the steps or time and it ranks."
+    /// Two lines at most, so the OPTIONAL chips under it stay clear of the keypad.
+    static var offTheBoardsNote: String {
+        let ceiling = Int(ClimbPacePolicy.leaderboardCeilingStepsPerMinute).formatted()
+        return "Over \(ceiling) steps a minute. This climb will not count on leaderboards."
     }
 
     /// The note on a climb that is saved and off the leaderboards.

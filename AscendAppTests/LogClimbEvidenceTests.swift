@@ -109,11 +109,20 @@ struct LogClimbEvidenceTests {
                 .environment(AuthenticationViewModel())
                 .modelContainer(try Self.container())
         ) { screen in
-            let copy = try await screen.copy { $0.contains("250 steps a minute") }
+            let copy = try await screen.copy { $0.contains("over 200 steps a minute") }
 
-            #expect(copy.contains("250 steps a minute is over the 200 limit"), "\(copy)")
-            #expect(copy.contains("stays off the leaderboards"), "\(copy)")
+            #expect(copy.contains("over 200 steps a minute. this climb will not count on leaderboards."), "\(copy)")
             #expect(viewModel.canSave(now: Self.now), "the climb is allowed to save")
+
+            // The warning must not push the OPTIONAL chips under the keypad: the scroll area ends
+            // 8 points above the keypad's first row, and a chip past that line is drawn cut in half.
+            let texts = try await screen.texts()
+            let firstKey = try #require(texts.first { $0.text == "1" }?.frame)
+            let chips = texts.filter { $0.text.hasPrefix("Add ") }.map(\.frame)
+            #expect(chips.count == 4, "\(texts.map(\.text))")
+            for chip in chips {
+                #expect(chip.maxY <= firstKey.minY - 8, "chip \(chip) runs under the keypad at \(firstKey)")
+            }
             try screen.photograph(named: "log-climb-04-over-the-ceiling")
         }
     }

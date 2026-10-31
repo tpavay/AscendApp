@@ -122,8 +122,8 @@ struct EditWorkoutView: View {
             switch ClimbPacePolicy.verdict(steps: steps, duration: duration) {
             case .withinCeiling:
                 EmptyView()
-            case .aboveCeiling(let pace):
-                Text(LoggedClimbCopy.offTheBoardsNote(stepsPerMinute: pace))
+            case .aboveCeiling:
+                Text(LoggedClimbCopy.offTheBoardsNote)
                     .font(.montserratMedium(size: 12))
                     .foregroundStyle(Color.ascendCaution)
                     .fixedSize(horizontal: false, vertical: true)
