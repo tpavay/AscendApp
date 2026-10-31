@@ -83,8 +83,42 @@ enum WorkoutSessionAnalyticsEvent: TelemetryEvent {
         progressFraction: Double
     )
 
+    /// A climb typed in rather than recorded. Buckets only: the raw numbers a climber reads off a
+    /// console are fitness data, and a bucket answers every question the funnel asks.
+    case workoutLogged(
+        enteredAs: String,
+        durationSeconds: Int,
+        steps: Int,
+        countsOnLeaderboards: Bool,
+        optionalFieldCount: Int,
+        usedSameAsLast: Bool,
+        changedDate: Bool
+    )
+
     var record: TelemetryRecord {
         switch self {
+        case .workoutLogged(
+            let enteredAs,
+            let durationSeconds,
+            let steps,
+            let countsOnLeaderboards,
+            let optionalFieldCount,
+            let usedSameAsLast,
+            let changedDate
+        ):
+            return TelemetryRecord(
+                name: "workout_logged",
+                parameters: [
+                    "entered_as": .string(enteredAs),
+                    "duration_bucket": .string(DurationBucket(durationSeconds).rawValue),
+                    "steps_bucket": .string(CountBucket(steps).rawValue),
+                    "counts_on_leaderboards": .bool(countsOnLeaderboards),
+                    "optional_field_count": .string(CountBucket(optionalFieldCount).rawValue),
+                    "used_same_as_last": .bool(usedSameAsLast),
+                    "changed_date": .bool(changedDate)
+                ]
+            )
+
         case .justClimbStarted(let context):
             return TelemetryRecord(
                 name: "just_climb_started",

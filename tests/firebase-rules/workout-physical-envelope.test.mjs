@@ -29,7 +29,7 @@ const workoutId = '550E8400-E29B-41D4-A716-446655440000';
 
 // The bounds `isPhysicallyPossibleClimb` declares, restated here so a test failure names which
 // number moved rather than just which document stopped writing.
-const MAX_STEPS_PER_SECOND = 4;
+const MAX_STEPS_PER_SECOND = 5;
 const MAX_STEPS = 120000;
 const MAX_DURATION_SECONDS = 5 * 24 * 60 * 60;
 
@@ -78,11 +78,18 @@ test('a hard session at a cadence a strong climber actually holds writes untouch
 
 test('a climb the leaderboard will refuse to score still backs up', async () => {
   // 4,600 steps over 20 minutes is 230/min: above `MAX_AVERAGE_STEPS_PER_MINUTE` (220), so
-  // `leaderboardStats` will not count it toward any standing, and below the rules ceiling of 240,
+  // `leaderboardStats` will not count it toward any standing, and below the rules ceiling of 300,
   // so it still reaches the cloud. That gap is deliberate. Refusing a write is permanent and
   // unrecoverable; declining to score one is neither, so the judgement call belongs to the function
   // that can afford to be wrong and the rule refuses only what is impossible.
   await assertSucceeds(write({durationSeconds: 1200, steps: 4600}));
+});
+
+test('a typed climb between the leaderboard ceiling and the refusal line still backs up', async () => {
+  // 270 steps a minute. `ClimbPacePolicy` saves it and keeps it off the boards, so the cloud has
+  // to take it: 240/min used to be the rules ceiling, which would have parked this climb in
+  // `rejected` sync forever while the app told the climber it was saved.
+  await assertSucceeds(write({durationSeconds: 2400, steps: 10800, source: 'manual'}));
 });
 
 test('the 24-hour StairMaster world record writes untouched', async () => {
@@ -93,7 +100,7 @@ test('the 24-hour StairMaster world record writes untouched', async () => {
 });
 
 test('a climb sitting exactly on every bound at once writes', async () => {
-  // 120,000 steps in 30,000 seconds is simultaneously the step cap and exactly 4 steps per second.
+  // 120,000 steps in 24,000 seconds is simultaneously the step cap and exactly 5 steps per second.
   // Both bounds are inclusive, so the corner where they meet has to be accepted, not refused.
   await assertSucceeds(write({durationSeconds: MAX_STEPS / MAX_STEPS_PER_SECOND, steps: MAX_STEPS}));
   await assertSucceeds(write({durationSeconds: MAX_DURATION_SECONDS, steps: MAX_STEPS}));

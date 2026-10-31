@@ -267,7 +267,9 @@ struct BestEffortRankingBuilderTests {
         date: Date,
         duration: TimeInterval,
         steps: Int,
-        source: WorkoutSource = .manual,
+        // A measured climb with no split curve by default: a typed-in one also carries prorated
+        // fastest-steps records, which `LoggedClimbSaveTests` owns.
+        source: WorkoutSource = .headphoneMotion,
         weightConfiguration: WeightConfiguration? = nil
     ) -> Workout {
         Workout(

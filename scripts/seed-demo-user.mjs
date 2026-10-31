@@ -158,10 +158,10 @@ const LIVE_CLIMB_SPECS = [
 ];
 
 // Non-climb sessions, here so Best Efforts and history have depth behind the
-// landmark races. Both are `headphone_motion`: #437 deleted manual entry and
-// Apple Health workout import on 2026-08-08, so seeding a `manual` or
-// `apple_health` row would put a workout in the demo account that the app can
-// no longer produce.
+// landmark races. Both are `headphone_motion`: #437 deleted Apple Health
+// workout import on 2026-08-08, so seeding an `apple_health` row would put a
+// workout in the demo account that the app can no longer produce, and a
+// `manual` climb is created only by the Log a climb screen (1.3.0).
 const EXTRA_WORKOUT_SPECS = [
   {
     key: "record-20-min",

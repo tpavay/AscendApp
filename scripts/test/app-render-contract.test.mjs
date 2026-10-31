@@ -55,6 +55,15 @@ test("a complete leaderboard document renders with its published identity", () =
   assert.equal(judged.row.usesGenericAvatar, false);
 });
 
+test("a leaderboard row reads as typed when any of its climbs was typed", () => {
+  const render = (overrides) =>
+    renderedLeaderboardRow(leaderboardDocument(overrides), {periodStartAtMs: PERIOD_START}).row.origin;
+
+  assert.equal(render({}), "live");
+  assert.equal(render({typedWorkouts: 0}), "live");
+  assert.equal(render({typedWorkouts: 1}), "manual");
+});
+
 test("a leaderboard row from an older identity policy is dropped, and says so", () => {
   const judged = renderedLeaderboardRow(
     leaderboardDocument({identityPolicyVersion: 0}),

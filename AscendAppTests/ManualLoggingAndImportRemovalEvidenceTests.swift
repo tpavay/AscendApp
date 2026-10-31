@@ -6,8 +6,13 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Reviewer-facing proof that manual logging and Apple Health workout import are gone from every
-/// surface a climber can reach, and that Apple Health enrichment survived the removal (#437).
+/// Reviewer-facing proof that Apple Health workout import is gone from every surface a climber can
+/// reach, and that Apple Health enrichment survived the removal (#437).
+///
+/// Logging a climb by hand came back in 1.3.0, so the words that policed it - "log", "logged",
+/// "logging", "manual" - no longer fail a surface, and the Home start sheet is now expected to
+/// offer it. Importing has not: "import" still fails every surface here until Apple Health import
+/// ships, and this suite is the one that has to be re-read the day it does.
 ///
 /// Every surface here is the shipped view, not a stand-in, hosted in a live window through
 /// `RenderedScreen`, and every claim about copy is read back off the screen's accessibility tree
@@ -23,8 +28,6 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
     /// read as "manual" and "Imported" cannot hide inside a longer token.
     private static let forbiddenWords: Set<String> = [
         "import", "imports", "imported", "importing",
-        "manual", "manually",
-        "log", "logs", "logged", "logging",
         "tracker", "tracking",
     ]
 
@@ -104,11 +107,12 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
         )
     }
 
-    /// The climbs list used to offer "Manual Entry" and "Imported Workout" as source filters. Both
-    /// filtered for something a climber can no longer produce.
-    @Test("The climbs-list source filter offers only a source Ascend can still record")
-    func climbsListFilterOffersOnlyLiveSources() {
-        #expect(WorkoutSource.filterOptions == [.headphoneMotion])
+    /// The climbs list used to offer "Manual Entry" and "Imported Workout" as source filters. A
+    /// climber can log a climb by hand again, so that one filters for something real; an imported
+    /// workout is still not something Ascend can produce.
+    @Test("The climbs-list source filter offers only a source Ascend can still produce")
+    func climbsListFilterOffersOnlyProducibleSources() {
+        #expect(WorkoutSource.filterOptions == [.headphoneMotion, .manual])
     }
 
     // MARK: - The screens
@@ -126,9 +130,10 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
 
         let container = try Self.makeContainer()
 
-        // Home -> START. "Log Manual Workout" was the fourth row.
+        // Home -> START. "Log Manual Workout" was the fourth row; logging came back as the
+        // ALREADY CLIMBED? section under the three ways to climb.
         let startText = try await Self.hostedCopy(
-            HomeStartActionSheet(onSelect: { _ in })
+            HomeStartActionSheet(onSelect: { _ in }, onLogIt: {})
                 .frame(width: 402),
             photographedAs: "01-home-start-sheet"
         ) { $0.contains("just climb") }
@@ -193,6 +198,8 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
         #expect(startText.contains("just climb"))
         #expect(startText.contains("race a landmark"))
         #expect(startText.contains("run a routine"))
+        #expect(startText.contains("already climbed"))
+        #expect(startText.contains("log it"))
 
         #expect(emptyText.contains("no climbs yet"))
 

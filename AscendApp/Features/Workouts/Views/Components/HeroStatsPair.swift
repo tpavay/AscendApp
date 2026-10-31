@@ -14,6 +14,13 @@ struct HeroStatsPair: View {
     let rightLabel: String
     let rightValue: String
     let effectiveColorScheme: ColorScheme
+    /// Replaces the right-hand value with a dashed prompt, for a stat the climber has yet to give.
+    var rightAction: Action?
+
+    struct Action {
+        let title: String
+        let perform: () -> Void
+    }
 
     private var borderColor: Color {
         effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15)
@@ -28,7 +35,11 @@ struct HeroStatsPair: View {
                 .fill(effectiveColorScheme == .dark ? .white.opacity(0.15) : .gray.opacity(0.3))
                 .frame(width: 1, height: 36)
 
-            statColumn(label: rightLabel, value: rightValue)
+            if let rightAction {
+                actionColumn(label: rightLabel, action: rightAction)
+            } else {
+                statColumn(label: rightLabel, value: rightValue)
+            }
         }
         .padding(.vertical, 16)
         .background(
@@ -39,6 +50,31 @@ struct HeroStatsPair: View {
                         .stroke(borderColor, lineWidth: 1)
                 )
         )
+    }
+
+    private func actionColumn(label: String, action: Action) -> some View {
+        VStack(spacing: 4) {
+            Button(action: action.perform) {
+                Text("+ \(action.title)")
+                    .font(.montserratBold(size: 13))
+                    .foregroundStyle(Color.accent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(
+                                Color.accent.opacity(0.7),
+                                style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                            )
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Text(label.uppercased())
+                .font(.montserratMedium(size: 11))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func statColumn(label: String, value: String) -> some View {

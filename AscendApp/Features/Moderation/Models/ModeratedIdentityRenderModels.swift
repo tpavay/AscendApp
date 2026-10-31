@@ -123,6 +123,7 @@ struct ModeratedLeaderboardEntry: Identifiable, Equatable, Sendable {
     let formattedValue: String
     let isCurrentUser: Bool
     let isTied: Bool
+    let origin: ClimbOrigin?
 
     fileprivate init(source: LeaderboardEntry, identity: ResolvedUserIdentity) {
         id = source.id
@@ -133,6 +134,7 @@ struct ModeratedLeaderboardEntry: Identifiable, Equatable, Sendable {
         formattedValue = source.formattedValue
         isCurrentUser = source.isCurrentUser
         isTied = source.isTied
+        origin = source.origin
     }
 
     static func preview(
@@ -141,7 +143,8 @@ struct ModeratedLeaderboardEntry: Identifiable, Equatable, Sendable {
         rank: Int,
         value: Double,
         formattedValue: String,
-        isCurrentUser: Bool = false
+        isCurrentUser: Bool = false,
+        origin: ClimbOrigin? = nil
     ) -> ModeratedLeaderboardEntry {
         CrossUserIdentityAdapter.leaderboardEntry(
             LeaderboardEntry(
@@ -150,7 +153,8 @@ struct ModeratedLeaderboardEntry: Identifiable, Equatable, Sendable {
                 rank: rank,
                 value: value,
                 formattedValue: formattedValue,
-                isCurrentUser: isCurrentUser
+                isCurrentUser: isCurrentUser,
+                origin: origin
             ),
             blockedUserIds: [],
             isBlockListHydrated: true
@@ -316,7 +320,8 @@ enum CrossUserIdentityAdapter {
             value: value,
             formattedValue: formattedValue,
             isCurrentUser: isCurrentUser,
-            isTied: isTied
+            isTied: isTied,
+            origin: stats.origin
         )
     }
 

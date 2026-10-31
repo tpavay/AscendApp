@@ -351,6 +351,12 @@ struct RankedBestEffort: Identifiable {
         BestEffortFormatting.shortDate(performance.workout.date)
     }
 
+    /// How the climb behind this record was recorded. The mark beside a record that was not
+    /// measured live is what keeps a prorated time from reading as a split.
+    var origin: ClimbOrigin {
+        performance.workout.origin
+    }
+
     var categoryRowDetailText: String? {
         var parts: [String] = []
 
@@ -668,6 +674,10 @@ enum BestEffortRankingBuilder {
 
     private static func performance(for metric: BestEffortMetric, workout: Workout) -> BestEffortPerformance? {
         guard WorkoutPlausibilityPolicy.hasPlausibleTotals(workout) else { return nil }
+        // A climb the pace check kept off the leaderboards is kept off the records that feed them
+        // too. Only that: a climb excluded for another reason - history from before the climber
+        // joined - still fills the personal records it is allowed to.
+        guard !workout.exceedsPaceCeiling else { return nil }
 
         switch metric {
         case .mostSteps:
@@ -758,11 +768,41 @@ enum BestEffortRankingBuilder {
         )
     }
 
+    private static func proratedFastestStepTargetPerformance(
+        targetSteps: Int,
+        workout: Workout,
+        metric: BestEffortMetric
+    ) -> BestEffortPerformance? {
+        guard workout.steps >= targetSteps, workout.duration > 0 else { return nil }
+
+        let proratedDuration = workout.duration * Double(targetSteps) / Double(workout.steps)
+        return BestEffortPerformance(
+            metric: metric,
+            workout: workout,
+            value: proratedDuration,
+            steps: targetSteps,
+            duration: proratedDuration,
+            segmentStartElapsedSeconds: nil,
+            segmentEndElapsedSeconds: nil
+        )
+    }
+
     private static func fastestStepTargetPerformance(
         targetSteps: Int,
         workout: Workout,
         metric: BestEffortMetric
     ) -> BestEffortPerformance? {
+        // A climb Ascend did not record has no split curve, so its time over the first N steps is
+        // its pace carried over: duration x N / steps. It only qualifies with at least N steps,
+        // and the record carries the climb's origin so the board can say how it was set.
+        if workout.origin != .live {
+            return proratedFastestStepTargetPerformance(
+                targetSteps: targetSteps,
+                workout: workout,
+                metric: metric
+            )
+        }
+
         guard workout.steps >= targetSteps,
               let points = timelinePoints(for: workout),
               let finalSteps = points.last?.steps,
