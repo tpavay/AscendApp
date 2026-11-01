@@ -1,0 +1,138 @@
+{
+  "description": "Canonical test vector for the plausibility check on a climb Ascend did not measure. The same cases pin the Swift implementation (AscendApp/Shared/Models/ClimbPacePolicy.swift), the TypeScript derivation (maxAverageStepsPerMinute and parseEligibleWorkout in functions/src/leaderboardStats.ts) and the Firestore rules refusal line (isPhysicallyPossibleClimb in firestore.rules, five steps a second), so the three cannot drift. verdict is ClimbPacePolicy.verdict; saveable is whether the device lets the climb be saved; deviceLeaderboardStatus is what ClimbPacePolicy.leaderboardStatus stores on the device; serverCountsOnLeaderboards is whether parseEligibleWorkout derives the climb into a standing. A live climb keeps the 220 steps a minute sensor gate and is never marked excluded on the device.",
+  "leaderboardCeilingStepsPerMinute": 200,
+  "absurdStepsPerMinute": 300,
+  "liveSensorCeilingStepsPerMinute": 220,
+  "cases": [
+    {
+      "name": "typed climb at exactly the ceiling counts",
+      "source": "manual",
+      "steps": 6000,
+      "durationSeconds": 1800,
+      "verdict": "withinCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": true
+    },
+    {
+      "name": "typed climb one step over the ceiling is saved and kept off the boards",
+      "source": "manual",
+      "steps": 6001,
+      "durationSeconds": 1800,
+      "verdict": "aboveCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "typed climb just under the absurd line is saved and kept off the boards",
+      "source": "manual",
+      "steps": 8999,
+      "durationSeconds": 1800,
+      "verdict": "aboveCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "typed climb at exactly the absurd line is refused",
+      "source": "manual",
+      "steps": 9000,
+      "durationSeconds": 1800,
+      "verdict": "absurd",
+      "saveable": false,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "the mock's 49,120 steps in 40 minutes is refused",
+      "source": "manual",
+      "steps": 49120,
+      "durationSeconds": 2400,
+      "verdict": "absurd",
+      "saveable": false,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "a typical typed climb counts",
+      "source": "manual",
+      "steps": 3836,
+      "durationSeconds": 2400,
+      "verdict": "withinCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": true
+    },
+    {
+      "name": "a typed climb with no steps has no pace and does not count",
+      "source": "manual",
+      "steps": 0,
+      "durationSeconds": 1800,
+      "verdict": "withinCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "a typed climb with no duration has no pace to judge",
+      "source": "manual",
+      "steps": 3000,
+      "durationSeconds": 0,
+      "verdict": "withinCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "an imported climb at the ceiling counts",
+      "source": "apple_health",
+      "steps": 6000,
+      "durationSeconds": 1800,
+      "verdict": "withinCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": true
+    },
+    {
+      "name": "an imported climb over the ceiling is kept off the boards",
+      "source": "apple_health",
+      "steps": 6001,
+      "durationSeconds": 1800,
+      "verdict": "aboveCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "a live climb at 200 counts",
+      "source": "headphone_motion",
+      "steps": 6000,
+      "durationSeconds": 1800,
+      "verdict": "withinCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": true
+    },
+    {
+      "name": "a live climb at 220 still counts",
+      "source": "headphone_motion",
+      "steps": 6600,
+      "durationSeconds": 1800,
+      "verdict": "aboveCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": true
+    },
+    {
+      "name": "a live climb past 220 is not scored by the server",
+      "source": "headphone_motion",
+      "steps": 6601,
+      "durationSeconds": 1800,
+      "verdict": "aboveCeiling",
+      "saveable": true,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": false
+    }
+  ]
+}

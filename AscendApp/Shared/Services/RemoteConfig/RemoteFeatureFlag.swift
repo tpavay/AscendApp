@@ -98,6 +98,11 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// draft is left exactly as the dead process wrote it.
     case headphoneSessionAutoResume = "headphone_session_auto_resume_enabled"
 
+    /// Logging a climb by hand - the Log it entry and the save behind it - and re-deriving a
+    /// climb's leaderboard status from its pace when it is restored or its steps or time are
+    /// edited. Off, Log it is not offered and every stored status is left exactly as it is.
+    case climbLogging = "climb_logging_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -151,6 +156,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Writes the sixty-second liveness heartbeat for a running climb to Firestore."
         case .headphoneSessionAutoResume:
             return "Resumes a dead session automatically on relaunch instead of asking first."
+        case .climbLogging:
+            return "Offers Log it and saves typed climbs; re-derives a climb's leaderboard status."
         }
     }
 }

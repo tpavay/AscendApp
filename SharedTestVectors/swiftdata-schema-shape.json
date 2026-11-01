@@ -1,12 +1,12 @@
 {
-  "currentSchema": "AscendSchemaV5",
+  "currentSchema": "AscendSchemaV6",
   "versionIdentifier": [
-    5,
+    6,
     0,
     0
   ],
   "customStageCount": 1,
-  "lightweightStageCount": 3,
+  "lightweightStageCount": 4,
   "models": {
     "ActiveHeadphoneWorkoutDraft": {
       "checkpointDiagnosticsData": {
@@ -848,6 +848,11 @@
         "type": "String?",
         "optional": true,
         "hasDefault": false
+      },
+      "leaderboardStatusRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
       },
       "maxHeartRate": {
         "type": "Int?",
@@ -1847,6 +1852,332 @@
         "type": "String",
         "optional": false,
         "hasDefault": true
+      }
+    },
+    "AscendSchemaV5.Workout": {
+      "averageMETs": {
+        "type": "Double?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "avgHeartRate": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "caloriesBurned": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "createdAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "date": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "deviceModel": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "duration": {
+        "type": "TimeInterval",
+        "optional": false,
+        "hasDefault": true
+      },
+      "effortRating": {
+        "type": "Double?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "effortScoreValue": {
+        "type": "Double?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "equivalentLevelValue": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "floors": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "healthKitUUID": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateRestoreErrorCode": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "heartRateRestoreStatusRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "hevyWorkoutId": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "highlightedPhotoId": {
+        "type": "UUID?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "id": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
+      },
+      "integrityLevel": {
+        "type": "DataIntegrityLevel",
+        "optional": false,
+        "hasDefault": true
+      },
+      "lastModifiedAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "lastRemoteHeartRateSeriesReferenceData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteHeartRateSeriesStoragePath": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteSyncAt": {
+        "type": "Date?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "lastRemoteSyncError": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "maxHeartRate": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "name": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "notes": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "ownerUserId": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "participations": {
+        "type": "[WorkoutParticipation]",
+        "optional": false,
+        "hasDefault": true
+      },
+      "percentileScoresData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "photos": {
+        "type": "[Photo]",
+        "optional": false,
+        "hasDefault": true
+      },
+      "remoteSyncStatusRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "sourceLinks": {
+        "type": "[WorkoutSourceLink]",
+        "optional": false,
+        "hasDefault": true
+      },
+      "sourceMetadata": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "sourceRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "steps": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "stepsPerFloor": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "weightConfigurationData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      }
+    },
+    "AscendSchemaV5.WorkoutParticipation": {
+      "contextId": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "contextTypeRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "contextVersion": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "createdAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "id": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
+      },
+      "leaderboardEligible": {
+        "type": "Bool",
+        "optional": false,
+        "hasDefault": true
+      },
+      "metricsSnapshotData": {
+        "type": "Data?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "roleRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "rulesVersion": {
+        "type": "Int",
+        "optional": false,
+        "hasDefault": true
+      },
+      "userId": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "verificationTierRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "workout": {
+        "type": "Workout?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "workoutId": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
+      }
+    },
+    "AscendSchemaV5.WorkoutSourceLink": {
+      "deviceModel": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "externalRecordID": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "id": {
+        "type": "UUID",
+        "optional": false,
+        "hasDefault": true
+      },
+      "importedAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "linkedAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "metadataJSON": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "providerRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "providerWindowEnd": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "providerWindowStart": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "sourceBundleIdentifier": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "sourceName": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "timingPrecisionRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "workout": {
+        "type": "Workout?",
+        "optional": true,
+        "hasDefault": false
       }
     }
   }

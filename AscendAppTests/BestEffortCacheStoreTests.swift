@@ -263,7 +263,9 @@ struct BestEffortCacheStoreTests {
             steps: steps,
             floors: Workout.stepsToFloors(steps, stepsPerFloor: 16),
             stepsPerFloor: 16,
-            source: .manual
+            // A measured climb with no split curve: these tests are about which whole-climb record
+            // wins, and a typed-in climb would also carry prorated fastest-steps records.
+            source: .headphoneMotion
         )
         if let ownerUserId {
             workout.markPendingRemoteUpsert(ownerUserId: ownerUserId, modifiedAt: date)

@@ -18,9 +18,9 @@ import SwiftData
 /// Adding a model to the live schema is now all it takes to have it swept and counted.
 enum AscendLocalStore {
 
-    /// The store shape the app writes today. A new `AscendSchemaV6` changes this one line, plus
+    /// The store shape the app writes today. A new `AscendSchemaV7` changes this one line, plus
     /// its stage in `AscendMigrationPlan`.
-    static var currentSchema: any VersionedSchema.Type { AscendSchemaV5.self }
+    static var currentSchema: any VersionedSchema.Type { AscendSchemaV6.self }
 
     static var models: [any PersistentModel.Type] { currentSchema.models }
 

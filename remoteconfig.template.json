@@ -146,6 +146,13 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops resuming a dead headphone session automatically on relaunch (the wall-clock gap credit and the sensor restart); every recovered draft goes through the recovery screen instead, untouched until the climber acts."
+    },
+    "climb_logging_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off hides Log it and refuses saving a typed climb, and stops re-deriving a climb's leaderboard status on restore or a steps/time edit; stored statuses and saved climbs are left untouched."
     }
   },
   "parameterGroups": {},

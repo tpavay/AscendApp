@@ -218,7 +218,7 @@ test("post-import-removal HealthKit disclosures match the real enrichment read s
     ],
     [
       "project memory",
-      sectionBetween(projectMemory, "- Not a logger or an importer.", "Full rationale:")
+      sectionBetween(projectMemory, "- Not an importer, and not a logger first.", "Full rationale:")
     ]
   ];
 

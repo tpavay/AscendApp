@@ -786,7 +786,7 @@ struct WorkoutSourceSchemaMigrationTests {
     /// for the length of a test, so in a parallel run that window lands on whatever else is writing.
     /// Nothing in this suite reads a routine, so stopping at the frozen shape bought it nothing.
     private static func openMigratedStore(at url: URL, allowsSave: Bool = true) throws -> ModelContext {
-        let schema = Schema(versionedSchema: AscendSchemaV3.self)
+        let schema = Schema(versionedSchema: AscendLocalStore.currentSchema)
         return ModelContext(
             try ModelContainer(
                 for: schema,

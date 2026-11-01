@@ -65,6 +65,10 @@ Lint runs on ESLint 10 flat config (`functions/eslint.config.mjs`) with `typescr
 ESLint 8 and 9 both resolve `minimatch` 3, whose only available `brace-expansion` line is vulnerable to the unbounded-expansion DoS advisory; ESLint 10 is the first release whose tree resolves the patched `brace-expansion` 5.
 `eslint-config-google` and `eslint-plugin-import` were dropped in the same move: the former is eslintrc-only and unmaintained, and the latter still pins `minimatch` 3.
 Google's `max-len` rule is reproduced directly in the flat config, so do not re-add either package to restore it.
+ESLint 10, `@eslint/config-array` and `@typescript-eslint/typescript-estree` declare `minimatch` as `^10.2.x`, a range that cannot admit the patched 11.0.1, so `functions/package.json` overrides `minimatch` to `^11.0.1`.
+Dropping the override reintroduces the globparts-amplification denial of service (GHSA-g3hv-75wg-m249), which fails `Functions Verify` on every backend pull request.
+The tree is lint-only, and `npm run lint` passes on the 11 line unchanged.
+Remove the override once the resolved ESLint and `typescript-eslint` lines declare a `minimatch` range that admits only 11.0.1 or later.
 
 Do not re-add `firebase-functions-test` without a test that imports it.
 The existing suite uses Node's test runner and injectable gateways, so the unused package only added the vulnerable `ts-deepmerge` tree.

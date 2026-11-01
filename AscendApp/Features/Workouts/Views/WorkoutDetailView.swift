@@ -365,7 +365,10 @@ struct WorkoutDetailView: View {
                 leftValue: workout.durationFormatted,
                 rightLabel: "Steps",
                 rightValue: formattedPrimaryMetric,
-                effectiveColorScheme: effectiveColorScheme
+                effectiveColorScheme: effectiveColorScheme,
+                rightAction: workout.isMissingSteps
+                    ? HeroStatsPair.Action(title: "Add steps") { showingEditWorkout = true }
+                    : nil
             )
 
             // Secondary stats row (pace, calories, METs)
@@ -417,6 +420,32 @@ struct WorkoutDetailView: View {
             if workout.hasWeights {
                 weightsUsedSection
             }
+
+            provenanceFooter
+        }
+    }
+
+    /// How this climb came to exist, and - for one the pace check kept off the leaderboards - why
+    /// it is not on them. A live climb says nothing: it needs no explaining.
+    @ViewBuilder
+    private var provenanceFooter: some View {
+        if workout.origin == .manual {
+            VStack(spacing: 10) {
+                if workout.exceedsPaceCeiling {
+                    Text(LoggedClimbCopy.savedOffTheBoardsNote(stepsPerMinute: workout.stepsPerMinute ?? 0))
+                        .font(.montserratMedium(size: 12))
+                        .foregroundStyle(Color.ascendCaution)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("workout-detail-off-the-boards")
+                }
+
+                Text("Logged by hand")
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
         }
     }
 
@@ -551,13 +580,13 @@ struct WorkoutDetailView: View {
             Button(action: {
                 showingEditWorkout = true
             }) {
-                Label("Edit Workout", systemImage: "pencil")
+                Label("Edit", systemImage: "pencil")
             }
 
             Button(role: .destructive, action: {
                 showingDeleteConfirmation = true
             }) {
-                Label("Delete Workout", systemImage: "trash")
+                Label("Delete Climb", systemImage: "trash")
             }
         }
     }
@@ -767,11 +796,12 @@ struct WorkoutDetailView: View {
     // MARK: - Data Helpers
 
     private var formattedPrimaryMetric: String {
-        workout.steps.formatted(.number)
+        workout.recordedSteps?.formatted(.number) ?? "—"
     }
 
     private var verticalClimbValue: Double? {
-        workout.totalVerticalClimb(
+        guard !workout.isMissingSteps else { return nil }
+        return workout.totalVerticalClimb(
             stepHeight: settingsManager.stepHeight,
             measurementSystem: settingsManager.measurementSystem
         )
@@ -786,6 +816,8 @@ struct WorkoutDetailView: View {
                 label: "steps/Min",
                 value: pace.formatted(.number.precision(.fractionLength(1)))
             ))
+        } else if workout.isMissingSteps {
+            items.append(SecondaryStatItem(label: "steps/Min", value: "—"))
         }
 
         // Calories

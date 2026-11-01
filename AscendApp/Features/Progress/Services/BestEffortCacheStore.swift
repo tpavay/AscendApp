@@ -14,7 +14,9 @@ enum BestEffortCacheStore {
     // v2: split-curve buckets are anchored to their window end, so cached timeline efforts are stale.
     // v3: a pre-fix clamped curve's unrecorded tail no longer feeds timeline efforts, so a climb past
     // the hour stops holding records it only reached by its finish.
-    static let currentVersion = 3
+    // v4: a climb typed in or imported qualifies for a fastest-steps record with its time prorated,
+    // and one the pace check kept off the leaderboards holds no record at all.
+    static let currentVersion = 4
     private static let metadataID = "best-effort-cache"
 
     static func rebuildIfNeeded(

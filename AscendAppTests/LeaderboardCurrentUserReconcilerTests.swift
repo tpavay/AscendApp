@@ -186,6 +186,61 @@ struct LeaderboardCurrentUserReconcilerTests {
         ).identity
     }
 
+    @Test
+    func theOwnRowKeepsItsPublishedSourceIconOnlyWhileTheTotalsStillMatch() {
+        let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: utcDate(year: 2026, month: 4, day: 14))
+        let published = [makeRemoteStat(userId: "me", displayName: "Me", steps: 3_000, period: period)]
+        func ownOrigin(steps: Int, workouts: Int) -> ClimbOrigin? {
+            let localStats = LeaderboardStats(
+                userId: "me",
+                timeFrame: .weekly,
+                period: period,
+                totalSteps: steps,
+                totalFloors: 5,
+                totalWorkouts: workouts,
+                totalDuration: 900,
+                stepsPerMinute: 10
+            )
+            return LeaderboardCurrentUserReconciler.reconcileDetailStats(
+                published,
+                metric: .climb,
+                userId: "me",
+                displayName: nil,
+                localStats: localStats
+            ).first { $0.userId == "me" }?.origin
+        }
+
+        #expect(ownOrigin(steps: 3_000, workouts: 1) == .live)
+        // A climb logged since the row was published: nothing says whether it was live.
+        #expect(ownOrigin(steps: 6_000, workouts: 2) == nil)
+    }
+
+    @Test
+    func anOwnRowTheServerHasNotPublishedClaimsNoSourceIcon() {
+        let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: utcDate(year: 2026, month: 4, day: 14))
+        let localStats = LeaderboardStats(
+            userId: "me",
+            timeFrame: .weekly,
+            period: period,
+            totalSteps: 3_000,
+            totalFloors: 150,
+            totalWorkouts: 1,
+            totalDuration: 1_800,
+            stepsPerMinute: 100
+        )
+
+        let reconciled = LeaderboardCurrentUserReconciler.reconcileDetailStats(
+            [],
+            metric: .climb,
+            userId: "me",
+            displayName: nil,
+            localStats: localStats
+        )
+
+        #expect(reconciled.count == 1)
+        #expect(reconciled[0].origin == nil)
+    }
+
     private func makeRemoteStat(
         userId: String,
         displayName: String,

@@ -11,6 +11,9 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
     let isCurrentUser: Bool
     /// Whether at least one other entry shares this rank.
     let isTied: Bool
+    /// How the climbs behind this row were recorded: live, imported or typed in. Nil where the
+    /// row is not built from a period's workouts, such as a frozen past board that stored none.
+    let origin: ClimbOrigin?
 
     init(
         userId: String,
@@ -20,7 +23,8 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         value: Double,
         formattedValue: String,
         isCurrentUser: Bool = false,
-        isTied: Bool = false
+        isTied: Bool = false,
+        origin: ClimbOrigin? = nil
     ) {
         self.id = userId
         self.userId = userId
@@ -33,6 +37,7 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         self.formattedValue = formattedValue
         self.isCurrentUser = isCurrentUser
         self.isTied = isTied
+        self.origin = origin
     }
 
     init(
@@ -42,7 +47,8 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         value: Double,
         formattedValue: String,
         isCurrentUser: Bool = false,
-        isTied: Bool = false
+        isTied: Bool = false,
+        origin: ClimbOrigin? = nil
     ) {
         self.id = userId
         self.userId = userId
@@ -52,6 +58,7 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         self.formattedValue = formattedValue
         self.isCurrentUser = isCurrentUser
         self.isTied = isTied
+        self.origin = origin
     }
 
     /// A copy carrying a refreshed profile identity. Every ranking field is preserved:
@@ -68,7 +75,8 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
             value: value,
             formattedValue: formattedValue,
             isCurrentUser: isCurrentUser,
-            isTied: isTied
+            isTied: isTied,
+            origin: origin
         )
     }
 }
@@ -87,6 +95,10 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
     let totalWorkouts: Int
     let totalDuration: Double
     let stepsPerMinute: Double
+    /// How many of `totalWorkouts` were typed in. The server counts them from the same workouts as
+    /// the totals, and a row written before it did reads as live. `nil` when the totals are the
+    /// device's own overlay and nothing says which climbs are behind them.
+    let typedWorkouts: Int?
     let lastUpdated: Date
     let age: Int?
     let weightKg: Double?
@@ -109,6 +121,7 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         totalWorkouts: Int,
         totalDuration: Double,
         stepsPerMinute: Double,
+        typedWorkouts: Int? = 0,
         lastUpdated: Date,
         age: Int? = nil,
         weightKg: Double? = nil,
@@ -132,6 +145,7 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         self.totalWorkouts = totalWorkouts
         self.totalDuration = totalDuration
         self.stepsPerMinute = stepsPerMinute
+        self.typedWorkouts = typedWorkouts
         self.lastUpdated = lastUpdated
         self.age = age
         self.weightKg = weightKg
@@ -154,6 +168,7 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         totalWorkouts: Int,
         totalDuration: Double,
         stepsPerMinute: Double,
+        typedWorkouts: Int? = 0,
         lastUpdated: Date,
         age: Int? = nil,
         weightKg: Double? = nil,
@@ -174,12 +189,26 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         self.totalWorkouts = totalWorkouts
         self.totalDuration = totalDuration
         self.stepsPerMinute = stepsPerMinute
+        self.typedWorkouts = typedWorkouts
         self.lastUpdated = lastUpdated
         self.age = age
         self.weightKg = weightKg
         self.locationCity = locationCity
         self.locationCountry = locationCountry
         self.locationRegion = locationRegion
+    }
+
+    /// What a row's source icon reads: one typed climb in the period makes the row typed, because
+    /// a row is only as measured as its least measured climb. No icon when the climbs are unknown.
+    var origin: ClimbOrigin? {
+        guard let typedWorkouts else { return nil }
+        return typedWorkouts > 0 ? .manual : .live
+    }
+
+    /// The published typed count, while it still describes these totals. Once the device's own
+    /// totals have moved past the published row, which climbs are behind them is not known.
+    func publishedTypedWorkouts(describingSteps steps: Int, workouts: Int) -> Int? {
+        steps == totalSteps && workouts == totalWorkouts ? typedWorkouts : nil
     }
 
     func identityApplyingOverrides(

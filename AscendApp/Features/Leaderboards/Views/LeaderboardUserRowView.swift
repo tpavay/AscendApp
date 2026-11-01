@@ -102,6 +102,15 @@ struct LeaderboardUserRowView: View {
         }
     }
 
+    private var origin: ClimbOrigin? {
+        switch standing {
+        case .ranked(let entry):
+            return entry.origin
+        case .unranked:
+            return nil
+        }
+    }
+
     private var rowFill: Color {
         colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
     }
@@ -160,6 +169,10 @@ struct LeaderboardUserRowView: View {
             }
 
             Spacer(minLength: 8)
+
+            if let origin {
+                ClimbOriginMark(origin: origin, pointSize: 12, tint: primaryTextColor.opacity(0.5))
+            }
 
             Text(formattedValue)
                 .font(.montserratMedium(size: 16))
@@ -227,6 +240,7 @@ struct LeaderboardUserRowView: View {
             rankText = "You are unranked this period"
         }
         let base = "\(rankText), \(displayName), \(formattedValue) \(metric.displayName)"
+            + (origin.map { ", \($0.accessibilityLabel)" } ?? "")
         guard let crownGapText else {
             return base
         }

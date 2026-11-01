@@ -212,6 +212,9 @@ enum ProfileSnapshotBuilder {
         let lifetimeDurationSeconds = Int(workouts.reduce(0.0) { $0 + $1.duration }.rounded())
         let totalClimbs = workouts.count
         let averageStepsPerMinute = PersonalizedClimbPaceService.allTimeAverageSPM(workouts: workouts) ?? 0
+        // The published records are what other climbers read, so a climb the pace check kept off
+        // the leaderboards holds none of them - the same rule the Best Efforts follow.
+        let recordWorkouts = workouts.filter { !$0.exceedsPaceCeiling }
 
         return ProfileStatsSnapshot(
             totalClimbsCompleted: completedCount,
@@ -220,9 +223,9 @@ enum ProfileSnapshotBuilder {
             mostCompletedClimbId: mostCompletedClimbId,
             currentStreakWeeks: WeeklyStreak.current(climbDates: workouts.map(\.date)).weeks,
             bestStreakWeeks: WeeklyStreak.longest(climbDates: workouts.map(\.date)),
-            prMostSteps: workouts.map(\.steps).max() ?? 0,
-            prLongestClimbSeconds: Int((workouts.map(\.duration).max() ?? 0).rounded()),
-            prHighestSPM: workouts.compactMap(\.stepsPerMinute).max() ?? 0,
+            prMostSteps: recordWorkouts.map(\.steps).max() ?? 0,
+            prLongestClimbSeconds: Int((recordWorkouts.map(\.duration).max() ?? 0).rounded()),
+            prHighestSPM: recordWorkouts.compactMap(\.stepsPerMinute).max() ?? 0,
             lifetimeTotalSteps: lifetimeTotalSteps,
             lifetimeDurationSeconds: lifetimeDurationSeconds,
             totalClimbs: totalClimbs,
@@ -515,9 +518,10 @@ enum ProfileSnapshotBuilder {
         workouts: [Workout],
         bestEffortCacheEntries: [BestEffortCacheEntry]
     ) -> ProfileRecordSummary {
-        let mostSteps = workouts.max { $0.steps < $1.steps }
-        let longest = workouts.max { $0.duration < $1.duration }
-        let fastest = workouts.max { ($0.stepsPerMinute ?? 0) < ($1.stepsPerMinute ?? 0) }
+        let recordWorkouts = workouts.filter { !$0.exceedsPaceCeiling }
+        let mostSteps = recordWorkouts.max { $0.steps < $1.steps }
+        let longest = recordWorkouts.max { $0.duration < $1.duration }
+        let fastest = recordWorkouts.max { ($0.stepsPerMinute ?? 0) < ($1.stepsPerMinute ?? 0) }
         let snapshot = BestEffortCacheSnapshot(entries: bestEffortCacheEntries, workouts: workouts)
 
         return ProfileRecordSummary(

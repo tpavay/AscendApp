@@ -11,16 +11,18 @@ import SwiftData
 ///
 /// Frozen. `Routine` and `RoutineFolder` carry their own copies here for the same reason
 /// `AscendSchemaV1` does: they gained cloud-backup columns in V3, and naming them by their live
-/// type would make this version describe a shape it never shipped. Every other model is
+/// type would make this version describe a shape it never shipped. `Workout`,
+/// `WorkoutSourceLink` and `WorkoutParticipation` name the frozen copies in `AscendSchemaV5`, for
+/// the same reason: `AscendSchemaV6` added a `Workout` column. Every other model is
 /// byte-identical between V2 and V3 and is listed by its live type.
 enum AscendSchemaV2: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
 
     static var models: [any PersistentModel.Type] {
         [
-            Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
+            AscendSchemaV5.Workout.self,
+            AscendSchemaV5.WorkoutSourceLink.self,
+            AscendSchemaV5.WorkoutParticipation.self,
             AscendSchemaV4.ActiveHeadphoneWorkoutDraft.self,
             LeaderboardStats.self,
             Routine.self,

@@ -12,7 +12,12 @@ enum WorkoutInputValidation {
         return intValue >= 0
     }
 
+    /// Whether the edited totals are inside the envelope the climb's origin is held to: the 220
+    /// steps/min sensor gate for a live climb, and for one the climber typed in the refusal line
+    /// in `ClimbPacePolicy` - a climb between that gate and the leaderboard ceiling is saved, not
+    /// refused.
     static func isValidWorkoutTotals(
+        origin: ClimbOrigin = .live,
         stepsValue: String,
         durationHours: Int,
         durationMinutes: Int,
@@ -21,10 +26,15 @@ enum WorkoutInputValidation {
         let steps = Int(stepsValue) ?? 0
         let totalDuration = TimeInterval(durationHours * 3_600 + durationMinutes * 60 + durationSeconds)
 
-        return WorkoutPlausibilityPolicy.hasPlausibleTotals(
+        guard WorkoutPlausibilityPolicy.hasPlausibleTotals(
+            origin: origin,
             steps: steps,
             duration: totalDuration
-        )
+        ) else {
+            return false
+        }
+        guard origin != .live else { return true }
+        return steps <= ClimbPacePolicy.maximumSteps && totalDuration <= ClimbPacePolicy.maximumDuration
     }
 
     static func isValidWorkoutName(_ value: String) -> Bool {

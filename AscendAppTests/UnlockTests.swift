@@ -203,12 +203,16 @@ struct UnlockTests {
             return climb
         }
         saved.forEach(context.insert)
-        context.insert(Workout(date: Self.date(10, 6), duration: 900, steps: 2_000, floors: 100, source: .manual))
+        let loggedByHand = Workout(date: Self.date(10, 6), duration: 900, steps: 2_000, floors: 100, source: .manual)
+        context.insert(loggedByHand)
         context.insert(Workout(date: Self.date(10, 7), duration: 900, steps: 2_000, floors: 100, source: .appleHealth))
         try context.save()
 
         let climbs = try UnlockClimbQuery.climbs(in: Self.halloween, calendar: Self.utc, modelContext: context)
-        #expect(Set(climbs.map(\.id)) == Set(saved.map(\.id)))
+        #expect(
+            Set(climbs.map(\.id)) == Set(saved.map(\.id)).union([loggedByHand.id]),
+            "a climb logged by hand counts; an imported one does not until imports ship"
+        )
     }
 
     /// Any climb saved with progress counts, whether it reached the top or not: a live climb

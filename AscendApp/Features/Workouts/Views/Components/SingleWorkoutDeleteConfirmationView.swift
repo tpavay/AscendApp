@@ -13,7 +13,7 @@ struct SingleWorkoutDeleteConfirmationView: View {
 
     var body: some View {
         ConfirmationView(
-            title: "Delete Workout",
+            title: "Delete Climb",
             message: "Are you sure you want to delete \"\(workout.name)\"? This action cannot be undone.",
             confirmButtonText: "Delete",
             isDestructive: true,

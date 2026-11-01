@@ -72,10 +72,16 @@ struct BestEffortTrophyBadge: View {
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
 
-                            Text("\(effort.valueText) | \(effort.detailText)")
-                                .font(.montserratRegular(size: 11))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
+                            HStack(spacing: 5) {
+                                Text("\(effort.valueText) | \(effort.detailText)")
+                                    .font(.montserratRegular(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+
+                                if effort.origin != .live {
+                                    ClimbOriginMark(origin: effort.origin, pointSize: 10, tint: .secondary)
+                                }
+                            }
                         }
                     }
                 }
