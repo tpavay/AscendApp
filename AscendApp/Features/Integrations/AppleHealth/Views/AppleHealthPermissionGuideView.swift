@@ -3,7 +3,7 @@ import SwiftUI
 /// TWO TAPS AND YOU'RE SET: what the iOS Health sheet looks like and which two taps clear it,
 /// shown before the sheet so the climber turns everything on instead of dismissing it.
 ///
-/// The toggles drawn here are the five reads Ascend requests, and nothing else
+/// The toggles drawn here are the four reads Ascend requests, and nothing else
 /// (`HealthKitAuthorizationClient.readTypes`).
 struct AppleHealthPermissionGuideView: View {
     let isWorking: Bool
@@ -11,7 +11,7 @@ struct AppleHealthPermissionGuideView: View {
     let onBack: () -> Void
     let onConfirm: () -> Void
 
-    private let permissionRows = ["Flights Climbed", "Heart Rate", "Steps", "Workouts", "Active Energy"]
+    private let permissionRows = ["Heart Rate", "Steps", "Workouts", "Active Energy"]
 
     var body: some View {
         OnboardingScaffold(

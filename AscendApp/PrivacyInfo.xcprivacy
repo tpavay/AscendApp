@@ -136,7 +136,7 @@
         <!--
           Health - HealthKit reads plus user-entered body metrics (height, weight).
           The read set is exactly workouts (stair stepper activity types only), step
-          count, flights climbed, heart rate and active energy, requested read-only:
+          count, heart rate and active energy, requested read-only:
           Apple Health import (1.3.0) brings those workouts in as climbs, and heart
           rate and active energy also enrich climbs Ascend recorded. Ascend never
           writes to Health. `HealthKitAuthorizationClient.readTypes` is the authority.

@@ -86,6 +86,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     @ObservationIgnored private let sessionWorkGate: AuthenticatedBootstrapCoordinator
     @ObservationIgnored private let currentUserID: @MainActor () -> String?
     @ObservationIgnored private let joinDate: @MainActor () -> Date?
+    @ObservationIgnored private let hasRestoredCloudClimbs: @MainActor (String) -> Bool
     @ObservationIgnored private let applyCreated: @MainActor (ModelContext, [Workout]) throws -> Void
     @ObservationIgnored private let isUpdateRequired: @MainActor () -> Bool
     @ObservationIgnored private let now: @MainActor () -> Date
@@ -108,6 +109,9 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared,
         currentUserID: @escaping @MainActor () -> String? = { Auth.auth().currentUser?.uid },
         joinDate: @escaping @MainActor () -> Date? = { Auth.auth().currentUser?.metadata.creationDate },
+        hasRestoredCloudClimbs: @escaping @MainActor (String) -> Bool = {
+            WorkoutHydrationService.hasRestoredWorkouts(for: $0)
+        },
         applyCreated: @escaping @MainActor (ModelContext, [Workout]) throws -> Void = { context, workouts in
             try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: context,
@@ -129,6 +133,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         self.sessionWorkGate = sessionWorkGate
         self.currentUserID = currentUserID
         self.joinDate = joinDate
+        self.hasRestoredCloudClimbs = hasRestoredCloudClimbs
         self.applyCreated = applyCreated
         self.isUpdateRequired = isUpdateRequired
         self.now = now
@@ -154,7 +159,6 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             // The connection state is read before anything touches Health, and a launch that has
             // not heard Health's answer yet reads as not connected. Ask first.
             await authorization.refreshAuthorizationRequestStatus()
-            startObservingIfPossible()
             await syncNow()
         }
     }
@@ -207,15 +211,21 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     /// What the Climb sheet's Health button says, or nil when import is not on offer at all: a
     /// device with no Health, or the kill switch off.
     var entry: AppleHealthEntry? {
-        guard reader.isHealthDataAvailable, featureFlags.isEnabled(.appleHealthImport) else { return nil }
-        switch authorization.importConnectionState {
-        case .unavailable:
+        switch offeredImportConnectionState {
+        case nil, .unavailable:
             return nil
         case .neverConnected, .revoked:
             return .connect
         case .connected:
             return .viewImports(badge: isAutoImportEnabled ? 0 : badgeCount)
         }
+    }
+
+    /// Whether import can read workouts, or nil when import is not on offer at all: a device with
+    /// no Health, or the kill switch off.
+    var offeredImportConnectionState: AppleHealthConnectionState? {
+        guard reader.isHealthDataAvailable, featureFlags.isEnabled(.appleHealthImport) else { return nil }
+        return authorization.importConnectionState
     }
 
     // MARK: - Settings
@@ -247,6 +257,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     @discardableResult
     func syncNow() async -> Bool {
         guard canImport else { return false }
+        startObservingIfPossible()
 
         if let passTask {
             // Another caller's pass is already reading. Ask it to go round once more instead of
@@ -274,6 +285,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     @discardableResult
     func discoverWithoutImporting() async -> Int {
         guard canImport else { return 0 }
+        startObservingIfPossible()
         if let passTask { await passTask.value }
 
         let task = Task { [weak self] in
@@ -290,6 +302,11 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         guard let modelContext, let userID = currentUserID(), let joinDate = joinDate() else { return }
         let storedAnchor = settings.anchorData(for: userID)
         let isBackfill = storedAnchor == nil
+        // A device with no anchor reads every workout since joining. Until this climber's climbs
+        // have come back from the cloud in this session, the climbs that already carry those
+        // workouts are not here to stop them, and each would import a second time. Deferred, not
+        // dropped: the bootstrap that finishes the restore runs the pass again.
+        guard !isBackfill || hasRestoredCloudClimbs(userID) else { return }
 
         let changes: HealthWorkoutChanges
         do {
@@ -307,13 +324,12 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
 
         let ledger = HealthWorkoutLedger(modelContext: modelContext)
         var discovered: [String] = []
-        for snapshot in changes.added {
-            if let record = try? ingest(snapshot, joinDate: joinDate, ledger: ledger) {
-                discovered.append(record.workoutUUID)
-            }
-        }
-
         do {
+            for snapshot in changes.added {
+                if let record = try ingest(snapshot, joinDate: joinDate, ledger: ledger) {
+                    discovered.append(record.workoutUUID)
+                }
+            }
             try modelContext.save()
         } catch {
             // Nothing was recorded, so the anchor stays where it was and the same workouts are
@@ -383,13 +399,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     /// takes, so streak, records, Best Efforts and the boards all see it. Never opens a sheet.
     @discardableResult
     func importRecords(withUUIDs uuids: [String]) async -> ImportBatch {
-        guard let modelContext, RemoteFeatureGate.allows(
-            .appleHealthImport,
-            path: "AppleHealthImportService.import",
-            store: featureFlags
-        ) else {
-            return ImportBatch(recordUUIDs: [], workoutIDs: [])
-        }
+        guard let modelContext else { return ImportBatch(recordUUIDs: [], workoutIDs: []) }
         let ledger = HealthWorkoutLedger(modelContext: modelContext)
         let records = uuids.compactMap { try? ledger.record(forUUID: $0) }
         let batch = await importRecords(records, announcing: [])
@@ -404,8 +414,15 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         return await importRecords(waiting, announcing: announced)
     }
 
+    /// Every path that creates a climb from Health ends here, so the kill switch is read here.
     private func importRecords(_ records: [HealthWorkoutRecord], announcing announced: Set<String>) async -> ImportBatch {
-        guard let modelContext else { return ImportBatch(recordUUIDs: [], workoutIDs: []) }
+        guard let modelContext, RemoteFeatureGate.allows(
+            .appleHealthImport,
+            path: "AppleHealthImportService.import",
+            store: featureFlags
+        ) else {
+            return ImportBatch(recordUUIDs: [], workoutIDs: [])
+        }
         let ledger = HealthWorkoutLedger(modelContext: modelContext)
         var created: [(workout: Workout, announces: Bool)] = []
         var importedUUIDs: [String] = []
@@ -430,6 +447,11 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             if overlappingLiveClimb != nil {
                 record.state = .overlapsLiveClimb
                 record.resolvedAt = now()
+                continue
+            }
+            // A session still running, or waiting to be recovered, will save the live climb that
+            // covers this workout. It waits until then, and the import after that files it.
+            if (try? ledger.overlapsUnsavedLiveSession(start: record.startDate, end: record.endDate)) != false {
                 continue
             }
 

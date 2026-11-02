@@ -46,10 +46,10 @@ Do not add a second import path behind a flag, a debug toggle, or a "just in cas
 
 ## The requested read set
 
-`HealthKitAuthorizationClient.readTypes` is exactly five types, read only, with `toShare: []`: `workoutType()`, `stepCount`, `flightsClimbed`, `heartRate` and `activeEnergyBurned`.
+`HealthKitAuthorizationClient.readTypes` is exactly four types, read only, with `toShare: []`: `workoutType()`, `stepCount`, `heartRate` and `activeEnergyBurned`.
 `enrichmentReadTypes` is the `heartRate` and `activeEnergyBurned` pair on its own, and it is a separate set on purpose.
 Enrichment's `connectionState` is judged against that pair, so a climber who connected before import returned is not turned into `revoked` and keeps getting heart rate; `importConnectionState` is the wider check, and answers `neverConnected` until the climber has been shown the sheet for the workout types.
-A type Ascend requests but never uses is a permission the climber cannot meaningfully refuse (#353): `flightsClimbed` is requested because the product spec lists it and nothing reads it yet, so either use it or drop it with the usage string and the disclosures in the same change.
+A type Ascend requests but never uses is a permission the climber cannot meaningfully refuse (#353), which is why `flightsClimbed` was dropped from the request: nothing reads it, so a type joins the set only with the code that reads it, the usage string and the disclosures in the same change.
 `basalEnergyBurned` stays out.
 Adding a read is a privacy-manifest tripwire - see `ascend-privacy-manifest`, and `NSHealthShareUsageDescription` must name every type here (`AppleHealthSurfacesEvidenceTests`).
 

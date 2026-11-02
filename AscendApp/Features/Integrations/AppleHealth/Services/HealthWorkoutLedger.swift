@@ -59,6 +59,31 @@ struct HealthWorkoutLedger {
         )
     }
 
+    /// The rows the Imports screen lists - waiting and imported - newest first.
+    func importsScreenRecords() throws -> [HealthWorkoutRecord] {
+        let notImported = HealthWorkoutImportState.notImported.rawValue
+        let imported = HealthWorkoutImportState.imported.rawValue
+        return try modelContext.fetch(
+            FetchDescriptor<HealthWorkoutRecord>(
+                predicate: #Predicate { $0.stateRawValue == notImported || $0.stateRawValue == imported },
+                sortBy: [SortDescriptor(\.startDate, order: .reverse)]
+            )
+        )
+    }
+
+    /// The steps and time of these climbs, and nothing else: a `Workout` carries its heart-rate
+    /// series inline, so the rest of the row is never loaded.
+    func climbMeasurements(forIDs ids: [UUID]) throws -> [UUID: (steps: Int, duration: TimeInterval)] {
+        guard !ids.isEmpty else { return [:] }
+        var descriptor = FetchDescriptor<Workout>(predicate: #Predicate { ids.contains($0.id) })
+        descriptor.propertiesToFetch = [\.id, \.steps, \.duration]
+        let climbs = try modelContext.fetch(descriptor)
+        return Dictionary(
+            climbs.map { ($0.id, (steps: $0.steps, duration: $0.duration)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
     func notImportedCount() throws -> Int {
         let state = HealthWorkoutImportState.notImported.rawValue
         return try modelContext.fetchCount(
@@ -66,16 +91,22 @@ struct HealthWorkoutLedger {
         )
     }
 
-    /// The number on the red badge: waiting workouts from the last seven days that started after
-    /// Imports was last opened. Opening Imports empties it even if nothing is imported, which is
-    /// why the cut is the last-viewed time and not the row's state.
+    /// The number on the red badge: waiting workouts from the last seven days that Ascend found
+    /// after Imports was last opened. Opening Imports empties it even if nothing is imported, which
+    /// is why the cut is the last-viewed time and not the row's state.
+    ///
+    /// The last-viewed cut is on when Ascend found the workout, not when it started: a watch can
+    /// hand a workout to the phone long after it ended, and one that started before the climber's
+    /// last visit is still news the first time Ascend sees it.
     func badgeCount(now: Date, importsLastViewedAt: Date?) throws -> Int {
         let state = HealthWorkoutImportState.notImported.rawValue
         let weekAgo = now.addingTimeInterval(-AppleHealthImportPolicy.badgeWindow)
-        let cutoff = max(weekAgo, importsLastViewedAt ?? .distantPast)
+        let lastViewed = importsLastViewedAt ?? .distantPast
         return try modelContext.fetchCount(
             FetchDescriptor<HealthWorkoutRecord>(
-                predicate: #Predicate { $0.stateRawValue == state && $0.startDate > cutoff }
+                predicate: #Predicate {
+                    $0.stateRawValue == state && $0.startDate > weekAgo && $0.discoveredAt > lastViewed
+                }
             )
         )
     }
@@ -127,6 +158,22 @@ struct HealthWorkoutLedger {
                 candidate.date,
                 candidate.date.addingTimeInterval(candidate.duration)
             )
+        }
+    }
+
+    /// Whether a headphone session that has not saved its climb yet - still recording, or waiting
+    /// to be recovered after the app died - covers this workout's window by a minute or more.
+    ///
+    /// Such a workout is neither a climb nor an overlap yet: the live climb that will cover it
+    /// does not exist until the session saves, so the workout waits and is checked again then.
+    func overlapsUnsavedLiveSession(start: Date, end: Date) throws -> Bool {
+        let drafts = try modelContext.fetch(
+            FetchDescriptor<ActiveHeadphoneWorkoutDraft>(
+                predicate: #Predicate { $0.startedAt < end && $0.lastCheckpointAt > start }
+            )
+        )
+        return drafts.contains { draft in
+            AppleHealthImportPolicy.windowsOverlap(start, end, draft.startedAt, draft.lastCheckpointAt)
         }
     }
 

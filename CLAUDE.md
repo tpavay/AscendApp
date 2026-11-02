@@ -21,7 +21,7 @@ The niche defined by exclusion. Check every feature, screen, and copy change aga
   A climber can type in a climb they did without a session (Log it, from the Climb sheet - 1.3.0): headphones die, an app can glitch mid-climb, and not everyone owns compatible headphones.
   A logged climb counts toward streak, weekly target, gear, history, personal records and leaderboards, and the automatic pace check (`ClimbPacePolicy`) is the only gate - no report button, no review queue, no hold on a top placing.
   A climber can also bring in stair stepper workouts a watch or another app saved to Apple Health (1.3.0): only `stairClimbing` and `stairs` workouts, only on or after the climber's join date, keyed by HealthKit workout UUID, through the same automatic pace check, and never a second climb for a session an Ascend live climb already covers.
-  The Apple Health read set is exactly five types, read only: `workoutType()`, `stepCount`, `flightsClimbed`, `heartRate` and `activeEnergyBurned`.
+  The Apple Health read set is exactly four types, read only: `workoutType()`, `stepCount`, `heartRate` and `activeEnergyBurned`.
   Ascend never writes to Apple Health, and heart rate and active energy are still read over an Ascend-owned climb's own window to enrich it.
   Quote that set when writing any disclosure - the legal pages, the `Info.plist` usage string, and the App Store answers all have to agree, and `HealthKitAuthorizationClient.readTypes` is the authority.
   No outward surface may promise otherwise. Outward copy: `docs/app-store-ranked-repositioning-proposal.md`.

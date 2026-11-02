@@ -46,11 +46,10 @@ struct AppleHealthSurfacesEvidenceTests {
             identifiers == [
                 HKObjectType.workoutType().identifier,
                 HKQuantityTypeIdentifier.stepCount.rawValue,
-                HKQuantityTypeIdentifier.flightsClimbed.rawValue,
                 HKQuantityTypeIdentifier.heartRate.rawValue,
                 HKQuantityTypeIdentifier.activeEnergyBurned.rawValue,
             ].sorted(),
-            "Ascend asks Health for \(identifiers). Workouts, steps, flights climbed, heart rate and active energy are the whole set."
+            "Ascend asks Health for \(identifiers). Workouts, steps, heart rate and active energy are the whole set."
         )
         #expect(requested.contains(HKObjectType.workoutType()))
 
@@ -80,9 +79,13 @@ struct AppleHealthSurfacesEvidenceTests {
         """
         // The prompt must name exactly what the read set above asks for, so the sentence and the
         // requested types cannot drift apart.
-        for named in ["workouts", "steps", "flights climbed", "heart rate", "active energy"] {
+        for named in ["workouts", "steps", "heart rate", "active energy"] {
             #expect(lowercased.contains(named), "The Health prompt no longer names \(named): \"\(usageDescription)\". \(overrideHint)")
         }
+        #expect(
+            !lowercased.contains("flights climbed"),
+            "The Health prompt names flights climbed, which Ascend does not request: \"\(usageDescription)\". \(overrideHint)"
+        )
         #expect(
             !lowercased.contains("resting energy"),
             "The Health prompt names resting energy, which Ascend does not request: \"\(usageDescription)\". \(overrideHint)"
@@ -133,9 +136,11 @@ struct AppleHealthSurfacesEvidenceTests {
     func climberFacingSurfacesOfferImportAndPromiseNoTracking() async throws {
         let snapshot = HealthKitSyncStateSnapshot.capture()
         let statusSnapshot = HealthKitAuthorizationClient.shared.authorizationRequestStatus
+        let importStatusSnapshot = HealthKitAuthorizationClient.shared.importAuthorizationRequestStatus
         defer {
             snapshot.restore()
             HealthKitAuthorizationClient.shared.authorizationRequestStatus = statusSnapshot
+            HealthKitAuthorizationClient.shared.importAuthorizationRequestStatus = importStatusSnapshot
         }
 
         let container = try Self.makeContainer()
@@ -175,6 +180,7 @@ struct AppleHealthSurfacesEvidenceTests {
         // The same screen once Health is connected: the promise that survived the removal.
         HealthKitSyncState.hasRequestedAuthorization = true
         HealthKitAuthorizationClient.shared.authorizationRequestStatus = .unnecessary
+        HealthKitAuthorizationClient.shared.importAuthorizationRequestStatus = .unnecessary
         let connectedText = try await Self.hostedCopy(
             Self.integrationsScreenBody(container: container),
             photographedAs: "04-apple-health-card-connected"

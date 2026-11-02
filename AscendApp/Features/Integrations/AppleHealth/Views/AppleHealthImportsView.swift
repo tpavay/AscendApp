@@ -10,22 +10,6 @@ struct AppleHealthImportsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    @Query(
-        filter: #Predicate<HealthWorkoutRecord> {
-            $0.stateRawValue == "not_imported" || $0.stateRawValue == "imported"
-        },
-        sort: \HealthWorkoutRecord.startDate,
-        order: .reverse
-    )
-    private var records: [HealthWorkoutRecord]
-
-    @Query(
-        filter: #Predicate<Workout> { $0.sourceRawValue == "apple_health" },
-        sort: \Workout.date,
-        order: .reverse
-    )
-    private var importedClimbs: [Workout]
-
     @State private var viewModel: AppleHealthImportsViewModel
     @State private var openClimb: Workout?
 
@@ -34,14 +18,7 @@ struct AppleHealthImportsView: View {
     }
 
     var body: some View {
-        let sections = ImportsSections.make(
-            records: records,
-            climbs: Dictionary(
-                importedClimbs.map { ($0.id, (steps: $0.steps, duration: $0.duration)) },
-                uniquingKeysWith: { first, _ in first }
-            ),
-            now: Date()
-        )
+        let sections = viewModel.sections
 
         VStack(spacing: 0) {
             header
@@ -86,7 +63,12 @@ struct AppleHealthImportsView: View {
         .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.25), value: sections)
         .animation(.easeInOut(duration: 0.2), value: viewModel.toast)
-        .task { await viewModel.onAppear() }
+        .task { await viewModel.onAppear(modelContext: modelContext) }
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: ModelContext.didSave) {
+                viewModel.reload()
+            }
+        }
         .trackOnce(screen: .appleHealthImports)
     }
 
@@ -206,7 +188,7 @@ struct AppleHealthImportsView: View {
     private func importedRow(_ row: ImportsRow) -> some View {
         Button {
             guard let climbID = row.climbID else { return }
-            openClimb = importedClimbs.first { $0.id == climbID }
+            openClimb = viewModel.climb(withID: climbID)
         } label: {
             HStack(spacing: 14) {
                 healthIcon

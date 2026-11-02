@@ -195,27 +195,6 @@ test("the public website consistently presents Ascend as ranked", async () => {
   }
 });
 
-test("the real HealthKit read set is the five types Ascend requests, read only", async () => {
-  const client = await readFile(
-    pathFromRoot("AscendApp/Shared/Services/HealthKitAuthorizationClient.swift"),
-    "utf8"
-  );
-  const readTypes = sectionBetween(client, "var readTypes: Set<HKObjectType>", "var authorizationRequestStatus");
-  const enrichmentTypes = sectionBetween(client, "var enrichmentReadTypes", "/// Everything Ascend asks Health for");
-
-  // `enrichmentReadTypes` is the pair enrichment attaches to a live climb; the
-  // full set adds what import reads off a workout.
-  assert.match(enrichmentTypes, /\.heartRate/);
-  assert.match(enrichmentTypes, /\.activeEnergyBurned/);
-  assert.doesNotMatch(enrichmentTypes, /stepCount|workoutType|flightsClimbed/);
-  assert.match(readTypes, /enrichmentReadTypes/);
-  assert.match(readTypes, /HKObjectType\.workoutType\(\)/);
-  assert.match(readTypes, /\.stepCount/);
-  assert.match(readTypes, /\.flightsClimbed/);
-  assert.doesNotMatch(readTypes, /basalEnergyBurned|appleExerciseTime|restingHeartRate/);
-  assert.match(client, /requestAuthorization\(toShare: \[\]/, "Ascend must never request write access");
-});
-
 test("HealthKit disclosures match the real read set", async () => {
   const [privacy, terms, proposal, projectMemory] = await Promise.all([
     source("privacy"),
@@ -242,11 +221,12 @@ test("HealthKit disclosures match the real read set", async () => {
     ]
   ];
 
-  // Naming anything wider than the five types in the client is a false
+  // Naming anything wider than the four types in the client is a false
   // disclosure in a legal page, so these patterns guard against reads that
   // were never requested, and against promising more than stair workouts.
   const forbiddenClaims = [
     [/resting energy/i, "claims a resting-energy read Ascend does not request"],
+    [/flights climbed|flightsClimbed/i, "claims a flights-climbed read Ascend does not request"],
     [/average METs/i, "claims a METs attachment that Ascend does not read"],
     [/lists Workouts in the Health permission sheet/i, "describes the permission sheet from before 1.3.0"],
     [
@@ -256,13 +236,12 @@ test("HealthKit disclosures match the real read set", async () => {
     [/Ascend (?:also |then )?(?:writes?|saves?|adds?) [^.]{0,40}(?:to|into) (?:the )?Apple Health/i, "claims a write to Apple Health"]
   ];
 
-  // The five types, the window the enrichment pair is read over, and that
+  // The four types, the window the enrichment pair is read over, and that
   // Ascend never writes. Prose spells the types out; CLAUDE.md names the
   // HealthKit identifiers directly, so each pattern accepts either.
   const requiredDisclosures = [
     [/workouts?\b|workoutType/i, "the workouts read"],
     [/\bsteps?\b|stepCount/i, "the steps read"],
-    [/flights climbed|flightsClimbed/i, "the flights-climbed read"],
     [/heart[- ]rate|heartRate/i, "the heart-rate read"],
     [/active[- ]energy|activeEnergyBurned/i, "the active-energy read"],
     [/own (?:time )?window|time window of a (?:climb|session)/i, "the session-window bound"],

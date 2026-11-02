@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftData
 
 /// The Imports screen's actions and its Undo toast.
 ///
@@ -18,10 +19,14 @@ final class AppleHealthImportsViewModel {
     }
 
     private(set) var toast: Toast?
+    /// What the screen draws, rebuilt when the store saves rather than on every draw: the ledger
+    /// grows for the life of the account, and the toast and the animations redraw the screen often.
+    private(set) var sections = ImportsSections()
 
     @ObservationIgnored private let service: AppleHealthImportService
     @ObservationIgnored private let undoWindow: Duration
     @ObservationIgnored private var toastTask: Task<Void, Never>?
+    @ObservationIgnored private var modelContext: ModelContext?
 
     init(
         service: AppleHealthImportService = .shared,
@@ -41,9 +46,33 @@ final class AppleHealthImportsViewModel {
 
     /// Opening Imports empties the badge, then catches up with anything Health holds that the
     /// background pass has not seen yet.
-    func onAppear() async {
+    ///
+    /// Viewed again once the catch-up is done, so a workout it found while the climber was looking
+    /// does not raise the badge they just cleared.
+    func onAppear(modelContext: ModelContext) async {
+        self.modelContext = modelContext
+        reload()
         service.markImportsViewed()
         await service.syncNow()
+        service.markImportsViewed()
+        reload()
+    }
+
+    /// Rebuilds the sections from the store: the screen's rows, and only the steps and time of the
+    /// climbs those rows became.
+    func reload() {
+        guard let modelContext else { return }
+        let ledger = HealthWorkoutLedger(modelContext: modelContext)
+        guard let records = try? ledger.importsScreenRecords() else { return }
+        let climbIDs = records.compactMap(\.importedWorkoutID)
+        let climbs = (try? ledger.climbMeasurements(forIDs: climbIDs)) ?? [:]
+        sections = ImportsSections.make(records: records, climbs: climbs, now: Date())
+    }
+
+    /// The climb an imported row opens.
+    func climb(withID id: UUID) -> Workout? {
+        guard let modelContext else { return nil }
+        return try? HealthWorkoutLedger(modelContext: modelContext).climb(withID: id)
     }
 
     func setAutoImportEnabled(_ isEnabled: Bool) async {
