@@ -93,16 +93,15 @@ The haunted stretch's lanterns and ghosts are the same shared meshes with no lig
 
 ## The seasonal app icon
 
-This build ships the jack-o'-lantern A as the primary icon (`AppIcon`) and the lime A as an alternate (`AppIconClassic`, `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`).
-A climber can switch back any time in Settings -> App Icon (`AppIconSelectionView`).
+Ascend shipped a jack-o'-lantern A as its primary icon for October 2026, with the lime A beside it as an alternate and a Settings -> App Icon screen to switch.
+That season is over: the lime A is the primary icon (`AppIcon`) again, and the alternate, its build setting (`ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`), `AppIconChoice`, the App Icon screen and its preview images were deleted with the jack-o'-lantern art.
+Git history holds the jack-o'-lantern (`AscendAppIconHalloween.png`, commit `ed5cf236`).
+A climber who had picked the classic alternate keeps nothing iOS cannot find: iOS falls back to the primary, which is the lime A.
+
+A future seasonal icon follows the same shape.
+Ship it as the primary icon and the lime A as an alternate (`ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`) with a Settings -> App Icon screen, so a climber who wants the lime A back never waits for a release.
 iOS shows a system alert whenever an app changes its own icon, so Ascend never switches it automatically.
-
-To end the season, in the first release after October:
-
-1. Copy `AppIconClassic.appiconset`'s image into `AppIcon.appiconset` (named `AscendAppIcon.png`, updating its `Contents.json`).
-2. Remove the alternate (`AppIconClassic`, the build setting, `AppIconChoice.classic` and the Halloween preview image), or keep the jack-o'-lantern as an alternate if climbers ask for it.
-
-A climber who picked the classic alternate keeps an icon iOS can no longer find if the alternate is deleted; iOS falls back to the primary, which is then the lime A again.
+At the end of that season, copy the alternate's image into `AppIcon.appiconset` (updating its `Contents.json`) and delete the alternate, the build setting and the picker.
 
 ## App Store In-App Event copy (drafts, not created)
 
