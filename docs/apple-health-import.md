@@ -54,7 +54,7 @@ The anchor does not advance while it is blocked, so the first pass afterwards re
 
 The first pass after connecting has no anchor, so what it finds is history.
 In auto mode it imports history silently: no notification and no Home strip.
-A pass with no anchor also waits until this climber's climbs have come back from the cloud in this process (`WorkoutHydrationService.hasRestoredWorkouts`), because the climb a workout became on an old phone is the only thing that stops it importing a second time on a new one; the bootstrap that finishes the restore runs the pass again.
+A pass with no anchor also waits until the authenticated bootstrap, past the account-ownership gate, has restored this climber's climbs from the cloud in this session and said so (`confirmCloudClimbsRestored`, cleared on sign-out), because the climb a workout became on an old phone is the only thing that stops it importing a second time on a new one; the bootstrap that finishes the restore runs the pass again.
 A pass with an anchor does not wait, so a background wake still imports what is new.
 
 At import time the workout is read again by UUID, because a watch can write its statistics after the workout.

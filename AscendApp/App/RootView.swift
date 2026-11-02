@@ -498,6 +498,9 @@ struct RootView: View {
                 debugLog("Workout hydration failed: \(error)")
             }
             guard isCurrentAuthenticatedSession(currentUserId) else { return }
+            if WorkoutHydrationService.hasRestoredWorkouts(for: currentUserId) {
+                AppleHealthImportService.shared.confirmCloudClimbsRestored(for: currentUserId)
+            }
 
             // Restoring routines is independent of workouts, so a failure on
             // either side must not take the other down with it.

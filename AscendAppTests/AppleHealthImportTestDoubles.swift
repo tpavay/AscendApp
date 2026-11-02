@@ -157,25 +157,22 @@ final class AppleHealthImportHarness {
             sessionWorkGate: AuthenticatedBootstrapCoordinator(),
             currentUserID: { holder.userID },
             joinDate: { referenceNow.addingTimeInterval(-30 * 24 * 3600) },
-            hasRestoredCloudClimbs: { holder.restoredUserIDs.contains($0) },
             applyCreated: { _, workouts in holder.created.append(workouts) },
             isUpdateRequired: { holder.isUpdateRequired },
             now: { holder.clock },
             observerCompletionBound: observerCompletionBound
         )
         holder.userID = Self.userID
-        holder.restoredUserIDs = [Self.userID]
         holder.clock = referenceNow
         state = holder
         service.configure(modelContext: context)
+        service.confirmCloudClimbsRestored(for: Self.userID)
     }
 
     /// Everything the closures above read, held by reference so a test can change it after the
     /// service captured it.
     final class HarnessState {
         var userID: String?
-        /// The climbers whose climbs have come back from the cloud this session.
-        var restoredUserIDs: Set<String> = []
         var isUpdateRequired = false
         var clock = Date()
         var created: [[Workout]] = []
@@ -194,16 +191,6 @@ final class AppleHealthImportHarness {
     var isUpdateRequired: Bool {
         get { state.isUpdateRequired }
         set { state.isUpdateRequired = newValue }
-    }
-    var hasRestoredCloudClimbs: Bool {
-        get { state.restoredUserIDs.contains(Self.userID) }
-        set {
-            if newValue {
-                state.restoredUserIDs.insert(Self.userID)
-            } else {
-                state.restoredUserIDs.remove(Self.userID)
-            }
-        }
     }
 
     /// A stair workout `daysAgo` before now, with the numbers a watch would write.
