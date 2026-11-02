@@ -94,7 +94,7 @@ struct AppleHealthConnectView: View {
                 )
             }
         )
-        .healthFlowLeadingControl(.close, action: onClose)
+        .healthFlowCloseControl(action: onClose)
         .preferredColorScheme(.dark)
         .trackOnce(screen: .appleHealthConnect)
     }
