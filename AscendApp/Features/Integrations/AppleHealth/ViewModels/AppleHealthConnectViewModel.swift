@@ -1,10 +1,10 @@
 import Foundation
 import Observation
 
-/// Connecting Apple Health after onboarding: ask, show the permission guide, request, then choose
+/// Connecting Apple Health after onboarding: ask, which opens the iOS sheet at once, then choose
 /// how workouts import.
 ///
-/// Three steps, one decision at the end. The choice screen only exists here - onboarding connects
+/// Two steps, one decision at the end. The choice screen only exists here - onboarding connects
 /// with auto-import on and never shows it - because a climber connecting later is the one who may
 /// have a week of workouts already waiting and a reason to pick them by hand.
 @MainActor
@@ -12,7 +12,6 @@ import Observation
 final class AppleHealthConnectViewModel {
     enum Step: Equatable {
         case connect
-        case guide
         case choose
     }
 
@@ -46,17 +45,7 @@ final class AppleHealthConnectViewModel {
         }
     }
 
-    func showGuide() {
-        errorMessage = nil
-        step = .guide
-    }
-
-    func backToConnect() {
-        errorMessage = nil
-        step = .connect
-    }
-
-    /// "Got it": the iOS sheet, then a look at what Health holds. Imports nothing yet.
+    /// "Connect Apple Health": the iOS sheet, then a look at what Health holds. Imports nothing yet.
     func requestAccess() async {
         guard !isWorking else { return }
         isWorking = true

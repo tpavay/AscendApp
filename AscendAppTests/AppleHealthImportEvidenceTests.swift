@@ -178,18 +178,10 @@ struct AppleHealthImportEvidenceTests {
             #expect(copy.contains("any device or app that saves there"))
             #expect(copy.contains("not now"))
             #expect(copy.contains("close"))
+            #expect(copy.contains("tap turn on all, then allow."), "the copy matches the iOS sheet: \(copy)")
+            #expect(!copy.contains("top right"), "iOS puts Allow at the bottom: \(copy)")
             #expect(!copy.contains("watch"), "no wearable is named: \(copy)")
             try screen.photograph(named: "import-09-connect")
-        }
-
-        try await RenderedScreen.host(
-            AppleHealthPermissionGuideView(isWorking: false, errorMessage: nil, onBack: {}, onConfirm: {})
-        ) { screen in
-            let copy = try await screen.copy { $0.contains("got it") }
-            #expect(copy.contains("two taps and"))
-            #expect(copy.contains("turn on all"))
-            #expect(copy.contains("allow"))
-            try screen.photograph(named: "import-10-permission-guide")
         }
 
         try await RenderedScreen.host(
@@ -209,6 +201,43 @@ struct AppleHealthImportEvidenceTests {
             #expect(copy.contains("you can change this anytime in settings."))
             try screen.photograph(named: "import-11-choose")
         }
+    }
+
+    @Test("The close X and the primary button sit in the same place on every screen of the connect flow")
+    func theFlowChromeDoesNotMoveBetweenScreens() async throws {
+        var closeFrame: CGRect?
+        var safeAreaTop: CGFloat = 0
+        var primaryFrames: [CGRect] = []
+
+        try await RenderedScreen.host(AppleHealthConnectView(onConnect: {}, onClose: {})) { screen in
+            safeAreaTop = screen.window.safeAreaInsets.top
+            closeFrame = try await screen.frame(ofElementLabelled: "Close")
+            let texts = try await screen.texts()
+            primaryFrames.append(try #require(texts.first { $0.text.uppercased() == "CONNECT APPLE HEALTH" }?.frame))
+        }
+        try await RenderedScreen.host(
+            AppleHealthImportChoiceView(
+                choosesAutomatic: .constant(true),
+                summary: "We found 2 stair stepper workouts. New ones will keep coming in.",
+                isWorking: false,
+                onContinue: {}
+            )
+        ) { screen in
+            let texts = try await screen.texts()
+            primaryFrames.append(try #require(texts.first { $0.text.uppercased() == "CONTINUE" }?.frame))
+        }
+
+        let close = try #require(closeFrame)
+        #expect(close.minX == HealthFlowChrome.leadingInset, "the X sits at the flow's leading inset: \(close)")
+        #expect(
+            close.minY == safeAreaTop + HealthFlowChrome.topInset,
+            "the X sits just under the safe area's top, not 54 points down: \(close) under \(safeAreaTop)"
+        )
+        #expect(primaryFrames.count == 2)
+        #expect(
+            abs(primaryFrames[0].midY - primaryFrames[1].midY) < 1,
+            "the primary button is where it was: \(primaryFrames)"
+        )
     }
 
     // MARK: - After an automatic import

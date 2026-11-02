@@ -31,10 +31,6 @@ struct LeaderboardRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.74)
 
-            if let origin = entry.origin {
-                ClimbOriginMark(origin: origin, tint: primaryTextColor.opacity(0.5))
-            }
-
             Spacer(minLength: 8)
 
             Text(entry.formattedValue)
@@ -49,7 +45,6 @@ struct LeaderboardRow: View {
         .accessibilityLabel(
             "\(CompetitionRanking.rankAccessibilityLabel(entry.rank, isTied: entry.isTied)), "
                 + "\(entry.identity.displayName), \(entry.formattedValue) \(metric.displayName)"
-                + (entry.origin.map { ", \($0.accessibilityLabel)" } ?? "")
         )
     }
 }

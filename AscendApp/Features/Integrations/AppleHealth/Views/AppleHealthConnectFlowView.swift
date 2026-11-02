@@ -1,8 +1,8 @@
 import SwiftData
 import SwiftUI
 
-/// The whole of connecting Apple Health after onboarding, presented full screen: connect, the
-/// permission guide, the iOS sheet, then the import choice.
+/// The whole of connecting Apple Health after onboarding, presented full screen: connect, the iOS
+/// sheet, then the import choice.
 ///
 /// `onFinished` runs after the choice is saved and the cover has closed, which is where the caller
 /// opens Imports. Closing early - the X, Not now - calls only `onClose`, and nothing is saved.
@@ -31,16 +31,10 @@ struct AppleHealthConnectFlowView: View {
             switch viewModel.step {
             case .connect:
                 AppleHealthConnectView(
-                    onConnect: { viewModel.showGuide() },
-                    onClose: onClose
-                )
-                .transition(.opacity)
-            case .guide:
-                AppleHealthPermissionGuideView(
                     isWorking: viewModel.isWorking,
                     errorMessage: viewModel.errorMessage,
-                    onBack: { viewModel.backToConnect() },
-                    onConfirm: { Task { await viewModel.requestAccess() } }
+                    onConnect: { Task { await viewModel.requestAccess() } },
+                    onClose: onClose
                 )
                 .transition(.opacity)
             case .choose:

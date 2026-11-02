@@ -14,7 +14,7 @@ struct AppleHealthImportChoiceView: View {
             background: { Color.black },
             content: { layout in
                 VStack(alignment: .leading, spacing: 0) {
-                    Spacer().frame(height: layout.topChromeHeight + 60)
+                    Spacer().frame(height: HealthFlowChrome.contentTopClearance + 40)
 
                     Label("Apple Health connected", systemImage: "checkmark")
                         .font(.montserratBold(size: 15))
@@ -65,20 +65,13 @@ struct AppleHealthImportChoiceView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             },
             bottomContent: { layout in
-                VStack(spacing: 14) {
-                    Text("You can change this anytime in Settings.")
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(.white.opacity(0.5))
-
-                    Button(action: onContinue) {
-                        Text("CONTINUE")
-                            .tracking(2)
-                    }
-                    .buttonStyle(
-                        OnboardingPrimaryCTAButtonStyle(height: layout.primaryButtonHeight, tint: .accent)
-                    )
-                    .disabled(isWorking)
-                }
+                HealthFlowBottomBar(
+                    primaryTitle: "CONTINUE",
+                    primaryHeight: layout.primaryButtonHeight,
+                    caption: "You can change this anytime in Settings.",
+                    isDisabled: isWorking,
+                    onPrimary: onContinue
+                )
             }
         )
         .preferredColorScheme(.dark)
