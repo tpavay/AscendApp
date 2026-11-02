@@ -158,6 +158,8 @@ Hosted Home tests pass a service built on `FakeHealthWorkoutReader` with Health 
 Connecting is the Connect button, the iOS sheet's Turn On All and its Allow, then Continue on the import choice.
 The in-app permission guide the handoff drew as screen 10 was dropped on 2026-11-02: it cost a tap and its copy told climbers to tap Allow in the top right, where iOS puts it at the bottom.
 The connect screen carries one line instead: "Next, iOS asks for access. Tap Turn On All, then Allow."
-The flow has two Ascend screens, Connect and the import choice, and both share `HealthFlowChrome`: the primary button keeps one place because each reserves the secondary slot under it.
-Only the connect screen draws the close X, 6 points under the safe area's top and 16 from the leading edge; the import choice keeps the same top clearance with no control in it.
+The flow has two Ascend screens, Connect and the import choice.
+Both end in `HealthFlowChrome`'s bottom bar, which always reserves the secondary slot under the primary button, so the primary button sits in the same place on both.
+Only the Connect screen draws the close X, 6 points under the safe area's top and 16 from the leading edge.
+The import choice draws no control at the top and starts its content 40 points lower than Connect's.
 The Ascend tile on the connect screen is the real `AppIconInternalAccent` mark, and the dotted line between the tiles is one static dashed stroke with nothing animating.
