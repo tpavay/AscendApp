@@ -86,7 +86,6 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     @ObservationIgnored private let sessionWorkGate: AuthenticatedBootstrapCoordinator
     @ObservationIgnored private let currentUserID: @MainActor () -> String?
     @ObservationIgnored private let joinDate: @MainActor () -> Date?
-    @ObservationIgnored private let hasRestoredCloudClimbs: @MainActor (String) -> Bool
     @ObservationIgnored private let applyCreated: @MainActor (ModelContext, [Workout]) throws -> Void
     @ObservationIgnored private let isUpdateRequired: @MainActor () -> Bool
     @ObservationIgnored private let now: @MainActor () -> Date
@@ -98,6 +97,9 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     @ObservationIgnored private var passTask: Task<Void, Never>?
     @ObservationIgnored private var rerunRequested = false
     @ObservationIgnored private var isObserving = false
+    /// The climber whose climbs the authenticated bootstrap has restored from the cloud in this
+    /// session, behind the account-ownership gate. Only then may a pass with no anchor run.
+    @ObservationIgnored private var cloudRestoreConfirmedUserID: String?
 
     init(
         reader: any HealthWorkoutReading = HealthKitWorkoutReader.shared,
@@ -109,9 +111,6 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared,
         currentUserID: @escaping @MainActor () -> String? = { Auth.auth().currentUser?.uid },
         joinDate: @escaping @MainActor () -> Date? = { Auth.auth().currentUser?.metadata.creationDate },
-        hasRestoredCloudClimbs: @escaping @MainActor (String) -> Bool = {
-            WorkoutHydrationService.hasRestoredWorkouts(for: $0)
-        },
         applyCreated: @escaping @MainActor (ModelContext, [Workout]) throws -> Void = { context, workouts in
             try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: context,
@@ -133,7 +132,6 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         self.sessionWorkGate = sessionWorkGate
         self.currentUserID = currentUserID
         self.joinDate = joinDate
-        self.hasRestoredCloudClimbs = hasRestoredCloudClimbs
         self.applyCreated = applyCreated
         self.isUpdateRequired = isUpdateRequired
         self.now = now
@@ -163,7 +161,14 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         }
     }
 
+    /// Called by the authenticated bootstrap once the ownership gate allowed this climber and their
+    /// climbs came back from the cloud, so a first pass on this device can tell what it already has.
+    func confirmCloudClimbsRestored(for userID: String) {
+        cloudRestoreConfirmedUserID = userID
+    }
+
     func cancelInFlightWork() {
+        cloudRestoreConfirmedUserID = nil
         passTask?.cancel()
         passTask = nil
         rerunRequested = false
@@ -306,7 +311,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         // have come back from the cloud in this session, the climbs that already carry those
         // workouts are not here to stop them, and each would import a second time. Deferred, not
         // dropped: the bootstrap that finishes the restore runs the pass again.
-        guard !isBackfill || hasRestoredCloudClimbs(userID) else { return }
+        guard !isBackfill || cloudRestoreConfirmedUserID == userID else { return }
 
         let changes: HealthWorkoutChanges
         do {

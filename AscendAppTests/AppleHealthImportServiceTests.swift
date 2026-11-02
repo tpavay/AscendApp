@@ -548,7 +548,8 @@ struct AppleHealthImportServiceTests {
     @Test
     func theFirstPassWaitsForTheClimbersClimbsToComeBackFromTheCloud() async throws {
         let harness = try AppleHealthImportHarness()
-        harness.hasRestoredCloudClimbs = false
+        // Signing out clears the confirmation the bootstrap gave, so this is a fresh session.
+        harness.service.cancelInFlightWork()
         let snapshot = harness.addWorkout(daysAgo: 3)
 
         await harness.service.syncNow()
@@ -563,7 +564,13 @@ struct AppleHealthImportServiceTests {
         )
         harness.context.insert(restored)
         try harness.context.save()
-        harness.hasRestoredCloudClimbs = true
+
+        // Another climber's restore does not vouch for this one.
+        harness.service.confirmCloudClimbsRestored(for: "someone-else")
+        await harness.service.syncNow()
+        #expect(harness.reader.changeReads.isEmpty)
+
+        harness.service.confirmCloudClimbsRestored(for: AppleHealthImportHarness.userID)
 
         await harness.service.syncNow()
         #expect(try harness.climbs().count == 1, "the restored climb, and no second one")
@@ -579,7 +586,7 @@ struct AppleHealthImportServiceTests {
 
         // A relaunch in the background: the restore has not run in this process, but this device
         // has already read Health, so what arrives now is new.
-        harness.hasRestoredCloudClimbs = false
+        harness.service.cancelInFlightWork()
         harness.addWorkout(daysAgo: 0.01)
         await harness.service.syncNow()
         #expect(try harness.climbs().count == 2)
