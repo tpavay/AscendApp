@@ -96,6 +96,16 @@ enum AscendLocalStoreFixture {
                     cacheVersion: 1
                 )
             },
+            inserter(HealthWorkoutRecord.self) {
+                HealthWorkoutRecord(
+                    snapshot: HealthWorkoutSnapshot(
+                        uuid: UUID(),
+                        startDate: fixtureDate,
+                        endDate: fixtureDate.addingTimeInterval(1_200),
+                        steps: 1_000
+                    )
+                )
+            },
             inserter(BestEffortCacheMetadata.self) {
                 BestEffortCacheMetadata(
                     id: "fixture-metadata",

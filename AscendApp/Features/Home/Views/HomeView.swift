@@ -36,6 +36,7 @@ struct HomeView: View {
     @Environment(\.tabBarOverlayHeight) private var tabBarOverlayHeight
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var enrichmentService: AppleHealthEnrichmentService
+    @State private var importService: AppleHealthImportService
     private let homeDashboard: HomeDashboardViewModel
     @State private var todayActivity: HomeTodayActivityViewModel
     @State private var globeViewModel: GlobeViewModel
@@ -44,6 +45,12 @@ struct HomeView: View {
     @State private var showingJustClimbSetup = false
     @State private var pendingStartAction: HomeStartAction?
     @State private var pendingLogIt = false
+    @State private var pendingHealthEntry = false
+    @State private var showingHealthConnectFlow = false
+    @State private var showingImports = false
+    /// Set when the connect flow finished with a choice, so Imports opens once the cover is gone
+    /// rather than being pushed under a screen that is still leaving.
+    @State private var opensImportsAfterConnect = false
     /// The Log a climb screen on screen. Everything it is built from - the climb its "Same as"
     /// chip repeats - travels in this one item, because a cover's closure reads Home's state as
     /// the last body pass captured it.
@@ -95,6 +102,7 @@ struct HomeView: View {
         todayActivity: HomeTodayActivityViewModel = HomeTodayActivityViewModel(),
         globeViewModel: GlobeViewModel = GlobeViewModel(),
         enrichmentService: AppleHealthEnrichmentService = .shared,
+        importService: AppleHealthImportService = .shared,
         initialSheetDetent: BrowseSheetDetent = .compact,
         makeJustClimbSession: @escaping JustClimbSessionFactory = HomeView.liveJustClimbSession,
         sessionRegistry: ActiveHeadphoneWorkoutRuntimeRegistry = .shared
@@ -106,6 +114,7 @@ struct HomeView: View {
         _todayActivity = State(initialValue: todayActivity)
         _globeViewModel = State(initialValue: globeViewModel)
         _enrichmentService = State(initialValue: enrichmentService)
+        _importService = State(initialValue: importService)
         _sheetDetent = State(initialValue: initialSheetDetent)
     }
 
@@ -180,6 +189,17 @@ struct HomeView: View {
                     previewCardArea(sheetHeight: sheetVisibleHeight)
                         .zIndex(2)
 
+                    if let notice = importService.homeNotice, sheetDetent == .compact, !isSearchMode {
+                        HomeHealthImportStrip(notice: notice) {
+                            importService.requestQuickEdit(workoutID: notice.workoutID)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, collapsedSheetHeight + 14)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(2)
+                    }
+
                     if !isSearchMode {
                         homeDrawer(
                             containerHeight: geometry.size.height,
@@ -241,12 +261,34 @@ struct HomeView: View {
                 onLogIt: LoggedClimbService.isOffered() ? {
                     pendingLogIt = true
                     showingStartActionSheet = false
-                } : nil
+                } : nil,
+                healthEntry: importService.entry,
+                onHealth: {
+                    pendingHealthEntry = true
+                    showingStartActionSheet = false
+                }
             )
             .appSheetStyle(.fitted())
         }
         .fullScreenCover(item: $logClimbRequest) { request in
             LogClimbView(lastClimb: request.lastClimb)
+        }
+        .fullScreenCover(isPresented: $showingHealthConnectFlow, onDismiss: {
+            guard opensImportsAfterConnect else { return }
+            opensImportsAfterConnect = false
+            showingImports = true
+        }) {
+            AppleHealthConnectFlowView(
+                importService: importService,
+                onFinished: {
+                    opensImportsAfterConnect = true
+                    showingHealthConnectFlow = false
+                },
+                onClose: { showingHealthConnectFlow = false }
+            )
+        }
+        .navigationDestination(isPresented: $showingImports) {
+            AppleHealthImportsView()
         }
         .sheet(isPresented: $showingJustClimbSetup, onDismiss: {
             pendingJustClimbGoal = nil
@@ -269,6 +311,7 @@ struct HomeView: View {
             }
 
             enrichmentService.configure(modelContext: modelContext)
+            importService.configure(modelContext: modelContext)
             globeViewModel.loadIfNeeded(modelContext: modelContext)
             personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: workouts)
             prepareHomeEntryIfNeeded()
@@ -280,6 +323,7 @@ struct HomeView: View {
             // Apple Health writes a climb's heart rate after the climb ends, so every Home entry
             // is another chance for a recent climb to pick up what was not there yet.
             await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
+            await importService.syncNow()
         }
         .task(id: authVM.user?.uid) {
             // One listener on one document, for as long as Home is mounted and this
@@ -316,8 +360,10 @@ struct HomeView: View {
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            importService.refreshDerivedState()
             Task {
                 await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
+                await importService.syncNow()
             }
         }
         .onChange(of: authVM.user?.uid) { _, _ in
@@ -333,8 +379,10 @@ struct HomeView: View {
             refreshTodayClimbStake()
             refreshCompletedClimberCounts()
             refreshTodayPresentations()
+            importService.refreshDerivedState()
             Task {
                 await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
+                await importService.syncNow()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in
@@ -400,6 +448,12 @@ struct HomeView: View {
                         showingStartActionSheet = true
                     }
                     .accessibilityHint("Open climb actions")
+                    .overlay(alignment: .topTrailing) {
+                        if case .viewImports(let badge) = importService.entry, badge > 0 {
+                            HealthCountBadge(count: badge)
+                                .offset(x: 8, y: -8)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 20)
@@ -701,6 +755,18 @@ struct HomeView: View {
     }
 
     private func consumePendingStartAction() {
+        if pendingHealthEntry {
+            pendingHealthEntry = false
+            switch importService.entry {
+            case .connect:
+                showingHealthConnectFlow = true
+            case .viewImports:
+                showingImports = true
+            case nil:
+                break
+            }
+            return
+        }
         if pendingLogIt {
             pendingLogIt = false
             logClimbRequest = LogClimbRequest(

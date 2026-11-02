@@ -181,6 +181,13 @@
       },
       "valueType": "BOOLEAN",
       "description": "Rollout switch, ships off. On lets the server push announce a new gear event; off sends nothing and the event stays unannounced until it is on and still inside its window. Read by the Cloud Function, not the app."
+    },
+    "apple_health_import_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops finding, importing and announcing Apple Health stair workouts, and the background wake for new ones; workouts already found and climbs already imported are untouched, and import resumes from the same anchor."
     }
   },
   "parameterGroups": {},

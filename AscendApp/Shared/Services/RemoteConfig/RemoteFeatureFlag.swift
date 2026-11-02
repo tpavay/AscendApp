@@ -127,6 +127,12 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// it is still within its window.
     case gearDropPush = "gear_drop_push_enabled"
 
+    /// Importing stair workouts from Apple Health as climbs: the discovery pass, the automatic
+    /// import, the Imports screen's import actions and the observer that wakes the app for a new
+    /// workout. Off, every workout already found stays where it is and nothing new is imported or
+    /// announced; turning it back on resumes from the same anchor, so no workout is lost.
+    case appleHealthImport = "apple_health_import_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -200,6 +206,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Schedules the local reminder two days before a free trial ends."
         case .gearDropPush:
             return "Lets the server push announce a new gear event. Ships off. Read by the Cloud Function, not the app."
+        case .appleHealthImport:
+            return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
         }
     }
 }

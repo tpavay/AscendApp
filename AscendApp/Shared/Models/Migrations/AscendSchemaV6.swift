@@ -16,8 +16,8 @@ import SwiftData
 /// eligibility from `source`, `steps` and `durationSeconds`, so what this stores is the device's
 /// record of that verdict, for the surfaces that explain it.
 ///
-/// Unlike V1 through V5 this is not frozen - it is the live model set, and it moves with the
-/// models. The next persisted-shape change becomes `AscendSchemaV7` and a new stage.
+/// Frozen by `AscendSchemaV7`, which added a model and changed none of these. It still names the
+/// live types, as V4 does for the models that never changed after it.
 enum AscendSchemaV6: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(6, 0, 0) }
 

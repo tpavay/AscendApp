@@ -17,9 +17,9 @@ Start from what is actually here.
 
 | Thing | Where |
 |---|---|
-| The shapes older installs wrote | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift`, `AscendSchemaV2.swift`, `AscendSchemaV3.swift`, `AscendSchemaV4.swift`, `AscendSchemaV5.swift` |
-| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV6.swift` |
-| The plan that carries V1 forward to V6 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
+| The shapes older installs wrote | `AscendApp/Shared/Models/Migrations/AscendSchemaV1.swift`, `AscendSchemaV2.swift`, `AscendSchemaV3.swift`, `AscendSchemaV4.swift`, `AscendSchemaV5.swift`, `AscendSchemaV6.swift` |
+| The shape the app writes now | `AscendApp/Shared/Models/Migrations/AscendSchemaV7.swift` |
+| The plan that carries V1 forward to V7 | `AscendApp/Shared/Models/Migrations/AscendMigrationPlan.swift` |
 | The one declaration of which schema is live, read by everything that must cover the whole store | `AscendApp/Shared/Models/AscendLocalStore.swift` (`currentSchema`) |
 | Where the container is opened, and the interrupted-migration retry | `AscendApp/App/AscendApp.swift` (`createModelContainer`, `finishInterruptedMigrationIfNeeded`) |
 | Proof it works against a real V1 store | `AscendAppTests/WorkoutSourceSchemaMigrationTests.swift` |
@@ -36,9 +36,10 @@ It carries one frozen copy, `AscendSchemaV4.ActiveHeadphoneWorkoutDraft`, the pr
 `AscendSchemaV5` is `Schema.Version(5, 0, 0)` and lists fourteen models; it adds `ActiveHeadphoneWorkoutDraft.checkpointDiagnosticsData`, the optional device diagnostics of a session's last checkpoint (`docs/headphone-session-recovery.md`).
 It is frozen, and it carries the second set of frozen copies: `AscendSchemaV5.Workout`, `WorkoutSourceLink` and `WorkoutParticipation`, the workout graph as every build from V2 to V5 wrote it. V2, V3 and V4 name those copies, and V1 keeps its own older one. They travel as a trio because `Workout` owns cascade relationships to the other two - which is exactly why `WorkoutSyncOutboxEntry` was kept off `Workout` in V4.
 `AscendSchemaV6` is `Schema.Version(6, 0, 0)` and lists the fourteen live models; it adds `Workout.leaderboardStatusRawValue` (`eligible` or `excluded`), whether the device concluded a climb counts toward leaderboards (`ClimbPacePolicy`). Lightweight, with an honest blanket default: every climb written before it was counted. The server never reads it.
-`AscendMigrationPlan.stages` holds five stages: `migrateV1toV2`, a `.custom` stage, then `migrateV2toV3`, `migrateV3toV4`, `migrateV4toV5` and `migrateV5toV6`, all lightweight.
+`AscendSchemaV7` is `Schema.Version(7, 0, 0)` and lists fifteen models: V6's fourteen plus `HealthWorkoutRecord`, the ledger behind Apple Health import (`docs/apple-health-import.md`). A new model and nothing else, so V6 needed no frozen copies: it still names the live types, as V4 does, and the stage is lightweight over an empty table. V6 was treated as shipped - it is on `develop`, which builds to TestFlight - which is why this is a V7 and not a model added to V6.
+`AscendMigrationPlan.stages` holds six stages: `migrateV1toV2`, a `.custom` stage, then `migrateV2toV3`, `migrateV3toV4`, `migrateV4toV5`, `migrateV5toV6` and `migrateV6toV7`, all lightweight.
 The V1 -> V2 stage's `didMigrate` writes through `AscendSchemaV5.Workout`, not the live type, because its context is the V2 store: `applyStashedSources` is generic over `SourceRepairableWorkout` for that reason, and every later launch passes the live `Workout`.
-`AscendAppTests/LeaderboardStatusSchemaMigrationTests.swift` is the worked V5 -> V6 proof.
+`AscendAppTests/LeaderboardStatusSchemaMigrationTests.swift` is the worked V5 -> V6 proof, and `AscendAppTests/HealthWorkoutRecordSchemaMigrationTests.swift` is the worked V6 -> V7 one, including a store two versions back.
 
 **Read `migrateV1toV2` before you write a migration of your own.**
 It is the worked example of the hardest case in the decision procedure below, and it is real code in this repository rather than a paraphrase of Apple's documentation.

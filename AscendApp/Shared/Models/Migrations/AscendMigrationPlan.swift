@@ -21,13 +21,24 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
             AscendSchemaV3.self,
             AscendSchemaV4.self,
             AscendSchemaV5.self,
-            AscendSchemaV6.self
+            AscendSchemaV6.self,
+            AscendSchemaV7.self
         ]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateV5toV6]
+        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateV5toV6, migrateV6toV7]
     }
+
+    /// Adds the `HealthWorkoutRecord` model: the ledger behind Apple Health import.
+    ///
+    /// Lightweight, and a new table touches no existing row. Nothing is computed per record - the
+    /// ledger fills itself from Health after launch, behind `apple_health_import_enabled`, which is
+    /// the half of the feature a kill switch can reach.
+    static let migrateV6toV7 = MigrationStage.lightweight(
+        fromVersion: AscendSchemaV6.self,
+        toVersion: AscendSchemaV7.self
+    )
 
     /// Adds `leaderboardStatusRawValue` to `Workout`: whether a climb counts toward leaderboards.
     ///

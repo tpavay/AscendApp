@@ -27,6 +27,13 @@ final class PushNotificationRouter {
         let type = stringValue(for: "type", in: userInfo)
         let route = stringValue(for: "route", in: userInfo)
 
+        // A local notification the app scheduled itself when Apple Health import landed a climb.
+        if type == LocalHealthImportNotifier.notificationType,
+           let workoutID = stringValue(for: LocalHealthImportNotifier.workoutIDKey, in: userInfo)
+            .flatMap(UUID.init(uuidString:)) {
+            return .importedClimbQuickEdit(workoutID: workoutID)
+        }
+
         guard type == "climb_drop" || route == "climb_detail" else {
             return nil
         }

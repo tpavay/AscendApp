@@ -21,11 +21,11 @@ enum WorkoutSource: String, CaseIterable, Codable {
     case hevy = "hevy"               // Legacy import source retained for old synced workouts
     case headphoneMotion = "headphone_motion" // Live tracking from compatible headphones
 
-    /// Only sources Ascend can still produce. The other cases stay readable so stored rows from
-    /// before Apple Health import was removed keep rendering everywhere, but offering them as
-    /// filters advertises features that are gone. A climber can log a climb by hand again.
+    /// Only sources Ascend can produce: the headphones, Apple Health import, and typing a climb
+    /// in. The provider placeholders nothing ever set stay readable but are not offered as filters,
+    /// because that would advertise integrations that were never built.
     static var filterOptions: [WorkoutSource] {
-        [.headphoneMotion, .manual]
+        [.headphoneMotion, .appleHealth, .manual]
     }
 
     var displayName: String {

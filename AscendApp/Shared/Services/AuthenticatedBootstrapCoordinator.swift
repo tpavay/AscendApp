@@ -26,6 +26,7 @@ enum AutonomousSessionWorkers {
     static var all: [any AuthenticatedSessionWorker] {
         [
             AppleHealthEnrichmentService.shared,
+            AppleHealthImportService.shared,
             MediaUploadManager.shared
         ]
     }

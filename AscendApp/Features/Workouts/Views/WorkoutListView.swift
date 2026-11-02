@@ -349,6 +349,9 @@ struct WorkoutListView: View {
                 modelContext: modelContext
             )
             let deletedSnapshots = workoutsToDelete.map(LeaderboardWorkoutSnapshot.init(workout:))
+            // A removed imported climb must never import again, in either mode. The ledger rows
+            // change in the same save that deletes the climbs.
+            HealthWorkoutLedger(modelContext: modelContext).markSkippedForDeletedClimbs(workoutsToDelete)
             for workout in workoutsToDelete {
                 modelContext.delete(workout)
             }

@@ -62,6 +62,8 @@ test("a leaderboard row reads as typed when any of its climbs was typed", () => 
   assert.equal(render({}), "live");
   assert.equal(render({typedWorkouts: 0}), "live");
   assert.equal(render({typedWorkouts: 1}), "manual");
+  assert.equal(render({typedWorkouts: 0, importedWorkouts: 1}), "healthImport");
+  assert.equal(render({typedWorkouts: 1, importedWorkouts: 1}), "manual");
 });
 
 test("a leaderboard row from an older identity policy is dropped, and says so", () => {

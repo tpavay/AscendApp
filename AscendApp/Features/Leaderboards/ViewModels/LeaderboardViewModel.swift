@@ -510,6 +510,7 @@ final class LeaderboardViewModel {
                 totalDuration: stat.totalDuration,
                 stepsPerMinute: stat.stepsPerMinute,
                 typedWorkouts: stat.typedWorkouts,
+                importedWorkouts: stat.importedWorkouts,
                 lastUpdated: stat.lastUpdated,
                 age: currentUserProfile.age ?? stat.age,
                 weightKg: currentUserProfile.weightKg ?? stat.weightKg,

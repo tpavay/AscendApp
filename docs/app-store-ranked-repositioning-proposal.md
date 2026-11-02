@@ -21,16 +21,21 @@ It should be updated to match whatever is actually applied to App Store Connect,
 
 ## What this copy assumes about the app
 
-Written against the app as it stands after [#437](https://github.com/tpavay/AscendApp/issues/437), which merged on 2026-08-08.
+Written against the app as it stands in 1.3.0.
+[#437](https://github.com/tpavay/AscendApp/issues/437) removed Apple Health workout import and manual logging on 2026-08-08, and both returned in 1.3.0 as their own reviewed pieces: Log it (typed climbs) and Apple Health import (`docs/apple-health-import.md`).
 
-Gone: Apple Health workout import, manual workout logging, and any framing of Ascend as a place to log or import training.
-Kept: connecting Apple Health to enrich a climb performed *in Ascend*, live heart rate from a Bluetooth chest strap, Live Climbs, leaderboards, First Ascents, Best Efforts, guided routines, and the share sheet.
+Live headphone climbs stay the main way to climb.
+A climb Ascend did not measure itself - typed in, or imported from Apple Health - ranks only if the automatic pace check passes it (`ClimbPacePolicy`), and the server derives eligibility again.
+There is no report button and no review queue.
+Still not in the app: any framing of Ascend as a place to log or track training in general, and Apple Health import of anything but stair stepper workouts.
+Kept: live heart rate from a Bluetooth chest strap, Live Climbs, leaderboards, First Ascents, Best Efforts, guided routines, and the share sheet.
 
-For that enrichment, Ascend reads exactly two Apple Health types - heart rate and active energy - over the climb's own time window, and attaches your heart rate and active-energy calories to that climb.
-It never requests `workoutType()`, so Workouts does not appear in the Health permission sheet, and it never writes to Apple Health.
+Ascend reads exactly five Apple Health types, read only: workouts, steps, flights climbed, heart rate and active energy.
+It imports `stairClimbing` and `stairs` workouts and their own statistics, and still reads heart rate and active energy over a climb's own time window, for a climb Ascend recorded, to attach them to it.
+It never writes to Apple Health.
 `HealthKitAuthorizationClient.readTypes` is the authority for that set; the legal pages, the `Info.plist` usage string, and the App Store data answers all have to match it.
 
-The live App Review notes describe the same two deleted features, so they are replaced wholesale by [App Review notes](#app-review-notes) below.
+The live App Review notes describe features as they stood before 1.3.0, so they are replaced wholesale by [App Review notes](#app-review-notes) below.
 
 ## App name
 
@@ -170,14 +175,16 @@ Build a share card from the tower you climbed and the rank you posted.
 
 Ascend is built for people who take the stair stepper seriously.
 It is not a generic activity tracker and it is not a social feed.
-Every climb and every record in Ascend comes from a session you performed in Ascend. There is no manual entry and no importing from other apps.
+Live climbs with compatible AirPods or Beats are the main way to climb.
+Already climbed? Log a climb you did without a session, or bring in a stair stepper workout a watch or another app saved to Apple Health.
+A climb Ascend did not measure itself ranks only if its pace is plausible.
 
 An auto-renewing subscription is required after onboarding.
 Available plans, billing terms, and any eligible trial are shown before purchase.
 Subscriptions can be managed through your Apple Account, and eligible purchases can be restored in Ascend.
 
-Every session in Ascend - a ranked tower climb, a Just Climb, or a guided routine - is counted by motion sensors in compatible AirPods or Beats, and needs a stair stepper to climb.
-Apple Health is optional and is used only to attach heart rate and active-energy calories recorded while you were climbing in Ascend.
+Every live session in Ascend - a ranked tower climb, a Just Climb, or a guided routine - is counted by motion sensors in compatible AirPods or Beats, and needs a stair stepper to climb.
+Apple Health is optional. Connect it to import stair stepper workouts and to attach heart rate and active-energy calories to your climbs. Ascend reads from Apple Health and never writes to it.
 A Bluetooth heart-rate monitor is optional.
 Ascend is not a medical device and does not provide medical advice.
 ```
@@ -194,9 +201,9 @@ The real-tower hook stays, because "which tower" is still the answer to "ranked 
 
 Three other changes carry the repositioning:
 
-- The **KEEP YOUR HISTORY TOGETHER** section is gone. It promised logging and Apple Health import, both of which #437 removed. Its replacement is an explicit statement that everything in Ascend comes from a session performed in Ascend, which turns the removal into a credibility claim about the leaderboard rather than a missing feature.
+- The **KEEP YOUR HISTORY TOGETHER** section is gone. It sold logging and Apple Health import as a place to keep your training, which is the tracker framing. Since 1.3.0 the description says plainly that live climbs are the main way to climb, that a climb done without a session can be typed in or imported, and that anything Ascend did not measure itself ranks only if its pace is plausible.
 - **Mt. Everest is gone** from the landmark examples, ahead of #440.
-- The Apple Health footnote now says what Apple Health is actually for after #437: attaching heart rate and active-energy calories to a climb performed in Ascend, from an Apple Watch or any wearable that writes to Apple Health.
+- The Apple Health footnote now says what Apple Health is for in 1.3.0: importing stair stepper workouts, and attaching heart rate and active-energy calories to a climb, from an Apple Watch or any wearable that writes to Apple Health.
 
 Three further corrections came out of verifying every sentence against build 2026081101 on 2026-08-11:
 
@@ -219,8 +226,8 @@ Every claim in the description, and where the app makes it true. Checked against
 | Guided routines with chest-strap heart rate | `AscendApp/Features/Routines/`; `HeartRateMonitorIntegrationCard` names the Bluetooth chest strap, and `LiveHeartRateSourceKind` ranks it above the watch. |
 | Just Climb, open-ended with an optional goal | `HomeStartAction.justClimb` -> `LiveClimbSessionViewModel(justClimbGoal:experience:)`. |
 | Share card from a ranked result | `AscendApp/Features/ShareSheet/`. |
-| No manual entry, no import | `WorkoutSource.filterOptions == [.headphoneMotion]`, and `AscendAppTests/ManualLoggingAndImportRemovalEvidenceTests.swift` reads the removal back off rendered pixels. |
-| Apple Health is heart rate and active energy only, over the session's own window | `HealthKitAuthorizationClient.readTypes`; `workoutType()` is never requested and no share types are requested. |
+| A climb done without a session can be typed in or imported, and ranks only on a plausible pace | `ClimbPacePolicy`; `WorkoutSource.filterOptions == [.headphoneMotion, .appleHealth, .manual]`; `AppleHealthImportService`; `AscendAppTests/AppleHealthSurfacesEvidenceTests.swift` reads the Climb sheet's Log it and Health buttons back off the rendered screen. |
+| Apple Health is read only, and the read set is five types | `HealthKitAuthorizationClient.readTypes` (workouts, steps, flights climbed, heart rate, active energy); no share types are requested. |
 
 Two claims the description deliberately does **not** make, because the build does not support them:
 
@@ -231,11 +238,11 @@ Two claims the description deliberately does **not** make, because the build doe
 
 Locale-independent; App Store Connect keeps one set for the version.
 Apple's limit on this field is 4,000 bytes.
-As written below it is **3,847 bytes**, so the bracketed fields have roughly 150 bytes to grow into - enough for real addresses, eight-digit backup codes, a video URL and a contact line, but not much more.
+As written below it is **3,755 bytes**, so the bracketed fields have roughly 245 bytes to grow into - enough for real addresses, eight-digit backup codes, a video URL and a contact line, but not much more.
 Count it again after filling them in; a long hosting URL is the one field that can blow the budget.
 
 This text is truthful **only** once the bracketed fields are filled and the checklist below is verified against the production-signed build being submitted.
-Every unbracketed sentence in it was checked against build `2026081101` on 2026-08-11.
+Every unbracketed sentence in it was checked against build `2026081101` on 2026-08-11, except the 1.3.0 sentences about Log it, Apple Health import and the five-type read set, which were written against `develop` and must be re-checked on the submitted build.
 
 ```text
 ASCEND - NOTES FOR APP REVIEW
@@ -289,7 +296,7 @@ and a guided routine start to finish. We will ship the hardware on request.
 
 3. WHAT YOU CAN REVIEW WITHOUT THAT HARDWARE
 
-On the full-access account, everything except starting a session:
+On the full-access account, everything except starting a session (Log it works):
 
 - Home: today's tower, your weekly standing, recent records.
 - Globe and catalogue: open any tower for its step count, floors, overview,
@@ -305,13 +312,12 @@ On the full-access account, everything except starting a session:
 
 4. THINGS WE WANT TO STATE PLAINLY
 
-- There is no manual entry and no import. Every session is recorded live by
-  Ascend. Typed-in workouts and Apple Health workout import were both removed
-  from the app, and earlier notes that mentioned them were wrong.
-- Apple Health is optional and read-only. Ascend requests exactly two types,
-  heart rate and active energy, and reads them only across the time window of a
-  session Ascend itself recorded, to attach heart rate and calories to it.
-  Ascend never requests workout data and never writes to Health.
+- Live climbs are the main way to climb. A climb done without a session can
+  also be typed in (+ > Log it, no hardware) or imported from Apple Health
+  (+ > Connect Health). Both pass an automatic pace check before they rank.
+- Apple Health is optional and read-only: workouts, steps, flights climbed,
+  heart rate and active energy. Only stair stepper workouts are imported.
+  Ascend never writes to Health.
 - Bluetooth is used for one thing: an optional heart-rate chest strap.
 - Delete Account sits at the bottom of Settings and is also reachable from the
   subscription gate, so an account that never subscribed can still delete
@@ -338,3 +344,15 @@ Each item is a sentence in the notes that this repository cannot prove on its ow
 - **Screenshots.** Tracked separately in [#390](https://github.com/tpavay/AscendApp/issues/390).
 - **In-app copy.** Tracked in #437.
 - **The Superwall onboarding paywall** (`web/public/superwall/onboarding-paywall.html`). Resolved by #440: it no longer hard-codes a landmark count, and derives it from the published catalogue instead. `docs/launch-readiness-audit.md` (Promise vs. reality, item 8) owns how that resolution works.
+
+## App Store Connect changes needed for 1.3.0
+
+Nothing here has been applied.
+Firstmate applies App Store Connect changes by hand, and this list is what has to change.
+
+1. **App Privacy questionnaire.** Health & Fitness data is now read as workouts, steps, flights climbed, heart rate and active energy (previously heart rate and active energy only). Purposes stay App Functionality and Analytics as the manifest declares, not used for tracking, linked to the user. `AscendApp/PrivacyInfo.xcprivacy`, the privacy policy at ascendstepper.com/privacy and the `Info.plist` usage string already say the same five types.
+2. **HealthKit capability on the App ID.** The `com.apple.developer.healthkit.background-delivery` entitlement is already in `AscendApp/AscendApp.entitlements`. Enable the Background Delivery sub-capability under HealthKit on the App ID and regenerate the provisioning profiles (dev, staging, production; match), or the archive will not sign with it.
+3. **App Review notes.** Replace them with the [App Review notes](#app-review-notes) block above. Import needs a stair workout in Health, which a reviewer's device may not hold: say that Log it needs no hardware, that Connect Health walks the permission guide and the Import automatically / Let me choose screen, and attach the demo video showing a watch workout arriving. If review needs an import without hardware, a seeded Health workout on the review device is the demo path.
+4. **Description and keywords.** Apply the description above, which now says a climb done without a session can be typed in or imported from Apple Health. The keyword set is unchanged. Do not add `import` or `log` as keywords: positioning is ranked first.
+5. **Screenshots and the preview video** that show the Climb sheet predate the ALREADY CLIMBED? row and should be retaken when screenshots are next refreshed (#390).
+6. **Support URL and Terms.** The website pages in this repository carry the new wording and deploy with the next hosting deploy.

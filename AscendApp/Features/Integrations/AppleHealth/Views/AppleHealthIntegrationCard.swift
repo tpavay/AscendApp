@@ -15,8 +15,11 @@ struct AppleHealthIntegrationCard: View {
     @State private var themeManager = ThemeManager.shared
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var showingManageSheet = false
+    @State private var showingConnectFlow = false
+    @State private var showingImports = false
+    /// Set when the connect flow finished, so Imports opens once its cover is gone.
+    @State private var opensImportsAfterConnect = false
     @State private var actionTask: Task<Void, Never>?
-    @State private var isConnecting = false
     @State private var alertMessage = ""
     @State private var showingErrorAlert = false
 
@@ -54,6 +57,24 @@ struct AppleHealthIntegrationCard: View {
                 onOpenHealthPermissions: openPermissionsFromManageSheet
             )
         }
+        .fullScreenCover(isPresented: $showingConnectFlow, onDismiss: {
+            guard opensImportsAfterConnect else { return }
+            opensImportsAfterConnect = false
+            showingImports = true
+        }) {
+            AppleHealthConnectFlowView(
+                onFinished: {
+                    opensImportsAfterConnect = true
+                    showingConnectFlow = false
+                },
+                onClose: { showingConnectFlow = false }
+            )
+        }
+        .fullScreenCover(isPresented: $showingImports) {
+            NavigationStack {
+                AppleHealthImportsView()
+            }
+        }
         .alert("Apple Health", isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -72,10 +93,9 @@ struct AppleHealthIntegrationCard: View {
         case .neverConnected:
             IntegrationCardActionButton(
                 "Connect",
-                appearance: .filled(background: .accent, foreground: .black),
-                isLoading: isConnecting
+                appearance: .filled(background: .accent, foreground: .black)
             ) {
-                connectAppleHealth()
+                showingConnectFlow = true
             }
         case .connected, .revoked:
             IntegrationCardActionButton(
@@ -106,9 +126,9 @@ struct AppleHealthIntegrationCard: View {
         case .unavailable:
             return "Apple Health is not available on this device."
         case .neverConnected, .revoked:
-            return "Connect Apple Health to attach heart rate and calories to the climbs you run in Ascend."
+            return "Connect Apple Health to bring in stair stepper workouts from any device or app, and to attach heart rate and calories to the climbs you run in Ascend."
         case .connected:
-            return "Heart rate and calories attach to the climbs you run in Ascend."
+            return "Stair stepper workouts from Apple Health import as climbs, and heart rate and calories attach to the climbs you run in Ascend."
         }
     }
 
@@ -120,22 +140,6 @@ struct AppleHealthIntegrationCard: View {
             return .orange
         case .unavailable, .neverConnected:
             return .secondary
-        }
-    }
-
-    private func connectAppleHealth() {
-        actionTask?.cancel()
-        isConnecting = true
-        actionTask = Task {
-            let didConnect = await enrichmentService.requestAppleHealthAuthorizationIfNeeded()
-            isConnecting = false
-
-            guard didConnect else {
-                if let errorMessage = enrichmentService.lastErrorMessage, !errorMessage.isEmpty {
-                    presentError(errorMessage)
-                }
-                return
-            }
         }
     }
 
