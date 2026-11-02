@@ -128,6 +128,15 @@ A leaderboard row's source icon reads two counts the server stores beside the to
 `aggregateForPeriod` counts both from the same workouts as the totals, `FirestoreLeaderboardStats.origin` reads them, and one typed climb makes the row typed before one imported climb makes it a Health row.
 A row written before the server counted imports reads as live until the next derivation rewrites it.
 
+## The Climb sheet
+
+The sheet follows the handoff's screens 03 to 05.
+Just Climb is the hero row, ringed in the accent, because a live climb stays the main way to climb.
+The Landmark row names today's climb (`DailyClimbRecommendationPolicy`, the Home daily row's pick) and the Routine row names today's featured built-in routine (`DailyRoutineRecommendationPolicy`, same 4 a.m. rollover).
+Tapping either row opens that pick; `See all ›` opens the full list, the expanded Home sheet for landmarks and Training for routines.
+With no pick in hand a row falls back to what it is for.
+SwiftUI keeps a single orphaned word off the last line, so the Just Climb subtitle wraps one word earlier than the mock's browser render.
+
 ## Not built yet
 
 These belong to the third piece:
@@ -136,7 +145,6 @@ These belong to the third piece:
 - The Settings screens: How you track, Apple Health connected or off, Import older workouts.
 - Importing workouts older than the join date.
 - Onboarding wording and a Health step in onboarding itself.
-- The Landmark and Routine cards' Today subtitles and See all on the Climb sheet.
 
 ## Testing without a device
 

@@ -8,44 +8,69 @@ struct HomeStartActionSheet: View {
     /// or the kill switch off). With both this and `onLogIt` nil, the whole section goes away.
     var healthEntry: AppleHealthEntry?
     var onHealth: () -> Void = {}
+    /// Today's landmark and routine, named on their rows.
+    var picks: HomeStartPicks = .none
+    var onSeeAll: (HomeStartAction) -> Void = { _ in }
 
     var body: some View {
-        AppSheetScaffold(
-            title: "START",
-            message: "Climb now, race a landmark, or run intervals.",
-            headerAlignment: .leading,
-            contentAlignment: .leading,
-            layout: .actionMenu
-        ) {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(HomeStartAction.allCases, id: \.self) { action in
-                    HomeStartActionRow(action: action, onSelect: onSelect)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            header
 
-                if onLogIt != nil || healthEntry != nil {
-                    alreadyClimbed
-                        .padding(.top, 10)
-                }
+            ForEach(HomeStartAction.allCases, id: \.self) { action in
+                HomeStartActionRow(
+                    action: action,
+                    detail: picks.line(for: action),
+                    onSelect: onSelect,
+                    onSeeAll: onSeeAll
+                )
+            }
+
+            if onLogIt != nil || healthEntry != nil {
+                alreadyClimbed
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 20)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appSheetBackground()
         .preferredColorScheme(.dark)
         .trackOnce(screen: .homeStartAction)
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("CLIMB")
+                .font(.montserratBold(size: 30))
+                .foregroundStyle(.white)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 12)
+            Text("Pick how today goes")
+                .font(.montserratSemiBold(size: 13))
+                .foregroundStyle(Color(white: 0.56))
+        }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 4)
     }
 
     /// Logging and importing are the second way to land a climb, not a fourth way to start one,
     /// so they sit apart from the three rows above and say what they are for.
     private var alreadyClimbed: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("ALREADY CLIMBED?")
-                .font(.montserratBold(size: 11))
-                .tracking(1.2)
-                .foregroundStyle(.white.opacity(0.5))
+                .font(.montserratBold(size: 12))
+                .tracking(1.7)
+                .foregroundStyle(Color(white: 0.56))
+                .padding(.horizontal, 6)
+                .padding(.top, 6)
 
             HStack(spacing: 10) {
                 if let onLogIt {
                     secondaryButton(action: onLogIt) {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 14, weight: .bold))
+                        HomeStartPencilShape()
+                            .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                            .frame(width: 18, height: 18)
+                            .accessibilityHidden(true)
                         Text("Log it")
                             .font(.montserratBold(size: 14))
                     }
@@ -57,11 +82,13 @@ struct HomeStartActionSheet: View {
                         Image("appleHealth-icon")
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(width: 24, height: 24)
-                            .clipShape(.rect(cornerRadius: 6))
+                            .frame(width: 26, height: 26)
+                            .clipShape(.rect(cornerRadius: 7))
                             .accessibilityHidden(true)
                         Text(healthEntry.title)
                             .font(.montserratBold(size: 14))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .overlay(alignment: .topTrailing) {
                         if case .viewImports(let badge) = healthEntry, badge > 0 {
@@ -81,18 +108,18 @@ struct HomeStartActionSheet: View {
         @ViewBuilder label: () -> Label
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 label()
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .frame(height: 50)
+            .frame(height: 56)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(.white.opacity(0.06))
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(white: 0.067))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(Color(white: 0.165), lineWidth: 1)
                     )
             )
         }
