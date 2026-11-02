@@ -103,6 +103,12 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// edited. Off, Log it is not offered and every stored status is left exactly as it is.
     case climbLogging = "climb_logging_enabled"
 
+    /// Importing stair workouts from Apple Health as climbs: the discovery pass, the automatic
+    /// import, the Imports screen's import actions and the observer that wakes the app for a new
+    /// workout. Off, every workout already found stays where it is and nothing new is imported or
+    /// announced; turning it back on resumes from the same anchor, so no workout is lost.
+    case appleHealthImport = "apple_health_import_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -158,6 +164,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Resumes a dead session automatically on relaunch instead of asking first."
         case .climbLogging:
             return "Offers Log it and saves typed climbs; re-derives a climb's leaderboard status."
+        case .appleHealthImport:
+            return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
         }
     }
 }

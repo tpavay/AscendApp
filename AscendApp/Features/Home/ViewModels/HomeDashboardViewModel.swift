@@ -427,6 +427,10 @@ final class HomeDashboardViewModel {
                     describingSteps: totalSteps,
                     workouts: totalWorkouts
                 ),
+                importedWorkouts: existing?.publishedImportedWorkouts(
+                    describingSteps: totalSteps,
+                    workouts: totalWorkouts
+                ),
                 lastUpdated: max(existing?.lastUpdated ?? lastUpdated, lastUpdated),
                 age: existing?.age,
                 weightKg: existing?.weightKg,

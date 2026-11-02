@@ -58,6 +58,15 @@ struct AscendApp: App {
         } else {
             _authVM = State(initialValue: nil)
         }
+
+        // Registered at launch rather than from a screen: HealthKit relaunches the app in the
+        // background when a watch saves a workout, with no scene content, and delivers only to an
+        // observer that exists by then. Everything the call does beyond registering is gated on
+        // the connection, the session and the kill switch, so a climber who never connected pays
+        // nothing.
+        if startupFailure == nil, let modelContainer = self.modelContainer {
+            AppleHealthImportService.shared.resume(modelContext: modelContainer.mainContext)
+        }
     }
 
     private static func configureFirebase() -> AppLaunchFailure? {
