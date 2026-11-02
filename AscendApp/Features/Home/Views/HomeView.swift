@@ -44,6 +44,8 @@ struct HomeView: View {
     @State private var showingHelpSheet = false
     @State private var showingJustClimbSetup = false
     @State private var pendingStartAction: HomeStartAction?
+    /// Whether the pending start action is its row's `See all ›` rather than the row itself.
+    @State private var pendingStartSeeAll = false
     @State private var pendingLogIt = false
     @State private var pendingHealthEntry = false
     @State private var showingHealthConnectFlow = false
@@ -256,6 +258,7 @@ struct HomeView: View {
             HomeStartActionSheet(
                 onSelect: { action in
                     pendingStartAction = action
+                    pendingStartSeeAll = false
                     showingStartActionSheet = false
                 },
                 onLogIt: LoggedClimbService.isOffered() ? {
@@ -265,6 +268,12 @@ struct HomeView: View {
                 healthEntry: importService.entry,
                 onHealth: {
                     pendingHealthEntry = true
+                    showingStartActionSheet = false
+                },
+                picks: startPicks,
+                onSeeAll: { action in
+                    pendingStartAction = action
+                    pendingStartSeeAll = true
                     showingStartActionSheet = false
                 }
             )
@@ -776,17 +785,35 @@ struct HomeView: View {
         }
         guard let action = pendingStartAction else { return }
         pendingStartAction = nil
+        let seeAll = pendingStartSeeAll
+        pendingStartSeeAll = false
 
         switch action {
         case .justClimb:
             pendingJustClimbGoal = nil
             showingJustClimbSetup = true
         case .browseClimbs:
-            // The globe is already here: the sheet's expanded position is the list.
-            setSheetDetent(.expanded)
+            if !seeAll, let todayClimb = globeViewModel.dailyRecommendedClimb {
+                openTodayClimb(todayClimb)
+            } else {
+                // The globe is already here: the sheet's expanded position is the list.
+                setSheetDetent(.expanded)
+            }
         case .routines:
-            tabRouter.select(.training, reason: .appRouting)
+            if !seeAll, let pick = DailyRoutineRecommendationPolicy.recommendation() {
+                tabRouter.openRoutineTemplate(pick.templateId)
+            } else {
+                tabRouter.select(.training, reason: .appRouting)
+            }
         }
+    }
+
+    /// Today's landmark and routine, named on the Climb sheet's two list rows.
+    private var startPicks: HomeStartPicks {
+        HomeStartPicks(
+            landmark: globeViewModel.dailyRecommendedClimb,
+            routine: DailyRoutineRecommendationPolicy.recommendation()
+        )
     }
 
     private func setSheetDetent(

@@ -13,6 +13,12 @@ import Testing
 struct AppleHealthImportEvidenceTests {
     // MARK: - Climb sheet
 
+    /// The picks the handoff's mock screens 03 to 05 show.
+    private static let mockPicks = HomeStartPicks(
+        landmarkLine: "Today: DC Tower 1 · 1,412 steps",
+        routineLine: "Today: Pyramid Climb · 20 min"
+    )
+
     @Test("The Climb sheet's Health button is Connect Health, View imports with a count, or plain View imports")
     func theClimbSheetShowsTheRightHealthButtonForEachState() async throws {
         for (entry, name, expectedCopy, forbiddenCopy) in [
@@ -21,13 +27,23 @@ struct AppleHealthImportEvidenceTests {
             (AppleHealthEntry.viewImports(badge: 0), "import-05-sheet-auto", "view imports", "connect health"),
         ] {
             try await RenderedScreen.host(
-                HomeStartActionSheet(onSelect: { _ in }, onLogIt: {}, healthEntry: entry)
-                    .frame(width: 402)
+                HomeStartActionSheet(
+                    onSelect: { _ in },
+                    onLogIt: {},
+                    healthEntry: entry,
+                    picks: Self.mockPicks
+                )
+                    .frame(width: 390)
                     .background(Color.black),
-                size: CGSize(width: 402, height: 640)
+                size: CGSize(width: 390, height: 640)
             ) { screen in
                 let copy = try await screen.copy { $0.contains("already climbed") }
                 #expect(copy.contains("log it"))
+                #expect(copy.contains("pick how today goes"), "\(copy)")
+                #expect(copy.contains("the mountain, with whoever you want."), "\(copy)")
+                #expect(copy.contains("today: dc tower 1 · 1,412 steps"), "\(copy)")
+                #expect(copy.contains("today: pyramid climb · 20 min"), "\(copy)")
+                #expect(copy.components(separatedBy: "see all").count - 1 == 2, "\(copy)")
                 #expect(copy.contains(expectedCopy), "\(copy)")
                 #expect(!copy.contains(forbiddenCopy), "\(copy)")
                 if case .viewImports(let badge) = entry, badge > 0 {

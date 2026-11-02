@@ -218,7 +218,7 @@ struct AppleHealthSurfacesEvidenceTests {
 
         // The screens are actually the screens, not blanks that trivially contain no bad words.
         #expect(startText.contains("just climb"))
-        #expect(startText.contains("race a landmark"))
+        #expect(startText.contains("climb a landmark"))
         #expect(startText.contains("run a routine"))
         #expect(startText.contains("already climbed"))
         #expect(startText.contains("log it"))
