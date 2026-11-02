@@ -11,8 +11,8 @@
  * goal all publish, marked `isPartial` so no surface reads them as a finish.
  * The deliberate exclusions: a discarded session (never saved), a session with
  * no steps or no time (no progress to show), anything not recorded by the
- * in-app sensor flow (manual and Apple Health rows survive only as legacy
- * data, #437), and a workout the feed first sees more than a day after it
+ * in-app sensor flow (typed and Apple Health imported climbs never publish
+ * here), and a workout the feed first sees more than a day after it
  * finished. Ascend has no private-profile setting; identity is always the
  * public snapshot, and blocking is applied on the reading device.
  *
