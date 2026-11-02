@@ -165,11 +165,6 @@ struct AccountView: View {
                 destination: MeasurementSystemSelectionView()
             ),
             SettingsOption(
-                icon: .settingsAppIcon,
-                title: "App Icon",
-                destination: AppIconSelectionView()
-            ),
-            SettingsOption(
                 icon: .settingsIntegrations,
                 title: "Integrations",
                 destination: IntegrationsView()

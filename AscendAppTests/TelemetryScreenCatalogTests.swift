@@ -73,7 +73,6 @@ struct TelemetryScreenCatalogTests {
         "email_preferences": "EmailPreferencesView",
         "heart_rate_visibility": "HeartRateVisibilityView",
         "measurement_system_settings": "MeasurementSystemSelectionView",
-        "app_icon_settings": "AppIconSelectionView",
         "unlock_event_intro": "UnlockEventIntroView",
         "unlock_event": "UnlockEventPage",
         "unlock_item": "UnlockItemView",
