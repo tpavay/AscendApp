@@ -1,8 +1,11 @@
 import SwiftUI
 
 /// CONNECT APPLE HEALTH: the screen that sells connecting, opened from the Climb sheet or the
-/// Integrations card. A close X replaces the back chevron and "Not now" closes it.
+/// Integrations card. The primary button goes straight to the iOS Health sheet, so connecting is
+/// this tap and the sheet's own two. The close X and "Not now" both close it.
 struct AppleHealthConnectView: View {
+    var isWorking = false
+    var errorMessage: String?
     let onConnect: () -> Void
     let onClose: () -> Void
 
@@ -22,7 +25,7 @@ struct AppleHealthConnectView: View {
             },
             content: { layout in
                 VStack(alignment: .leading, spacing: 0) {
-                    Spacer().frame(height: layout.topChromeHeight + 4)
+                    Spacer().frame(height: HealthFlowChrome.contentTopClearance)
 
                     linkIllustration
                         .frame(maxWidth: .infinity)
@@ -61,36 +64,37 @@ struct AppleHealthConnectView: View {
                     }
                     .padding(.top, 16)
 
-                    Spacer(minLength: 170)
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(Color.ascendCaution)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 16)
+                    } else {
+                        Text("Next, iOS asks for access. Tap Turn On All, then Allow.")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 16)
+                    }
+
+                    Spacer(minLength: 236)
                 }
                 .padding(.horizontal, layout.horizontalPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             },
             bottomContent: { layout in
-                VStack(spacing: 14) {
-                    Button(action: onConnect) {
-                        Text("CONNECT APPLE HEALTH")
-                            .tracking(2)
-                    }
-                    .buttonStyle(
-                        OnboardingPrimaryCTAButtonStyle(
-                            height: layout.primaryButtonHeight,
-                            tint: .accent
-                        )
-                    )
-
-                    Button("Not now", action: onClose)
-                        .font(.montserratSemiBold(size: 16))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .frame(height: 36)
-                }
+                HealthFlowBottomBar(
+                    primaryTitle: "CONNECT APPLE HEALTH",
+                    primaryHeight: layout.primaryButtonHeight,
+                    secondaryTitle: "Not now",
+                    isDisabled: isWorking,
+                    onPrimary: onConnect,
+                    onSecondary: onClose
+                )
             }
         )
-        .overlay(alignment: .topLeading) {
-            HealthFlowCloseButton(action: onClose)
-                .padding(.leading, OnboardingChromeMetrics.backButtonLeadingPadding)
-                .padding(.top, OnboardingChromeMetrics.backButtonTopPadding)
-        }
+        .healthFlowLeadingControl(.close, action: onClose)
         .preferredColorScheme(.dark)
         .trackOnce(screen: .appleHealthConnect)
     }
@@ -103,15 +107,19 @@ struct AppleHealthConnectView: View {
                 .frame(width: 92, height: 92)
                 .clipShape(.rect(cornerRadius: 24))
 
-            HStack(spacing: 7) {
-                ForEach(0..<6, id: \.self) { _ in
-                    Circle().fill(Color.accent).frame(width: 5, height: 5)
-                }
+            // One dashed stroke of round dots, drawn once: nothing here animates, ticks or redraws.
+            Path { path in
+                path.move(to: CGPoint(x: 2.5, y: 2.5))
+                path.addLine(to: CGPoint(x: 68.5, y: 2.5))
             }
+            .stroke(Color.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [0.01, 12]))
+            .frame(width: 71, height: 5)
 
-            Image(systemName: "chevron.up")
-                .font(.system(size: 54, weight: .heavy))
-                .foregroundStyle(Color.accent)
+            Image("AppIconInternalAccent")
+                .resizable()
+                .renderingMode(.original)
+                .scaledToFit()
+                .padding(22)
                 .frame(width: 92, height: 92)
                 .background(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)

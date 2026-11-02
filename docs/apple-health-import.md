@@ -124,7 +124,7 @@ See `docs/remote-config-kill-switches.md`.
 
 ## Leaderboard rows
 
-A leaderboard row's source icon reads two counts the server stores beside the totals: `typedWorkouts` and `importedWorkouts`.
+The server still stores two counts beside a leaderboard row's totals, `typedWorkouts` and `importedWorkouts`, and the client still parses them as `FirestoreLeaderboardStats.origin`, but nothing draws them: the captain ruled on 2026-11-02 that how a climb was recorded shows only on the Imports list and as the footnote on the climb's own detail.
 `aggregateForPeriod` counts both from the same workouts as the totals, `FirestoreLeaderboardStats.origin` reads them, and one typed climb makes the row typed before one imported climb makes it a Health row.
 A row written before the server counted imports reads as live until the next derivation rewrites it.
 
@@ -152,3 +152,11 @@ These belong to the third piece:
 `AppleHealthImportServiceTests` covers mapping, dedupe, skip and remove, the badge rules, both modes, the kill switch and the observer completion handler.
 `HealthWorkoutRecordSchemaMigrationTests` proves the V6 to V7 stage against a real on-disk store.
 Hosted Home tests pass a service built on `FakeHealthWorkoutReader` with Health unavailable, so no test points the process-wide service at a throwaway store.
+
+## The connect flow
+
+Connecting is the Connect button, the iOS sheet's Turn On All and its Allow, then Continue on the import choice.
+The in-app permission guide the handoff drew as screen 10 was dropped on 2026-11-02: it cost a tap and its copy told climbers to tap Allow in the top right, where iOS puts it at the bottom.
+The connect screen carries one line instead: "Next, iOS asks for access. Tap Turn On All, then Allow."
+All three screens share `HealthFlowChrome`: the close X sits 6 points under the safe area's top, 16 from the leading edge, and the primary button keeps one place because every screen reserves the secondary slot under it.
+The Ascend tile on the connect screen is the real `AppIconInternalAccent` mark, and the dotted line between the tiles is one static dashed stroke with nothing animating.

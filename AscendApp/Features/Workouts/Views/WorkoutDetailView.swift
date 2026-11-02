@@ -429,9 +429,9 @@ struct WorkoutDetailView: View {
     /// it is not on them. A live climb says nothing: it needs no explaining.
     @ViewBuilder
     private var provenanceFooter: some View {
-        if workout.origin == .manual {
+        if let footnote = workout.origin.detailFootnote {
             VStack(spacing: 10) {
-                if workout.exceedsPaceCeiling {
+                if workout.origin == .manual, workout.exceedsPaceCeiling {
                     Text(LoggedClimbCopy.savedOffTheBoardsNote(stepsPerMinute: workout.stepsPerMinute ?? 0))
                         .font(.montserratMedium(size: 12))
                         .foregroundStyle(Color.ascendCaution)
@@ -440,7 +440,7 @@ struct WorkoutDetailView: View {
                         .accessibilityIdentifier("workout-detail-off-the-boards")
                 }
 
-                Text("Logged by hand")
+                Text(footnote)
                     .font(.montserratMedium(size: 12))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
             }

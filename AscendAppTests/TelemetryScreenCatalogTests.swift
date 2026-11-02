@@ -82,7 +82,6 @@ struct TelemetryScreenCatalogTests {
         "delete_account_confirmation": "DeleteAccountConfirmationView",
         "apple_health_manage": "AppleHealthManageSheet",
         "apple_health_connect": "AppleHealthConnectView",
-        "apple_health_permission_guide": "AppleHealthPermissionGuideView",
         "apple_health_import_choice": "AppleHealthImportChoiceView",
         "apple_health_imports": "AppleHealthImportsView",
         "imported_climb_quick_edit": "ImportedClimbQuickEditSheet",

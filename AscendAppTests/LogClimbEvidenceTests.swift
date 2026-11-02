@@ -174,7 +174,7 @@ struct LogClimbEvidenceTests {
 
             #expect(copy.contains("3,200"))
             #expect(copy.contains("40:00"))
-            #expect(copy.contains("logged by hand"))
+            #expect(!copy.contains("logged by hand"), "the result screen is not the climb's detail: \(copy)")
             #expect(copy.contains("share"))
             #expect(copy.contains("done"))
             #expect(!copy.contains("off the leaderboards"))
@@ -217,16 +217,13 @@ struct LogClimbEvidenceTests {
         }
     }
 
-    @Test("Every leaderboard row names how its climbs were recorded")
-    func everyRowCarriesItsSourceIcon() async throws {
-        let rows: [(ClimbOrigin, String)] = [
-            (.live, "recorded live"),
-            (.manual, "logged by hand")
-        ]
+    @Test("No leaderboard row says how its climbs were recorded")
+    func noRowCarriesASourceMark() async throws {
+        let origins: [ClimbOrigin] = [.live, .manual, .healthImport]
 
         try await RenderedScreen.host(
             VStack(spacing: 0) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                ForEach(Array(origins.enumerated()), id: \.offset) { index, origin in
                     LeaderboardRow(
                         entry: .preview(
                             userId: "u\(index)",
@@ -234,7 +231,7 @@ struct LogClimbEvidenceTests {
                             rank: index + 1,
                             value: Double(40_000 - index * 3_000),
                             formattedValue: (40_000 - index * 3_000).formatted(),
-                            origin: row.0
+                            origin: origin
                         ),
                         metric: .climb
                     )
@@ -245,16 +242,48 @@ struct LogClimbEvidenceTests {
             .background(Color.black),
             size: CGSize(width: 402, height: 260)
         ) { screen in
-            let elements = try await screen.elements { $0.count >= 2 }
+            let elements = try await screen.elements { $0.count >= 3 }
             let labels = elements.compactMap { ($0 as? NSObject)?.accessibilityLabel?.lowercased() }
 
-            for (_, spoken) in rows {
+            for spoken in ["recorded live", "logged by hand", "imported", "headphones", "pencil", "heart"] {
                 #expect(
-                    labels.contains { $0.contains(spoken) },
-                    "no row says \"\(spoken)\" - rows read: \(labels)"
+                    !labels.contains { $0.contains(spoken) },
+                    "a row says \"\(spoken)\" - rows read: \(labels)"
                 )
             }
             try screen.photograph(named: "log-climb-09-leaderboard-rows")
+        }
+    }
+
+    @Test("A climb's detail ends with how it came to exist: Logged by hand or Imported from Apple Health, and nothing for a live climb")
+    func theDetailFootnoteIsTheOnlyPlaceTheSourceShows() async throws {
+        for (source, expected) in [
+            (WorkoutSource.manual, "logged by hand"),
+            (WorkoutSource.appleHealth, "imported from apple health"),
+            (WorkoutSource.headphoneMotion, nil),
+        ] as [(WorkoutSource, String?)] {
+            let container = try Self.container()
+            let workout = Workout(
+                name: "Stair Stepper", date: Date(), duration: 1_800, steps: 3_000, floors: 150, source: source
+            )
+            container.mainContext.insert(workout)
+            try container.mainContext.save()
+
+            try await RenderedScreen.host(
+                WorkoutDetailView(workout: workout, embedsInNavigationStack: false)
+                    .environment(AuthenticationViewModel())
+                    .environment(MediaUploadManager.shared)
+                    .modelContainer(container)
+            ) { screen in
+                let copy = try await screen.copy { $0.contains("3,000") }
+
+                for phrase in ["logged by hand", "imported from apple health"] {
+                    #expect(
+                        copy.contains(phrase) == (phrase == expected),
+                        "\(source.rawValue) detail should \(phrase == expected ? "" : "not ")say \"\(phrase)\": \(copy)"
+                    )
+                }
+            }
         }
     }
 }
