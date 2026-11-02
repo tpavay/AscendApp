@@ -301,7 +301,7 @@ struct AppleHealthImportServiceTests {
     }
 
     @Test
-    func aWorkoutThatStartedAfterImportsWasLastOpenedRaisesTheBadgeAgain() async throws {
+    func aWorkoutFoundAfterImportsWasLastOpenedRaisesTheBadgeAgain() async throws {
         let harness = try AppleHealthImportHarness()
         await harness.service.setAutoImportEnabled(false)
         harness.addWorkout(daysAgo: 2)
@@ -309,18 +309,32 @@ struct AppleHealthImportServiceTests {
         harness.service.markImportsViewed()
         #expect(harness.service.badgeCount == 0)
 
-        // A workout that started before the last visit is not news even if it only just arrived.
-        harness.addWorkout(daysAgo: 3)
+        // Nothing new arrived, so a later pass does not raise it.
+        harness.clock = AppleHealthImportHarness.now.addingTimeInterval(1_800)
         await harness.service.syncNow()
         #expect(harness.service.badgeCount == 0)
 
-        harness.clock = AppleHealthImportHarness.now.addingTimeInterval(3 * 3600)
-        let start = AppleHealthImportHarness.now.addingTimeInterval(2 * 3600)
+        // The watch hands over a workout that started before the last visit and only reaches the
+        // phone after it: the first time Ascend sees it, it is news.
+        harness.clock = AppleHealthImportHarness.now.addingTimeInterval(3_600)
+        let lateStart = AppleHealthImportHarness.now.addingTimeInterval(-1_800)
         harness.reader.workouts.append(
-            HealthWorkoutSnapshot(uuid: UUID(), startDate: start, endDate: start.addingTimeInterval(1_800), steps: 2_500)
+            HealthWorkoutSnapshot(uuid: UUID(), startDate: lateStart, endDate: lateStart.addingTimeInterval(1_500), steps: 2_500)
         )
         await harness.service.syncNow()
         #expect(harness.service.badgeCount == 1)
+
+        // Opening Imports clears it again.
+        harness.clock = AppleHealthImportHarness.now.addingTimeInterval(3_660)
+        harness.service.markImportsViewed()
+        #expect(harness.service.badgeCount == 0)
+
+        // A workout found late that started more than a week ago waits in Imports without a badge.
+        harness.clock = AppleHealthImportHarness.now.addingTimeInterval(7_200)
+        harness.addWorkout(daysAgo: 9)
+        await harness.service.syncNow()
+        #expect(harness.service.badgeCount == 0)
+        #expect(try harness.records().filter { $0.state == .notImported }.count == 3)
     }
 
     // MARK: - Auto-import on and off
@@ -470,6 +484,107 @@ struct AppleHealthImportServiceTests {
         #expect(try harness.record(snapshot)?.state == .imported)
     }
 
+    @Test
+    func aWorkoutDuringALiveSessionThatHasNotSavedWaitsForIt() async throws {
+        let harness = try AppleHealthImportHarness()
+        let snapshot = harness.addWorkout(daysAgo: 0.1, minutes: 30)
+        let draft = ActiveHeadphoneWorkoutDraft(
+            sessionID: "live-session",
+            kind: .liveClimb,
+            startedAt: snapshot.startDate.addingTimeInterval(60),
+            title: "Live",
+            subtitle: "",
+            workoutName: "Live",
+            targetStepCount: nil,
+            targetDurationSeconds: nil
+        )
+        draft.lastCheckpointAt = snapshot.endDate.addingTimeInterval(60)
+        harness.context.insert(draft)
+        try harness.context.save()
+
+        await harness.service.syncNow()
+        #expect(try harness.climbs().isEmpty, "the session will save the climb that covers it")
+        #expect(try harness.record(snapshot)?.state == .notImported, "it waits to be checked again")
+
+        // The session saves its climb and its draft goes.
+        harness.context.delete(draft)
+        harness.context.insert(
+            Workout(
+                name: "Live", date: snapshot.startDate.addingTimeInterval(60), duration: 1_800,
+                steps: 2_400, floors: 150, source: .headphoneMotion
+            )
+        )
+        try harness.context.save()
+
+        await harness.service.syncNow()
+        #expect(try harness.climbs().count == 1, "the live climb is the climb")
+        #expect(try harness.record(snapshot)?.state == .overlapsLiveClimb)
+    }
+
+    @Test
+    func aDraftThatEndedBeforeTheWorkoutDoesNotHoldItBack() async throws {
+        let harness = try AppleHealthImportHarness()
+        let snapshot = harness.addWorkout(daysAgo: 0.1, minutes: 30)
+        let draft = ActiveHeadphoneWorkoutDraft(
+            sessionID: "earlier-session",
+            kind: .justClimb,
+            startedAt: snapshot.startDate.addingTimeInterval(-3_600),
+            title: "Earlier",
+            subtitle: "",
+            workoutName: "Earlier",
+            targetStepCount: nil,
+            targetDurationSeconds: nil
+        )
+        draft.lastCheckpointAt = snapshot.startDate.addingTimeInterval(-600)
+        harness.context.insert(draft)
+        try harness.context.save()
+
+        await harness.service.syncNow()
+        #expect(try harness.record(snapshot)?.state == .imported)
+    }
+
+    // MARK: - The first pass on a device
+
+    @Test
+    func theFirstPassWaitsForTheClimbersClimbsToComeBackFromTheCloud() async throws {
+        let harness = try AppleHealthImportHarness()
+        harness.hasRestoredCloudClimbs = false
+        let snapshot = harness.addWorkout(daysAgo: 3)
+
+        await harness.service.syncNow()
+        #expect(harness.reader.changeReads.isEmpty, "nothing is read while the restore is outstanding")
+        #expect(try harness.records().isEmpty)
+        #expect(harness.settings.anchorData(for: AppleHealthImportHarness.userID) == nil)
+
+        // The restore lands the climb this workout already became on the old phone.
+        let restored = Workout(
+            name: "Stair Stepper", date: snapshot.startDate, duration: snapshot.duration,
+            steps: 3_000, floors: 187, source: .appleHealth, healthKitUUID: snapshot.uuid.uuidString
+        )
+        harness.context.insert(restored)
+        try harness.context.save()
+        harness.hasRestoredCloudClimbs = true
+
+        await harness.service.syncNow()
+        #expect(try harness.climbs().count == 1, "the restored climb, and no second one")
+        #expect(try harness.record(snapshot)?.importedWorkoutID == restored.id)
+    }
+
+    @Test
+    func aPassWithAnAnchorDoesNotWaitForTheRestore() async throws {
+        let harness = try AppleHealthImportHarness()
+        harness.addWorkout(daysAgo: 3)
+        await harness.service.syncNow()
+        #expect(try harness.climbs().count == 1)
+
+        // A relaunch in the background: the restore has not run in this process, but this device
+        // has already read Health, so what arrives now is new.
+        harness.hasRestoredCloudClimbs = false
+        harness.addWorkout(daysAgo: 0.01)
+        await harness.service.syncNow()
+        #expect(try harness.climbs().count == 2)
+    }
+
     // MARK: - Gates
 
     @Test
@@ -487,6 +602,36 @@ struct AppleHealthImportServiceTests {
         off.apply(.shippedDefaults)
         await harness.service.syncNow()
         #expect(try harness.climbs().count == 1, "turned back on, it resumes from the same anchor")
+    }
+
+    @Test
+    func turningAutoImportOnWithTheKillSwitchOffImportsNothing() async throws {
+        let flags = RemoteFeatureFlagStore()
+        let harness = try AppleHealthImportHarness(featureFlags: flags)
+        await harness.service.setAutoImportEnabled(false)
+        let snapshot = harness.addWorkout(daysAgo: 1)
+        await harness.service.syncNow()
+        #expect(try harness.record(snapshot)?.state == .notImported)
+
+        flags.apply(.resolving(remoteValues: [RemoteFeatureFlag.appleHealthImport.key: false]))
+        await harness.service.setAutoImportEnabled(true)
+        #expect(try harness.climbs().isEmpty, "the switch stops every way a climb is created")
+        let tapped = await harness.service.importRecords(withUUIDs: [snapshot.uuid.uuidString])
+        #expect(tapped.isEmpty)
+        #expect(try harness.record(snapshot)?.state == .notImported)
+    }
+
+    @Test
+    func connectingRegistersForBackgroundDelivery() async throws {
+        let harness = try AppleHealthImportHarness()
+        harness.authorization.importConnectionState = .neverConnected
+        harness.service.startObservingIfPossible()
+        #expect(!harness.reader.isObserving, "nothing to listen for before the climber connects")
+
+        let connect = AppleHealthConnectViewModel(authorization: harness.authorization, importService: harness.service)
+        await connect.requestAccess()
+
+        #expect(harness.reader.isObserving, "a watch workout wakes the app from now on, not from the next launch")
     }
 
     @Test

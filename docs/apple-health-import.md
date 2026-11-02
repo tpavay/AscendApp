@@ -28,6 +28,7 @@ It carries the numbers Health reported at discovery so the Imports list renders 
 `overlaps_live_climb` is the named hook for the overlap merge (HANDOFF 5.2).
 Nothing resolves those rows yet.
 The live climb stays the only climb, and the merge will let the Health workout add heart rate and calories and offer the extra minutes.
+A workout whose window a headphone session covers before that session has saved its climb - still recording, or waiting to be recovered (`ActiveHeadphoneWorkoutDraft`, `startedAt` to `lastCheckpointAt`) - stays `not_imported` and is not imported, so the import after the session saves files it as `overlaps_live_climb`.
 
 The ledger is local only.
 A skipped workout is not cloud-synced, so on a new device a workout the climber once skipped can reappear as waiting.
@@ -53,6 +54,8 @@ The anchor does not advance while it is blocked, so the first pass afterwards re
 
 The first pass after connecting has no anchor, so what it finds is history.
 In auto mode it imports history silently: no notification and no Home strip.
+A pass with no anchor also waits until this climber's climbs have come back from the cloud in this process (`WorkoutHydrationService.hasRestoredWorkouts`), because the climb a workout became on an old phone is the only thing that stops it importing a second time on a new one; the bootstrap that finishes the restore runs the pass again.
+A pass with an anchor does not wait, so a background wake still imports what is new.
 
 At import time the workout is read again by UUID, because a watch can write its statistics after the workout.
 A workout Health no longer has keeps the numbers it was found with.
@@ -82,7 +85,8 @@ A climber connecting later sees Import automatically (preselected) or Let me cho
 Turning auto-import on imports what is already waiting, silently.
 
 With auto-import off, new workouts land in Not imported and nothing is sent.
-The red badge on the + button and the Climb sheet's Health button counts waiting workouts from the last seven days that started after Imports was last opened, and opening Imports clears it.
+The red badge on the + button and the Climb sheet's Health button counts waiting workouts that started in the last seven days and that Ascend found after Imports was last opened, and opening Imports clears it.
+The last-viewed cut is on when Ascend found the workout, not when it started, because a watch can hand a workout to the phone long after it ended: one that started before the last visit but arrived after it still raises the badge.
 With auto-import on the badge is always zero.
 
 ## Announcing an automatic import
@@ -107,10 +111,9 @@ The `com.apple.developer.healthkit.background-delivery` entitlement is in `Ascen
 
 ## Permissions and disclosure
 
-The read set is exactly five types, read only, with `toShare: []`: `workoutType()`, `stepCount`, `flightsClimbed`, `heartRate` and `activeEnergyBurned` (`HealthKitAuthorizationClient.readTypes`).
+The read set is exactly four types, read only, with `toShare: []`: `workoutType()`, `stepCount`, `heartRate` and `activeEnergyBurned` (`HealthKitAuthorizationClient.readTypes`).
 Ascend never writes to Health.
 `enrichmentReadTypes` is the heart rate and active energy pair alone, so enrichment's connection state is unaffected by the wider ask; `importConnectionState` is the wider check, and a climber connected before import returned answers not connected there until shown the sheet for the workout types.
-`flightsClimbed` is requested because the product spec lists it, and nothing reads it yet.
 The `NSHealthShareUsageDescription` sentence, `PrivacyInfo.xcprivacy`, the privacy policy on the website and the App Privacy answers all name this set, and `AppleHealthSurfacesEvidenceTests` and `scripts/test/outward-positioning-copy.test.mjs` hold them to it.
 
 ## Kill switch

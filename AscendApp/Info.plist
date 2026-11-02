@@ -72,7 +72,7 @@
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Ascend reads your stair stepper workouts from Health - with their steps, flights climbed, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.</string>
+	<string>Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ascend uses your location once to set your profile city for leaderboard context.</string>
 	<key>NSMotionUsageDescription</key>

@@ -14,6 +14,7 @@ struct AppleHealthIntegrationCard: View {
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
+    @State private var importService = AppleHealthImportService.shared
     @State private var showingManageSheet = false
     @State private var showingConnectFlow = false
     @State private var showingImports = false
@@ -27,27 +28,31 @@ struct AppleHealthIntegrationCard: View {
         themeManager.effectiveColorScheme(for: systemColorScheme)
     }
 
-    private var connectionState: AppleHealthConnectionState {
-        enrichmentService.appleHealthConnectionState
+    private var status: AppleHealthIntegrationStatus {
+        AppleHealthIntegrationStatus(
+            enrichment: enrichmentService.appleHealthConnectionState,
+            importState: importService.offeredImportConnectionState
+        )
     }
 
     var body: some View {
         let style = IntegrationCardStyle(effectiveColorScheme: effectiveColorScheme)
+        let status = self.status
 
         IntegrationCardShell(style: style) {
             IntegrationCardHeader(
                 assetImage: "appleHealth-icon",
                 title: "Apple Health",
-                subtitle: headerStatusLabel,
+                subtitle: status.label,
                 titleColor: style.primaryText,
-                subtitleColor: statusColor
+                subtitleColor: statusColor(status.tone)
             ) {
-                headerAction
+                headerAction(status.action)
             }
 
             IntegrationCardDescriptionSection(
                 style: style,
-                text: statusMessage
+                text: status.message
             )
         }
         .sheet(isPresented: $showingManageSheet) {
@@ -86,18 +91,18 @@ struct AppleHealthIntegrationCard: View {
     }
 
     @ViewBuilder
-    private var headerAction: some View {
-        switch connectionState {
-        case .unavailable:
+    private func headerAction(_ action: AppleHealthIntegrationStatus.Action) -> some View {
+        switch action {
+        case .none:
             EmptyView()
-        case .neverConnected:
+        case .connect:
             IntegrationCardActionButton(
                 "Connect",
                 appearance: .filled(background: .accent, foreground: .black)
             ) {
                 showingConnectFlow = true
             }
-        case .connected, .revoked:
+        case .manage:
             IntegrationCardActionButton(
                 "Manage",
                 appearance: .outlined(
@@ -110,35 +115,13 @@ struct AppleHealthIntegrationCard: View {
         }
     }
 
-    private var headerStatusLabel: String? {
-        switch connectionState {
-        case .unavailable, .neverConnected:
-            return nil
-        case .connected:
-            return "Connected"
-        case .revoked:
-            return "Permissions Disabled"
-        }
-    }
-
-    private var statusMessage: String {
-        switch connectionState {
-        case .unavailable:
-            return "Apple Health is not available on this device."
-        case .neverConnected, .revoked:
-            return "Connect Apple Health to bring in stair stepper workouts from any device or app, and to attach heart rate and calories to the climbs you run in Ascend."
-        case .connected:
-            return "Stair stepper workouts from Apple Health import as climbs, and heart rate and calories attach to the climbs you run in Ascend."
-        }
-    }
-
-    private var statusColor: Color {
-        switch connectionState {
+    private func statusColor(_ tone: AppleHealthIntegrationStatus.Tone) -> Color {
+        switch tone {
         case .connected:
             return .accent
-        case .revoked:
+        case .disabled:
             return .orange
-        case .unavailable, .neverConnected:
+        case .neutral:
             return .secondary
         }
     }

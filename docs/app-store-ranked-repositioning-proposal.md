@@ -30,7 +30,7 @@ There is no report button and no review queue.
 Still not in the app: any framing of Ascend as a place to log or track training in general, and Apple Health import of anything but stair stepper workouts.
 Kept: live heart rate from a Bluetooth chest strap, Live Climbs, leaderboards, First Ascents, Best Efforts, guided routines, and the share sheet.
 
-Ascend reads exactly five Apple Health types, read only: workouts, steps, flights climbed, heart rate and active energy.
+Ascend reads exactly four Apple Health types, read only: workouts, steps, heart rate and active energy.
 It imports `stairClimbing` and `stairs` workouts and their own statistics, and still reads heart rate and active energy over a climb's own time window, for a climb Ascend recorded, to attach them to it.
 It never writes to Apple Health.
 `HealthKitAuthorizationClient.readTypes` is the authority for that set; the legal pages, the `Info.plist` usage string, and the App Store data answers all have to match it.
@@ -227,7 +227,7 @@ Every claim in the description, and where the app makes it true. Checked against
 | Just Climb, open-ended with an optional goal | `HomeStartAction.justClimb` -> `LiveClimbSessionViewModel(justClimbGoal:experience:)`. |
 | Share card from a ranked result | `AscendApp/Features/ShareSheet/`. |
 | A climb done without a session can be typed in or imported, and ranks only on a plausible pace | `ClimbPacePolicy`; `WorkoutSource.filterOptions == [.headphoneMotion, .appleHealth, .manual]`; `AppleHealthImportService`; `AscendAppTests/AppleHealthSurfacesEvidenceTests.swift` reads the Climb sheet's Log it and Health buttons back off the rendered screen. |
-| Apple Health is read only, and the read set is five types | `HealthKitAuthorizationClient.readTypes` (workouts, steps, flights climbed, heart rate, active energy); no share types are requested. |
+| Apple Health is read only, and the read set is four types | `HealthKitAuthorizationClient.readTypes` (workouts, steps, heart rate, active energy); no share types are requested. |
 
 Two claims the description deliberately does **not** make, because the build does not support them:
 
@@ -242,7 +242,7 @@ As written below it is **3,755 bytes**, so the bracketed fields have roughly 245
 Count it again after filling them in; a long hosting URL is the one field that can blow the budget.
 
 This text is truthful **only** once the bracketed fields are filled and the checklist below is verified against the production-signed build being submitted.
-Every unbracketed sentence in it was checked against build `2026081101` on 2026-08-11, except the 1.3.0 sentences about Log it, Apple Health import and the five-type read set, which were written against `develop` and must be re-checked on the submitted build.
+Every unbracketed sentence in it was checked against build `2026081101` on 2026-08-11, except the 1.3.0 sentences about Log it, Apple Health import and the four-type read set, which were written against `develop` and must be re-checked on the submitted build.
 
 ```text
 ASCEND - NOTES FOR APP REVIEW
@@ -315,8 +315,8 @@ On the full-access account, everything except starting a session (Log it works):
 - Live climbs are the main way to climb. A climb done without a session can
   also be typed in (+ > Log it, no hardware) or imported from Apple Health
   (+ > Connect Health). Both pass an automatic pace check before they rank.
-- Apple Health is optional and read-only: workouts, steps, flights climbed,
-  heart rate and active energy. Only stair stepper workouts are imported.
+- Apple Health is optional and read-only: workouts, steps, heart rate
+  and active energy. Only stair stepper workouts are imported.
   Ascend never writes to Health.
 - Bluetooth is used for one thing: an optional heart-rate chest strap.
 - Delete Account sits at the bottom of Settings and is also reachable from the
@@ -350,7 +350,7 @@ Each item is a sentence in the notes that this repository cannot prove on its ow
 Nothing here has been applied.
 Firstmate applies App Store Connect changes by hand, and this list is what has to change.
 
-1. **App Privacy questionnaire.** Health & Fitness data is now read as workouts, steps, flights climbed, heart rate and active energy (previously heart rate and active energy only). Purposes stay App Functionality and Analytics as the manifest declares, not used for tracking, linked to the user. `AscendApp/PrivacyInfo.xcprivacy`, the privacy policy at ascendstepper.com/privacy and the `Info.plist` usage string already say the same five types.
+1. **App Privacy questionnaire.** Health & Fitness data is now read as workouts, steps, heart rate and active energy (previously heart rate and active energy only). Purposes stay App Functionality and Analytics as the manifest declares, not used for tracking, linked to the user. `AscendApp/PrivacyInfo.xcprivacy`, the privacy policy at ascendstepper.com/privacy and the `Info.plist` usage string already say the same four types.
 2. **HealthKit capability on the App ID.** The `com.apple.developer.healthkit.background-delivery` entitlement is already in `AscendApp/AscendApp.entitlements`. Enable the Background Delivery sub-capability under HealthKit on the App ID and regenerate the provisioning profiles (dev, staging, production; match), or the archive will not sign with it.
 3. **App Review notes.** Replace them with the [App Review notes](#app-review-notes) block above. Import needs a stair workout in Health, which a reviewer's device may not hold: say that Log it needs no hardware, that Connect Health walks the permission guide and the Import automatically / Let me choose screen, and attach the demo video showing a watch workout arriving. If review needs an import without hardware, a seeded Health workout on the review device is the demo path.
 4. **Description and keywords.** Apply the description above, which now says a climb done without a session can be typed in or imported from Apple Health. The keyword set is unchanged. Do not add `import` or `log` as keywords: positioning is ranked first.
