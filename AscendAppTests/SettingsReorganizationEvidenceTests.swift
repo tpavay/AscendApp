@@ -62,6 +62,9 @@ struct SettingsReorganizationEvidenceTests {
         #expect(!words.contains("off"), "A settings row is summarising its state as Off")
         #expect(!lowercased.contains("measurement system"))
         #expect(!lowercased.contains("body metrics"))
+        // The seasonal icon picker left with the Halloween icon; with no alternate
+        // icon in the build, a row to choose one would lead nowhere.
+        #expect(!lowercased.contains("app icon"))
     }
 
     // MARK: - Edit Profile
