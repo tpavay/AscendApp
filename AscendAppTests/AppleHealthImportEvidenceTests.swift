@@ -103,7 +103,19 @@ struct AppleHealthImportEvidenceTests {
             let copy = try await screen.copy { $0.contains("2 climbs imported") }
             #expect(copy.contains("undo"))
             #expect(!copy.contains("import all"), "nothing is left to import: \(copy)")
-            #expect(copy.contains("this week"))
+            // The screen reads the wall clock, so on a Monday morning both workouts started in
+            // last week's Monday-to-Sunday window and land under Earlier, never This week.
+            let calendar = WeekConfiguration.calendar()
+            let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? .distantPast
+            let starts = try harness.records().map(\.startDate)
+            if starts.allSatisfy({ $0 >= weekStart }) {
+                #expect(copy.contains("this week"), "\(copy)")
+            } else if starts.allSatisfy({ $0 < weekStart }) {
+                #expect(copy.contains("earlier"), "\(copy)")
+                #expect(!copy.contains("this week"), "\(copy)")
+            } else {
+                #expect(copy.contains("this week") && copy.contains("earlier"), "\(copy)")
+            }
             try screen.photograph(named: "import-07-imports-done")
         }
 
