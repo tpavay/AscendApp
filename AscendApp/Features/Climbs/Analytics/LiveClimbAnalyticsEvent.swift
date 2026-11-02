@@ -284,6 +284,7 @@ extension LiveClimbAnalyticsEvent {
         case homeTodayRow = "home_today_row"
         case homePin = "home_pin"
         case homeCard = "home_card"
+        case homeStartSheet = "home_start_sheet"
         case workoutList = "workout_list"
         case browseSearch = "browse_search"
         case browseSection = "browse_section"

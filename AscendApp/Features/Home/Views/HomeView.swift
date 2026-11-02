@@ -788,23 +788,24 @@ struct HomeView: View {
         let seeAll = pendingStartSeeAll
         pendingStartSeeAll = false
 
-        switch action {
-        case .justClimb:
+        switch HomeStartDestination(
+            action: action,
+            seeAll: seeAll,
+            landmark: globeViewModel.dailyRecommendedClimb,
+            routine: DailyRoutineRecommendationPolicy.recommendation()
+        ) {
+        case .justClimbSetup:
             pendingJustClimbGoal = nil
             showingJustClimbSetup = true
-        case .browseClimbs:
-            if !seeAll, let todayClimb = globeViewModel.dailyRecommendedClimb {
-                openTodayClimb(todayClimb)
-            } else {
-                // The globe is already here: the sheet's expanded position is the list.
-                setSheetDetent(.expanded)
-            }
-        case .routines:
-            if !seeAll, let pick = DailyRoutineRecommendationPolicy.recommendation() {
-                tabRouter.openRoutineTemplate(pick.templateId)
-            } else {
-                tabRouter.select(.training, reason: .appRouting)
-            }
+        case .climbDetail(let climb, let entryPoint):
+            openClimbDetail(climb, entryPoint: entryPoint)
+        case .landmarkList:
+            // The globe is already here: the sheet's expanded position is the list.
+            setSheetDetent(.expanded)
+        case .routine(let templateId):
+            tabRouter.openRoutineTemplate(templateId)
+        case .routinesTab:
+            tabRouter.select(.training, reason: .appRouting)
         }
     }
 
