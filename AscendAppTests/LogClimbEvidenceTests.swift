@@ -1,4 +1,5 @@
 import Foundation
+import PhotosUI
 import SwiftData
 import SwiftUI
 import Testing
@@ -117,19 +118,138 @@ struct LogClimbEvidenceTests {
             #expect(copy.contains("over 200 steps a minute. this climb will not count on leaderboards."), "\(copy)")
             #expect(viewModel.canSave(now: Self.now), "the climb is allowed to save")
 
-            // The warning must not push the OPTIONAL chips under the keypad: the scroll area ends
-            // 8 points above the keypad's first row, and a chip past that line is drawn cut in half.
+            // The warning must not push the first row of OPTIONAL buttons under the keypad: the
+            // scroll area ends 8 points above the keypad's first row, and a button past that line
+            // is drawn cut in half. The second row is below the fold here and scrolls into reach.
             let texts = try await screen.texts()
             let firstKey = try #require(texts.first { $0.text == "1" }?.frame)
-            let chips = texts.filter { $0.text.hasPrefix("Add ") }.map(\.frame)
             let dateChip = try #require(texts.first { $0.text.hasPrefix("When: ") }?.frame)
             let sameAsChip = try #require(texts.first { $0.text.hasPrefix("Same as ") }?.frame)
             #expect(abs(sameAsChip.midY - dateChip.midY) < 1, "the Same as chip sits beside the date: \(dateChip) \(sameAsChip)")
-            #expect(chips.count == 4, "\(texts.map(\.text))")
-            for chip in chips {
-                #expect(chip.maxY <= firstKey.minY - 8, "chip \(chip) runs under the keypad at \(firstKey)")
+            let firstRow = texts.filter { $0.text == "Add Effort" || $0.text == "Add Heart rate" }.map(\.frame)
+            #expect(firstRow.count == 2, "\(texts.map(\.text))")
+            for button in firstRow {
+                #expect(button.maxY <= firstKey.minY - 8, "button \(button) runs under the keypad at \(firstKey)")
             }
             try screen.photograph(named: "log-climb-04-over-the-ceiling")
+        }
+    }
+
+    /// A solid-colour picture standing in for a picked photo, so a hosted test can fill the
+    /// PHOTOS row without the photo library.
+    private static func pickedPhoto(_ color: UIColor) -> SelectedPhotoItem {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 320)).image { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 240, height: 320))
+        }
+        return SelectedPhotoItem(
+            pickerItem: PhotosPickerItem(itemIdentifier: UUID().uuidString),
+            image: Image(uiImage: image),
+            localIdentifier: UUID().uuidString
+        )
+    }
+
+    @Test("Optional details start as a two by two grid of plus buttons")
+    func theOptionalGridIsTwoByTwo() async throws {
+        let viewModel = LogClimbViewModel(now: Self.now)
+        Self.typed(viewModel, steps: "3200", time: "4000")
+        viewModel.focusedField = .amount
+
+        try await RenderedScreen.host(
+            LogClimbView(viewModel: viewModel)
+                .environment(AuthenticationViewModel())
+                .modelContainer(try Self.container())
+        ) { screen in
+            let texts = try await screen.texts { $0.contains { $0.text == "Add Photo" } }
+            let frames = ["Add Effort", "Add Heart rate", "Add Note", "Add Photo"].map { label in
+                texts.first { $0.text == label }?.frame
+            }
+            let effort = try #require(frames[0]), heartRate = try #require(frames[1])
+            let note = try #require(frames[2]), photo = try #require(frames[3])
+
+            #expect(abs(effort.midY - heartRate.midY) < 1, "Effort and Heart rate share a row")
+            #expect(abs(note.midY - photo.midY) < 1, "Note and Photo share a row")
+            #expect(note.minY > effort.maxY, "the second row sits under the first")
+            #expect(abs(effort.minX - note.minX) < 1 && abs(heartRate.minX - photo.minX) < 1, "two columns")
+            try screen.photograph(named: "log-climb-10-optional-grid")
+        }
+    }
+
+    @Test("Effort and a note become cards, and the buttons left over close ranks")
+    func effortAndNoteBecomeCards() async throws {
+        let viewModel = LogClimbViewModel(now: Self.now)
+        Self.typed(viewModel, steps: "3200", time: "4000")
+        viewModel.details.effortRating = 3
+        viewModel.details.note = "Legs were dead from Saturday, so I kept it steady. Machine 4 by the windows."
+        viewModel.optionalInputFinished(now: Self.now)
+
+        try await RenderedScreen.host(
+            LogClimbView(viewModel: viewModel)
+                .environment(AuthenticationViewModel())
+                .modelContainer(try Self.container())
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("save climb") }
+
+            for fragment in ["effort", "3 out of 5, moderate", "note", "legs were dead", "optional", "add heart rate", "add photo"] {
+                #expect(copy.contains(fragment), "missing \"\(fragment)\" in: \(copy)")
+            }
+            #expect(!copy.contains("add effort") && !copy.contains("add note"), "filled details stop offering a plus: \(copy)")
+            #expect(!copy.contains("avg heart rate"), "\(copy)")
+            #expect(viewModel.focusedField == nil, "a climb that can save puts the keypad away")
+            #expect(!copy.contains("delete"), "the keypad is gone: \(copy)")
+            try screen.photograph(named: "log-climb-11-effort-and-note")
+        }
+    }
+
+    @Test("Every detail filled: Effort beside Avg heart rate, the note, and a Photos row with its Add tile")
+    func everyDetailFilled() async throws {
+        let viewModel = LogClimbViewModel(now: Self.now)
+        Self.typed(viewModel, steps: "3200", time: "4000")
+        viewModel.details.effortRating = 3
+        viewModel.details.averageHeartRate = 160
+        viewModel.details.note = "Legs were dead from Saturday, so I kept it steady. Machine 4 by the windows."
+        viewModel.selectedPhotos = [Self.pickedPhoto(.systemTeal)]
+        viewModel.optionalInputFinished(now: Self.now)
+
+        try await RenderedScreen.host(
+            LogClimbView(viewModel: viewModel)
+                .environment(AuthenticationViewModel())
+                .modelContainer(try Self.container())
+        ) { screen in
+            let texts = try await screen.texts { $0.contains { $0.text == "Add photo" } }
+            let copy = texts.map(\.text).joined(separator: " | ").lowercased()
+
+            for fragment in ["effort", "average heart rate", "note", "photos", "add photo", "remove media", "save climb"] {
+                #expect(copy.contains(fragment), "missing \"\(fragment)\" in: \(copy)")
+            }
+            #expect(!copy.contains("optional"), "nothing left to offer: \(copy)")
+
+            let effort = try #require(texts.first { $0.text.hasPrefix("Effort") }?.frame)
+            let heartRate = try #require(texts.first { $0.text.hasPrefix("Average heart rate") }?.frame)
+            #expect(abs(effort.midY - heartRate.midY) < 1 && heartRate.minX > effort.maxX, "the two cards sit side by side")
+
+            let photo = try #require(texts.first { $0.text == "Photo" && abs($0.frame.width - $0.frame.height) < 1 }?.frame)
+            let add = try #require(texts.first { $0.text == "Add photo" }?.frame)
+            #expect(abs(photo.midY - add.midY) < 1 && add.minX > photo.maxX, "the Add tile follows the thumbnail inline")
+            #expect(abs(photo.width - photo.height) < 1, "the thumbnail is square, never stretched: \(photo)")
+            #expect(abs(add.width - photo.width) < 1 && abs(add.height - photo.height) < 1, "the Add tile matches it: \(add)")
+            try screen.photograph(named: "log-climb-12-every-detail-filled")
+        }
+    }
+
+    @Test("The heart rate sheet is a big bpm field over the keypad, with Done as a link")
+    func theHeartRateSheet() async throws {
+        try await RenderedScreen.host(
+            LogClimbHeartRateSheet(heartRate: .constant(160))
+                .preferredColorScheme(.dark),
+            size: CGSize(width: 402, height: 560)
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("done") }
+
+            for fragment in ["average heart rate", "160", "from your watch or the machine's grips.", "done", "delete"] {
+                #expect(copy.contains(fragment), "missing \"\(fragment)\" in: \(copy)")
+            }
+            try screen.photograph(named: "log-climb-13-heart-rate-sheet")
         }
     }
 
