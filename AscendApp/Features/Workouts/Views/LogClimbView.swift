@@ -395,7 +395,7 @@ struct LogClimbView: View {
             } label: {
                 Group {
                     if viewModel.isSaving {
-                        ProgressView().tint(.black)
+                        ProgressView().tint(.white)
                     } else {
                         Text("SAVE CLIMB")
                             .font(.montserratBold(size: 15))

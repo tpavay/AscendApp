@@ -218,7 +218,6 @@ struct LogClimbPhotosSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             LogClimbCardLabel(title: "PHOTOS")
-                .padding(.horizontal, 4)
 
             HStack(spacing: 10) {
                 ForEach(viewModel.selectedPhotos) { item in
