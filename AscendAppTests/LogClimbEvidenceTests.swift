@@ -237,6 +237,69 @@ struct LogClimbEvidenceTests {
         }
     }
 
+    @Test("PHOTOS lines up with its thumbnails and with OPTIONAL below them")
+    func thePhotosLabelSitsFlush() async throws {
+        let viewModel = LogClimbViewModel(now: Self.now)
+        Self.typed(viewModel, steps: "3200", time: "4000")
+        viewModel.selectedPhotos = [Self.pickedPhoto(.systemTeal)]
+        viewModel.optionalInputFinished(now: Self.now)
+
+        try await RenderedScreen.host(
+            LogClimbView(viewModel: viewModel)
+                .environment(AuthenticationViewModel())
+                .modelContainer(try Self.container())
+        ) { screen in
+            let texts = try await screen.texts { $0.contains { $0.text == "Add photo" } }
+            let label = try #require(texts.first { $0.text.uppercased() == "PHOTOS" }?.frame)
+            let photo = try #require(texts.first { $0.text == "Photo" && abs($0.frame.width - $0.frame.height) < 1 }?.frame)
+            let optional = try #require(texts.first { $0.text.uppercased() == "OPTIONAL" }?.frame)
+
+            #expect(abs(label.minX - photo.minX) < 1, "PHOTOS \(label) against its thumbnail \(photo)")
+            #expect(abs(label.minX - optional.minX) < 1, "PHOTOS \(label) against OPTIONAL \(optional)")
+        }
+    }
+
+    @Test("A save in flight shows a spinner a climber can see on the dark button")
+    func theSaveSpinnerIsVisible() async throws {
+        let held = AsyncStream<Void>.makeStream()
+        let viewModel = LogClimbViewModel(now: Self.now, uploadMedia: { _ in
+            for await _ in held.stream {}
+            return []
+        })
+        Self.typed(viewModel, steps: "3200", time: "4000")
+        viewModel.selectedPhotos = [Self.pickedPhoto(.systemTeal)]
+        viewModel.optionalInputFinished(now: Self.now)
+        let container = try Self.container()
+        let context = ModelContext(container)
+
+        try await RenderedScreen.host(
+            LogClimbView(viewModel: viewModel)
+                .environment(AuthenticationViewModel())
+                .modelContainer(container)
+        ) { screen in
+            // Read while idle: the button does not move, and a running spinner keeps the
+            // accessibility tree from settling.
+            let button = try #require(try await screen.frame(ofElementLabelled: "Save climb"))
+
+            let saving = Task { await viewModel.save(modelContext: context, now: Self.now) }
+            defer { held.continuation.finish() }
+            while !viewModel.isSaving {
+                await Task.yield()
+            }
+            try await screen.settle()
+
+            let center = CGRect(x: button.midX - 24, y: button.midY - 24, width: 48, height: 48)
+            let brightest = try screen.withPixels(scale: 2) { pixels in
+                pixels.pixels(in: center).map(\.luminance).max() ?? 0
+            }
+            try screen.photograph(named: "log-climb-13-save-in-flight")
+            #expect(brightest > 60, "the spinner disappears into the button: brightest \(brightest)")
+
+            held.continuation.finish()
+            await saving.value
+        }
+    }
+
     @Test("The heart rate sheet is a big bpm field over the keypad, with Done as a link")
     func theHeartRateSheet() async throws {
         try await RenderedScreen.host(
