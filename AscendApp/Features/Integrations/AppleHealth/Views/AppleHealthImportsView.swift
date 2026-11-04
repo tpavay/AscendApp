@@ -213,33 +213,29 @@ struct AppleHealthImportsView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard let climbID = row.climbID else { return }
-            openClimb = viewModel.climb(withID: climbID)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isButton)
+        .onTapGesture { open(row) }
         .listRowBackground(rowBackground)
-        .accessibilityHint("Opens the climb")
     }
 
-    /// The Add steps flow for a row: an imported climb opens its edit sheet, and a workout still
-    /// waiting is imported first, since steps belong to a climb.
     private func addSteps(to row: ImportsRow) {
-        if let climbID = row.climbID, let climb = viewModel.climb(withID: climbID) {
-            addingStepsClimb = climb
-            return
-        }
-        Task {
-            await viewModel.importOne(row.id)
-            let sections = viewModel.sections
-            let climbID = (sections.thisWeek + sections.earlier).first { $0.id == row.id }?.climbID
-            addingStepsClimb = climbID.flatMap { viewModel.climb(withID: $0) }
-        }
+        Task { addingStepsClimb = await viewModel.climbToAddSteps(to: row) }
     }
 
+    private func open(_ row: ImportsRow) {
+        guard let climbID = row.climbID else { return }
+        openClimb = viewModel.climb(withID: climbID)
+    }
+
+    /// With steps the text is one VoiceOver element. Without them the Add steps button stays its
+    /// own element and the time beside it speaks for the rest, so whichever element is not the
+    /// button is the one that opens an imported climb.
     private func rowText(_ row: ImportsRow) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let isMissingSteps = row.steps == nil
+        let duration = ImportsRowFormat.durationText(row.duration)
+        let when = ImportsRowFormat.whenText(row.startDate, now: Date())
+        let opensClimb: (() -> Void)? = row.climbID == nil ? nil : { open(row) }
+
+        return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 if row.steps == nil {
                     Button {
@@ -258,18 +254,23 @@ struct AppleHealthImportsView: View {
                 }
                 Text("·")
                     .foregroundStyle(.white.opacity(0.5))
-                Text(ImportsRowFormat.durationText(row.duration))
+                    .accessibilityHidden(true)
+                Text(duration)
                     .font(.montserratMedium(size: 15))
                     .foregroundStyle(.white.opacity(0.5))
+                    .accessibilityHidden(isMissingSteps)
             }
             .lineLimit(1)
             .minimumScaleFactor(0.8)
 
-            Text(ImportsRowFormat.whenText(row.startDate, now: Date()))
+            Text(when)
                 .font(.montserratMedium(size: 14))
                 .foregroundStyle(.white.opacity(0.58))
+                .accessibilityLabel(isMissingSteps ? "\(duration), \(when)" : when)
+                .modifier(OpensClimbForVoiceOver(open: isMissingSteps ? opensClimb : nil))
         }
-        .accessibilityElement(children: row.steps == nil ? .contain : .combine)
+        .accessibilityElement(children: isMissingSteps ? .contain : .combine)
+        .modifier(OpensClimbForVoiceOver(open: isMissingSteps ? nil : opensClimb))
     }
 
     private var healthIcon: some View {
@@ -372,6 +373,22 @@ struct AppleHealthImportsView: View {
         .accessibilityElement(children: .contain)
         .onAppear {
             UIAccessibility.post(notification: .announcement, argument: toast.message)
+        }
+    }
+}
+
+/// What VoiceOver needs from an imported row: its tap gesture is invisible to it.
+private struct OpensClimbForVoiceOver: ViewModifier {
+    let open: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let open {
+            content
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Opens the climb")
+                .accessibilityAction { open() }
+        } else {
+            content
         }
     }
 }

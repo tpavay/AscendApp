@@ -359,6 +359,58 @@ struct AppleHealthImportServiceTests {
     }
 
     @Test
+    func theHomeStripAndTheWaitingRowAskForStepsOnACountTheClimbWouldDrop() async throws {
+        let harness = try AppleHealthImportHarness()
+        await harness.service.syncNow()
+        harness.addWorkout(daysAgo: 0.02, steps: 50_000, minutes: 1)
+        await harness.service.syncNow()
+
+        let climb = try #require(try harness.climbs().first)
+        #expect(climb.isMissingSteps)
+        #expect(try #require(harness.service.homeNotice).steps == nil, "the strip names what the climb holds")
+
+        let waiting = HealthWorkoutRecord(
+            snapshot: HealthWorkoutSnapshot(
+                uuid: UUID(),
+                startDate: AppleHealthImportHarness.now,
+                endDate: AppleHealthImportHarness.now.addingTimeInterval(60),
+                duration: 60,
+                steps: 50_000,
+                averageHeartRate: nil,
+                maxHeartRate: nil,
+                activeEnergyKilocalories: nil,
+                sourceName: nil
+            )
+        )
+        let sections = ImportsSections.make(records: [waiting], climbs: [:], now: AppleHealthImportHarness.now)
+        #expect(sections.notImported.first?.steps == nil)
+    }
+
+    @Test
+    func addStepsOnAWaitingRowImportsItAndResolvesTheClimbOnTheSameTurn() async throws {
+        let harness = try AppleHealthImportHarness()
+        await harness.service.setAutoImportEnabled(false)
+        harness.addWorkout(daysAgo: 1, steps: nil)
+        await harness.service.syncNow()
+        let viewModel = AppleHealthImportsViewModel(service: harness.service)
+        await viewModel.onAppear(modelContext: harness.context)
+        let waiting = try #require(viewModel.sections.notImported.first)
+        #expect(waiting.steps == nil && waiting.climbID == nil)
+
+        let climb = try #require(await viewModel.climbToAddSteps(to: waiting))
+
+        #expect(climb.isMissingSteps)
+        #expect(climb.healthKitUUID == waiting.id)
+        #expect(viewModel.sections.notImported.isEmpty, "the row has moved")
+
+        let imported = try #require((viewModel.sections.thisWeek + viewModel.sections.earlier).first)
+        let again = await viewModel.climbToAddSteps(to: imported)
+        #expect(again?.id == climb.id, "an imported row opens its own climb")
+        #expect(try harness.climbs().count == 1, "and imports nothing a second time")
+        #expect(viewModel.toast?.batch.count == 1)
+    }
+
+    @Test
     func theFirstPassAfterConnectingImportsHistoryWithoutAnnouncingIt() async throws {
         let harness = try AppleHealthImportHarness()
         harness.addWorkout(daysAgo: 3)

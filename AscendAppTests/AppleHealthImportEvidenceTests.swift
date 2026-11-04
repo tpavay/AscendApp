@@ -166,6 +166,41 @@ struct AppleHealthImportEvidenceTests {
         }
     }
 
+    @Test("VoiceOver can open an imported climb, with or without an Add steps button beside it")
+    func importedRowsOpenTheClimbForVoiceOver() async throws {
+        let harness = try AppleHealthImportHarness(referenceNow: Date())
+        harness.addWorkout(daysAgo: 2, steps: 4_912, minutes: 62.83)
+        harness.addWorkout(daysAgo: 3, steps: nil, minutes: 28.6)
+        await harness.service.syncNow()
+
+        try await RenderedScreen.host(
+            NavigationStack { AppleHealthImportsView(viewModel: AppleHealthImportsViewModel(service: harness.service)) }
+                .environment(AuthenticationViewModel())
+                .environment(MediaUploadManager.shared)
+                .modelContainer(harness.container)
+        ) { screen in
+            let elements = try await screen.elements { elements in
+                elements.contains { $0.accessibilityLabel?.contains("Add steps") == true }
+                    && elements.contains { $0.accessibilityLabel?.contains("4,912") == true }
+            }
+            let opensClimb = elements.filter { $0.accessibilityHint == "Opens the climb" }
+            #expect(opensClimb.count == 2, "\(elements.map { $0.accessibilityLabel ?? "" })")
+            #expect(opensClimb.allSatisfy { $0.accessibilityTraits.contains(.button) })
+
+            let known = try #require(opensClimb.first { $0.accessibilityLabel?.contains("4,912") == true })
+            #expect(known.accessibilityLabel?.contains("1:02") == true, "the whole row reads as one element")
+
+            let addSteps = try #require(elements.first { $0.accessibilityLabel == "Add steps" })
+            #expect(addSteps.accessibilityTraits.contains(.button))
+            let unknown = try #require(opensClimb.first { $0.accessibilityLabel?.contains("28:") == true })
+            #expect(unknown !== addSteps, "the button stays its own element beside the text that opens the climb")
+
+            #expect(known.accessibilityActivate())
+            let detail = try await screen.copy { $0.contains("duration") }
+            #expect(detail.contains("4,912"), "\(detail)")
+        }
+    }
+
     // MARK: - Connect
 
     @Test("The connect screens read as the mocks do")

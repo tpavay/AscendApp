@@ -601,7 +601,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             homeNotice = HomeNotice(
                 workoutID: workoutID,
                 startDate: record.startDate,
-                steps: record.steps,
+                steps: record.importableSteps,
                 duration: record.durationSeconds
             )
         } else {

@@ -447,6 +447,14 @@ class Workout {
         isMissingSteps ? nil : steps
     }
 
+    /// Whether this climb may hold a personal record. A climb the pace check kept off the
+    /// leaderboards holds none, and neither does one with no step count: it is unfinished until the
+    /// steps are in. Only these two: a climb excluded for another reason - history from before the
+    /// climber joined - still fills the records it is allowed to.
+    var canHoldRecords: Bool {
+        !exceedsPaceCeiling && !isMissingSteps
+    }
+
     /// Whether the pace check kept this climb off the leaderboards and the records that feed them.
     ///
     /// Read from the totals rather than from `leaderboardStatus`, because a climb can be excluded

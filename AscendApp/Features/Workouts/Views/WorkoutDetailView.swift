@@ -555,12 +555,14 @@ struct WorkoutDetailView: View {
 
     @ViewBuilder
     private func menuContent(_ derived: WorkoutDetailDerivedContent) -> some View {
-        Button(action: {
-            seedShareStandingFromStore()
-            showingShareWorkoutView = true
-        }) {
-            Label("Share", systemImage: "square.and.arrow.up")
-        }
+        WorkoutDetailShareOrAddStepsAction(
+            isMissingSteps: workout.isMissingSteps,
+            share: {
+                seedShareStandingFromStore()
+                showingShareWorkoutView = true
+            },
+            addSteps: { showingEditWorkout = true }
+        )
 
         Button(action: copyWorkoutText) {
             Label("Copy Workout Text", systemImage: "doc.on.doc")

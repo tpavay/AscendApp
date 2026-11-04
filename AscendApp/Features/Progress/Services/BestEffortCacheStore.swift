@@ -16,7 +16,8 @@ enum BestEffortCacheStore {
     // the hour stops holding records it only reached by its finish.
     // v4: a climb typed in or imported qualifies for a fastest-steps record with its time prorated,
     // and one the pace check kept off the leaderboards holds no record at all.
-    static let currentVersion = 4
+    // v5: a climb with no step count holds no rank, so finished climbs stop ranking around it.
+    static let currentVersion = 5
     private static let metadataID = "best-effort-cache"
 
     static func rebuildIfNeeded(

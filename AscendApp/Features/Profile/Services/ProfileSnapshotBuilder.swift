@@ -212,9 +212,8 @@ enum ProfileSnapshotBuilder {
         let lifetimeDurationSeconds = Int(workouts.reduce(0.0) { $0 + $1.duration }.rounded())
         let totalClimbs = workouts.count
         let averageStepsPerMinute = PersonalizedClimbPaceService.allTimeAverageSPM(workouts: workouts) ?? 0
-        // The published records are what other climbers read, so a climb the pace check kept off
-        // the leaderboards holds none of them - the same rule the Best Efforts follow.
-        let recordWorkouts = workouts.filter { !$0.exceedsPaceCeiling }
+        // The published records are what other climbers read, so they follow the Best Efforts' rule.
+        let recordWorkouts = workouts.filter(\.canHoldRecords)
 
         return ProfileStatsSnapshot(
             totalClimbsCompleted: completedCount,
@@ -518,7 +517,7 @@ enum ProfileSnapshotBuilder {
         workouts: [Workout],
         bestEffortCacheEntries: [BestEffortCacheEntry]
     ) -> ProfileRecordSummary {
-        let recordWorkouts = workouts.filter { !$0.exceedsPaceCeiling }
+        let recordWorkouts = workouts.filter(\.canHoldRecords)
         let mostSteps = recordWorkouts.max { $0.steps < $1.steps }
         let longest = recordWorkouts.max { $0.duration < $1.duration }
         let fastest = recordWorkouts.max { ($0.stepsPerMinute ?? 0) < ($1.stepsPerMinute ?? 0) }

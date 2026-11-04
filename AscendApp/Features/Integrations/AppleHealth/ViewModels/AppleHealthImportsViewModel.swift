@@ -75,6 +75,17 @@ final class AppleHealthImportsViewModel {
         return try? HealthWorkoutLedger(modelContext: modelContext).climb(withID: id)
     }
 
+    /// The climb a row's Add steps edits. A workout still waiting is imported first, since steps
+    /// belong to a climb.
+    func climbToAddSteps(to row: ImportsRow) async -> Workout? {
+        if row.climbID == nil {
+            await importOne(row.id)
+        }
+        let imported = sections.thisWeek + sections.earlier
+        let climbID = row.climbID ?? imported.first { $0.id == row.id }?.climbID
+        return climbID.flatMap(climb(withID:))
+    }
+
     func setAutoImportEnabled(_ isEnabled: Bool) async {
         await service.setAutoImportEnabled(isEnabled)
     }
@@ -106,6 +117,7 @@ final class AppleHealthImportsViewModel {
     private func importRecords(_ ids: [String]) async {
         guard !ids.isEmpty else { return }
         let batch = await service.importRecords(withUUIDs: ids)
+        reload()
         guard !batch.isEmpty else { return }
 
         let combined = toast.map {
