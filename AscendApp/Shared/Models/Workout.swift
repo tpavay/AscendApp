@@ -439,7 +439,7 @@ class Workout {
     /// hand-logged climb cannot be saved without steps, and an import with none is stored as zero
     /// and prompts for them. A live climb with zero steps is a real, finished measurement.
     var isMissingSteps: Bool {
-        steps == 0 && origin != .live
+        origin.isMissingSteps(steps: steps)
     }
 
     /// The steps to show, or nil where the climber has not given any.

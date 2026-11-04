@@ -33,6 +33,21 @@ struct StepsDisplayEvidenceTests {
         )
     }
 
+    private static func summary(duration: TimeInterval, steps: Int, source: WorkoutSource) -> ProfileWorkoutSummary {
+        ProfileWorkoutSummary(
+            id: UUID().uuidString,
+            name: "Stair Stepper",
+            startedAt: Date(),
+            durationSeconds: duration,
+            steps: steps,
+            source: source,
+            climbId: nil,
+            climbTier: nil,
+            climbCompletionStatus: nil,
+            climbCompletionDurationSeconds: nil
+        )
+    }
+
     @Test("The Activity row asks for steps on an unknown count and never prints 0 steps")
     func theActivityRowAsksForSteps() async throws {
         let unknown = Self.importedClimb(steps: 0, duration: 1_474, daysAgo: 3)
@@ -126,6 +141,57 @@ struct StepsDisplayEvidenceTests {
 
         #expect(stats.prLongestClimbSeconds == 3_600)
         #expect(stats.prMostSteps == 5_000)
+    }
+
+    @Test("Another climber's Profile takes no longest climb from a climb with no steps")
+    func theRemoteProfileFallbackSkipsAClimbWithNoSteps() {
+        let remote = ProfileSnapshotBuilder.statsSnapshot(
+            workouts: [Self.importedClimb(steps: 0, duration: 7_200, daysAgo: 1)],
+            completedAttempts: [],
+            completedCount: 0,
+            achievements: .zero
+        )
+        #expect(remote.prLongestClimbSeconds == 0)
+
+        func merged(_ summaries: [ProfileWorkoutSummary]) -> ProfileStatsSnapshot {
+            ProfileScreenViewModel.mergedStats(
+                remote: remote,
+                fallback: ProfileScreenViewModel.fallbackStatsSnapshot(
+                    summaries: summaries,
+                    firstAscentCount: 0,
+                    achievementCounts: .zero
+                )
+            )
+        }
+
+        let noSteps = Self.summary(duration: 7_200, steps: 0, source: .appleHealth)
+        #expect(merged([noSteps]).prLongestClimbSeconds == 0, "no record for a climb with no steps")
+        #expect(merged([noSteps]).lifetimeDurationSeconds == 7_200, "the time still counts: it was climbed")
+        #expect(
+            merged([noSteps, Self.summary(duration: 3_600, steps: 5_000, source: .appleHealth)]).prLongestClimbSeconds == 3_600,
+            "the longest climb with steps holds it"
+        )
+        #expect(
+            merged([Self.summary(duration: 1_800, steps: 0, source: .headphoneMotion)]).prLongestClimbSeconds == 1_800,
+            "a live climb's zero is a measurement"
+        )
+    }
+
+    @Test("Copy Workout Text states no steps for a climb whose steps are unknown")
+    func copiedTextOmitsUnknownSteps() {
+        func text(for workout: Workout) -> String {
+            workoutShareText(for: workout, measurementSystem: .imperial, stepHeight: 8)
+        }
+
+        let unknown = text(for: Self.importedClimb(steps: 0, duration: 1_474, daysAgo: 1))
+        #expect(!unknown.contains("Steps:"), "\(unknown)")
+        #expect(!unknown.contains("Pace:"), "\(unknown)")
+        #expect(unknown.contains("Duration:"), "\(unknown)")
+
+        #expect(text(for: Self.importedClimb(steps: 4_912, duration: 3_770, daysAgo: 1)).contains("Steps: 4,912"))
+
+        let live = Workout(name: "Live", date: Date(), duration: 600, steps: 0, floors: 0, source: .headphoneMotion)
+        #expect(text(for: live).contains("Steps: 0"), "a live climb's zero is a measurement")
     }
 
     @Test("A climb with no steps offers Add steps where Share was, and only then")

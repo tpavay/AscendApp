@@ -16,6 +16,10 @@ struct ProfileWorkoutSummary: Identifiable, Equatable {
         source == .headphoneMotion || climbId != nil
     }
 
+    var isMissingSteps: Bool {
+        source.climbOrigin.isMissingSteps(steps: steps)
+    }
+
     var isCompletedClimb: Bool {
         climbCompletionStatus == .completed
     }
