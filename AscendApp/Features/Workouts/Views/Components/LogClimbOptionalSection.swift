@@ -59,7 +59,7 @@ struct LogClimbOptionalSection: View {
                     Text("\(rating)")
                         .font(.montserratBold(size: 26))
                         .foregroundStyle(.white)
-                    Text("/ 5 · \(Self.effortWord(for: rating))")
+                    Text("/ 5 · \(EffortRatingView.effortWord(for: rating))")
                         .font(.montserratSemiBold(size: 13))
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
@@ -80,7 +80,7 @@ struct LogClimbOptionalSection: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Effort")
-        .accessibilityValue("\(rating) out of 5, \(Self.effortWord(for: rating))")
+        .accessibilityValue("\(rating) out of 5, \(EffortRatingView.effortWord(for: rating))")
         .accessibilityHint("Changes the effort")
     }
 
@@ -139,18 +139,6 @@ struct LogClimbOptionalSection: View {
         .accessibilityHint("Changes the note")
     }
 
-    /// The same five words the effort sheet's slider shows, so a card never names a level the
-    /// picker that set it did not.
-    static func effortWord(for rating: Int) -> String {
-        switch rating {
-        case 1: "Minimal"
-        case 2: "Light"
-        case 4: "High"
-        case 5: "Maximum"
-        default: "Moderate"
-        }
-    }
-
     // MARK: - Plus buttons
 
     @ViewBuilder
@@ -187,7 +175,7 @@ struct LogClimbOptionalSection: View {
             plusLabel(field)
         }
         .buttonStyle(.plain)
-        .disabled(field == .photo && viewModel.isLoadingMedia)
+        .disabled(field == .photo && !viewModel.canPickMedia)
         .accessibilityLabel("Add \(field.title)")
     }
 
@@ -312,7 +300,7 @@ struct LogClimbPhotosSection: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(viewModel.isLoadingMedia)
+        .disabled(!viewModel.canPickMedia)
         .accessibilityLabel("Add photo")
     }
 }

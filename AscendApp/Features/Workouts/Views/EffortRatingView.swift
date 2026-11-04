@@ -23,8 +23,9 @@ struct EffortRatingView: View {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
     
-    private func effortDescription(for rating: Double) -> String {
-        switch Int(rating) {
+    /// The word for each effort level, for this picker and anything that reports what it set.
+    static func effortWord(for rating: Int) -> String {
+        switch rating {
         case 1:
             return "Minimal"
         case 2:
@@ -44,7 +45,7 @@ struct EffortRatingView: View {
         AppSheetScaffold(title: "How much effort did you put in?") {
             VStack(spacing: 24) {
                 VStack(spacing: 16) {
-                    Text(effortDescription(for: tempRating))
+                    Text(Self.effortWord(for: Int(tempRating)))
                         .font(.montserratMedium(size: 24))
                         .foregroundStyle(.accent)
                     

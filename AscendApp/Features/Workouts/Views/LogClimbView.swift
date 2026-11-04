@@ -142,6 +142,7 @@ struct LogClimbView: View {
 
             HStack {
                 Button {
+                    viewModel.close()
                     dismiss()
                 } label: {
                     Image(systemName: "xmark")
