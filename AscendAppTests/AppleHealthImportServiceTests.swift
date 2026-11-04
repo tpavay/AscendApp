@@ -49,7 +49,7 @@ struct AppleHealthImportServiceTests {
         #expect(climb.steps == 0)
         #expect(climb.isMissingSteps, "the climb asks for its steps instead of claiming none")
         #expect(climb.recordedSteps == nil)
-        #expect(ImportsRowFormat.stepsText(climb.recordedSteps) == "— steps")
+        #expect(ImportsRowFormat.stepsText(climb.recordedSteps) == "Add steps")
         #expect(climb.leaderboardStatus == .excluded, "a climb with no steps has nothing to rank on")
     }
 

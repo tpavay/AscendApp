@@ -55,7 +55,7 @@ struct HomeHealthImportStrip: View {
         )
     }
 
-    /// `Today · 4,912 steps · 1:02:50`, with `— steps` where Health recorded none.
+    /// `Today · 4,912 steps · 1:02:50`, with `Add steps` where Health recorded none.
     private var detail: String {
         let day = Calendar.current.isDateInToday(notice.startDate)
             ? "Today"

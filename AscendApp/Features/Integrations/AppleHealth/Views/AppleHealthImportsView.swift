@@ -12,6 +12,7 @@ struct AppleHealthImportsView: View {
 
     @State private var viewModel: AppleHealthImportsViewModel
     @State private var openClimb: Workout?
+    @State private var addingStepsClimb: Workout?
 
     init(viewModel: AppleHealthImportsViewModel = AppleHealthImportsViewModel()) {
         _viewModel = State(initialValue: viewModel)
@@ -57,6 +58,16 @@ struct AppleHealthImportsView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+        .sheet(item: $addingStepsClimb) { climb in
+            EditWorkoutView(
+                workout: climb,
+                showingEditWorkout: Binding(
+                    get: { addingStepsClimb != nil },
+                    set: { if !$0 { addingStepsClimb = nil } }
+                )
+            )
+            .interactiveDismissDisabled()
+        }
         .navigationDestination(item: $openClimb) { climb in
             WorkoutDetailView(workout: climb, embedsInNavigationStack: false)
         }
@@ -171,7 +182,7 @@ struct AppleHealthImportsView: View {
                     .background(Circle().fill(.white))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Import \(ImportsRowFormat.stepsText(row.steps)) workout")
+            .accessibilityLabel(row.steps == nil ? "Import workout with no steps" : "Import \(ImportsRowFormat.stepsText(row.steps)) workout")
         }
         .padding(.vertical, 4)
         .listRowBackground(rowBackground)
@@ -186,36 +197,65 @@ struct AppleHealthImportsView: View {
     }
 
     private func importedRow(_ row: ImportsRow) -> some View {
-        Button {
+        // Not a Button: a climb with no steps carries an Add steps button of its own in this row,
+        // and a button wrapped in a button swallows the inner tap.
+        HStack(spacing: 14) {
+            healthIcon
+            rowText(row)
+            Spacer(minLength: 8)
+
+            Image(systemName: "checkmark")
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(.black)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Color.accent))
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
             guard let climbID = row.climbID else { return }
             openClimb = viewModel.climb(withID: climbID)
-        } label: {
-            HStack(spacing: 14) {
-                healthIcon
-                rowText(row)
-                Spacer(minLength: 8)
-
-                Image(systemName: "checkmark")
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(.black)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(Color.accent))
-                    .accessibilityHidden(true)
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
         .listRowBackground(rowBackground)
         .accessibilityHint("Opens the climb")
+    }
+
+    /// The Add steps flow for a row: an imported climb opens its edit sheet, and a workout still
+    /// waiting is imported first, since steps belong to a climb.
+    private func addSteps(to row: ImportsRow) {
+        if let climbID = row.climbID, let climb = viewModel.climb(withID: climbID) {
+            addingStepsClimb = climb
+            return
+        }
+        Task {
+            await viewModel.importOne(row.id)
+            let sections = viewModel.sections
+            let climbID = (sections.thisWeek + sections.earlier).first { $0.id == row.id }?.climbID
+            addingStepsClimb = climbID.flatMap { viewModel.climb(withID: $0) }
+        }
     }
 
     private func rowText(_ row: ImportsRow) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text(ImportsRowFormat.stepsText(row.steps))
-                    .font(.montserratBold(size: 17))
-                    .foregroundStyle(.white)
+                if row.steps == nil {
+                    Button {
+                        addSteps(to: row)
+                    } label: {
+                        Text(ImportsRowFormat.stepsText(nil))
+                            .font(.montserratBold(size: 17))
+                            .foregroundStyle(Color.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens the steps entry for this climb")
+                } else {
+                    Text(ImportsRowFormat.stepsText(row.steps))
+                        .font(.montserratBold(size: 17))
+                        .foregroundStyle(.white)
+                }
                 Text("·")
                     .foregroundStyle(.white.opacity(0.5))
                 Text(ImportsRowFormat.durationText(row.duration))
@@ -229,7 +269,7 @@ struct AppleHealthImportsView: View {
                 .font(.montserratMedium(size: 14))
                 .foregroundStyle(.white.opacity(0.58))
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: row.steps == nil ? .contain : .combine)
     }
 
     private var healthIcon: some View {

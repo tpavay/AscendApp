@@ -173,7 +173,7 @@ struct ImportedClimbQuickEditSheet: View {
                     } else {
                         // Grouped when at rest, like every other number on the screen; the plain
                         // digits only while they are being typed.
-                        Text(ImportsRowFormat.stepsText(viewModel.enteredSteps).replacing(" steps", with: ""))
+                        Text(viewModel.enteredSteps.map { $0.formatted() } ?? "—")
                             .font(.montserratBold(size: 24))
                             .foregroundStyle(.white)
                             .minimumScaleFactor(0.7)

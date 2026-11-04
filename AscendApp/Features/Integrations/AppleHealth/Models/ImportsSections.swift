@@ -75,9 +75,9 @@ struct ImportsSections: Equatable, Sendable {
 
 /// How an Imports row words itself.
 enum ImportsRowFormat {
-    /// `4,912 steps` or `— steps` where Health recorded none.
+    /// `4,912 steps`, or the prompt `Add steps` where Health recorded none.
     static func stepsText(_ steps: Int?) -> String {
-        guard let steps else { return "— steps" }
+        guard let steps else { return "Add steps" }
         return "\(steps.formatted()) steps"
     }
 
