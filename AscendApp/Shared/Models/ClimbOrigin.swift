@@ -17,6 +17,12 @@ enum ClimbOrigin: String, CaseIterable, Sendable {
     /// Typed in by hand.
     case manual
 
+    /// Whether a step count from this origin is an entry the climber has yet to make. A live
+    /// climb's zero is a finished measurement; any other zero is the absence of a number.
+    func isMissingSteps(steps: Int) -> Bool {
+        steps == 0 && self != .live
+    }
+
     /// The footnote on a climb's detail, or nil for a live climb, which says nothing.
     var detailFootnote: String? {
         switch self {
