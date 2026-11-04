@@ -16,6 +16,7 @@ struct TelemetryScreenCatalogTests {
     private static let pinnedCatalog: [String: String] = [
         "app_update_required": "AppUpdateRequiredView",
         "landing": "LandingScreen",
+        "signed_out_hold": "SignedOutHoldView",
         "auth_signing_in": "RootView",
         "session_restoring": "RootView",
         "app_access_resolving": "AppAccessResolvingView",
@@ -34,7 +35,7 @@ struct TelemetryScreenCatalogTests {
         "onboarding_climber_card": "OnboardingClimberCardScreen",
         "onboarding_claim_city": "OnboardingClaimCityScreen",
         "onboarding_weekly_target": "OnboardingWeeklyTargetScreen",
-        "onboarding_first_climb_ready": "OnboardingFirstClimbReadyScreen",
+        "onboarding_this_month_event": "OnboardingThisMonthEventScreen",
         "onboarding_notification_primer": "OnboardingNotificationPrimerScreen",
         "onboarding_paywall": "OnboardingPaywallScreen",
         "onboarding_exit_gift": "OnboardingExitGiftScreen",

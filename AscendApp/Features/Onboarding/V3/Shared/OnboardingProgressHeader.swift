@@ -20,7 +20,7 @@ enum OnboardingProgressTable {
         case .climberCard: 90
         case .claimCity: 93
         case .weeklyTarget: 95
-        case .firstClimbReady: 97
+        case .thisMonthEvent: 97
         case .notificationPrimer: 98
         }
     }

@@ -3,7 +3,8 @@ import Foundation
 /// Every screen of the pre-sign-in onboarding flow, in the order the funnel counts them.
 ///
 /// The raw value is the analytics `step_id`; it must match
-/// ``OnboardingAnalyticsContext/orderedStepIDs`` exactly, which `OnboardingV3StepTests` holds.
+/// ``OnboardingAnalyticsContext/orderedStepIDs`` exactly, which
+/// `OnboardingV3KitTests.theHandWrittenFunnelOrderMatchesTheStepEnum` holds.
 /// Funnels read a branch by `step_id`, so a branch is never a different step list.
 enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
     case welcome
@@ -18,7 +19,7 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
     case climberCard = "climber_card"
     case claimCity = "claim_city"
     case weeklyTarget = "weekly_target"
-    case firstClimbReady = "first_climb_ready"
+    case thisMonthEvent = "this_month_event"
     case notificationPrimer = "notification_primer"
     case paywall
     case exitGift = "exit_gift"
@@ -42,7 +43,7 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .climberCard: "Set up your climber card"
         case .claimCity: "Claim your city"
         case .weeklyTarget: "How many days a week?"
-        case .firstClimbReady: "Your first climb is ready"
+        case .thisMonthEvent: "This month's live event"
         case .notificationPrimer: "We'll keep you on track"
         case .paywall: "Never climb a boring minute again"
         case .exitGift: "Open your welcome gift"
@@ -68,8 +69,8 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .usualClimb: .climberCard
         case .climberCard: .claimCity
         case .claimCity: .weeklyTarget
-        case .weeklyTarget: .firstClimbReady
-        case .firstClimbReady: .notificationPrimer
+        case .weeklyTarget: .thisMonthEvent
+        case .thisMonthEvent: .notificationPrimer
         case .notificationPrimer: .paywall
         case .paywall: .auth
         case .exitGift: .auth

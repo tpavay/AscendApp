@@ -87,6 +87,17 @@ struct PresetPreferencesTests {
     }
 
     @Test
+    func aStickerColorPicksTheWordmarkMarkForItsBackdrop() {
+        #expect(StickerStyle.Color.white.wordmarkMarkHex == 0x86D30A)
+        #expect(StickerStyle.Color.black.wordmarkMarkHex == 0x86D30A)
+        for color in [StickerStyle.Color.lime, .coral, .sky] {
+            #expect(color.wordmarkMarkHex == 0xFFFFFF)
+        }
+    }
+
+    /// The brand artwork carries the lime A itself, so white and black stickers keep theirs. Its A
+    /// cannot be white, so the coloured stickers draw the whole lockup in the sticker's colour.
+    @Test
     func aStickerColorPicksTheWordmarkTreatmentForItsBackdrop() {
         var white = StickerStyle.defaults
         white.color = .white

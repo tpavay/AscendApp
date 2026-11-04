@@ -27,6 +27,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
 
     case appUpdateRequired = "app_update_required"
     case landing
+    case signedOutHold = "signed_out_hold"
     case authSigningIn = "auth_signing_in"
     case sessionRestoring = "session_restoring"
     case appAccessResolving = "app_access_resolving"
@@ -48,7 +49,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case onboardingClimberCard = "onboarding_climber_card"
     case onboardingClaimCity = "onboarding_claim_city"
     case onboardingWeeklyTarget = "onboarding_weekly_target"
-    case onboardingFirstClimbReady = "onboarding_first_climb_ready"
+    case onboardingThisMonthEvent = "onboarding_this_month_event"
     case onboardingNotificationPrimer = "onboarding_notification_primer"
     case onboardingPaywall = "onboarding_paywall"
     case onboardingExitGift = "onboarding_exit_gift"
@@ -160,6 +161,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         switch self {
         case .appUpdateRequired: "AppUpdateRequiredView"
         case .landing: "LandingScreen"
+        case .signedOutHold: "SignedOutHoldView"
         case .authSigningIn: "RootView"
         case .sessionRestoring: "RootView"
         case .appAccessResolving: "AppAccessResolvingView"
@@ -178,7 +180,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .onboardingClimberCard: "OnboardingClimberCardScreen"
         case .onboardingClaimCity: "OnboardingClaimCityScreen"
         case .onboardingWeeklyTarget: "OnboardingWeeklyTargetScreen"
-        case .onboardingFirstClimbReady: "OnboardingFirstClimbReadyScreen"
+        case .onboardingThisMonthEvent: "OnboardingThisMonthEventScreen"
         case .onboardingNotificationPrimer: "OnboardingNotificationPrimerScreen"
         case .onboardingPaywall: "OnboardingPaywallScreen"
         case .onboardingExitGift: "OnboardingExitGiftScreen"

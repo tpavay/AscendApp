@@ -20,7 +20,7 @@ struct RootView: View {
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var onboardingV3Coordinator = OnboardingV3Coordinator()
-    @State private var isOnboardingV3Enabled = RemoteFeatureFlagStore.shared.isEnabled(.onboardingV3)
+    @State private var onboardingV3RouteLatch = OnboardingV3RouteLatch()
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
     @State private var isShowingGateAccountDeletion = false
@@ -39,6 +39,8 @@ struct RootView: View {
             case .updateRequired:
                 routeContent(for: rootRoute)
             case .signedOut:
+                routeContent(for: rootRoute)
+            case .signedOutHold:
                 routeContent(for: rootRoute)
             case .preAuthOnboarding:
                 routeContent(for: rootRoute)
@@ -86,6 +88,7 @@ struct RootView: View {
             )
         }
         .task {
+            onboardingV3RouteLatch.beginHold()
             observeColdLaunchSession()
             AppDiagnosticsRecorder.shared.record(
                 "app_root_task_started",
@@ -109,9 +112,6 @@ struct RootView: View {
         }
         .onChange(of: coldLaunchAuthState) { _, _ in
             observeColdLaunchSession()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .remoteFeatureFlagsDidChange)) { _ in
-            isOnboardingV3Enabled = RemoteFeatureFlagStore.shared.isEnabled(.onboardingV3)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             AppActivityClock.shared.recordWillEnterForeground()
@@ -291,7 +291,7 @@ struct RootView: View {
             entitlementState: monetizationManager.entitlementStateForRouting,
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
             allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting,
-            showsPreAuthOnboardingV3: isOnboardingV3Enabled && !onboardingV3Coordinator.isFinished
+            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow
         )
 
         // At the very start of onboarding we do not yet know whether this account
@@ -364,6 +364,11 @@ struct RootView: View {
         case .signedOut:
             routeScreen(route) {
                 LandingScreen()
+            }
+
+        case .signedOutHold:
+            routeScreen(route) {
+                SignedOutHoldView()
             }
 
         case .preAuthOnboarding:

@@ -21,6 +21,11 @@ enum OnboardingAccessGrantProvenance: Codable, Equatable {
 /// account that finishes it; a different account, a sign-out, or a debug replay retires it, so one
 /// climber's abandoned pass can never be closed by the next climber's completion.
 ///
+/// It is scoped to one flow version too. v1 and v3 share the step ids `welcome`, `auth` and
+/// `paywall`, so a pass opened by one flow would swallow the other's start and shared steps. A
+/// screen from another flow retires a pass nobody has claimed yet; a pass an account claimed keeps
+/// its version, because the post-auth screens that follow sign-in still report as v1.
+///
 /// How access was granted is part of that pass, not a fact about the running process: the app can
 /// die on a StoreKit sheet between the purchase and the route to Home. It is therefore persisted
 /// with the pass and retired with it, so the two can never disagree.
@@ -33,6 +38,8 @@ final class OnboardingFlowAnalyticsCoordinator {
 
     private struct PassState: Codable, Equatable {
         var ownerUserID: String?
+        /// The flow that opened the pass. A pass persisted before this field existed was opened by v1.
+        var flowVersion = OnboardingAnalyticsContext.legacyFlowVersion
         var didStart = false
         var didComplete = false
         var accessGrant: OnboardingAccessGrantProvenance = .notRequested
@@ -52,6 +59,8 @@ final class OnboardingFlowAnalyticsCoordinator {
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             ownerUserID = try container.decodeIfPresent(String.self, forKey: .ownerUserID)
+            flowVersion = try container.decodeIfPresent(String.self, forKey: .flowVersion)
+                ?? OnboardingAnalyticsContext.legacyFlowVersion
             didStart = try container.decodeIfPresent(Bool.self, forKey: .didStart) ?? false
             didComplete = try container.decodeIfPresent(Bool.self, forKey: .didComplete) ?? false
             accessGrant = try container.decodeIfPresent(
@@ -174,11 +183,15 @@ final class OnboardingFlowAnalyticsCoordinator {
         if state.didComplete {
             state = PassState(ownerUserID: state.ownerUserID)
             shouldReportResume = false
+        } else if state.didStart, state.ownerUserID == nil, state.flowVersion != context.flowVersion {
+            state = PassState()
+            shouldReportResume = false
         }
 
         guard !state.didStart else { return }
 
         state.didStart = true
+        state.flowVersion = context.flowVersion
         save(state)
 
         // A pass that opens past the first canonical step is resuming work an earlier install or
@@ -232,7 +245,11 @@ final class OnboardingFlowAnalyticsCoordinator {
 
         telemetry.track(
             OnboardingAnalyticsEvent.flowCompleted(
-                context: OnboardingAnalyticsEvent.paywallContext,
+                context: OnboardingAnalyticsContext(
+                    segmentID: OnboardingAnalyticsEvent.paywallContext.segmentID,
+                    flowVersion: state.flowVersion,
+                    stepID: OnboardingAnalyticsEvent.paywallContext.stepID
+                ),
                 completionReason: reason
             )
         )

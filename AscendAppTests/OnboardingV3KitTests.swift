@@ -28,7 +28,7 @@ struct OnboardingV3KitTests {
         #expect(OnboardingAnalyticsContext.orderedStepIDs == [
             "welcome", "go_harder", "get_better", "something_to_chase", "count_methods",
             "health_connect", "health_permission", "health_history", "usual_climb",
-            "climber_card", "claim_city", "weekly_target", "first_climb_ready",
+            "climber_card", "claim_city", "weekly_target", "this_month_event",
             "notification_primer", "paywall", "exit_gift", "auth"
         ])
     }
@@ -95,7 +95,7 @@ struct OnboardingV3KitTests {
         let expected: [OnboardingV3Step: Double?] = [
             .welcome: nil, .goHarder: 38, .getBetter: 55, .somethingToChase: 67, .countMethods: 75,
             .healthConnect: 81, .healthPermission: 81, .healthHistory: 86, .usualClimb: 86,
-            .climberCard: 90, .claimCity: 93, .weeklyTarget: 95, .firstClimbReady: 97,
+            .climberCard: 90, .claimCity: 93, .weeklyTarget: 95, .thisMonthEvent: 97,
             .notificationPrimer: 98, .paywall: nil, .exitGift: nil, .auth: nil
         ]
 
@@ -249,7 +249,7 @@ struct OnboardingV3KitTests {
     private func route(
         state: AuthenticationState,
         userId: String? = nil,
-        showsV3: Bool,
+        showsV3: Bool?,
         updatePresentation: AppUpdatePresentation? = nil
     ) -> AppRootRoute {
         AppRootRouteResolver.resolve(
@@ -292,6 +292,23 @@ struct OnboardingV3KitTests {
         #expect(route(state: .authenticatingWithApple, showsV3: true) == .signingIn)
         #expect(route(state: .restoringSession, showsV3: true) == .restoringSession)
         #expect(route(state: .authenticated, userId: "u1", showsV3: true) == .paywall)
+    }
+
+    /// An undecided launch never shows either flow, so a climber can never start one and be swapped
+    /// into the other. Above it the lockout still wins, and a signed-in climber never sees it.
+    @Test
+    func anUndecidedLaunchHoldsOnlyTheSignedOutRoute() {
+        #expect(route(state: .unauthenticated, showsV3: nil) == .signedOutHold)
+        #expect(route(state: .restoringSession, showsV3: nil) == .restoringSession)
+        #expect(route(state: .authenticated, userId: "u1", showsV3: nil) == .paywall)
+        #expect(route(state: .unauthenticated, showsV3: nil, updatePresentation: .required) == .updateRequired)
+    }
+
+    @Test
+    func theHoldIsAWaypointThatReportsItself() {
+        #expect(AppRootRoute.signedOutHold.telemetryScreenName == .signedOutHold)
+        #expect(AppLifecycleAnalyticsEvent.RootRoute(.signedOutHold) == .signedOutHold)
+        #expect(AppLifecycleAnalyticsEvent.RootRoute.signedOutHold.isResolved == false)
     }
 
     @Test

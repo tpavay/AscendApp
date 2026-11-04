@@ -14,8 +14,7 @@ struct AscendWordmark: View {
         case onDark
         /// Black letters whatever the appearance, for a surface that is always light.
         case onLight
-        /// One colour for the whole lockup. For a surface that owns the lockup's colour - a share
-        /// card or sticker palette - because the brand lockup's lime A would clash with it.
+        /// One colour for the whole lockup, for a surface that owns the lockup's colour.
         case mono(Color)
     }
 

@@ -35,6 +35,7 @@ extension SeasonalBackground {
                 accentText: ShareColor(0xFDE68A),
                 rule: ShareColor(0xFFFFFF, alpha: 0.25),
                 wordmarkLetters: ShareColor(0x1C1917),
+                wordmarkMark: ShareColor(0x1C1917),
                 topSecondary: ShareColor(0x1C1917, alpha: 0.75),
                 isLight: false
             )
@@ -43,8 +44,8 @@ extension SeasonalBackground {
         }
     }
 
-    /// White type on dark art with one seasonal accent for the `STEPS` word and the label line
-    /// colour as the board draws it.
+    /// White type on dark art with one seasonal accent for the `STEPS` word, the wordmark's A and
+    /// the label line colour as the board draws it.
     private func darkArt(
         base: UInt32,
         accent: UInt32,
@@ -59,6 +60,7 @@ extension SeasonalBackground {
             accentText: ShareColor(accent),
             rule: ShareColor(0xFFFFFF, alpha: rule),
             wordmarkLetters: .paper,
+            wordmarkMark: ShareColor(accent),
             topSecondary: ShareColor(0xFFFFFF, alpha: date),
             isLight: false
         )

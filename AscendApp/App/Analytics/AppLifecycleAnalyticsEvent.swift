@@ -46,6 +46,7 @@ extension AppLifecycleAnalyticsEvent {
     enum RootRoute: String, CaseIterable, Sendable {
         case updateRequired = "update_required"
         case signedOut = "signed_out"
+        case signedOutHold = "signed_out_hold"
         case preAuthOnboarding = "pre_auth_onboarding"
         case signingIn = "signing_in"
         case restoringSession = "restoring_session"
@@ -55,13 +56,13 @@ extension AppLifecycleAnalyticsEvent {
         case mainApp = "main_app"
         case unresolved
 
-        /// `signing_in`, `restoring_session` and `resolving` are waypoints the app leaves on its
+        /// `signed_out_hold`, `signing_in`, `restoring_session` and `resolving` are waypoints the app leaves on its
         /// own, so a launch that is sitting on one has not chosen a destination yet.
         var isResolved: Bool {
             switch self {
             case .updateRequired, .signedOut, .preAuthOnboarding, .onboarding, .paywall, .mainApp:
                 true
-            case .signingIn, .restoringSession, .resolving, .unresolved:
+            case .signedOutHold, .signingIn, .restoringSession, .resolving, .unresolved:
                 false
             }
         }
@@ -72,6 +73,8 @@ extension AppLifecycleAnalyticsEvent {
                 self = .updateRequired
             case .signedOut:
                 self = .signedOut
+            case .signedOutHold:
+                self = .signedOutHold
             case .preAuthOnboarding:
                 self = .preAuthOnboarding
             case .signingIn:

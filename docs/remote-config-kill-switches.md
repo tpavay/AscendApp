@@ -56,6 +56,11 @@ A rollout gates a feature that is not live until an operator turns it on, so it 
 |---|---|---|
 | `onboarding_v3_enabled` | The 1.3.0 pre-sign-in onboarding for signed-out climbers: selling screens, setup questions and the paywall before sign-in | The onboarding that shipped before it, whole. The flow writes nothing to Firestore; the answers it collects stay on the device until a later switch-gated step sends them |
 
+A flip of `onboarding_v3_enabled` takes effect on the next launch, never on a running one, so a climber is never swapped between flows mid-screen.
+`OnboardingV3RouteLatch` decides once per launch.
+A device whose persisted activation already carries the flag decides on it immediately.
+A device the backend has never answered about it holds on the wordmark until the first fetch ends, for at most 1.5 seconds, and a fetch that fails or runs out the clock leaves it on the shipped `false` for that launch.
+
 ### Settings, which are not switches
 
 A kill switch is a Boolean that ships on and is flipped off to stop a path.

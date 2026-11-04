@@ -133,7 +133,7 @@ struct OnboardingV3FlowView: View {
         case .climberCard: OnboardingClimberCardScreen(coordinator: coordinator)
         case .claimCity: OnboardingClaimCityScreen(coordinator: coordinator)
         case .weeklyTarget: OnboardingWeeklyTargetScreen(coordinator: coordinator)
-        case .firstClimbReady: OnboardingFirstClimbReadyScreen(coordinator: coordinator)
+        case .thisMonthEvent: OnboardingThisMonthEventScreen(coordinator: coordinator)
         case .notificationPrimer: OnboardingNotificationPrimerScreen(coordinator: coordinator)
         case .paywall: OnboardingPaywallScreen(coordinator: coordinator)
         case .exitGift: OnboardingExitGiftScreen(coordinator: coordinator)

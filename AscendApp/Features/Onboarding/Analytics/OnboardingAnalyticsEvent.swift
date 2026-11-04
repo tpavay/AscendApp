@@ -12,7 +12,8 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
     /// The v3 funnel, in order. Written out by hand on purpose and never derived from
     /// ``OnboardingV3Step``: `step_index` and `step_count` are what a funnel reads positions from, so
     /// a step added to the enum must be placed here deliberately or the index would silently
-    /// develop a gap. `OnboardingV3StepTests` holds the two lists to the same members.
+    /// develop a gap. `OnboardingV3KitTests.theHandWrittenFunnelOrderMatchesTheStepEnum` holds the
+    /// two lists to the same members.
     ///
     /// Branches (`health_permission` and `health_history` on the Health path, `usual_climb` on the
     /// other) share one ordering; funnels read a branch by `step_id`.
@@ -29,7 +30,7 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "climber_card",
         "claim_city",
         "weekly_target",
-        "first_climb_ready",
+        "this_month_event",
         "notification_primer",
         "paywall",
         "exit_gift",

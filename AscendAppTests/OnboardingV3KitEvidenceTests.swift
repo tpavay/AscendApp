@@ -103,6 +103,20 @@ struct OnboardingV3KitEvidenceTests {
     }
 
     @Test
+    func theSignedOutHoldIsTheWordmarkOnBlackAndNothingElse() async throws {
+        try await RenderedScreen.host(
+            SignedOutHoldView(),
+            size: CGSize(width: 390, height: 844),
+            settle: .turns(12)
+        ) { screen in
+            let wordmark = try #require(try await screen.frame(ofElementLabelled: "Ascend"))
+            #expect(abs(wordmark.midX - 195) < 1, "\(wordmark)")
+            #expect(try await screen.copy().contains("ascend"))
+            try screen.photograph(named: "onboarding-v3-signed-out-hold")
+        }
+    }
+
+    @Test
     func theWordmarkKeepsTheBrandProportionsAtEveryHeight() async throws {
         try await RenderedScreen.host(
             VStack(alignment: .leading, spacing: 20) {

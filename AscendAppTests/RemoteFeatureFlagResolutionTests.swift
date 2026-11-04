@@ -686,6 +686,112 @@ struct RemoteFeatureFlagLifecycleIntegrationTests {
     }
 }
 
+/// The signed-out route on a device the backend has not answered about the switch yet: it holds
+/// until the first fetch ends or the cap runs out, then decides once for the whole launch.
+@MainActor
+struct OnboardingV3RouteLatchTests {
+    private static let flagKey = RemoteFeatureFlag.onboardingV3.key
+    /// Long enough that a decision taken inside it can only have come from the fetch.
+    private static let neverFires: Duration = .seconds(600)
+
+    private func makeLatch(
+        service: RemoteFeatureFlagService,
+        store: RemoteFeatureFlagStore,
+        holdLimit: Duration
+    ) -> OnboardingV3RouteLatch {
+        OnboardingV3RouteLatch(
+            store: store,
+            firstFetch: { await service.waitForCurrentRefresh() },
+            holdLimit: holdLimit
+        )
+    }
+
+    private func decision(of latch: OnboardingV3RouteLatch) async throws -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while latch.showsFlow == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        return try #require(latch.showsFlow)
+    }
+
+    @Test
+    func aFastFetchDecidesFromTheBackendAndALaterFlipChangesNothing() async throws {
+        let source = FakeRemoteFeatureFlagSource(fetchResult: .success([Self.flagKey: true]))
+        let store = RemoteFeatureFlagStore()
+        let service = RemoteFeatureFlagService(source: source, store: store, appVersionGateState: AppVersionGateState())
+        service.refresh()
+        let latch = makeLatch(service: service, store: store, holdLimit: Self.neverFires)
+
+        #expect(latch.showsFlow == nil)
+        latch.beginHold()
+        #expect(try await decision(of: latch) == true)
+
+        source.setFetchResult(.success([Self.flagKey: false]))
+        await service.refreshAndWait()
+        #expect(store.isEnabled(.onboardingV3) == false)
+        #expect(latch.showsFlow == true)
+    }
+
+    /// The defect this exists for: the fetch landing after the climber was already routed must not
+    /// swap the flow under them.
+    @Test
+    func aSlowFetchHitsTheCapFallsBackOffAndNeverSwapsWhenItLands() async throws {
+        let source = OutOfOrderRemoteFeatureFlagSource()
+        let store = RemoteFeatureFlagStore()
+        let service = RemoteFeatureFlagService(source: source, store: store, appVersionGateState: AppVersionGateState())
+        service.refresh()
+        await source.waitForFetchCount(1)
+        let latch = makeLatch(service: service, store: store, holdLimit: .milliseconds(20))
+
+        latch.beginHold()
+        #expect(try await decision(of: latch) == false)
+
+        source.completeFetch(at: 0, flags: [Self.flagKey: true], appVersions: [:])
+        await service.waitForCurrentRefresh()
+        #expect(store.isEnabled(.onboardingV3) == true)
+        #expect(latch.showsFlow == false)
+    }
+
+    @Test
+    func aFailedFetchEndsTheHoldAtOnceOnTheShippedDefault() async throws {
+        let source = FakeRemoteFeatureFlagSource(fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed))
+        let store = RemoteFeatureFlagStore()
+        let service = RemoteFeatureFlagService(source: source, store: store, appVersionGateState: AppVersionGateState())
+        service.refresh()
+        let latch = makeLatch(service: service, store: store, holdLimit: Self.neverFires)
+
+        latch.beginHold()
+
+        #expect(try await decision(of: latch) == false)
+    }
+
+    /// A device the backend has already answered has nothing to wait for, in either direction.
+    @Test(arguments: [true, false])
+    func aPersistedAnswerSkipsTheHold(answer: Bool) {
+        let store = RemoteFeatureFlagStore(snapshot: .resolving(remoteValues: [Self.flagKey: answer]))
+        let latch = OnboardingV3RouteLatch(
+            store: store,
+            firstFetch: { Issue.record("An answered device must not wait on a fetch") },
+            holdLimit: Self.neverFires
+        )
+
+        #expect(latch.showsFlow == answer)
+        latch.beginHold()
+        #expect(latch.showsFlow == answer)
+    }
+
+    /// A template fetched before this flag existed is not an answer about it.
+    @Test
+    func aPersistedTemplateWithoutTheFlagStillHolds() {
+        let store = RemoteFeatureFlagStore(
+            snapshot: .resolving(remoteValues: [RemoteFeatureFlag.workoutMediaUploads.key: true])
+        )
+        let latch = OnboardingV3RouteLatch(store: store, firstFetch: {}, holdLimit: Self.neverFires)
+
+        #expect(latch.showsFlow == nil)
+    }
+}
+
 /// Lock-guarded rather than an actor so `startListening` / `stopListening` take effect synchronously
 /// - the protocol's are synchronous, and an actor hop would make the listener assertions racy.
 private final class FakeRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unchecked Sendable {
