@@ -387,6 +387,21 @@ struct AppleHealthImportServiceTests {
     }
 
     @Test
+    func aPassWithNothingToImportRefreshesNothingDerived() async throws {
+        let harness = try AppleHealthImportHarness()
+        await harness.service.syncNow()
+        await harness.service.syncNow()
+        #expect(harness.created.isEmpty, "an empty pass must not rebuild the record cache or re-read the rank")
+
+        harness.addWorkout(daysAgo: 0.02, steps: 4_912, minutes: 62)
+        await harness.service.syncNow()
+        #expect(harness.created.map(\.count) == [1])
+
+        await harness.service.syncNow()
+        #expect(harness.created.map(\.count) == [1])
+    }
+
+    @Test
     func theHomeStripStopsAskingForStepsOnceTheClimbHasThem() async throws {
         let harness = try AppleHealthImportHarness()
         await harness.service.syncNow()

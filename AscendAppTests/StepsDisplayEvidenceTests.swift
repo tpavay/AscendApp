@@ -167,6 +167,11 @@ struct StepsDisplayEvidenceTests {
         let noSteps = Self.summary(duration: 7_200, steps: 0, source: .appleHealth)
         #expect(merged([noSteps]).prLongestClimbSeconds == 0, "no record for a climb with no steps")
         #expect(merged([noSteps]).lifetimeDurationSeconds == 7_200, "the time still counts: it was climbed")
+        #expect(merged([noSteps]).averageStepsPerMinute == 0, "and it gives no pace")
+        #expect(
+            merged([noSteps, Self.summary(duration: 3_000, steps: 5_000, source: .appleHealth)]).averageStepsPerMinute == 100,
+            "its minutes stay out of the fallback average"
+        )
         #expect(
             merged([noSteps, Self.summary(duration: 3_600, steps: 5_000, source: .appleHealth)]).prLongestClimbSeconds == 3_600,
             "the longest climb with steps holds it"

@@ -309,6 +309,8 @@ final class ProfileScreenViewModel {
         let lifetimeTotalSteps = summaries.reduce(0) { $0 + $1.steps }
         let lifetimeDurationSeconds = Int(summaries.reduce(0.0) { $0 + $1.durationSeconds }.rounded())
         let completedClimbIds = Set(summaries.filter(\.isCompletedClimb).compactMap(\.climbId))
+        let measured = summaries.filter { !$0.isMissingSteps }
+        let measuredSeconds = Int(measured.reduce(0.0) { $0 + $1.durationSeconds }.rounded())
 
         return ProfileStatsSnapshot(
             totalClimbsCompleted: completedClimbIds.count,
@@ -318,13 +320,13 @@ final class ProfileScreenViewModel {
             currentStreakWeeks: 0,
             bestStreakWeeks: 0,
             prMostSteps: summaries.map(\.steps).max() ?? 0,
-            prLongestClimbSeconds: Int((summaries.filter { !$0.isMissingSteps }.map(\.durationSeconds).max() ?? 0).rounded()),
+            prLongestClimbSeconds: Int((measured.map(\.durationSeconds).max() ?? 0).rounded()),
             prHighestSPM: bestSPM(from: summaries),
             lifetimeTotalSteps: lifetimeTotalSteps,
             lifetimeDurationSeconds: lifetimeDurationSeconds,
             totalClimbs: summaries.count,
-            averageStepsPerMinute: lifetimeDurationSeconds > 0
-                ? Double(lifetimeTotalSteps) / (Double(lifetimeDurationSeconds) / 60.0)
+            averageStepsPerMinute: measuredSeconds > 0
+                ? Double(lifetimeTotalSteps) / (Double(measuredSeconds) / 60.0)
                 : 0
         )
     }

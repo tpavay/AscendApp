@@ -483,16 +483,18 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             )
             return ImportBatch(recordUUIDs: [], workoutIDs: [])
         }
-        do {
-            try applyCreated(modelContext, created.map(\.workout))
-        } catch {
-            // The climbs are saved; only the derived surfaces missed the news, and the next
-            // rebuild catches them up. The import itself stands and can still be undone.
-            AppDiagnosticsRecorder.shared.record(
-                "apple_health_import_derived_refresh_failed",
-                level: .warning,
-                details: ["error": String(describing: type(of: error))]
-            )
+        if !created.isEmpty {
+            do {
+                try applyCreated(modelContext, created.map(\.workout))
+            } catch {
+                // The climbs are saved; only the derived surfaces missed the news, and the next
+                // rebuild catches them up. The import itself stands and can still be undone.
+                AppDiagnosticsRecorder.shared.record(
+                    "apple_health_import_derived_refresh_failed",
+                    level: .warning,
+                    details: ["error": String(describing: type(of: error))]
+                )
+            }
         }
 
         for (workout, announces) in created where announces {

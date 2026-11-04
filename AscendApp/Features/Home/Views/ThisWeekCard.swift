@@ -299,6 +299,8 @@ struct WeekActivitySummary: Equatable {
     let dailyBars: [DailyActivityData]
     let weekTotalValue: Int
     let weekWorkoutCount: Int
+    /// The week's step total is zero only because its climbs have yet to be given steps.
+    let weekStepsAreUnknown: Bool
     let totalDuration: TimeInterval
     let weekInterval: DateInterval
     let typicalWeekAvgValue: Int
@@ -462,6 +464,7 @@ struct WeekActivitySummaryCalculator {
             dailyBars: dailyBars,
             weekTotalValue: weekTotalValue,
             weekWorkoutCount: weekWorkoutCount,
+            weekStepsAreUnknown: weekTotalValue == 0 && weekWorkouts.contains(where: \.isMissingSteps),
             totalDuration: totalDuration,
             weekInterval: weekInterval,
             typicalWeekAvgValue: typicalWeekAvgValue,
@@ -490,6 +493,7 @@ struct WeekActivitySummaryCalculator {
             dailyBars: dailyBars,
             weekTotalValue: 0,
             weekWorkoutCount: 0,
+            weekStepsAreUnknown: false,
             totalDuration: 0,
             weekInterval: weekInterval,
             typicalWeekAvgValue: 0,

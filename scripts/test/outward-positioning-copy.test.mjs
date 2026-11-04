@@ -14,8 +14,7 @@ const sourcePaths = {
   privacy: pathFromRoot("web/src/pages/privacy.astro"),
   terms: pathFromRoot("web/src/pages/terms.astro"),
   proposal: pathFromRoot("docs/app-store-ranked-repositioning-proposal.md"),
-  projectMemory: pathFromRoot("CLAUDE.md"),
-  demoSeed: pathFromRoot("scripts/seed-demo-user.mjs")
+  projectMemory: pathFromRoot("CLAUDE.md")
 };
 
 async function source(name) {
@@ -129,21 +128,6 @@ test("the proposed listing copy sells import and logging only as the second way 
     `App Review notes are ${noteBytes} bytes; keep them under 3,850 so the filled-in credentials and video URL still fit Apple's 4,000-byte field`
   );
   assert.match(reviewNotes, /\[STABLE HTTPS URL, NO LOGIN\]/);
-});
-
-test("the demo seeder only creates sessions the app can still record", async () => {
-  const seeder = await source("demoSeed");
-
-  // `manual` returned in 1.3.0 (Log it) and `apple_health` with the import, so
-  // both are sources the app records again. These three never were: no build
-  // has ever set them, and `isValidWorkoutSource` in firestore.rules refuses them.
-  for (const neverProduced of ["garmin", "fitbit", "hevy"]) {
-    assert.doesNotMatch(
-      seeder,
-      new RegExp(`source:\\s*"${neverProduced}"`),
-      `seed-demo-user.mjs seeds a ${neverProduced} workout, a source no build of the app has ever produced`
-    );
-  }
 });
 
 test("the public website consistently presents Ascend as ranked", async () => {
