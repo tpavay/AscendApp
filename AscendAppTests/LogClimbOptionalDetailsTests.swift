@@ -12,8 +12,39 @@ import Testing
 struct LogClimbOptionalDetailsTests {
     private static let now = Date(timeIntervalSince1970: 1_790_000_000)
 
-    private static func typed(steps: String, time: String) -> LogClimbViewModel {
-        let viewModel = LogClimbViewModel(now: now)
+    /// Holds an upload open so a test can act while the save is in flight.
+    @MainActor
+    private final class HeldUpload {
+        private var continuation: CheckedContinuation<[Photo], Never>?
+        private(set) var uploaded: [Photo] = []
+
+        func upload(_ items: [SelectedPhotoItem]) async -> [Photo] {
+            uploaded = items.map { _ in Photo(url: URL(string: "https://example.com/\(UUID().uuidString)")!) }
+            return await withCheckedContinuation { continuation = $0 }
+        }
+
+        func waitUntilHeld() async {
+            while continuation == nil {
+                await Task.yield()
+            }
+        }
+
+        func finish() {
+            continuation?.resume(returning: uploaded)
+            continuation = nil
+        }
+    }
+
+    private static func typed(
+        steps: String,
+        time: String,
+        upload: HeldUpload? = nil
+    ) -> LogClimbViewModel {
+        let viewModel = if let upload {
+            LogClimbViewModel(now: now, uploadMedia: { await upload.upload($0) })
+        } else {
+            LogClimbViewModel(now: now)
+        }
         viewModel.focusedField = .amount
         steps.compactMap(\.wholeNumberValue).forEach { viewModel.press(digit: $0) }
         viewModel.focusedField = .time
@@ -143,19 +174,98 @@ struct LogClimbOptionalDetailsTests {
         #expect(viewModel.selectedPhotos.map(\.id) == [third.id])
     }
 
-    @Test("Save and the picker both wait while a pick is being prepared, then the pick is on the climb")
+    @Test("With two photos, removing the other one clears a highlight there is no longer a choice for")
+    func aHighlightDoesNotOutliveTheChoice() {
+        let viewModel = LogClimbViewModel(now: Self.now)
+        let kept = Self.pickedPhoto()
+        let removed = Self.pickedPhoto()
+        viewModel.selectedPhotos = [kept, removed]
+        viewModel.highlightPhoto(id: kept.id)
+
+        viewModel.removePhoto(id: removed.id)
+
+        #expect(viewModel.selectedPhotos.map(\.id) == [kept.id])
+        #expect(viewModel.highlightedPhotoId == nil)
+    }
+
+    @Test("The count of details added is the number the form shows as filled")
+    func theCountMatchesWhatIsFilled() {
+        let viewModel = LogClimbViewModel(now: Self.now)
+        viewModel.details.effortRating = 3
+        viewModel.details.averageHeartRate = 160
+        viewModel.details.note = "   \n"
+        #expect(viewModel.optionalFieldCount == 2)
+
+        viewModel.details.note = "Leg day"
+        #expect(viewModel.optionalFieldCount == 3)
+
+        viewModel.selectedPhotos = [Self.pickedPhoto()]
+        #expect(viewModel.optionalFieldCount == 4)
+    }
+
+    @Test("Removing or highlighting a photo during a save changes nothing, so the climb saves what the form showed")
+    func photosAreLockedWhileSaving() async throws {
+        let upload = HeldUpload()
+        let viewModel = Self.typed(steps: "3200", time: "4000", upload: upload)
+        let video = try Self.pickedVideo()
+        defer { SelectedMediaPreparationService.cleanupTemporaryVideoFile(at: video.videoURL) }
+        let second = Self.pickedPhoto()
+        let highlighted = Self.pickedPhoto()
+        let picked = [video, second, highlighted].map(\.id)
+        viewModel.selectedPhotos = [video, second, highlighted]
+        viewModel.highlightPhoto(id: highlighted.id)
+        let context = try Self.context()
+
+        let saving = Task { await viewModel.save(modelContext: context, now: Self.now) }
+        await upload.waitUntilHeld()
+        #expect(viewModel.isSaving)
+
+        viewModel.removePhoto(id: video.id)
+        viewModel.highlightPhoto(id: second.id)
+
+        #expect(viewModel.selectedPhotos.map(\.id) == picked)
+        #expect(viewModel.highlightedPhotoId == highlighted.id)
+        #expect(try Self.fileExists(for: video))
+
+        upload.finish()
+        await saving.value
+
+        let workout = try #require(viewModel.savedWorkout)
+        #expect(workout.highlightedPhotoId == upload.uploaded[2].id)
+    }
+
+    @Test("Closing during a save leaves the files the upload is reading")
+    func closingDuringASaveKeepsTheUploadsFiles() async throws {
+        let upload = HeldUpload()
+        let viewModel = Self.typed(steps: "3200", time: "4000", upload: upload)
+        let video = try Self.pickedVideo()
+        defer { SelectedMediaPreparationService.cleanupTemporaryVideoFile(at: video.videoURL) }
+        viewModel.selectedPhotos = [video]
+        let context = try Self.context()
+
+        let saving = Task { await viewModel.save(modelContext: context, now: Self.now) }
+        await upload.waitUntilHeld()
+
+        viewModel.close()
+
+        #expect(viewModel.selectedPhotos.count == 1)
+        #expect(try Self.fileExists(for: video))
+
+        upload.finish()
+        await saving.value
+        #expect(viewModel.savedWorkout != nil)
+    }
+
+    @Test("Save waits while a pick is being prepared, then the pick is on the climb")
     func saveWaitsForAPickBeingPrepared() {
         let viewModel = Self.typed(steps: "3200", time: "4000")
         #expect(viewModel.canSave(now: Self.now))
-        #expect(viewModel.canPickMedia)
 
         viewModel.mediaPreparationDidStart()
         #expect(!viewModel.canSave(now: Self.now))
-        #expect(!viewModel.canPickMedia)
 
         viewModel.mediaPreparationDidFinish(adding: [Self.pickedPhoto()])
         #expect(viewModel.canSave(now: Self.now))
-        #expect(viewModel.canPickMedia)
         #expect(viewModel.selectedPhotos.count == 1)
     }
 
@@ -180,7 +290,6 @@ struct LogClimbOptionalDetailsTests {
 
         #expect(viewModel.selectedPhotos.isEmpty)
         #expect(try !Self.fileExists(for: late))
-        #expect(viewModel.canPickMedia)
     }
 
     @Test("A video that finishes preparing after the screen closed has its temp file removed")
