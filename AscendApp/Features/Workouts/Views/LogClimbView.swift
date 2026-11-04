@@ -63,6 +63,7 @@ struct LogClimbView: View {
                             onOpen: { activeSheet = OptionalSheet($0) }
                         )
                     }
+                    .disabled(viewModel.isSaving)
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
                     .padding(.bottom, 12)
@@ -85,6 +86,7 @@ struct LogClimbView: View {
                             onDigit: { viewModel.press(digit: $0) },
                             onDelete: { viewModel.pressDelete() }
                         )
+                        .disabled(viewModel.isSaving)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     saveButton

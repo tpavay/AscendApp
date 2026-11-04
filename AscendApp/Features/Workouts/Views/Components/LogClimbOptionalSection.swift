@@ -175,7 +175,7 @@ struct LogClimbOptionalSection: View {
             plusLabel(field)
         }
         .buttonStyle(.plain)
-        .disabled(field == .photo && !viewModel.canPickMedia)
+        .disabled(field == .photo && viewModel.isLoadingMedia)
         .accessibilityLabel("Add \(field.title)")
     }
 
@@ -300,7 +300,7 @@ struct LogClimbPhotosSection: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(!viewModel.canPickMedia)
+        .disabled(viewModel.isLoadingMedia)
         .accessibilityLabel("Add photo")
     }
 }

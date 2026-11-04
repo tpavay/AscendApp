@@ -84,13 +84,20 @@ final class LogClimbViewModel {
 
     let lastClimb: LastClimbPreset?
     private let photoService = PhotoService()
+    private let uploadMedia: @MainActor ([SelectedPhotoItem]) async throws -> [Photo]
     private var usedSameAsLast = false
     private var changedDate = false
     private var hasClosed = false
 
-    init(lastClimb: LastClimbPreset? = nil, now: Date = Date()) {
+    init(
+        lastClimb: LastClimbPreset? = nil,
+        now: Date = Date(),
+        uploadMedia: (@MainActor ([SelectedPhotoItem]) async throws -> [Photo])? = nil
+    ) {
         self.lastClimb = lastClimb
         self.input = LoggedClimbInput(date: now)
+        let photoService = photoService
+        self.uploadMedia = uploadMedia ?? { try await photoService.uploadSelectedPhotos($0) }
     }
 
     // MARK: - What the screen reads
@@ -142,12 +149,7 @@ final class LogClimbViewModel {
     }
 
     var optionalFieldCount: Int {
-        var count = 0
-        if details.effortRating != nil { count += 1 }
-        if details.averageHeartRate != nil { count += 1 }
-        if !details.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { count += 1 }
-        if !selectedPhotos.isEmpty { count += 1 }
-        return count
+        LogClimbOptionalField.allCases.filter(isFilled).count
     }
 
     // MARK: - Keypad
@@ -225,11 +227,6 @@ final class LogClimbViewModel {
         selectedPhotos.count < SelectedMediaPreparationService.maximumMediaCount
     }
 
-    /// A pick landing mid-save would miss the upload, so the picker waits for the save too.
-    var canPickMedia: Bool {
-        !isLoadingMedia && !isSaving
-    }
-
     var remainingPhotoSlots: Int {
         max(SelectedMediaPreparationService.maximumMediaCount - selectedPhotos.count, 1)
     }
@@ -264,17 +261,17 @@ final class LogClimbViewModel {
     }
 
     func removePhoto(id: UUID) {
-        guard let index = selectedPhotos.firstIndex(where: { $0.id == id }) else { return }
+        guard !isSaving, let index = selectedPhotos.firstIndex(where: { $0.id == id }) else { return }
         SelectedMediaPreparationService.cleanupTemporaryVideoFile(at: selectedPhotos[index].videoURL)
         selectedPhotos.remove(at: index)
-        if highlightedPhotoId == id {
+        if highlightedPhotoId == id || selectedPhotos.count <= 1 {
             highlightedPhotoId = nil
         }
     }
 
     /// The photo that leads the climb. With one photo there is nothing to choose.
     func highlightPhoto(id: UUID) {
-        guard selectedPhotos.count > 1 else { return }
+        guard !isSaving, selectedPhotos.count > 1 else { return }
         highlightedPhotoId = highlightedPhotoId == id ? nil : id
     }
 
@@ -290,7 +287,7 @@ final class LogClimbViewModel {
         var uploadedPhotos: [Photo] = []
         do {
             if !selectedPhotos.isEmpty {
-                uploadedPhotos = try await photoService.uploadSelectedPhotos(selectedPhotos)
+                uploadedPhotos = try await uploadMedia(selectedPhotos)
             }
 
             guard let workout = LoggedClimbService.makeWorkout(
