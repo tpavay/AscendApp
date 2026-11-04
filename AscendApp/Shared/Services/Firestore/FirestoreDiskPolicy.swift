@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Firestore stores its cache in LevelDB and wraps every operation - a read as much as a
 /// write, because registering a listen allocates a target - in a LevelDB transaction whose
-/// commit is `HARD_ASSERT`ed (`leveldb_transaction.cc:218` in the pinned 11.15.0). When the
+/// commit is `HARD_ASSERT`ed (`LevelDbTransaction::Commit()` in `leveldb_transaction.cc`). When the
 /// volume has no free blocks the commit fails with `No space left on device`, the assertion
 /// throws, and the whole process dies - the step counter, the clock, the Live Activity and the
 /// draft checkpointer with it. That is what ended Urjita's Empire State climb 39 seconds after

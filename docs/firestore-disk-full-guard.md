@@ -6,7 +6,7 @@ Owner of the rule that Firestore's on-device cache never gets to abort an Ascend
 ## The incident
 
 On 2026-10-23 a climber's Empire State Live Climb stopped counting 39 seconds after GO.
-Her phone's crash report shows the process killed by Firestore's own `HARD_ASSERT` in `LevelDbTransaction::Commit()` (`leveldb_transaction.cc:218` in the pinned 11.15.0) when the SDK's on-device LevelDB cache could not write to disk, on the evidence a volume with no free blocks.
+Her phone's crash report shows the process killed by Firestore's own `HARD_ASSERT` in `LevelDbTransaction::Commit()` (`leveldb_transaction.cc:218` in 11.15.0, the version that crashed; the same assert is at line 217 in the pinned 12.19.3) when the SDK's on-device LevelDB cache could not write to disk, on the evidence a volume with no free blocks.
 The write was a routine live-leaderboard read: `LiveClimbSessionViewModel.refreshReplayLeaderboardIfNeeded` issues six server reads every five seconds, each read is a one-shot listen, and each listen allocates a target inside a LevelDB transaction.
 The step counter, the clock, the draft checkpointer and the Live Activity all lived in that process.
 Both crash reporters ran their handlers and neither delivered, because each has to create a report file at crash time on the same full volume.

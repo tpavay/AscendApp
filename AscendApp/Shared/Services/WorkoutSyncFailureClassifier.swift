@@ -4,8 +4,8 @@ import FirebaseStorage
 
 /// Sorts a failed sync attempt into the category the retry policy acts on.
 ///
-/// The categories mirror the pinned Firestore SDK's own write classification (11.15.0,
-/// `datastore.cc`) rather than a shorter guess: the SDK leaves `cancelled`, `unknown`,
+/// The categories mirror the Firestore SDK's own write classification (`datastore.cc`) rather
+/// than a shorter guess: the SDK leaves `cancelled`, `unknown`,
 /// `deadlineExceeded`, `resourceExhausted`, `internal`, `unavailable` and `unauthenticated` on its
 /// write stream to retry, and rejects the batch for `invalidArgument`, `notFound`, `alreadyExists`,
 /// `permissionDenied`, `failedPrecondition`, `outOfRange`, `unimplemented` and `dataLoss`.
