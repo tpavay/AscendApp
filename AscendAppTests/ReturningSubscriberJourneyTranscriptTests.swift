@@ -126,6 +126,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         switch route {
         case .updateRequired: "updateRequired (hard update lockout)"
         case .signedOut: "signedOut (welcome screen, with Already have an account? Sign in)"
+        case .preAuthOnboarding: "preAuthOnboarding (v3 flow, signed out)"
         case .signingIn: "signingIn"
         case .restoringSession: "restoringSession"
         case .resolving: "resolving (neutral Checking your access surface)"

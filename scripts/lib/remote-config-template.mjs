@@ -41,6 +41,27 @@ export const SETTING_PARAMETERS = Object.freeze({
 });
 
 /**
+ * Boolean parameters that gate a *rollout* rather than a path that must keep running.
+ *
+ * A kill switch ships on, and flipping it off is the emergency. A rollout is the opposite: the
+ * feature is not live until an operator turns it on, so "off" is its healthy checked-in state and
+ * "on" is the deliberate move. That inverts two rules that would otherwise read a rollout wrongly:
+ * a live `false` is not a tripped switch that must stop an automated republish, and a live `true`
+ * is not drift to quietly overwrite - it is the operator having shipped the feature, and restating
+ * the checked-in `false` over it would pull the feature back from every climber at once.
+ *
+ * `onboarding_v3_enabled` is the first: the 1.3.0 onboarding is built behind it and stays dark
+ * until the captain turns it on.
+ */
+export const ROLLOUT_PARAMETERS = Object.freeze({
+  onboarding_v3_enabled: Object.freeze({ healthyDefault: "false" }),
+});
+
+export function isRolloutParameter(key) {
+  return Object.hasOwn(ROLLOUT_PARAMETERS, key);
+}
+
+/**
  * Parameters whose first publish and every later change are captain operations.
  *
  * The minimum version can lock out the installed base and App Review. The recommended version
@@ -175,6 +196,7 @@ export function findActiveKillSwitches(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   return Object.keys(templateParameters(localTemplate))
     .filter(isAutomaticallyPublishedParameter)
+    .filter((key) => !isRolloutParameter(key))
     .filter((key) => isParameterOff(liveParameters[key]))
     .sort();
 }
@@ -205,7 +227,7 @@ export function findArmedSettings(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   const localParameters = templateParameters(localTemplate);
 
-  return Object.keys(SETTING_PARAMETERS)
+  return [...Object.keys(SETTING_PARAMETERS), ...Object.keys(ROLLOUT_PARAMETERS)]
     .filter(
       (key) =>
         localParameters[key] !== undefined &&
@@ -379,7 +401,15 @@ export function templateShapeProblems(localTemplate) {
       if (parameter?.valueType !== "BOOLEAN") {
         problems.push(`${key} must be declared BOOLEAN, not ${parameter?.valueType ?? "untyped"}.`);
       }
-      if (parameter?.defaultValue?.value !== "true") {
+      if (isRolloutParameter(key)) {
+        if (parameter?.defaultValue?.value !== ROLLOUT_PARAMETERS[key].healthyDefault) {
+          problems.push(
+            `${key} is a rollout and must ship at "${ROLLOUT_PARAMETERS[key].healthyDefault}" - ` +
+              "the checked-in template is the healthy state, and a checked-in true would turn " +
+              "the feature on for every climber the moment it is published.",
+          );
+        }
+      } else if (parameter?.defaultValue?.value !== "true") {
         problems.push(
           `${key} must ship on - the checked-in template is the healthy state, and publishing a ` +
             "checked-in false would disable a path nobody chose to disable.",

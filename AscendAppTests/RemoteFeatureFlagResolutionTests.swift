@@ -11,11 +11,29 @@ struct RemoteFeatureFlagResolutionTests {
     func shippedDefaultsLeaveEveryDataPathEnabled() {
         let snapshot = RemoteFeatureFlagSnapshot.shippedDefaults
 
-        for flag in RemoteFeatureFlag.allCases {
+        for flag in RemoteFeatureFlag.allCases where flag.isRollout == false {
             #expect(snapshot.isEnabled(flag) == true)
             #expect(snapshot.source(of: flag) == .shippedDefault)
         }
         #expect(snapshot.disabledFlagKeys.isEmpty)
+    }
+
+    /// A rollout is the one flag that ships dark: the 1.3.0 onboarding stays off until an operator
+    /// turns it on, and its being off on a device that never fetched is not an incident.
+    @Test
+    func theOnboardingRolloutShipsOffAndIsNotReportedAsADisabledSwitch() {
+        let snapshot = RemoteFeatureFlagSnapshot.shippedDefaults
+
+        #expect(RemoteFeatureFlag.allCases.filter(\.isRollout) == [.onboardingV3])
+        #expect(snapshot.isEnabled(.onboardingV3) == false)
+        #expect(snapshot.source(of: .onboardingV3) == .shippedDefault)
+        #expect(snapshot.disabledFlagKeys.isEmpty)
+
+        let turnedOn = RemoteFeatureFlagSnapshot.resolving(
+            remoteValues: [RemoteFeatureFlag.onboardingV3.key: true]
+        )
+        #expect(turnedOn.isEnabled(.onboardingV3) == true)
+        #expect(turnedOn.source(of: .onboardingV3) == .remote)
     }
 
     @Test
@@ -35,7 +53,7 @@ struct RemoteFeatureFlagResolutionTests {
         #expect(snapshot.source(of: .workoutCloudBackupWrites) == .remote)
         #expect(snapshot.disabledFlagKeys == [RemoteFeatureFlag.workoutCloudBackupWrites.key])
 
-        for flag in RemoteFeatureFlag.allCases where flag != .workoutCloudBackupWrites {
+        for flag in RemoteFeatureFlag.allCases where flag != .workoutCloudBackupWrites && flag.isRollout == false {
             #expect(snapshot.isEnabled(flag) == true)
             #expect(snapshot.source(of: flag) == .shippedDefault)
         }
@@ -488,7 +506,7 @@ struct RemoteFeatureFlagServiceTests {
         #expect(service.hasCompletedInitialFetch == false)
         #expect(store.isEnabled(.workoutMediaUploads) == false)
         #expect(store.snapshot.source(of: .workoutMediaUploads) == .remote)
-        for flag in RemoteFeatureFlag.allCases where flag != .workoutMediaUploads {
+        for flag in RemoteFeatureFlag.allCases where flag != .workoutMediaUploads && flag.isRollout == false {
             #expect(store.isEnabled(flag) == true)
         }
     }

@@ -13,7 +13,6 @@ struct PresetCardPaletteTests {
         #expect(dark.foreground == .paper)
         #expect(dark.accentText == ShareColor(PresetAccent.coral.hex))
         #expect(dark.wordmarkLetters == .paper)
-        #expect(dark.wordmarkMark == ShareColor(PresetAccent.coral.hex))
         #expect(!dark.isLight)
     }
 
@@ -24,8 +23,6 @@ struct PresetCardPaletteTests {
         #expect(white.foreground == .ink)
         #expect(white.accentText == ShareColor(PresetAccent.lime.onLightHex))
         #expect(white.wordmarkLetters == .ink)
-        // Lime A with black letters on white.
-        #expect(white.wordmarkMark == ShareColor(PresetAccent.lime.hex))
         #expect(white.isLight)
     }
 
@@ -35,7 +32,6 @@ struct PresetCardPaletteTests {
         #expect(accent.base == ShareColor(PresetAccent.lime.hex))
         #expect(accent.accentText == .ink)
         #expect(accent.wordmarkLetters == .ink)
-        #expect(accent.wordmarkMark == .ink)
     }
 
     @Test
@@ -43,7 +39,6 @@ struct PresetCardPaletteTests {
         let fade = palette(.lime, .flat(.fade))
         #expect(fade.foreground == .paper)
         #expect(fade.wordmarkLetters == .ink)
-        #expect(fade.wordmarkMark == .ink)
         #expect(fade.topSecondary == ShareColor(0x0B0B0B, alpha: 0.7))
     }
 
@@ -52,7 +47,6 @@ struct PresetCardPaletteTests {
         for background in [PresetCardBackground.photo, .tower] {
             let image = palette(.sky, background)
             #expect(image.foreground == .paper)
-            #expect(image.wordmarkMark == ShareColor(PresetAccent.sky.hex))
             #expect(background.isImage)
         }
     }

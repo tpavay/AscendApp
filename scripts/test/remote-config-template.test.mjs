@@ -6,12 +6,14 @@ import {
   APP_PARAMETER_SOURCE_PATHS,
   MAX_PARAMETER_DESCRIPTION_LENGTH,
   SETTING_PARAMETERS,
+  ROLLOUT_PARAMETERS,
   appFlagKeys,
   findActiveKillSwitches,
   findArmedSettings,
   flagParityProblems,
   isMonotonicSetting,
   isParameterOff,
+  isRolloutParameter,
   isSettingParameter,
   overrideRecoveryStep,
   templateParameters,
@@ -219,6 +221,44 @@ test("a setting is held to its own shape contract, not the kill-switch one", () 
   assert.equal(problems.length, 2);
   assert.ok(problems.some((problem) => problem.includes("must be declared NUMBER")));
   assert.ok(problems.some((problem) => problem.includes("healthy baseline")));
+});
+
+test("a rollout ships off, and a checked-in true is refused", () => {
+  // The opposite of a kill switch: the feature is dark until an operator turns it on, so the
+  // checked-in healthy state is "false" and publishing a "true" would launch it fleet-wide.
+  assert.ok(isRolloutParameter("onboarding_v3_enabled"));
+  assert.ok(!isRolloutParameter("workout_cloud_backup_writes_enabled"));
+  assert.equal(ROLLOUT_PARAMETERS.onboarding_v3_enabled.healthyDefault, "false");
+
+  const shipped = {
+    parameters: {
+      onboarding_v3_enabled: {
+        defaultValue: {value: "false"},
+        valueType: "BOOLEAN",
+        description: "rollout",
+      },
+    },
+  };
+  assert.deepEqual(templateShapeProblems(shipped), []);
+
+  shipped.parameters.onboarding_v3_enabled.defaultValue.value = "true";
+  const problems = templateShapeProblems(shipped);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /is a rollout and must ship at "false"/);
+});
+
+test("a rollout that is off is the healthy state, not a tripped switch", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  assert.equal(live.parameters.onboarding_v3_enabled.defaultValue.value, "false");
+  assert.deepEqual(findActiveKillSwitches(live, localTemplate), []);
+});
+
+test("a rollout an operator turned on stops the full replace that would pull it back", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.onboarding_v3_enabled.defaultValue.value = "true";
+
+  assert.deepEqual(findArmedSettings(live, localTemplate), ["onboarding_v3_enabled"]);
+  assert.deepEqual(findActiveKillSwitches(live, localTemplate), []);
 });
 
 test("minimum and recommended app versions ship as inert strings", () => {

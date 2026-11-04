@@ -48,14 +48,6 @@ struct StickerStyle: Codable, Equatable, Sendable {
             case .sky: return 0x7DD3FC
             }
         }
-
-        /// The wordmark's A: lime on white and black stickers, white on the rest.
-        var wordmarkMarkHex: UInt32 {
-            switch self {
-            case .white, .black: return 0x86D30A
-            case .lime, .coral, .sky: return 0xFFFFFF
-            }
-        }
     }
 
     enum Shadow: String, CaseIterable, Codable, Identifiable, Sendable {

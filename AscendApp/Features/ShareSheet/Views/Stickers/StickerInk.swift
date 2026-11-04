@@ -8,13 +8,19 @@ struct StickerInk {
     let color: Color
     /// Black stickers flip their shadows and their filled-cell text to white.
     let isDark: Bool
-    let markColor: Color
+    /// The brand lockup, with its lime A, on the white and black stickers it reads on; one colour
+    /// on the lime, coral and sky stickers, where a lime A would vanish or clash.
+    let wordmark: AscendWordmark.Treatment
 
     init(style: StickerStyle) {
         font = style.font.presetFont
         color = Color(shareHex: style.color.hex)
         isDark = style.color == .black
-        markColor = Color(shareHex: style.color.wordmarkMarkHex)
+        wordmark = switch style.color {
+        case .white: .onDark
+        case .black: .onLight
+        case .lime, .coral, .sky: .mono(Color(shareHex: style.color.hex))
+        }
     }
 
     /// One line of sticker text. `lineHeight` is a CSS-style multiple of `size`; Text's natural

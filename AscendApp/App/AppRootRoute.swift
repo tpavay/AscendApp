@@ -5,6 +5,9 @@ enum AppRootRoute: Equatable, Sendable {
     /// not require knowing who is holding it.
     case updateRequired
     case signedOut
+    /// Signed out with `onboarding_v3_enabled` on: the pre-sign-in flow, selling screens through the
+    /// paywall and then sign-in. Replaces ``signedOut``'s landing screen while the switch is on.
+    case preAuthOnboarding
     case signingIn
     case restoringSession
     case resolving
@@ -20,8 +23,12 @@ enum AppRootRoute: Equatable, Sendable {
 /// happen outside, so cold start and every foreground run the identical decision over whatever that
 /// pass already knows. Anything that needs an `await` does not belong in here.
 struct AppRootRouteResolver {
-    /// - Parameter updatePresentation: The verdict ``AppVersionGateState`` resolved from the last
-    ///   version floor this device received and this build's version, or `nil` when no floor applies.
+    /// - Parameters:
+    ///   - updatePresentation: The verdict ``AppVersionGateState`` resolved from the last
+    ///     version floor this device received and this build's version, or `nil` when no floor applies.
+    ///   - showsPreAuthOnboardingV3: Whether a signed-out climber gets the v3 onboarding: the
+    ///     switch is on and the flow has not reached its end. Resolved outside, like every other
+    ///     input, so the decision stays synchronous and pure.
     static func resolve(
         updatePresentation: AppUpdatePresentation?,
         authenticationState: AuthenticationState,
@@ -29,7 +36,8 @@ struct AppRootRouteResolver {
         postAuthOnboardingPhase: PostAuthOnboardingPhase,
         entitlementState: MonetizationEntitlementState,
         requiredEntitlementID: String,
-        allowsUnentitledAppAccess: Bool = false
+        allowsUnentitledAppAccess: Bool = false,
+        showsPreAuthOnboardingV3: Bool = false
     ) -> AppRootRoute {
         // First, above authentication and above the entitlement gate. As a sheet this lost to the
         // paywall outright - Superwall presents outside `RootView`'s hierarchy, so an unentitled
@@ -41,7 +49,7 @@ struct AppRootRouteResolver {
 
         switch authenticationState {
         case .unauthenticated:
-            return .signedOut
+            return showsPreAuthOnboardingV3 ? .preAuthOnboarding : .signedOut
         case .authenticatingWithApple,
              .authenticatingWithGoogle,
              .authenticatingWithInternalQA:

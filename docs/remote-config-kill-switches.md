@@ -43,6 +43,19 @@ Public profile publishing reaches a shared service that would need a live backen
 The client no longer publishes standings at all - the server derives them from the canonical workouts (`functions/src/leaderboardStats.ts`), so the only kill switch that reaches the leaderboard now is `workout_cloud_backup_writes_enabled`: hold the workout backup and no new standing is derived, because the evidence never lands.
 That is the correct choke point, and it defers rather than drops.
 
+### Rollouts, which ship off
+
+A rollout gates a feature that is not live until an operator turns it on, so it inverts the kill switch contract: the checked-in template and `RemoteFeatureFlag.shippedDefault` are `false`, and `true` is the deliberate move.
+`RemoteFeatureFlag.isRollout` names them, and `scripts/lib/remote-config-template.mjs` holds them in `ROLLOUT_PARAMETERS` so the rest of the tooling reads them rightly:
+
+- A live `false` is the healthy state, so it never counts as a tripped switch that stops an automated republish, and `RemoteFeatureFlagSnapshot.disabledFlagKeys` leaves it out of the diagnostics warning.
+- A live `true` is the operator having shipped the feature, so the full replace refuses over it exactly as it does over an armed setting - restating the checked-in `false` would pull the feature back from every climber at once.
+- The template shape check requires a rollout to be `BOOLEAN` and to ship `"false"`, and the additive dev and staging publish carries a new rollout over at `false`, which is the safe direction.
+
+| Parameter | Turning it on starts | Off keeps |
+|---|---|---|
+| `onboarding_v3_enabled` | The 1.3.0 pre-sign-in onboarding for signed-out climbers: selling screens, setup questions and the paywall before sign-in | The onboarding that shipped before it, whole. The flow writes nothing to Firestore; the answers it collects stay on the device until a later switch-gated step sends them |
+
 ### Settings, which are not switches
 
 A kill switch is a Boolean that ships on and is flipped off to stop a path.

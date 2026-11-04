@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import AscendApp
 
@@ -86,11 +87,17 @@ struct PresetPreferencesTests {
     }
 
     @Test
-    func aStickerColorPicksTheWordmarkMarkForItsBackdrop() {
-        #expect(StickerStyle.Color.white.wordmarkMarkHex == 0x86D30A)
-        #expect(StickerStyle.Color.black.wordmarkMarkHex == 0x86D30A)
+    func aStickerColorPicksTheWordmarkTreatmentForItsBackdrop() {
+        var white = StickerStyle.defaults
+        white.color = .white
+        var black = StickerStyle.defaults
+        black.color = .black
+        #expect(StickerInk(style: white).wordmark == .onDark)
+        #expect(StickerInk(style: black).wordmark == .onLight)
         for color in [StickerStyle.Color.lime, .coral, .sky] {
-            #expect(color.wordmarkMarkHex == 0xFFFFFF)
+            var style = StickerStyle.defaults
+            style.color = color
+            #expect(StickerInk(style: style).wordmark == .mono(Color(shareHex: color.hex)))
         }
     }
 }

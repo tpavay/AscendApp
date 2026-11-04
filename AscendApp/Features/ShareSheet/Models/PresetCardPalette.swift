@@ -11,10 +11,8 @@ struct PresetCardPalette: Equatable, Sendable {
     /// Colour of accented text such as `STEPS` and the rank mark.
     let accentText: ShareColor
     let rule: ShareColor
-    /// The wordmark's letters (S C E N D).
+    /// The wordmark's single colour.
     let wordmarkLetters: ShareColor
-    /// The wordmark's angular A.
-    let wordmarkMark: ShareColor
     let topSecondary: ShareColor
     let isLight: Bool
 
@@ -26,7 +24,6 @@ struct PresetCardPalette: Equatable, Sendable {
         accentText: ShareColor,
         rule: ShareColor,
         wordmarkLetters: ShareColor,
-        wordmarkMark: ShareColor,
         topSecondary: ShareColor,
         isLight: Bool
     ) {
@@ -36,7 +33,6 @@ struct PresetCardPalette: Equatable, Sendable {
         self.accentText = accentText
         self.rule = rule
         self.wordmarkLetters = wordmarkLetters
-        self.wordmarkMark = wordmarkMark
         self.topSecondary = topSecondary
         self.isLight = isLight
     }
@@ -69,7 +65,6 @@ struct PresetCardPalette: Equatable, Sendable {
         }
         rule = light ? ShareColor(0x0B0B0B, alpha: 0.18) : ShareColor(0xFFFFFF, alpha: 0.22)
         wordmarkLetters = (topDark || light) ? .ink : .paper
-        wordmarkMark = (topDark || accentFills) ? .ink : ShareColor(accent.hex)
         topSecondary = topDark ? ShareColor(0x0B0B0B, alpha: 0.7) : secondary
     }
 }

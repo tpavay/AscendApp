@@ -39,4 +39,14 @@ extension Font {
     static var montserratRegular: Font {
         Font.custom("Montserrat-Regular", size: 17, relativeTo: .body)
     }
+
+    /// Montserrat 800, for onboarding buttons and kickers. Scales with Dynamic Type like the rest.
+    static func montserratExtraBold(size: CGFloat = 17) -> Font {
+        Font.custom("Montserrat-ExtraBold", size: size, relativeTo: .body)
+    }
+
+    /// Montserrat 900, for onboarding headlines.
+    static func montserratBlack(size: CGFloat = 34) -> Font {
+        Font.custom("Montserrat-Black", size: size, relativeTo: .title)
+    }
 }

@@ -110,7 +110,7 @@ struct AthleteLookTests {
         let stages = PostAuthOnboardingStage.allCases
         #expect(stages.firstIndex(of: .athlete) == stages.firstIndex(of: .gender).map { $0 + 1 })
 
-        let ids = OnboardingAnalyticsContext.orderedStepIDs
+        let ids = OnboardingAnalyticsContext.legacyOrderedStepIDs
         #expect(ids.firstIndex(of: "athlete") == ids.firstIndex(of: "gender").map { $0 + 1 })
         #expect(PostAuthOnboardingStage.athlete.analyticsInputType == "button")
     }
