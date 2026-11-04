@@ -56,7 +56,10 @@ struct OnboardingHeadline: View {
         text
             .textCase(.uppercase)
             .lineHeight(.exact(points: size * 0.96))
-            .minimumScaleFactor(0.5)
+            // Each line the design wrote stays one line: without a limit SwiftUI breaks a long word
+            // at a large text size instead of shrinking it.
+            .lineLimit(max(1, leadLines.count + accentLines.count))
+            .minimumScaleFactor(0.4)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .ignore)

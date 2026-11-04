@@ -179,6 +179,38 @@ struct OnboardingV3KitEvidenceTests {
         }
     }
 
+    /// A word wider than the screen at a large text size shrinks. It never breaks across two lines,
+    /// and neither does any line the design wrote as one.
+    @Test(arguments: [
+        (["Welcome"], [String]()),
+        (["Stop staring"], ["at the clock."])
+    ])
+    func aHeadlineShrinksRatherThanBreakAWordAtTheLargestTextSize(lead: [String], accent: [String]) async throws {
+        try await RenderedScreen.host(
+            VStack(spacing: 0) {
+                OnboardingHeadline(lead, accentLines: accent, size: 46)
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+            .background(Color.black)
+            .environment(\.dynamicTypeSize, .accessibility5),
+            size: Self.smallestPhone,
+            settle: .turns(12)
+        ) { screen in
+            try screen.withPixels(scale: 2) { pixels in
+                let ink = try #require(pixels.bounds { $0.isNearWhite })
+                #expect(ink.minX >= 23 && ink.maxX <= 352, "\(ink)")
+
+                var blankRows = 0
+                for y in stride(from: ink.minY, to: ink.maxY, by: 1) {
+                    let row = CGRect(x: ink.minX, y: y, width: ink.width, height: 1)
+                    if pixels.count(in: row, where: { $0.isNearWhite }) == 0 { blankRows += 1 }
+                }
+                #expect(blankRows == 0, "the white line broke in two: \(blankRows) empty rows inside \(ink)")
+            }
+        }
+    }
+
     /// The A and the letters each hold the colour the palette asks for, read on either side of the
     /// gap in the artwork, on a grey that none of them match.
     @Test(arguments: [
