@@ -168,7 +168,7 @@ Release builds ship neither.
 
 ## What happens when the fetch fails
 
-**Chosen posture: fail to the last known good value, and failing that, to the compiled-in default - which is `true` (feature enabled) for every current flag.**
+**Chosen posture: fail to the last known good value, and failing that, to the compiled-in default - which is `true` (feature enabled) for every kill switch and `false` for a rollout.**
 A fetch failure never changes app behaviour on its own.
 
 Resolution order, per flag:

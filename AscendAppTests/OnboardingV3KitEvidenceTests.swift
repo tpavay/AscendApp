@@ -179,6 +179,41 @@ struct OnboardingV3KitEvidenceTests {
         }
     }
 
+    /// The primary action keeps its label whole on the smallest phone at the largest text size: one
+    /// line, all of it, inside the button.
+    @Test
+    func thePrimaryButtonShrinksItsLabelRatherThanBreakAWordAtTheLargestTextSize() async throws {
+        try await RenderedScreen.host(
+            VStack(spacing: 0) {
+                Button("Continue") {}
+                    .buttonStyle(.onboardingPrimary)
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+            .background(Color.black)
+            .environment(\.dynamicTypeSize, .accessibility5),
+            size: Self.smallestPhone,
+            settle: .turns(12)
+        ) { screen in
+            let isLime: (RGBA) -> Bool = { $0.green > 170 && $0.blue < 60 }
+            let isInk: (RGBA) -> Bool = { $0.luminance < 40 }
+            try screen.withPixels(scale: 2) { pixels in
+                let button = try #require(pixels.bounds(where: isLime))
+                let label = try #require(pixels.bounds(in: button.insetBy(dx: 18, dy: 4), where: isInk))
+
+                var blankRows = 0
+                for y in stride(from: label.minY, to: label.maxY, by: 1) {
+                    let row = CGRect(x: label.minX, y: y, width: label.width, height: 1)
+                    if pixels.count(in: row, where: isInk) == 0 { blankRows += 1 }
+                }
+                #expect(blankRows == 0, "the label broke in two: \(blankRows) empty rows inside \(label)")
+            }
+            // Legibility is the contract here: the last letters are drawn, not truncated away.
+            let drawn = try await screen.recognizedText(scale: 2).uppercased()
+            #expect(drawn.contains("CONTINUE"), "\(drawn)")
+        }
+    }
+
     /// A word wider than the screen at a large text size shrinks. It never breaks across two lines,
     /// and neither does any line the design wrote as one.
     @Test(arguments: [

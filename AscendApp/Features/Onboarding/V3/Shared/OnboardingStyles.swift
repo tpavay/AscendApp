@@ -155,7 +155,10 @@ struct OnboardingPrimaryButtonStyle: ButtonStyle {
             .textCase(.uppercase)
             .foregroundStyle(Color.black)
             .multilineTextAlignment(.center)
-            .minimumScaleFactor(0.7)
+            // Without a limit SwiftUI breaks a word across lines at a large text size instead of
+            // shrinking it, and the scale has to reach far enough to fit CONTINUE on a small phone.
+            .lineLimit(1)
+            .minimumScaleFactor(0.35)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 60)
             .padding(.horizontal, 16)
