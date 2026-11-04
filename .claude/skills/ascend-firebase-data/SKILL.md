@@ -241,7 +241,7 @@ Ordering is the whole game. Every delete in `firestore.rules` is gated on `isOwn
 ## Reads that need the server's answer
 
 A Firestore read with source `.server` is the only kind a healthy phone can fail on its own.
-The SDK marks itself offline after a single failed attempt to open its listen stream (`kMaxWatchStreamFailures = 1` in the pinned 11.15.0), and from then until it reconnects every forced read fails immediately with `unavailable` (14), while an ordinary read is quietly answered from the device's copy.
+The SDK marks itself offline after a single failed attempt to open its listen stream (`kMaxWatchStreamFailures = 1` in `online_state_tracker.cc`, unchanged from 11.15.0 through the pinned 12.19.3), and from then until it reconnects every forced read fails immediately with `unavailable` (14), while an ordinary read is quietly answered from the device's copy.
 `NetworkConnectivityService` watches the network path, not Firestore's stream, so the app believes it is connected the whole time.
 A network handoff is enough: the stream runs on gRPC with its own DNS and TLS, separate from `URLSession`, and can drop alone.
 
