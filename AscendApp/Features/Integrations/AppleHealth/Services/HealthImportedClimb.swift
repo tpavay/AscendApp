@@ -42,6 +42,14 @@ enum HealthImportedClimb {
     }
 }
 
+extension HealthWorkoutRecord {
+    /// The steps this workout's climb carries, so a surface reading the record names the same
+    /// number the climb does.
+    var importableSteps: Int? {
+        AppleHealthImportPolicy.importableSteps(steps, duration: durationSeconds)
+    }
+}
+
 extension HealthWorkoutSnapshot {
     init(record: HealthWorkoutRecord) {
         self.init(

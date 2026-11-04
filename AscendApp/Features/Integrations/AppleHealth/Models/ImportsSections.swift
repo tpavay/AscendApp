@@ -46,7 +46,7 @@ struct ImportsSections: Equatable, Sendable {
                         id: record.workoutUUID,
                         startDate: record.startDate,
                         duration: record.durationSeconds,
-                        steps: record.steps,
+                        steps: record.importableSteps,
                         climbID: nil
                     )
                 )
@@ -57,7 +57,7 @@ struct ImportsSections: Equatable, Sendable {
                     id: record.workoutUUID,
                     startDate: record.startDate,
                     duration: climb?.duration ?? record.durationSeconds,
-                    steps: climb.map { $0.steps > 0 ? $0.steps : nil } ?? record.steps,
+                    steps: climb.map { $0.steps > 0 ? $0.steps : nil } ?? record.importableSteps,
                     climbID: climbID
                 )
                 if record.startDate >= weekStart {

@@ -83,7 +83,87 @@ struct StepsDisplayEvidenceTests {
         #expect(snapshot.primaryEffort(for: others[0]) != nil, "a finished climb keeps its badge")
 
         unknown.steps = 3_300
-        let filled = BestEffortCacheSnapshot(entries: entries, workouts: workouts)
+        try context.save()
+        try BestEffortCacheStore.rebuildIfNeeded(modelContext: context, referenceDate: referenceDate)
+        let filled = BestEffortCacheSnapshot(
+            entries: try context.fetch(FetchDescriptor<BestEffortCacheEntry>()),
+            workouts: workouts
+        )
         #expect(!filled.efforts(for: unknown).isEmpty, "once steps are in, the badge returns: it is a climb now")
+    }
+
+    @Test("A climb with no steps holds no rank, so finished climbs are not ranked around it")
+    func finishedClimbsRankWithoutAClimbWithNoSteps() throws {
+        let container = try Self.container()
+        let context = container.mainContext
+        let unknown = Self.importedClimb(steps: 0, duration: 7_200, daysAgo: 1)
+        let longest = Self.importedClimb(steps: 5_000, duration: 3_600, daysAgo: 2)
+        let shorter = Self.importedClimb(steps: 4_000, duration: 2_880, daysAgo: 3)
+        [unknown, longest, shorter].forEach(context.insert)
+        try context.save()
+        try BestEffortCacheStore.rebuild(modelContext: context, referenceDate: Date())
+
+        let entries = try context.fetch(FetchDescriptor<BestEffortCacheEntry>())
+        #expect(!entries.contains { $0.workoutID == unknown.id }, "the cache holds no rank for it at all")
+
+        let snapshot = BestEffortCacheSnapshot(entries: entries, workouts: [unknown, longest, shorter])
+        let board = snapshot.rankedEfforts(for: .longestClimb)
+        #expect(board.map(\.workout.id) == [longest.id, shorter.id])
+        #expect(board.map(\.rank) == [1, 2], "the longest finished climb is first, not second to a hidden one")
+    }
+
+    @Test("A climb with no steps feeds none of the Profile's records")
+    func theProfileRecordsSkipAClimbWithNoSteps() {
+        let stats = ProfileSnapshotBuilder.statsSnapshot(
+            workouts: [
+                Self.importedClimb(steps: 0, duration: 7_200, daysAgo: 1),
+                Self.importedClimb(steps: 5_000, duration: 3_600, daysAgo: 2)
+            ],
+            completedAttempts: [],
+            completedCount: 0,
+            achievements: .zero
+        )
+
+        #expect(stats.prLongestClimbSeconds == 3_600)
+        #expect(stats.prMostSteps == 5_000)
+    }
+
+    @Test("A climb with no steps offers Add steps where Share was, and only then")
+    func theMenuOffersAddStepsInPlaceOfShare() async throws {
+        var shared = 0
+        var addedSteps = 0
+
+        try await RenderedScreen.host(
+            VStack(spacing: 24) {
+                WorkoutDetailShareOrAddStepsAction(
+                    isMissingSteps: true,
+                    share: { shared += 1 },
+                    addSteps: { addedSteps += 1 }
+                )
+            }
+            .frame(width: 402, height: 200),
+            size: CGSize(width: 402, height: 200)
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("add steps") }
+            #expect(!copy.contains("share"), "\(copy)")
+            try activateAccessibilityElement(labelled: "Add steps", in: screen.root)
+        }
+        #expect(addedSteps == 1)
+        #expect(shared == 0)
+
+        try await RenderedScreen.host(
+            VStack(spacing: 24) {
+                WorkoutDetailShareOrAddStepsAction(
+                    isMissingSteps: false,
+                    share: { shared += 1 },
+                    addSteps: { addedSteps += 1 }
+                )
+            }
+            .frame(width: 402, height: 200),
+            size: CGSize(width: 402, height: 200)
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("share") }
+            #expect(!copy.contains("add steps"), "\(copy)")
+        }
     }
 }

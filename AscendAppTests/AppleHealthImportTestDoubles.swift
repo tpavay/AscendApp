@@ -139,7 +139,9 @@ final class AppleHealthImportHarness {
             WorkoutSyncOutboxEntry.self,
             PendingWorkoutDeletion.self,
             HealthWorkoutRecord.self,
-            ActiveHeadphoneWorkoutDraft.self
+            ActiveHeadphoneWorkoutDraft.self,
+            BestEffortCacheEntry.self,
+            BestEffortCacheMetadata.self
         )
         context = container.mainContext
         let suite = "AppleHealthImportHarness.\(UUID().uuidString)"
