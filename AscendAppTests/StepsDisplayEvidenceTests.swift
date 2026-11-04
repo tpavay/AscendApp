@@ -1,0 +1,89 @@
+import Foundation
+import SwiftData
+import SwiftUI
+import Testing
+
+@testable import AscendApp
+
+/// A climb that carries no step count - an Apple Health stair workout whose watch saved none -
+/// is stored with zero and means "unknown". These prove every surface says so: the Activity row
+/// asks for the steps instead of printing `0 steps`, and no record badge celebrates it.
+@MainActor
+@Suite(.serialized, .hostsAWindow)
+struct StepsDisplayEvidenceTests {
+    private static func container() throws -> ModelContainer {
+        try RetainedModelContainer.inMemory(
+            for: Workout.self,
+            WorkoutSourceLink.self,
+            WorkoutParticipation.self,
+            LeaderboardStats.self,
+            BestEffortCacheEntry.self,
+            BestEffortCacheMetadata.self
+        )
+    }
+
+    private static func importedClimb(steps: Int, duration: TimeInterval, daysAgo: Int) -> Workout {
+        Workout(
+            name: "Stair Stepper",
+            date: Date().addingTimeInterval(-Double(daysAgo) * 86_400),
+            duration: duration,
+            steps: steps,
+            floors: steps / 16,
+            source: .appleHealth
+        )
+    }
+
+    @Test("The Activity row asks for steps on an unknown count and never prints 0 steps")
+    func theActivityRowAsksForSteps() async throws {
+        let unknown = Self.importedClimb(steps: 0, duration: 1_474, daysAgo: 3)
+        let known = Self.importedClimb(steps: 4_912, duration: 3_770, daysAgo: 4)
+        #expect(unknown.isMissingSteps && !known.isMissingSteps)
+
+        try await RenderedScreen.host(
+            VStack(spacing: 12) {
+                WorkoutRowView(workout: unknown)
+                WorkoutRowView(workout: known)
+            }
+            .padding(20)
+            .frame(width: 402)
+            .background(Color.black),
+            size: CGSize(width: 402, height: 340)
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("4,912") }
+
+            #expect(copy.contains("add steps"), "\(copy)")
+            #expect(copy.contains("4,912 steps"), "\(copy)")
+            #expect(!copy.contains("0 steps"), "an unknown count is not a climb of nothing: \(copy)")
+            #expect(copy.contains("24:34"), "the duration still reads: \(copy)")
+            try screen.photograph(named: "steps-01-activity-rows")
+        }
+    }
+
+    @Test("A climb with no steps earns no record badge until steps are in")
+    func noBadgeWithoutSteps() throws {
+        let container = try Self.container()
+        let context = container.mainContext
+        let referenceDate = Date()
+        let unknown = Self.importedClimb(steps: 0, duration: 2_000, daysAgo: 1)
+        let others = [
+            Self.importedClimb(steps: 5_000, duration: 3_600, daysAgo: 2),
+            Self.importedClimb(steps: 4_000, duration: 2_900, daysAgo: 3),
+            Self.importedClimb(steps: 3_000, duration: 1_200, daysAgo: 4)
+        ]
+        ([unknown] + others).forEach(context.insert)
+        try context.save()
+        try BestEffortCacheStore.rebuild(modelContext: context, referenceDate: referenceDate)
+
+        let workouts = try context.fetch(FetchDescriptor<Workout>())
+        let entries = try context.fetch(FetchDescriptor<BestEffortCacheEntry>())
+        let snapshot = BestEffortCacheSnapshot(entries: entries, workouts: workouts)
+
+        #expect(snapshot.efforts(for: unknown).isEmpty, "no badge on a climb with unknown steps")
+        #expect(snapshot.primaryEffortsByWorkoutID()[unknown.id] == nil)
+        #expect(snapshot.primaryEffort(for: others[0]) != nil, "a finished climb keeps its badge")
+
+        unknown.steps = 3_300
+        let filled = BestEffortCacheSnapshot(entries: entries, workouts: workouts)
+        #expect(!filled.efforts(for: unknown).isEmpty, "once steps are in, the badge returns: it is a climb now")
+    }
+}

@@ -160,7 +160,8 @@ struct AppleHealthImportEvidenceTests {
             #expect(!copy.contains("not imported"))
             #expect(!copy.contains("import all"))
             #expect(copy.contains("4,912 steps"))
-            #expect(copy.contains("— steps"), "a climb with no steps reads as a dash: \(copy)")
+            #expect(copy.contains("add steps"), "a climb with no steps asks for them instead of printing a dash: \(copy)")
+            #expect(!copy.contains("— steps"), "\(copy)")
             try screen.photograph(named: "import-08-imports-auto")
         }
     }

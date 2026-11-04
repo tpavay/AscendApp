@@ -117,7 +117,7 @@ struct AppleHealthImportPolicyTests {
     @Test
     func rowsWordThemselvesTheWayTheMockDoes() {
         #expect(ImportsRowFormat.stepsText(4_912) == "4,912 steps")
-        #expect(ImportsRowFormat.stepsText(nil) == "— steps")
+        #expect(ImportsRowFormat.stepsText(nil) == "Add steps")
         #expect(ImportsRowFormat.durationText(3_770) == "1:02:50")
         #expect(ImportsRowFormat.durationText(2_472) == "41:12")
         #expect(ImportsRowFormat.durationText(2_105) == "35:05")
