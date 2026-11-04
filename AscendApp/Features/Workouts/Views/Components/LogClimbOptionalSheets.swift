@@ -142,8 +142,9 @@ struct LogClimbNoteSheet: View {
     }
 }
 
-/// Photos on a climb logged by hand. They upload when the climb is saved, not when they are
-/// picked, so backing out of the screen leaves nothing in Storage.
+/// Photos on an imported climb, from its quick edit; Log a climb picks in place on its own form.
+/// They upload when the edit is saved, not when they are picked, so backing out of the sheet
+/// leaves nothing in Storage.
 struct LogClimbPhotoSheet: View {
     @Binding var selectedPhotos: [SelectedPhotoItem]
     @Binding var highlightedPhotoId: UUID?
