@@ -16,6 +16,7 @@ Everything else in Health is somebody else's data and is never read.
 
 `HealthWorkoutRecord` (schema V7, `AscendSchemaV7`, lightweight) holds one row per HealthKit workout UUID for the life of the account.
 It carries the numbers Health reported at discovery so the Imports list renders with no HealthKit read.
+Those numbers stop updating once the row is imported, so an imported row and the Home strip read steps and time from the climb and fall back to the record only where the climb is gone.
 `Workout.healthKitUUID` carries the same UUID on the climb, and it travels through the cloud backup, so a restored climb still stops its own workout importing again.
 
 | State | Meaning |
@@ -45,6 +46,7 @@ The ledger rows are user records, so `AccountDataOwnershipService` blocks an acc
 `AppleHealthImportService.syncNow()` is the only pass.
 It reads from the persisted anchor with `HKAnchoredObjectQueryDescriptor`, files what is new, saves the ledger, and only then stores the new anchor.
 With auto-import on it then imports everything waiting.
+A pass that created no climb skips the derived refresh: the refresh rebuilds the Best Effort cache from every climb and forces a rank read, and a pass runs on a screen's `.task`.
 Passes are coalesced: a caller that arrives during a pass asks it to go round once more.
 It runs on authenticated bootstrap, on every foreground, on Home entry, when Imports opens, and when the observer fires.
 
@@ -65,13 +67,23 @@ A workout Health no longer has keeps the numbers it was found with.
 An imported climb is `WorkoutSource.appleHealth`, which `ClimbOrigin` reads as `healthImport`.
 Steps are the exact number on the workout's own statistics, never a tilde and never a second query over a time window.
 Average and maximum heart rate and active energy come from the same statistics.
-A workout with no step count imports with zero steps, which `Workout.isMissingSteps` reads as absent, and the climb asks for them with the Add steps prompt.
+A workout with no step count imports with zero steps, which `Workout.isMissingSteps` reads as absent.
 Steps that fail the unsaveable test in `AppleHealthImportPolicy.importableSteps` (300 steps a minute, or more than 120,000) are dropped to missing: a typed save is refused there, an import cannot be, and a climb the cloud would refuse on every sync is worse than one asking for its number.
 
 Imported climbs go through `ClimbPacePolicy` exactly like a typed climb.
 Up to 200 steps a minute ranks, 200 to 300 is saved and kept off leaderboards and the Best Efforts that feed them, and the server re-derives eligibility from `source`, `steps` and `durationSeconds` and never reads the device's verdict.
 Editing steps or time re-runs the check, and nothing else does.
 There is no report button, no review queue, and no hold on a top placing.
+
+Stair stepper imports usually carry no steps, and a climb without them is unfinished, so unknown never reads as zero:
+
+- The Profile Activity row, the Imports row and the Home strip say `Add steps` where the number would be.
+  On the Imports row it is a button into the existing steps entry, and a workout still waiting is imported first.
+- Climb detail shows a dash with the `Add steps` action, its menu leads with Add steps instead of Share until the steps are in, and copied workout text drops the Steps line.
+- The Home week line names only the climbs when the week's step total is zero because of such climbs.
+- `Workout.canHoldRecords` is false, so the climb holds no Best Effort, no ranked or record badge such as 3rd longest, and no published profile record until it has steps.
+- `PersonalizedClimbPaceService.allTimeAverageSPM` and the Profile fallback average leave its minutes out of the division.
+  The weekly Avg SPM chart and the `averagePace` share sticker still count them.
 
 Importing never opens a sheet or a dialog.
 Removing an imported climb from its summary, the climbs list, or the quick edit marks the workout skipped for good.
@@ -94,6 +106,7 @@ With auto-import on the badge is always zero.
 For each workout a non-history pass imports automatically:
 
 - A local notification titled Climb imported, body `Your {steps}-step stair stepper workout from Apple Health is in. Tap to add a note or photo.`
+  A workout with no steps reads `Your stair stepper workout from Apple Health is in. Tap to add your steps.`
   It is sent only if iOS notification authorization allows.
   It rides on the authorization the climb-drop opt-in already obtained and never asks for its own, and it does not read the climb-drop preference.
 - A green strip on Home the next time Home appears, with Edit, retired when used or after a day.
