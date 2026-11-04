@@ -39,6 +39,25 @@ struct LastClimbPreset: Equatable, Sendable {
     }
 }
 
+/// The four details a climb can carry beyond steps and time, in the order the plus buttons show.
+enum LogClimbOptionalField: CaseIterable, Identifiable {
+    case effort
+    case heartRate
+    case note
+    case photo
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .effort: "Effort"
+        case .heartRate: "Heart rate"
+        case .note: "Note"
+        case .photo: "Photo"
+        }
+    }
+}
+
 /// UI state for the Log a climb screen.
 ///
 /// Holds what the climber has typed and decides, through `LoggedClimbValidation`, what Save may
@@ -52,10 +71,13 @@ final class LogClimbViewModel {
     }
 
     private(set) var input: LoggedClimbInput
-    var focusedField: Field = .amount
+    /// The number the keypad is typing into, or nil once the climber has stepped away from both -
+    /// which is when the keypad gives its room back to what they added.
+    var focusedField: Field? = .amount
     var details = LoggedClimbDetails()
     var selectedPhotos: [SelectedPhotoItem] = []
     var highlightedPhotoId: UUID?
+    private(set) var isLoadingMedia = false
     private(set) var isSaving = false
     private(set) var saveErrorMessage: String?
     private(set) var savedWorkout: Workout?
@@ -104,6 +126,20 @@ final class LogClimbViewModel {
         return "\(day) · \(input.date.formatted(date: .omitted, time: .shortened))"
     }
 
+    /// The optional details the climber has not added yet, in the order the plus buttons show them.
+    var unfilledOptionalFields: [LogClimbOptionalField] {
+        LogClimbOptionalField.allCases.filter { !isFilled($0) }
+    }
+
+    func isFilled(_ field: LogClimbOptionalField) -> Bool {
+        switch field {
+        case .effort: details.effortRating != nil
+        case .heartRate: details.averageHeartRate != nil
+        case .note: !details.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .photo: !selectedPhotos.isEmpty
+        }
+    }
+
     var optionalFieldCount: Int {
         var count = 0
         if details.effortRating != nil { count += 1 }
@@ -115,12 +151,23 @@ final class LogClimbViewModel {
 
     // MARK: - Keypad
 
+    /// Called when an optional input closes. Once steps and time make a climb that can save, the
+    /// keypad has nothing left to type and steps aside; while either is missing or refused it
+    /// stays, because the climber still has to fix a number.
+    func optionalInputFinished(now: Date = Date()) {
+        if case .ready = validation(now: now) {
+            focusedField = nil
+        }
+    }
+
     func press(digit: Int) {
         switch focusedField {
         case .amount:
             input.appendAmountDigit(digit)
         case .time:
             input.timeEntry.append(digit)
+        case nil:
+            break
         }
     }
 
@@ -130,6 +177,8 @@ final class LogClimbViewModel {
             input.deleteLastAmountDigit()
         case .time:
             input.timeEntry.deleteLast()
+        case nil:
+            break
         }
     }
 
@@ -167,6 +216,47 @@ final class LogClimbViewModel {
             ? String(format: "%d%02d%02d", hours, minutes, seconds)
             : String(format: "%d%02d", minutes, seconds)
         return text.compactMap { $0.wholeNumberValue }
+    }
+
+    // MARK: - Photos
+
+    var canAddMorePhotos: Bool {
+        selectedPhotos.count < SelectedMediaPreparationService.maximumMediaCount
+    }
+
+    var remainingPhotoSlots: Int {
+        max(SelectedMediaPreparationService.maximumMediaCount - selectedPhotos.count, 1)
+    }
+
+    /// What the media limits are judged against while a pick is being prepared.
+    var photoLimitContext: (mediaCount: Int, videoCount: Int) {
+        (selectedPhotos.count, selectedPhotos.filter(\.isVideo).count)
+    }
+
+    /// The picker owns `PhotosPickerItem`, a SwiftUI type, so the screen prepares the pick and
+    /// hands the result here; this only keeps the loading flag and the list true.
+    func mediaPreparationDidStart() {
+        isLoadingMedia = true
+    }
+
+    func mediaPreparationDidFinish(adding items: [SelectedPhotoItem]) {
+        selectedPhotos.append(contentsOf: items)
+        isLoadingMedia = false
+    }
+
+    func removePhoto(id: UUID) {
+        guard let index = selectedPhotos.firstIndex(where: { $0.id == id }) else { return }
+        SelectedMediaPreparationService.cleanupTemporaryVideoFile(at: selectedPhotos[index].videoURL)
+        selectedPhotos.remove(at: index)
+        if highlightedPhotoId == id {
+            highlightedPhotoId = nil
+        }
+    }
+
+    /// The photo that leads the climb. With one photo there is nothing to choose.
+    func highlightPhoto(id: UUID) {
+        guard selectedPhotos.count > 1 else { return }
+        highlightedPhotoId = highlightedPhotoId == id ? nil : id
     }
 
     // MARK: - Saving
