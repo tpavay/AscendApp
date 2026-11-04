@@ -412,7 +412,36 @@ test("a lever that returns to parity on its own needs no follow-up step", () => 
   assert.equal(overrideRecoveryStep("workout_cloud_backup_writes_enabled", live), null);
 });
 
-test("only settings marked monotonic carry the permanent-refusal follow-up", () => {
+test("a rollout that is on names the console step, and says the checked-in false stays", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.onboarding_v3_enabled.defaultValue.value = "true";
+
+  const step = overrideRecoveryStep("onboarding_v3_enabled", live);
+
+  assert.match(step, /restates "false" over the live "true"/);
+  assert.match(step, /checked-in value stays false/);
+  assert.match(step, /set onboarding_v3_enabled back to "true" in the console/);
+});
+
+test("a rollout scoped by conditions names them in the console step", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.onboarding_v3_enabled.conditionalValues = { Internal: { value: "true" } };
+
+  const step = overrideRecoveryStep("onboarding_v3_enabled", live);
+
+  assert.match(step, /over the live "false" and its conditional values/);
+  assert.match(step, /back to "false" and its conditional values in the console/);
+});
+
+test("a rollout the live project holds off needs no follow-up step", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.onboarding_v3_enabled.description = "reworded in the console";
+
+  assert.deepEqual(findArmedSettings(live, localTemplate), ["onboarding_v3_enabled"]);
+  assert.equal(overrideRecoveryStep("onboarding_v3_enabled", live), null);
+});
+
+test("only settings marked monotonic read as monotonic", () => {
   assert.ok(isMonotonicSetting("workout_sync_recovery_epoch"));
   assert.equal(isMonotonicSetting("minimum_supported_app_version"), false);
   assert.equal(isMonotonicSetting("workout_cloud_backup_writes_enabled"), false);

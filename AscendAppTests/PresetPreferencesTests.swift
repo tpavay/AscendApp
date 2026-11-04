@@ -95,8 +95,8 @@ struct PresetPreferencesTests {
         }
     }
 
-    /// The brand artwork carries the lime A itself, so white and black stickers keep theirs. Its A
-    /// cannot be white, so the coloured stickers draw the whole lockup in the sticker's colour.
+    /// The brand artwork carries the lime A itself, so white and black stickers keep theirs. The
+    /// coloured stickers tint the A white and the letters the sticker's colour.
     @Test
     func aStickerColorPicksTheWordmarkTreatmentForItsBackdrop() {
         var white = StickerStyle.defaults
@@ -108,7 +108,7 @@ struct PresetPreferencesTests {
         for color in [StickerStyle.Color.lime, .coral, .sky] {
             var style = StickerStyle.defaults
             style.color = color
-            #expect(StickerInk(style: style).wordmark == .mono(Color(shareHex: color.hex)))
+            #expect(StickerInk(style: style).wordmark == .twoColour(mark: Color(shareHex: 0xFFFFFF), letters: Color(shareHex: color.hex)))
         }
     }
 }

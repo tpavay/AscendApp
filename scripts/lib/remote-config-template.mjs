@@ -94,8 +94,31 @@ export function isMonotonicSetting(key) {
  * checked-in baseline, so publishing it is the disarm and needs no follow-up. A monotonic setting
  * never returns to parity, so the override is the only way past the guard and it leaves the
  * project at the floor; the value has to be put back by hand, and the tool knows what it was.
+ *
+ * A rollout an operator turned on is the same shape: the checked-in template is pinned to `false`,
+ * so it cannot match the live project until the rollout is retired, and each full replace pulls the
+ * feature back until it is turned on again. A rollout the live project holds off with no conditions
+ * returns to parity like a threshold does.
  */
 export function overrideRecoveryStep(key, liveTemplate) {
+  if (isRolloutParameter(key)) {
+    const liveParameter = templateParameters(liveTemplate)[key];
+    if (isParameterOff(liveParameter) && liveParameter?.conditionalValues === undefined) {
+      return null;
+    }
+
+    const liveValue = liveParameter?.defaultValue?.value;
+    const conditions = liveParameter?.conditionalValues === undefined ? "" : " and its conditional values";
+
+    return (
+      `${key} is a rollout, and publishing restates "${ROLLOUT_PARAMETERS[key].healthyDefault}" over ` +
+      `the live ${JSON.stringify(liveValue)}${conditions}, which moves every climber's next launch ` +
+      "back off the feature. The checked-in value stays false by design, so the template will not " +
+      "match the live project and every full replace repeats this until the rollout is retired. " +
+      `Immediately after publishing, set ${key} back to ${JSON.stringify(liveValue)}${conditions} in the console.`
+    );
+  }
+
   if (!isMonotonicSetting(key)) {
     return null;
   }

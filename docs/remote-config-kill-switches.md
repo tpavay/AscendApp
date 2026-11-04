@@ -50,6 +50,7 @@ A rollout gates a feature that is not live until an operator turns it on, so it 
 
 - A live `false` is the healthy state, so it never counts as a tripped switch that stops an automated republish, and `RemoteFeatureFlagSnapshot.disabledFlagKeys` leaves it out of the diagnostics warning.
 - A live `true` is the operator having shipped the feature, so the full replace refuses over it exactly as it does over an armed setting - restating the checked-in `false` would pull the feature back from every climber at once.
+- That refusal repeats on every full replace while the rollout is on, because the checked-in value stays `false` until the rollout is retired and the template can never match the live project. The only way past is `--allow-overwriting-active-kill-switch <key>`, and the script prints the step that has to follow it: **immediately set the rollout back to its live value, and any conditional values, in the console**, because the publish moves every climber's next launch back off the feature.
 - The template shape check requires a rollout to be `BOOLEAN` and to ship `"false"`, and the additive dev and staging publish carries a new rollout over at `false`, which is the safe direction.
 
 | Parameter | Turning it on starts | Off keeps |
@@ -218,7 +219,8 @@ It reads the live template first and **refuses** while any lever is in use, unle
 Two shapes count: a managed flag currently off, and a **setting** moved away from its healthy baseline.
 A setting has no "off" value to recognise - it is in use at whatever value an operator moved it to - so it is caught by comparing the live parameter against the checked-in one in full, conditions included.
 That covers every entry in `SETTING_PARAMETERS`, enumerated from the catalog rather than named one by one: an armed version threshold, and a bumped `workout_sync_recovery_epoch`, whose reset to `0` is not a no-op but a fleet-wide re-open of every stopped sync series.
-The epoch is the one lever whose refusal is permanent once it fires, because it is only ever increased and so never returns to the checked-in floor - see "Settings, which are not switches" for the override and the console step that has to follow it.
+The epoch's refusal is permanent once it fires, because it is only ever increased and so never returns to the checked-in floor - see "Settings, which are not switches" for the override and the console step that has to follow it.
+A rollout that is on refuses the same way for as long as it stays on - see "Rollouts, which ship off".
 
 ```bash
 cd scripts

@@ -16,7 +16,13 @@ struct AscendWordmark: View {
         case onLight
         /// One colour for the whole lockup, for a surface that owns the lockup's colour.
         case mono(Color)
+        /// The A in one colour and the letters in another, for a surface whose A is not the brand lime.
+        case twoColour(mark: Color, letters: Color)
     }
+
+    /// The middle of the empty columns between the A and the S in the artwork: the A ends at 413 of
+    /// 1815 and the S starts at 478.
+    private static let markEdge = 446.0 / 1815.0
 
     /// Height of the lockup, which is the height of the A.
     var height: CGFloat = 22
@@ -41,6 +47,17 @@ struct AscendWordmark: View {
             Image("Wordmark").resizable().environment(\.colorScheme, .light)
         case .mono(let color):
             Image("WordmarkMono").resizable().foregroundStyle(color)
+        case .twoColour(let mark, let letters):
+            Image("WordmarkMono").resizable().foregroundStyle(
+                LinearGradient(
+                    stops: [
+                        .init(color: mark, location: Self.markEdge),
+                        .init(color: letters, location: Self.markEdge)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
         }
     }
 }

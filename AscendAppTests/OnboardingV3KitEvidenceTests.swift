@@ -179,6 +179,46 @@ struct OnboardingV3KitEvidenceTests {
         }
     }
 
+    /// The A and the letters each hold the colour the palette asks for, read on either side of the
+    /// gap in the artwork, on a grey that none of them match.
+    @Test(arguments: [
+        ("coral accent on a dark card", PresetCardPalette(accent: .coral, background: .flat(.black)).wordmarkMark, PresetCardPalette(accent: .coral, background: .flat(.black)).wordmarkLetters),
+        ("sky accent on a photo card", PresetCardPalette(accent: .sky, background: .photo).wordmarkMark, PresetCardPalette(accent: .sky, background: .photo).wordmarkLetters),
+        ("white sticker", ShareColor(StickerStyle.Color.white.wordmarkMarkHex), ShareColor(StickerStyle.Color.white.hex)),
+        ("lime sticker", ShareColor(StickerStyle.Color.lime.wordmarkMarkHex), ShareColor(StickerStyle.Color.lime.hex))
+    ])
+    func aShareLockupDrawsItsAAndItsLettersInTheirOwnColours(name: String, mark: ShareColor, letters: ShareColor) async throws {
+        func rgba(_ color: ShareColor) -> RGBA {
+            RGBA(
+                red: UInt8((color.hex >> 16) & 0xFF),
+                green: UInt8((color.hex >> 8) & 0xFF),
+                blue: UInt8(color.hex & 0xFF),
+                alpha: 255
+            )
+        }
+
+        try await RenderedScreen.host(
+            ZStack {
+                Color(white: 0.5).ignoresSafeArea()
+                AscendWordmark(height: 60, treatment: .shareLockup(letters: letters, mark: mark))
+            },
+            size: CGSize(width: 390, height: 200),
+            settle: .turns(12)
+        ) { screen in
+            let lockup = try #require(try await screen.frame(ofElementLabelled: "Ascend"))
+            let edge = lockup.minX + lockup.width * 446 / 1815
+            let markSide = CGRect(x: lockup.minX, y: lockup.minY, width: edge - lockup.minX, height: lockup.height)
+            let letterSide = CGRect(x: edge, y: lockup.minY, width: lockup.maxX - edge, height: lockup.height)
+
+            try screen.withPixels(scale: 2) { pixels in
+                #expect(pixels.count(in: markSide) { $0.isClose(to: rgba(mark)) } > 200, "\(name): the A")
+                #expect(pixels.count(in: markSide) { $0.isClose(to: rgba(letters)) } == 0, "\(name): no letter colour on the A")
+                #expect(pixels.count(in: letterSide) { $0.isClose(to: rgba(letters)) } > 200, "\(name): the letters")
+                #expect(pixels.count(in: letterSide) { $0.isClose(to: rgba(mark)) } == 0, "\(name): no A colour on the letters")
+            }
+        }
+    }
+
     @Test
     func theSignedOutHoldIsTheWordmarkOnBlackAndNothingElse() async throws {
         try await RenderedScreen.host(

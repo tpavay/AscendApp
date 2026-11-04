@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import AscendApp
 
@@ -309,6 +310,25 @@ struct OnboardingV3KitTests {
         #expect(AppRootRoute.signedOutHold.telemetryScreenName == .signedOutHold)
         #expect(AppLifecycleAnalyticsEvent.RootRoute(.signedOutHold) == .signedOutHold)
         #expect(AppLifecycleAnalyticsEvent.RootRoute.signedOutHold.isResolved == false)
+    }
+
+    /// The first badge on a screen pops with no delay at all, and a zero-length hold before the
+    /// cubic keyframes reported a NaN scale for the whole overshoot.
+    @Test(arguments: [0.0, 0.15])
+    func thePopEntranceOvershootsAndSettlesAtAnyDelay(delay: Double) {
+        let duration = 0.5
+        let timeline = KeyframeTimeline(initialValue: OnboardingEntrance.PopFrame.start) {
+            OnboardingEntrance.popKeyframes(startDelay: delay, duration: duration)
+        }
+        let frames = (0...200).map { timeline.value(time: (delay + duration) * Double($0) / 200) }
+
+        #expect(frames.allSatisfy { $0.scale.isFinite && $0.opacity.isFinite })
+        #expect(abs(frames[0].scale - 0.6) < 0.001)
+        #expect(frames[0].opacity == 0)
+        #expect(abs(timeline.value(time: delay + duration * 0.6).scale - 1.08) < 0.01)
+        #expect((frames.map(\.scale).max() ?? 0) < 1.1)
+        #expect(abs(frames[200].scale - 1) < 0.001)
+        #expect(frames[200].opacity == 1)
     }
 
     @Test

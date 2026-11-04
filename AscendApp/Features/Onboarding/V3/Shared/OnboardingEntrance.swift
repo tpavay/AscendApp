@@ -50,29 +50,40 @@ struct OnboardingEntrance: ViewModifier {
             case .pop:
                 content
                     .keyframeAnimator(
-                        initialValue: PopFrame(scale: 0.6, opacity: 0),
+                        initialValue: PopFrame.start,
                         trigger: hasAppeared
                     ) { view, frame in
                         view.scaleEffect(frame.scale).opacity(frame.opacity)
                     } keyframes: { _ in
-                        KeyframeTrack(\.opacity) {
-                            LinearKeyframe(0, duration: startDelay)
-                            LinearKeyframe(1, duration: duration * 0.4)
-                        }
-                        KeyframeTrack(\.scale) {
-                            LinearKeyframe(0.6, duration: startDelay)
-                            CubicKeyframe(1.08, duration: duration * 0.6)
-                            CubicKeyframe(1, duration: duration * 0.4)
-                        }
+                        Self.popKeyframes(startDelay: startDelay, duration: duration)
                     }
                     .onAppear { hasAppeared = true }
             }
         }
     }
 
-    private struct PopFrame {
+    struct PopFrame {
+        static let start = PopFrame(scale: 0.6, opacity: 0)
+
         var scale: Double
         var opacity: Double
+    }
+
+    /// The shortest lead-in hold: a zero-duration keyframe before a cubic one makes the track report
+    /// a NaN scale, and the keyframe builder has no `if` to leave the hold out.
+    private static let minimumLeadIn = 0.001
+
+    @KeyframesBuilder<PopFrame>
+    static func popKeyframes(startDelay: Double, duration: Double) -> some Keyframes<PopFrame> {
+        KeyframeTrack(\.opacity) {
+            LinearKeyframe(PopFrame.start.opacity, duration: max(startDelay, minimumLeadIn))
+            LinearKeyframe(1, duration: duration * 0.4)
+        }
+        KeyframeTrack(\.scale) {
+            LinearKeyframe(PopFrame.start.scale, duration: max(startDelay, minimumLeadIn))
+            CubicKeyframe(1.08, duration: duration * 0.6)
+            CubicKeyframe(1, duration: duration * 0.4)
+        }
     }
 }
 

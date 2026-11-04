@@ -23,14 +23,29 @@ struct PresetCardPaletteTests {
         #expect(treatment(.lime, .flat(.fade)) == .mono(Color(share: .ink)))
     }
 
-    /// The artwork's A is lime or nothing, so an A in another colour takes the letters' colour.
+    /// The artwork's A is only ever lime, so an A in another colour is tinted to keep its colour.
     @Test
-    func aMarkTheArtworkCannotDrawTakesTheLettersColour() {
+    func aMarkTheArtworkCannotDrawIsTintedApartFromTheLetters() {
         let coral = palette(.coral, .photo)
         #expect(coral.wordmarkMark == ShareColor(PresetAccent.coral.hex))
         #expect(
             AscendWordmark.Treatment.shareLockup(letters: coral.wordmarkLetters, mark: coral.wordmarkMark)
-                == .mono(Color(share: .paper))
+                == .twoColour(mark: Color(share: ShareColor(PresetAccent.coral.hex)), letters: Color(share: .paper))
+        )
+    }
+
+    @Test
+    func aSeasonalCardKeepsItsThemeAOrItsOneColour() {
+        let leafFall = SeasonalBackground.leafFall.cardPalette
+        #expect(
+            AscendWordmark.Treatment.shareLockup(letters: leafFall.wordmarkLetters, mark: leafFall.wordmarkMark)
+                == .twoColour(mark: Color(share: ShareColor(0xF59E0B)), letters: Color(share: .paper))
+        )
+
+        let bubblyGold = SeasonalBackground.bubblyGold.cardPalette
+        #expect(
+            AscendWordmark.Treatment.shareLockup(letters: bubblyGold.wordmarkLetters, mark: bubblyGold.wordmarkMark)
+                == .mono(Color(share: ShareColor(0x1C1917)))
         )
     }
 
