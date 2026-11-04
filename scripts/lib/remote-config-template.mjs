@@ -390,10 +390,11 @@ export function flagParityProblems(localTemplate, swiftSource) {
 export const MAX_PARAMETER_DESCRIPTION_LENGTH = 256;
 
 /**
- * Where the checked-in template departs from the shape every kill switch must have.
+ * Where the checked-in template departs from the shape each kind of parameter must have.
  *
- * The template is the *healthy* state, so every parameter ships on: a checked-in `false` would
- * publish a project into the disabled state the switch exists to reach deliberately.
+ * The template is the *healthy* state. A kill switch ships on, because a checked-in `false` would
+ * publish a project into the disabled state the switch exists to reach deliberately. A setting ships
+ * at its baseline, and a rollout ships off, because a checked-in `true` would turn it on for everyone.
  */
 export function templateShapeProblems(localTemplate) {
   const parameters = templateParameters(localTemplate);
