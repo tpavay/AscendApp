@@ -578,7 +578,8 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         homeNotice = nil
     }
 
-    /// Re-reads the two things Home draws from the ledger. A bounded count and a single-row read.
+    /// Re-reads the two things Home draws from the ledger. A bounded count and single-row reads: the
+    /// notice names what the climb holds now, since the record stops updating once it is imported.
     func refreshDerivedState() {
         guard let modelContext, let userID = currentUserID() else {
             badgeCount = 0
@@ -598,11 +599,12 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
 
         if let record = try? ledger.pendingNoticeRecord(now: now()),
            let workoutID = record.importedWorkoutID {
+            let climb = try? ledger.climb(withID: workoutID)
             homeNotice = HomeNotice(
                 workoutID: workoutID,
                 startDate: record.startDate,
-                steps: record.importableSteps,
-                duration: record.durationSeconds
+                steps: climb.map(\.recordedSteps) ?? record.importableSteps,
+                duration: climb?.duration ?? record.durationSeconds
             )
         } else {
             homeNotice = nil

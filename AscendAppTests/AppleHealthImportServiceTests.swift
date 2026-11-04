@@ -387,6 +387,26 @@ struct AppleHealthImportServiceTests {
     }
 
     @Test
+    func theHomeStripStopsAskingForStepsOnceTheClimbHasThem() async throws {
+        let harness = try AppleHealthImportHarness()
+        await harness.service.syncNow()
+        harness.addWorkout(daysAgo: 0.02, steps: nil, minutes: 25)
+        await harness.service.syncNow()
+
+        let climb = try #require(try harness.climbs().first)
+        #expect(try #require(harness.service.homeNotice).steps == nil)
+
+        climb.steps = 3_300
+        climb.duration = 1_800
+        try harness.context.save()
+        harness.service.refreshDerivedState()
+
+        let notice = try #require(harness.service.homeNotice)
+        #expect(notice.steps == 3_300)
+        #expect(notice.duration == 1_800)
+    }
+
+    @Test
     func addStepsOnAWaitingRowImportsItAndResolvesTheClimbOnTheSameTurn() async throws {
         let harness = try AppleHealthImportHarness()
         await harness.service.setAutoImportEnabled(false)

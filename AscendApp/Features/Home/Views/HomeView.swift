@@ -381,6 +381,7 @@ struct HomeView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .workoutsDidChange)) { _ in
             refreshHomeDashboard(forceRank: true)
+            importService.refreshDerivedState()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             refreshHomeDashboard(forceRank: true)
