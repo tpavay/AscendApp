@@ -86,6 +86,7 @@ final class LogClimbViewModel {
     private let photoService = PhotoService()
     private var usedSameAsLast = false
     private var changedDate = false
+    private var hasClosed = false
 
     init(lastClimb: LastClimbPreset? = nil, now: Date = Date()) {
         self.lastClimb = lastClimb
@@ -99,7 +100,7 @@ final class LogClimbViewModel {
     }
 
     func canSave(now: Date = Date()) -> Bool {
-        guard !isSaving else { return false }
+        guard !isSaving, !isLoadingMedia else { return false }
         if case .ready = validation(now: now) { return true }
         return false
     }
@@ -224,6 +225,11 @@ final class LogClimbViewModel {
         selectedPhotos.count < SelectedMediaPreparationService.maximumMediaCount
     }
 
+    /// A pick landing mid-save would miss the upload, so the picker waits for the save too.
+    var canPickMedia: Bool {
+        !isLoadingMedia && !isSaving
+    }
+
     var remainingPhotoSlots: Int {
         max(SelectedMediaPreparationService.maximumMediaCount - selectedPhotos.count, 1)
     }
@@ -240,8 +246,21 @@ final class LogClimbViewModel {
     }
 
     func mediaPreparationDidFinish(adding items: [SelectedPhotoItem]) {
-        selectedPhotos.append(contentsOf: items)
         isLoadingMedia = false
+        guard !hasClosed, savedWorkout == nil else {
+            SelectedMediaPreparationService.cleanupTemporaryVideoFiles(in: items)
+            return
+        }
+        selectedPhotos.append(contentsOf: items)
+    }
+
+    /// The climber walked away, so nothing picked will be uploaded. A save already running keeps
+    /// its files: the upload is reading them and removes them when it ends.
+    func close() {
+        hasClosed = true
+        guard !isSaving else { return }
+        SelectedMediaPreparationService.cleanupTemporaryVideoFiles(in: selectedPhotos)
+        selectedPhotos = []
     }
 
     func removePhoto(id: UUID) {
