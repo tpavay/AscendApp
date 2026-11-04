@@ -102,6 +102,83 @@ struct OnboardingV3KitEvidenceTests {
         }
     }
 
+    private func hostHeadline(
+        _ headline: OnboardingHeadline,
+        size: CGSize = CGSize(width: 390, height: 300),
+        _ body: @MainActor (HostedScreen) async throws -> Void
+    ) async throws {
+        try await RenderedScreen.host(
+            VStack(spacing: 0) {
+                headline
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+            .background(Color.black)
+            .environment(\.dynamicTypeSize, .large),
+            size: size,
+            settle: .turns(12),
+            body
+        )
+    }
+
+    /// White on the lead and the board's accent on the closing line, one 0.96 em line apart. Both
+    /// lines are capitals, so the distance between their ink tops is the line height.
+    @Test(arguments: [
+        (OnboardingHeadline.Accent.lime, RGBA(red: 0x86, green: 0xD3, blue: 0x0A, alpha: 255)),
+        (OnboardingHeadline.Accent.gold, RGBA(red: 0xD4, green: 0xAF, blue: 0x37, alpha: 255)),
+        (OnboardingHeadline.Accent.orange, RGBA(red: 0xF0, green: 0xA0, blue: 0x50, alpha: 255))
+    ])
+    func aHeadlineDrawsItsClosingLineInTheAccentAtTheDesignsLeading(accent: OnboardingHeadline.Accent, ink: RGBA) async throws {
+        try await hostHeadline(OnboardingHeadline(["See yourself"], accentLines: ["get better."], accent: accent)) { screen in
+            try screen.withPixels(scale: 2) { pixels in
+                let lead = try #require(pixels.bounds { $0.isNearWhite })
+                let closing = try #require(pixels.bounds { $0.isClose(to: ink) })
+
+                #expect(lead.maxY <= closing.minY + 1, "white stays on the lead: \(lead) \(closing)")
+                #expect(abs((closing.minY - lead.minY) - 34 * 0.96) <= 1.5, "\(lead) \(closing)")
+            }
+        }
+    }
+
+    @Test
+    func aHeadlineOfOnlyAccentLinesHasNoWhite() async throws {
+        let lime = RGBA(red: 0x86, green: 0xD3, blue: 0x0A, alpha: 255)
+        try await hostHeadline(OnboardingHeadline([], accentLines: ["Get better."])) { screen in
+            try screen.withPixels { pixels in
+                #expect(pixels.bounds { $0.isClose(to: lime) } != nil)
+                #expect(pixels.bounds { $0.isNearWhite } == nil)
+            }
+        }
+    }
+
+    @Test
+    func aHeadlineWithNoAccentLinesIsAllWhite() async throws {
+        let lime = RGBA(red: 0x86, green: 0xD3, blue: 0x0A, alpha: 255)
+        try await hostHeadline(OnboardingHeadline(["Get better."])) { screen in
+            try screen.withPixels { pixels in
+                #expect(pixels.bounds { $0.isNearWhite } != nil)
+                #expect(pixels.bounds { $0.isClose(to: lime) } == nil)
+            }
+        }
+    }
+
+    /// The welcome headline at the board's 46 pt on the smallest phone, for comparing with the handoff.
+    @Test
+    func theWelcomeHeadlineFitsTheSmallestPhone() async throws {
+        try await hostHeadline(
+            OnboardingHeadline(["Stop staring"], accentLines: ["at the clock."], size: 46),
+            size: Self.smallestPhone
+        ) { screen in
+            try screen.withPixels(scale: 2) { pixels in
+                let lead = try #require(pixels.bounds { $0.isNearWhite })
+                let closing = try #require(pixels.bounds { $0.isClose(to: RGBA(red: 0x86, green: 0xD3, blue: 0x0A, alpha: 255)) })
+                #expect(lead.minX >= 23 && lead.maxX <= 352, "\(lead)")
+                #expect(closing.minX >= 23 && closing.maxX <= 352, "\(closing)")
+            }
+            try screen.photograph(named: "onboarding-v3-headline-46-se")
+        }
+    }
+
     @Test
     func theSignedOutHoldIsTheWordmarkOnBlackAndNothingElse() async throws {
         try await RenderedScreen.host(

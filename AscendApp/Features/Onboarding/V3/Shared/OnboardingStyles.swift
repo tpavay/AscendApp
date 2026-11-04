@@ -55,7 +55,7 @@ struct OnboardingHeadline: View {
     var body: some View {
         text
             .textCase(.uppercase)
-            .lineSpacing(-size * 0.26)
+            .lineHeight(.exact(points: size * 0.96))
             .minimumScaleFactor(0.5)
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -68,17 +68,17 @@ struct OnboardingHeadline: View {
         let lead = leadLines.joined(separator: "\n")
         let closing = accentLines.joined(separator: "\n")
 
-        guard !closing.isEmpty else { return styled(lead) }
-        guard !lead.isEmpty else { return styled(closing).foregroundStyle(accent.color) }
+        guard !closing.isEmpty else { return styled(lead, color: .white) }
+        guard !lead.isEmpty else { return styled(closing, color: accent.color) }
 
-        return styled(lead + "\n") + styled(closing).foregroundStyle(accent.color)
+        return Text("\(styled(lead + "\n", color: .white))\(styled(closing, color: accent.color))")
     }
 
-    private func styled(_ string: String) -> Text {
+    private func styled(_ string: String, color: Color) -> Text {
         Text(string)
             .font(.custom("Montserrat-Black", fixedSize: size))
             .tracking(-size * 0.02)
-            .foregroundStyle(Color.white)
+            .foregroundStyle(color)
     }
 }
 
