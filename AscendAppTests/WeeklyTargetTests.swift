@@ -289,4 +289,85 @@ struct WeeklyTargetTests {
 
         #expect(await service.reconcile(for: "alice") == nil)
     }
+
+    // MARK: - One at a time
+
+    /// A remote whose writes stay in flight until the test releases them.
+    @MainActor
+    private final class HeldWrites {
+        var started: [WeeklyTarget?] = []
+        var landed: [WeeklyTarget?] = []
+        var reads = 0
+        private var held: [CheckedContinuation<Void, Never>] = []
+
+        func write(_ target: WeeklyTarget?) async {
+            started.append(target)
+            await withCheckedContinuation { held.append($0) }
+            landed.append(target)
+        }
+
+        func releaseOldest() {
+            held.removeFirst().resume()
+        }
+
+        func letEverythingRun(until condition: () -> Bool = { false }) async {
+            for _ in 0..<200 where !condition() {
+                await Task.yield()
+            }
+        }
+    }
+
+    private func heldService(store: WeeklyTargetStore, remote: HeldWrites) -> WeeklyTargetService {
+        WeeklyTargetService(
+            store: store,
+            isWriteEnabled: { true },
+            readRemote: { _ in
+                remote.reads += 1
+                return WeeklyTarget(days: 2)
+            },
+            writeRemote: { _, target in await remote.write(target) },
+            queue: WeeklyTargetSyncQueue()
+        )
+    }
+
+    @Test
+    func aNewerChangeWaitsForTheOlderWriteSoTheAccountEndsOnTheNewest() async {
+        let store = store(), remote = HeldWrites()
+        let service = heldService(store: store, remote: remote)
+
+        let first = Task { await service.save(WeeklyTarget(days: 3), for: "alice") }
+        await remote.letEverythingRun { remote.started.count == 1 }
+        let second = Task { await service.save(WeeklyTarget(days: 5), for: "alice") }
+        await remote.letEverythingRun()
+        #expect(remote.started == [WeeklyTarget(days: 3)], "the 5 waits for the 3 to finish")
+
+        remote.releaseOldest()
+        await remote.letEverythingRun { remote.started.count == 2 }
+        #expect(remote.started == [WeeklyTarget(days: 3), WeeklyTarget(days: 5)])
+        #expect(store.hasUnsyncedChange(for: "alice"), "the 3's acknowledgement does not clear the 5")
+
+        remote.releaseOldest()
+        #expect(await first.value)
+        #expect(await second.value)
+        #expect(remote.landed == [WeeklyTarget(days: 3), WeeklyTarget(days: 5)])
+        #expect(!store.hasUnsyncedChange(for: "alice"))
+        #expect(store.target(for: "alice")?.days == 5)
+    }
+
+    @Test
+    func aReconcileWaitsForAWriteSoItCannotAdoptAnAnswerFromBeforeIt() async {
+        let store = store(), remote = HeldWrites()
+        let service = heldService(store: store, remote: remote)
+
+        let save = Task { await service.save(WeeklyTarget(days: 5), for: "alice") }
+        await remote.letEverythingRun { remote.started.count == 1 }
+        let reconcile = Task { await service.reconcile(for: "alice") }
+        await remote.letEverythingRun()
+        #expect(remote.reads == 0)
+
+        remote.releaseOldest()
+        #expect(await save.value)
+        #expect(await reconcile.value?.days == 2, "the account's answer is read after the write landed")
+        #expect(remote.reads == 1)
+    }
 }

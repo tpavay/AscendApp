@@ -8,6 +8,7 @@ import {
   CityStatsRow,
   CityTally,
   cityCountKey,
+  citySummaryDocument,
   refreshCityClimberCounts,
   tallyCityClimbers,
 } from "../src/publicCityClimberCounts.js";
@@ -136,4 +137,13 @@ test("the summary is written last, after the counts it vouches for", async () =>
   await refreshCityClimberCounts(port);
 
   assert.deepEqual(port.order, ["counts", "summary"]);
+});
+
+test("the public summary says only that a run happened", () => {
+  const updatedAt = new Date("2026-11-04T12:17:00.000Z");
+
+  assert.deepEqual(citySummaryDocument(updatedAt), {
+    schemaVersion: 1,
+    updatedAt,
+  });
 });

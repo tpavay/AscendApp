@@ -162,6 +162,19 @@ export interface CityCountsSummary {
 }
 
 /**
+ * What the public `_summary` document holds: only that a run happened. The
+ * totals stay in the run's log, because this document is readable by anyone
+ * and no screen needs them.
+ * @param {T} updatedAt When the run wrote it.
+ * @return {object} The document.
+ */
+export function citySummaryDocument<T>(
+  updatedAt: T
+): {schemaVersion: number; updatedAt: T} {
+  return {schemaVersion: PUBLIC_CITY_CLIMBER_COUNTS_SCHEMA_VERSION, updatedAt};
+}
+
+/**
  * Recomputes every city's count and removes the documents of cities that no
  * longer have a climber, so a stale count is never left advertising a city.
  * @param {CityCountsPort} port Storage.
@@ -246,13 +259,10 @@ export function makeAdminCityCountsPort(): CityCountsPort {
     },
 
     async writeSummary(summary) {
-      // Only that a run happened: the totals stay in the run's log, because
-      // this document is readable by anyone and no screen needs them.
       logger.info("publicCityClimberCounts.summary", summary);
-      await counts.doc(PUBLIC_CITY_CLIMBER_COUNTS_SUMMARY_ID).set({
-        schemaVersion: PUBLIC_CITY_CLIMBER_COUNTS_SCHEMA_VERSION,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      await counts.doc(PUBLIC_CITY_CLIMBER_COUNTS_SUMMARY_ID).set(
+        citySummaryDocument(admin.firestore.FieldValue.serverTimestamp())
+      );
     },
 
     async deleteCounts(keys) {

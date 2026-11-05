@@ -6,7 +6,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
 
 // Own project id so this suite's reset never wipes another suite's documents.
 const projectId = 'demo-ascendapp-rules-weekly-target-city-counts';
@@ -104,4 +104,23 @@ test('no client can author or change a city count', async () => {
 
   await assertFails(setDoc(doc(signedOut, 'public_city_climber_counts/US__il__chicago'), count));
   await assertFails(setDoc(doc(signedIn, 'public_city_climber_counts/US__il__chicago'), count));
+});
+
+test('a signed-out phone can read the summary and no client can write it', async () => {
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    await setDoc(doc(admin.firestore(), 'public_city_climber_counts/_summary'), {
+      schemaVersion: 1,
+      updatedAt: new Date('2026-11-04T12:17:00.000Z'),
+    });
+  });
+  const signedOut = testEnv.unauthenticatedContext().firestore();
+  const signedIn = testEnv.authenticatedContext(userId).firestore();
+
+  const snapshot = await assertSucceeds(getDoc(doc(signedOut, 'public_city_climber_counts/_summary')));
+  if (!snapshot.exists()) throw new Error('summary not read');
+
+  const forged = { schemaVersion: 1, updatedAt: new Date('2026-11-05T12:17:00.000Z') };
+  await assertFails(setDoc(doc(signedOut, 'public_city_climber_counts/_summary'), forged));
+  await assertFails(setDoc(doc(signedIn, 'public_city_climber_counts/_summary'), forged));
+  await assertFails(deleteDoc(doc(signedIn, 'public_city_climber_counts/_summary')));
 });

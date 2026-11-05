@@ -69,11 +69,7 @@ enum OnboardingMonthlyEvent: Equatable {
     }
 
     private static func running(_ event: UnlockEvent, in catalog: UnlockCatalog, now: Date, calendar: Calendar) -> Running {
-        let interval = event.interval(in: calendar)
-        let daysLeft = interval.flatMap {
-            calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: $0.end).day
-        } ?? 0
-        let lastDay = interval.flatMap { calendar.date(byAdding: .day, value: -1, to: $0.end) }
+        let lastDay = event.interval(in: calendar).flatMap { calendar.date(byAdding: .day, value: -1, to: $0.end) }
 
         return Running(
             event: event,
@@ -84,7 +80,7 @@ enum OnboardingMonthlyEvent: Equatable {
                     : UnlockCopy.threshold(item, in: event).uppercased()
             },
             piecesToEarn: catalog.items(earnedIn: event).count,
-            daysLeft: max(daysLeft, 1),
+            daysLeft: event.daysLeft(now: now, calendar: calendar),
             lastDay: lastDay
         )
     }

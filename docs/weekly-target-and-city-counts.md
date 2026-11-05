@@ -15,6 +15,7 @@ Everyone has the week streak (`WeeklyStreak`, a week with any climb) whether or 
 - The write sits behind `weekly_target_writes_enabled`.
   Off, a change stays on the device marked unsynced, and goes up when the switch returns (`WeeklyTargetService.reconcile`).
 - A new phone adopts the account's target once a launch, unless the device holds a change the account has not seen.
+- One account's reads and writes run one at a time (`WeeklyTargetSyncQueue`), so an older write can never land after a newer one.
 - Onboarding keeps the answer in `PreAuthOnboardingAnswers.weeklyTargetDays`; the hand-off after sign-in writes it through `WeeklyTargetService.save`.
 
 ## City climber counts

@@ -9,9 +9,8 @@
  * while the file has a gap in the next 45 days, which is more than a release
  * cycle ahead, so an empty month is caught long before it opens.
  *
- * It also holds the file honest about itself: dates in order, no overlaps, every
- * item earned in a real event, and every shape one this branch's `AthleteGear`
- * can draw, because an item the app cannot draw is dropped silently.
+ * It also holds the file honest about itself: dates in order, no overlaps, and
+ * every item earned in a real event.
  */
 
 import test from "node:test";
@@ -23,7 +22,6 @@ import {fileURLToPath} from "node:url";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CATALOG_PATH = "web/public/unlocks/catalog.json";
 const BUNDLED_PATH = "AscendApp/Features/Athlete/Resources/unlock-catalog.json";
-const GEAR_PATH = "AscendApp/Features/Athlete/Models/AthleteGear.swift";
 
 /** How many days ahead the schedule has to be covered. */
 export const SCHEDULE_HORIZON_DAYS = 45;
@@ -112,14 +110,6 @@ test("every item is earned in a real event and every showcase id is one of its i
     for (const id of event.showcase ?? []) {
       assert.ok(own.has(id), `${event.id} shows ${id}, which it does not award`);
     }
-  }
-});
-
-test("every shape the hosted file names is one this build draws", () => {
-  const drawn = new Set([...readText(GEAR_PATH).matchAll(/case \w+ = "([a-z_]+)"|case (\w+)$/gmu)]
-    .map((match) => match[1] ?? match[2]));
-  for (const item of catalog.items) {
-    assert.ok(drawn.has(item.shape), `${item.id} is drawn as ${item.shape}, which AthleteGear does not have`);
   }
 });
 

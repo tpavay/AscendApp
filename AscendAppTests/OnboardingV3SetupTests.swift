@@ -370,6 +370,28 @@ struct OnboardingV3SetupTests {
         #expect(lastDay.daysLeft == 1)
     }
 
+    private struct FixedCatalog: UnlockCatalogRepository {
+        let catalog: UnlockCatalog
+        func loadInitialCatalog() -> UnlockCatalog { catalog }
+        func refreshCatalog() async throws -> UnlockCatalog { catalog }
+    }
+
+    /// Screen 11 and the Home event page say the same number on every day of the event.
+    @Test(arguments: [1, 4, 29, 30])
+    func screenElevenAndHomeCountTheSameDaysLeft(novemberDay: Int) throws {
+        let catalog = try twoMonthCatalog()
+        let now = date(2026, 11, novemberDay, hour: 23)
+        let suite = "onboarding-days-left-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let unlocks = UnlockStore(repository: FixedCatalog(catalog: catalog), defaults: defaults, isFlagEnabled: { true }, now: { now })
+
+        guard case .running(let running) = OnboardingMonthlyEvent.resolve(catalog: catalog, now: now, calendar: calendar) else {
+            Issue.record("expected the November event to be running"); return
+        }
+        #expect(running.daysLeft == unlocks.daysLeft(in: running.event, calendar: calendar))
+    }
+
     @Test
     func theFirstPieceIsLabelledYoursTodayAndTheRestSayWhatTheyTake() throws {
         guard case .running(let running) = OnboardingMonthlyEvent.resolve(catalog: try twoMonthCatalog(), now: date(2026, 11, 4), calendar: calendar) else {
