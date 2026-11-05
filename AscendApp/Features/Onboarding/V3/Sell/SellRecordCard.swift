@@ -21,13 +21,16 @@ struct SellRecordCard: Equatable, Identifiable {
     let month: Int
     let day: Int
 
-    /// "ALL-TIME BEST", then "2ND ALL-TIME".
-    var kicker: String {
+    /// "All-time best", then "2nd all-time".
+    private var standing: String {
         switch tier {
-        case .gold: SellScreenCopy.GetBetter.allTimeBest.uppercased()
-        case .silver: "\(BestEffortFormatting.ordinal(tier.rank)) ALL-TIME".uppercased()
+        case .gold: SellScreenCopy.GetBetter.allTimeBest
+        case .silver: "\(BestEffortFormatting.ordinal(tier.rank)) all-time"
         }
     }
+
+    /// "ALL-TIME BEST", then "2ND ALL-TIME".
+    var kicker: String { standing.uppercased() }
 
     var title: String { metric.title }
 
@@ -38,7 +41,7 @@ struct SellRecordCard: Equatable, Identifiable {
     }
 
     var accessibilitySummary: String {
-        "\(kicker.capitalized), \(title), \(detail())"
+        "\(standing), \(title), \(detail())"
     }
 
     static let examples: [SellRecordCard] = [

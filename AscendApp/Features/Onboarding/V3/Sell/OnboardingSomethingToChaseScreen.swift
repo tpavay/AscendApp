@@ -205,7 +205,7 @@ private struct SellGearPieceView: View {
                 .frame(width: max(size, 110))
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(piece.name), \(piece.requirement.capitalized)")
+        .accessibilityLabel("\(piece.name), \(piece.spokenRequirement)")
         .task {
             guard !reduceMotion else { return }
             try? await Task.sleep(for: .seconds(bobDelay))

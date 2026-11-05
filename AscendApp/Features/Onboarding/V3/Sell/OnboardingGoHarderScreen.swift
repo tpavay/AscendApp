@@ -59,11 +59,13 @@ struct OnboardingGoHarderScreen: View {
                     .onboardingEntrance(style: .rise(SellMotion.phoneRise(reduceMotion: reduceMotion)), duration: 0.8)
                     .position(center)
 
-                chip(SellGhostLabelChip(kind: .pacer(stepsPerMinute: 80)), index: 2)
-                    .position(x: center.x - phoneWidth * 0.34, y: center.y + phoneHeight * 0.28)
+                SellChipPlacement(center: CGPoint(x: center.x - phoneWidth * 0.34, y: center.y + phoneHeight * 0.28)) {
+                    chip(SellGhostLabelChip(kind: .pacer(stepsPerMinute: 80)), index: 2)
+                }
 
-                chip(SellGhostLabelChip(kind: .personalBest), index: 1)
-                    .position(x: center.x + phoneWidth * 0.5, y: center.y + phoneHeight * 0.02)
+                SellChipPlacement(center: CGPoint(x: center.x + phoneWidth * 0.5, y: center.y + phoneHeight * 0.02)) {
+                    chip(SellGhostLabelChip(kind: .personalBest), index: 1)
+                }
 
                 chip(
                     AscendMountainCrowdChip(count: 1, side: .ahead)

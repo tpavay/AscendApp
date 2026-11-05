@@ -147,6 +147,18 @@ struct OnboardingV3SellScreensTests {
     // MARK: - Chips
 
     @Test
+    func voiceOverHearsWrittenWordsNotCapitalizedDisplayText() throws {
+        #expect(SellGhostLabelChip.Kind.pacer(stepsPerMinute: 80).accessibilityLabel == "Pacer, 80 steps per minute")
+        #expect(SellGhostLabelChip.Kind.personalBest.accessibilityLabel == "Your best")
+        #expect(SellRecordCard.examples[0].accessibilitySummary.hasPrefix("All-time best, Most Steps in 60 Min, "))
+        #expect(SellRecordCard.examples[2].accessibilitySummary.hasPrefix("2nd all-time, Most Steps in 60 Min, "))
+
+        let selection = try #require(SellGearSelection(catalog: catalog(), today: day(2_026, 10, 15)))
+        #expect(selection.centerpiece.spokenRequirement == "25K steps")
+        #expect(selection.centerpiece.requirement == "25K STEPS")
+    }
+
+    @Test
     func theGhostChipsCarryTheLabelsTheMountainDraws() {
         #expect(SellGhostLabelChip.Kind.pacer(stepsPerMinute: 80).label == "PACER · 80 SPM")
         #expect(SellGhostLabelChip.Kind.personalBest.label == "YOUR BEST")

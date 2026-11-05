@@ -183,7 +183,7 @@ struct OnboardingV3SellEvidenceTests {
             #expect(copy.contains("more climbers ahead"), "the real crowd chip: \(copy)")
             let crowdChip = try #require(try await screen.frame(ofElementLabelled: "more climbers ahead"))
             #expect(screen.bounds.contains(crowdChip), "the crowd chip \(crowdChip) runs off the screen")
-            #expect(copy.contains("pacer · 80 spm"), "\(copy)")
+            #expect(copy.contains("pacer, 80 steps per minute"), "\(copy)")
             #expect(copy.contains("your best"), "\(copy)")
             #expect(copy.contains("continue"), "\(copy)")
             #expect(copy.contains("onboarding progress"), "\(copy)")
@@ -215,7 +215,7 @@ struct OnboardingV3SellEvidenceTests {
             size: Self.smallestPhone,
             settle: .turns(60)
         ) { screen in
-            let labels = ["Pacer", "Your Best", "more climbers ahead"]
+            let labels = ["Pacer, 80 steps per minute", "Your best", "more climbers ahead"]
             var chips: [CGRect] = []
             for label in labels {
                 let chip = try #require(try await screen.frame(ofElementLabelled: label), "\(label) is not on screen")
@@ -224,6 +224,33 @@ struct OnboardingV3SellEvidenceTests {
                 chips.append(chip)
             }
             try screen.photograph(named: "onboarding-v3-sell-02-go-harder-chips-se-accessibility5")
+        }
+    }
+
+    /// However narrow the art and wherever the point, a chip stays whole inside it: placed off the
+    /// corner of an area narrower than its one line, it moves in and wraps rather than cut a word.
+    @Test
+    func aChipPlacedOffTheArtMovesInAndWraps() async throws {
+        let art = CGSize(width: 180, height: 200)
+        let view = SellChipPlacement(center: CGPoint(x: -50, y: -50)) {
+            SellGhostLabelChip(kind: .pacer(stepsPerMinute: 80))
+        }
+        .frame(width: art.width, height: art.height)
+        .environment(\.dynamicTypeSize, .accessibility5)
+
+        try await RenderedScreen.host(view, size: Self.smallestPhone, settle: .turns(30)) { screen in
+            let chip = try #require(try await screen.frame(ofElementLabelled: "Pacer"))
+            let bounds = CGRect(
+                x: (screen.bounds.width - art.width) / 2,
+                y: (screen.bounds.height - art.height) / 2,
+                width: art.width,
+                height: art.height
+            )
+            #expect(bounds.contains(chip), "the chip \(chip) left the art \(bounds)")
+            let recognized = try await screen.recognizedText(scale: 2).lowercased()
+            for word in ["pacer", "80", "spm"] {
+                #expect(recognized.contains(word), "\(word) is cut: \(recognized)")
+            }
         }
     }
 
@@ -334,7 +361,7 @@ struct OnboardingV3SellEvidenceTests {
                 #expect(!copy.contains(showcase), "\(showcase) is 11's: \(copy)")
             }
 
-            let frames = try await Self.frames(on: screen, of: ["Monthly gear", headlineLabel])
+            let frames = try await Self.frames(on: screen, of: ["Monthly gear", headlineLabel, "Midnight Pumpkin, 25K steps"])
             let chip = try #require(frames["Monthly gear"])
             let headline = try #require(frames[headlineLabel])
             #expect(chip.minY >= headline.maxY, "the chip \(chip) is not under the headline \(headline)")
@@ -450,7 +477,7 @@ struct OnboardingV3SellEvidenceTests {
         try await expectEverythingArrivesWithReduceMotion(
             [
                 SellScreenCopy.GoHarder.screenshotDescription.lowercased(),
-                "more climbers ahead", "your best", "pacer · 80 spm",
+                "more climbers ahead", "your best", "pacer, 80 steps per minute",
                 "go harder than you would alone.", "real climbers' best climbs move up beside you", "continue"
             ],
             in: flow(.goHarder),
@@ -545,7 +572,7 @@ struct OnboardingV3SellEvidenceTests {
     func goHarderChipsSurviveAReduceMotionFlip(start: Bool) async throws {
         try await expectEverythingSurvivesAFlip(
             from: start,
-            of: ["more climbers ahead", "your best", "pacer · 80 spm", "continue"],
+            of: ["more climbers ahead", "your best", "pacer, 80 steps per minute", "continue"],
             in: flow(.goHarder)
         )
     }

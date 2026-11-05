@@ -17,6 +17,14 @@ struct SellGhostLabelChip: View {
             }
         }
 
+        /// What VoiceOver says, spelled out because "SPM" is not a word.
+        var accessibilityLabel: String {
+            switch self {
+            case .personalBest: "Your best"
+            case .pacer(let stepsPerMinute): "Pacer, \(Int(stepsPerMinute.rounded())) steps per minute"
+            }
+        }
+
         var dot: Color {
             switch self {
             case .personalBest: Color(red: 0.83, green: 0.69, blue: 0.22)
@@ -39,8 +47,7 @@ struct SellGhostLabelChip: View {
                 .font(.custom("Montserrat-Bold", fixedSize: size))
                 .tracking(size * 0.06)
                 .foregroundStyle(Color.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .lineLimit(2)
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 9)
@@ -48,6 +55,34 @@ struct SellGhostLabelChip: View {
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(hex: "2E2E2E"), lineWidth: 1))
         .shadow(color: .black.opacity(0.6), radius: 14, y: 8)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(kind.label.capitalized)
+        .accessibilityLabel(kind.accessibilityLabel)
+    }
+}
+
+/// Centres a chip on a point, moved only as far as keeps it whole inside the art: a chip's width
+/// follows the text size, so a point chosen for one size can put it off the screen at another. It
+/// is offered the width of the art, and a label wider than that wraps.
+struct SellChipPlacement: Layout {
+    let center: CGPoint
+
+    private static let margin: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let chip = subviews.first else { return }
+        let inner = bounds.insetBy(dx: Self.margin, dy: Self.margin)
+        let size = chip.sizeThatFits(ProposedViewSize(width: inner.width, height: nil))
+        let point = CGPoint(x: bounds.minX + center.x, y: bounds.minY + center.y)
+        chip.place(
+            at: CGPoint(
+                x: min(max(point.x, inner.minX + size.width / 2), inner.maxX - size.width / 2),
+                y: min(max(point.y, inner.minY + size.height / 2), inner.maxY - size.height / 2)
+            ),
+            anchor: .center,
+            proposal: ProposedViewSize(size)
+        )
     }
 }

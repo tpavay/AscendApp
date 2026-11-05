@@ -9,8 +9,10 @@ import Foundation
 struct SellGearSelection: Equatable {
     struct Piece: Equatable, Identifiable {
         let item: UnlockItem
-        /// What it takes, as `UnlockCopy` words it: "OPEN ASCEND", "10 CLIMBS", "25K STEPS".
-        let requirement: String
+        /// What it takes, as `UnlockCopy` words it and VoiceOver says it: "Open Ascend", "25K steps".
+        let spokenRequirement: String
+        /// The same words on screen: "OPEN ASCEND", "25K STEPS".
+        var requirement: String { spokenRequirement.uppercased() }
         /// The piece's own name, shown with its requirement on the big one.
         let name: String
 
@@ -54,7 +56,7 @@ struct SellGearSelection: Equatable {
     private static func piece(_ item: UnlockItem, in event: UnlockEvent) -> Piece {
         Piece(
             item: item,
-            requirement: UnlockCopy.threshold(item, in: event).uppercased(),
+            spokenRequirement: UnlockCopy.threshold(item, in: event),
             name: item.shape.title
         )
     }
