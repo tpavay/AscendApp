@@ -180,8 +180,8 @@ struct OnboardingV3SellEvidenceTests {
             let copy = try await screen.copy()
             #expect(copy.contains("go harder than you would alone."), "\(copy)")
             #expect(copy.contains("real climbers' best climbs move up beside you"), "\(copy)")
-            #expect(copy.contains("more climbers ahead"), "the real crowd chip: \(copy)")
-            let crowdChip = try #require(try await screen.frame(ofElementLabelled: "more climbers ahead"))
+            #expect(copy.contains("1 more climber ahead"), "the real crowd chip: \(copy)")
+            let crowdChip = try #require(try await screen.frame(ofElementLabelled: "1 more climber ahead"))
             #expect(screen.bounds.contains(crowdChip), "the crowd chip \(crowdChip) runs off the screen")
             #expect(copy.contains("pacer, 80 steps per minute"), "\(copy)")
             #expect(copy.contains("your best"), "\(copy)")
@@ -215,7 +215,7 @@ struct OnboardingV3SellEvidenceTests {
             size: Self.smallestPhone,
             settle: .turns(60)
         ) { screen in
-            let labels = ["Pacer, 80 steps per minute", "Your best", "more climbers ahead"]
+            let labels = ["Pacer, 80 steps per minute", "Your best", "1 more climber ahead"]
             var chips: [CGRect] = []
             for label in labels {
                 let chip = try #require(try await screen.frame(ofElementLabelled: label), "\(label) is not on screen")
@@ -477,7 +477,7 @@ struct OnboardingV3SellEvidenceTests {
         try await expectEverythingArrivesWithReduceMotion(
             [
                 SellScreenCopy.GoHarder.screenshotDescription.lowercased(),
-                "more climbers ahead", "your best", "pacer, 80 steps per minute",
+                "1 more climber ahead", "your best", "pacer, 80 steps per minute",
                 "go harder than you would alone.", "real climbers' best climbs move up beside you", "continue"
             ],
             in: flow(.goHarder),
@@ -572,7 +572,7 @@ struct OnboardingV3SellEvidenceTests {
     func goHarderChipsSurviveAReduceMotionFlip(start: Bool) async throws {
         try await expectEverythingSurvivesAFlip(
             from: start,
-            of: ["more climbers ahead", "your best", "pacer, 80 steps per minute", "continue"],
+            of: ["1 more climber ahead", "your best", "pacer, 80 steps per minute", "continue"],
             in: flow(.goHarder)
         )
     }

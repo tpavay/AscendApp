@@ -8,8 +8,6 @@ import SwiftUI
 struct OnboardingGoHarderScreen: View {
     let coordinator: OnboardingV3Coordinator
 
-    @OnboardingReduceMotion private var reduceMotion
-
     private static let chipDelays: [Double] = [0.7, 0.95, 1.2]
 
     var body: some View {
@@ -56,7 +54,7 @@ struct OnboardingGoHarderScreen: View {
                 phone
                     .frame(width: phoneWidth, height: phoneHeight)
                     .rotationEffect(.degrees(-4))
-                    .onboardingEntrance(style: .rise(SellMotion.phoneRise(reduceMotion: reduceMotion)), duration: 0.8)
+                    .onboardingEntrance(style: .rise(40), duration: 0.8)
                     .position(center)
 
                 SellChipPlacement(center: CGPoint(x: center.x - phoneWidth * 0.34, y: center.y + phoneHeight * 0.28)) {

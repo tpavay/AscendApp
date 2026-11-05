@@ -18,9 +18,4 @@ enum SellMotion {
     static func cardTilt(_ degrees: Double, reduceMotion: Bool) -> Double {
         reduceMotion ? 0 : degrees
     }
-
-    /// The phone on 02 rises 40 pt into place; Reduce Motion fades it where it stands.
-    static func phoneRise(reduceMotion: Bool) -> CGFloat {
-        reduceMotion ? 0 : 40
-    }
 }

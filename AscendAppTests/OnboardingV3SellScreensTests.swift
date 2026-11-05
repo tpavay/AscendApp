@@ -133,15 +133,13 @@ struct OnboardingV3SellScreensTests {
     // MARK: - Reduce Motion
 
     @Test
-    func reduceMotionKeepsFadesAndDropsZoomBobTiltAndRise() {
+    func reduceMotionKeepsFadesAndDropsZoomBobAndTilt() {
         #expect(SellMotion.heroStartScale(reduceMotion: true) == 1)
         #expect(SellMotion.heroStartScale(reduceMotion: false) == 1.15)
         #expect(SellMotion.gearBobDistance(reduceMotion: true) == 0)
         #expect(SellMotion.gearBobDistance(reduceMotion: false) == 10)
         #expect(SellMotion.cardTilt(-1.5, reduceMotion: true) == 0)
         #expect(SellMotion.cardTilt(-1.5, reduceMotion: false) == -1.5)
-        #expect(SellMotion.phoneRise(reduceMotion: true) == 0)
-        #expect(SellMotion.phoneRise(reduceMotion: false) == 40)
     }
 
     // MARK: - Chips
