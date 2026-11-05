@@ -87,6 +87,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     @ObservationIgnored private let remover: any HealthImportClimbRemoving
     @ObservationIgnored private let featureFlags: RemoteFeatureFlagStore
     @ObservationIgnored private let sessionWorkGate: AuthenticatedBootstrapCoordinator
+    @ObservationIgnored private let sessionStore: AccountSessionStore
     @ObservationIgnored private let currentUserID: @MainActor () -> String?
     @ObservationIgnored private let joinDate: @MainActor () -> Date?
     @ObservationIgnored private let applyCreated: @MainActor (ModelContext, [Workout]) throws -> Void
@@ -115,6 +116,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         remover: any HealthImportClimbRemoving = LiveHealthImportClimbRemover(),
         featureFlags: RemoteFeatureFlagStore = .shared,
         sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared,
+        sessionStore: AccountSessionStore = .shared,
         currentUserID: @escaping @MainActor () -> String? = { Auth.auth().currentUser?.uid },
         joinDate: @escaping @MainActor () -> Date? = { Auth.auth().currentUser?.metadata.creationDate },
         applyCreated: @escaping @MainActor (ModelContext, [Workout]) throws -> Void = { context, workouts in
@@ -136,6 +138,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         self.remover = remover
         self.featureFlags = featureFlags
         self.sessionWorkGate = sessionWorkGate
+        self.sessionStore = sessionStore
         self.currentUserID = currentUserID
         self.joinDate = joinDate
         self.applyCreated = applyCreated
@@ -205,7 +208,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         guard modelContext != nil,
               !sessionWorkGate.isSuspended,
               !isUpdateRequired(),
-              currentUserID() != nil,
+              localStoreBelongsToCurrentClimber,
               joinDate() != nil,
               reader.isHealthDataAvailable,
               authorization.importConnectionState == .connected else {
@@ -216,6 +219,11 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             path: "AppleHealthImportService",
             store: featureFlags
         )
+    }
+
+    private var localStoreBelongsToCurrentClimber: Bool {
+        guard let userID = currentUserID() else { return false }
+        return sessionStore.localDataOwnerUserId == userID
     }
 
     /// Whether the climber has connected Health in a way that lets import read workouts.
@@ -469,7 +477,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
 
     /// Every path that creates a climb from Health ends here, so the kill switch is read here.
     private func importRecords(_ records: [HealthWorkoutRecord], announcing announced: Set<String>) async -> ImportBatch {
-        guard let modelContext, RemoteFeatureGate.allows(
+        guard let modelContext, localStoreBelongsToCurrentClimber, RemoteFeatureGate.allows(
             .appleHealthImport,
             path: "AppleHealthImportService.import",
             store: featureFlags

@@ -133,6 +133,7 @@ final class AppleHealthImportHarness {
     let context: ModelContext
     let defaults: UserDefaults
     let settings: AppleHealthImportSettings
+    let sessionStore: AccountSessionStore
     let service: AppleHealthImportService
     private let makeService: @MainActor () -> AppleHealthImportService
 
@@ -157,24 +158,17 @@ final class AppleHealthImportHarness {
         observerCompletionBound: Duration = .seconds(25)
     ) throws {
         self.referenceNow = referenceNow
-        container = try RetainedModelContainer.inMemory(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            WorkoutSyncOutboxEntry.self,
-            PendingWorkoutDeletion.self,
-            HealthWorkoutRecord.self,
-            ActiveHeadphoneWorkoutDraft.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self
-        )
+        container = try RetainedModelContainer.inMemory(schema: AscendLocalStore.schema)
         context = container.mainContext
         let suite = "AppleHealthImportHarness.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suite)!
         settings = AppleHealthImportSettings(defaults: defaults)
+        sessionStore = AccountSessionStore(userDefaults: defaults)
+        sessionStore.recordLocalDataOwner(userId: Self.userID)
 
         let holder = HarnessState()
         let (reader, authorization, settings, notifier, remover) = (reader, authorization, settings, notifier, remover)
+        let sessionStore = sessionStore
         let makeService: @MainActor () -> AppleHealthImportService = {
             AppleHealthImportService(
                 reader: reader,
@@ -184,6 +178,7 @@ final class AppleHealthImportHarness {
                 remover: remover,
                 featureFlags: featureFlags,
                 sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+                sessionStore: sessionStore,
                 currentUserID: { holder.userID },
                 joinDate: { referenceNow.addingTimeInterval(-30 * 24 * 3600) },
                 applyCreated: { _, workouts in holder.created.append(workouts) },
@@ -223,6 +218,22 @@ final class AppleHealthImportHarness {
     var isUpdateRequired: Bool {
         get { state.isUpdateRequired }
         set { state.isUpdateRequired = newValue }
+    }
+
+    /// What the authenticated bootstrap does on sign-in: asks the real ownership gate about this
+    /// store, and remembers the climber as its owner only when the gate allows them.
+    @discardableResult
+    func signInThroughOwnershipGate(_ userID: String) throws -> AccountDataOwnershipDecision {
+        self.userID = userID
+        let decision = try AccountDataOwnershipService.evaluateAccess(
+            modelContext: context,
+            signedInUserId: userID,
+            sessionStore: sessionStore
+        )
+        if decision == .allowed {
+            AccountDataOwnershipService.recordAuthorizedOwner(signedInUserId: userID, sessionStore: sessionStore)
+        }
+        return decision
     }
 
     /// A stair workout `daysAgo` before now, with the numbers a watch would write.

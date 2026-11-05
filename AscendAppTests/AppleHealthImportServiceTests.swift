@@ -1030,6 +1030,83 @@ struct AppleHealthImportServiceTests {
     }
 
     @Test
+    func aClimberTheOwnershipGateBlockedFilesNothingInAnotherClimbersStore() async throws {
+        let harness = try AppleHealthImportHarness()
+        let returningClimber = AppleHealthImportHarness.userID
+        let otherClimber = "other-climber-on-this-device"
+
+        // Connected, anchored, and no rows of their own, so the gate lets the next climber in.
+        await harness.service.syncNow()
+        let anchor = try #require(harness.settings.anchorData(for: returningClimber))
+        #expect(try harness.records().isEmpty)
+        harness.service.cancelInFlightWork()
+
+        #expect(try harness.signInThroughOwnershipGate(otherClimber) == .allowed)
+        let othersClimb = Workout(name: "Theirs", duration: 1_200, steps: 1_000, floors: 63, source: .headphoneMotion)
+        othersClimb.ownerUserId = otherClimber
+        harness.context.insert(othersClimb)
+        try harness.context.save()
+
+        let decision = try harness.signInThroughOwnershipGate(returningClimber)
+        guard case .blocked = decision else {
+            Issue.record("the store holds the other climber's records, so the gate must block")
+            return
+        }
+
+        // A cold launch reaches the service before the bootstrap evaluates the gate.
+        harness.addWorkout(daysAgo: 0.01)
+        let readsBefore = harness.reader.changeReads.count
+        let relaunched = harness.relaunchedService()
+        #expect(await relaunched.syncNow() == false)
+        relaunched.startObservingIfPossible()
+
+        #expect(!harness.reader.isObserving)
+        #expect(harness.reader.changeReads.count == readsBefore, "Health is never read for a store they do not own")
+        #expect(try harness.records().isEmpty)
+        #expect(try harness.climbs().map(\.id) == [othersClimb.id])
+        #expect(harness.settings.anchorData(for: returningClimber) == anchor)
+        #expect(try harness.signInThroughOwnershipGate(otherClimber) == .allowed, "the owner keeps their own device")
+
+        // Deferred, not dropped: once the store is theirs the workout that arrived meanwhile imports.
+        harness.context.delete(othersClimb)
+        try harness.context.save()
+        #expect(try harness.signInThroughOwnershipGate(returningClimber) == .allowed)
+        #expect(await relaunched.syncNow())
+        #expect(try harness.climbs().map(\.source) == [.appleHealth])
+    }
+
+    @Test
+    func everyEntryPointRefusesAStoreOwnedByAnotherClimber() async throws {
+        let harness = try AppleHealthImportHarness()
+        await harness.service.setAutoImportEnabled(false)
+        let waiting = harness.addWorkout(daysAgo: 1)
+        await harness.service.syncNow()
+        let waitingUUID = waiting.uuid.uuidString
+        #expect(harness.reader.isObserving)
+
+        harness.sessionStore.recordLocalDataOwner(userId: "other-climber-on-this-device")
+        harness.addWorkout(daysAgo: 0.01)
+        let readsBefore = harness.reader.changeReads.count
+
+        let completed = LockedFlag()
+        harness.reader.deliverObserverNotification { completed.set() }
+        try await waitUntil { completed.isSet }
+        #expect(await harness.service.syncNow() == false)
+        #expect(await harness.service.discoverWithoutImporting() == 0)
+        #expect(harness.reader.changeReads.count == readsBefore)
+        #expect(try harness.records().count == 1)
+
+        #expect(await harness.service.importRecords(withUUIDs: [waitingUUID]).isEmpty)
+        await harness.service.setAutoImportEnabled(true)
+        #expect(try harness.climbs().isEmpty)
+        #expect(try harness.record(waiting)?.state == .notImported)
+
+        harness.sessionStore.recordLocalDataOwner(userId: AppleHealthImportHarness.userID)
+        await harness.service.syncNow()
+        #expect(try harness.climbs().count == 2)
+    }
+
+    @Test
     func aFailedReadLeavesTheAnchorAndTheLedgerAlone() async throws {
         let harness = try AppleHealthImportHarness()
         harness.addWorkout(daysAgo: 1)

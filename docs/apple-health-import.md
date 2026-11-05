@@ -51,7 +51,7 @@ Passes are coalesced: a caller that arrives during a pass asks it to go round on
 It runs on authenticated bootstrap, on every foreground, on Home entry, when Imports opens, and when the observer fires.
 
 Nothing a blocked pass leaves behind is lost.
-The pass refuses before any Health call when Health is unavailable, the climber has not connected, nobody is signed in, deletion is draining, the build is locked out, or `apple_health_import_enabled` is off.
+The pass refuses before any Health call when Health is unavailable, the climber has not connected, nobody is signed in, the local store's remembered owner (`AccountSessionStore.localDataOwnerUserId`, recorded once the account-ownership gate allows a climber) is someone else, deletion is draining, the build is locked out, or `apple_health_import_enabled` is off.
 The anchor does not advance while it is blocked, so the first pass afterwards reads everything that arrived in between.
 
 The first pass after connecting has no anchor, so what it finds is history.
