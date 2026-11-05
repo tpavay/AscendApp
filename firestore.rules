@@ -1897,6 +1897,18 @@ service cloud.firestore {
       }
     }
 
+    // The gear drop push's dispatch (its existence is the announcement of a
+    // gear event) and its per-device send ledger (functions/src/gearDropPush.ts).
+    // Server-derived evidence of what has already been announced, so a client
+    // that could write either could re-announce an event or suppress it.
+    match /gear_drop_dispatches/{eventId} {
+      allow read, write: if false;
+
+      match /receipts/{tokenHash} {
+        allow read, write: if false;
+      }
+    }
+
     match /_public_identity_propagation_jobs/{userId} {
       allow read, write: if false;
 

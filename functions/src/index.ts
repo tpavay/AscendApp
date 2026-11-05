@@ -13,6 +13,7 @@ export {cleanupDeletedUserData} from "./accountCleanup";
 export {flagStalledAttemptHeartbeats} from "./attemptHeartbeats";
 export {onLeaderboardResultCreatedChampionPush} from "./championPush";
 export {announceClimbDrops} from "./climbDropNotifications";
+export {announceGearDrops} from "./gearDropPush";
 export {onWorkoutWritten} from "./climbCompletions";
 export {processEmailJobs} from "./email/processor";
 export {onLifecycleEventEmailAutomation} from "./email/automation";

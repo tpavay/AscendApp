@@ -110,6 +110,21 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// rollout and not a path that must keep running (`docs/remote-config-kill-switches.md`).
     case onboardingV3 = "onboarding_v3_enabled"
 
+    /// Scheduling the local weekly-target nudge. Off, nothing new is scheduled and the pending nudge
+    /// is cleared; the climber's target and climbs are untouched, and the next reconcile after the
+    /// switch returns schedules it again.
+    case weeklyTargetReminder = "weekly_target_reminder_enabled"
+
+    /// Scheduling the local reminder two days before a free trial ends. Same behaviour as
+    /// ``weeklyTargetReminder``: off schedules and keeps nothing, and the trial itself is untouched.
+    case trialEndingReminder = "trial_ending_reminder_enabled"
+
+    /// The server push that announces a new gear event to climbers who opted in to notifications.
+    /// Read by `functions/src/gearDropPush.ts`, never by the app: off, the sweep sends nothing and
+    /// the event stays unannounced, so the first sweep after the switch returns sends it if it is
+    /// still within its window.
+    case gearDropPush = "gear_drop_push_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -177,6 +192,12 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Offers Log it and saves typed climbs; re-derives a climb's leaderboard status."
         case .onboardingV3:
             return "Shows the 1.3.0 pre-sign-in onboarding to signed-out climbers. Ships off."
+        case .weeklyTargetReminder:
+            return "Schedules the local nudge when a climber is short of their weekly target."
+        case .trialEndingReminder:
+            return "Schedules the local reminder two days before a free trial ends."
+        case .gearDropPush:
+            return "Lets the server push announce a new gear event. Read by the Cloud Function, not the app."
         }
     }
 }

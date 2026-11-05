@@ -201,3 +201,33 @@ Delete the receipts rather than editing them - a receipt that is absent is re-cl
 
 Receipts accumulate at one document per device per drop.
 They are only read while a dispatch is unfinished, so a completed drop's receipts are inert - worth expiring if the device count ever makes them matter, but not worth a TTL policy at the current fleet size.
+
+## Gear drops and the reminders the onboarding primer promises
+
+The 1.3.0 onboarding primer (screen 12) promises four nudges.
+Climb drops are the sweep above.
+The other three each have one owner, and each sits behind its own Remote Config switch (`docs/remote-config-kill-switches.md`).
+
+| Nudge | Owner | Where it runs | Switch |
+|---|---|---|---|
+| New gear | `functions/src/gearDropPush.ts` (`announceGearDrops`) | Server push, every 15 minutes | `gear_drop_push_enabled`, read by the function from the Remote Config template |
+| Short of the weekly target | `LocalReminderScheduler.reconcileWeeklyTarget` with `LocalReminderPlan.weeklyTarget` | Local, on the device | `weekly_target_reminder_enabled` |
+| Two days before a trial ends | `LocalReminderScheduler.reconcileTrialEnding` with `LocalReminderPlan.trialEnding` | Local, on the device | `trial_ending_reminder_enabled` |
+
+**Gear drop.** The sweep reads the hosted unlock catalogue (`unlocks/catalog.json`), the same file the app's event card reads, so a new month is a catalogue entry and a hosting deploy and never a function change.
+An event is announced from 16:00 UTC on its first day for three days, and never past its own end.
+`gear_drop_dispatches/{eventId}` is `create`d, and its existence is the announcement, so a rerun cannot announce the event twice.
+Each device's receipt is `create`d before the send, exactly as the climb-drop ledger does, and a send that throws keeps its claim: a missed nudge costs less than a second one.
+The audience is the climb-drop audience, because the primer's TURN ON writes that one preference.
+The push carries `type: "gear_drop"` and no climb, so a tap opens Ascend and `PushNotificationRouter` routes nothing.
+The switch fails closed: a function that cannot read the template sends nothing, because a push cannot be recalled.
+A held switch creates no dispatch, so the event is announced by the first sweep after it returns if its window is still open.
+
+**Weekly target.** The nudge fires at 18:00 local on the last day the week can still be saved, which is the day the days left, today included, equal the days still owed.
+Next week's is scheduled too, assuming nothing is climbed in between, so a climber who does not reopen the app still hears from it.
+Both are replaced by the real plan whenever anything calls `reconcileWeeklyTarget`: a target set or cleared, a climb saved, a launch or a foreground.
+Nothing is scheduled without a target, so a climber who skipped screen 10 never gets one.
+
+**Trial ending.** `reconcileTrialEnding(trialStartedAt:)` schedules exactly 5 days after the trial began, and a nil start schedules nothing, so no trial reminder exists without a trial that started.
+
+All local reminders also require the climber's stored notification answer to be on and iOS to deliver, each read fresh on every call, and `cancelAll()` clears everything the scheduler owns.

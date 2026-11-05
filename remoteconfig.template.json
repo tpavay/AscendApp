@@ -160,6 +160,27 @@
       },
       "valueType": "BOOLEAN",
       "description": "Rollout switch, ships off. On shows signed-out climbers the 1.3.0 onboarding before sign-in; off keeps the earlier flow whole. Routing and display only; it writes nothing."
+    },
+    "weekly_target_reminder_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops scheduling the local weekly-target nudge and clears the pending one; the climber's target and climbs are untouched and the next reconcile after it returns schedules it again."
+    },
+    "trial_ending_reminder_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops scheduling the local reminder two days before a free trial ends and clears the pending one; the trial itself is untouched."
+    },
+    "gear_drop_push_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops the server push that announces a new gear event; the event stays unannounced and the first sweep after it returns sends it if it is still inside its window. Read by the Cloud Function, not the app."
     }
   },
   "parameterGroups": {},
