@@ -349,10 +349,8 @@ struct OnboardingPaywallEvidenceTests {
         ) { screen in
             #expect(await fixture.model.claimGift() == .purchased(startedTrial: true))
             try await screen.settle(.until { _ in coordinator.step == .auth })
-            // Back arrives from a sign-in screen that has finished fading in. Sooner, SwiftUI revives
-            // the gift that is still fading out instead of mounting a new one.
-            try await screen.settle(.turns(20))
 
+            // Back while the gift is still fading out, which is the arrival that once revived it.
             coordinator.back()
             #expect(coordinator.step == .exitGift)
             try await screen.settle(.until { _ in coordinator.step == .auth })

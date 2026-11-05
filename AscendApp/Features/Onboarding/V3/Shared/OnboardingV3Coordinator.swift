@@ -18,6 +18,9 @@ final class OnboardingV3Coordinator {
     fileprivate static let transitionSeconds = 0.25
 
     private(set) var step: OnboardingV3Step
+    /// Counts every move between steps. Each one is a new arrival, including a return to a step
+    /// whose screen is still fading out.
+    private(set) var arrival = 0
     private(set) var answers: PreAuthOnboardingAnswers
 
     /// The bar value the screen just left was showing, which the next bar animates from.
@@ -93,6 +96,7 @@ final class OnboardingV3Coordinator {
         lastShownProgress = OnboardingProgressTable.value(for: origin) ?? OnboardingProgressTable.entryValue
         step = destination
         transitionEnd = now() + .seconds(Self.transitionSeconds)
+        arrival += 1
     }
 
     // MARK: - Answers
@@ -121,7 +125,10 @@ struct OnboardingV3FlowView: View {
             OnboardingV3Palette.background.ignoresSafeArea()
 
             screen(for: coordinator.step)
-                .id(coordinator.step)
+                // Per arrival, not per step: an id that returns while its view is still fading out
+                // revives that view, whose `.task` does not run again. A screen's arrival check - a
+                // climber holding access has nothing left to buy here - would then never run.
+                .id(coordinator.arrival)
                 .transition(.opacity)
         }
         .animation(.easeInOut(duration: OnboardingV3Coordinator.transitionSeconds), value: coordinator.step)
