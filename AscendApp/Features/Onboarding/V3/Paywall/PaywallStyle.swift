@@ -43,12 +43,13 @@ extension View {
 }
 
 /// The light that crosses the primary button every 3.4 seconds: a 1.87 second pass and a rest.
-/// Reduce Motion draws nothing.
+/// Reduce Motion draws nothing, and neither does a disabled button: a dead button must not look live.
 struct PaywallSheen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        if reduceMotion {
+        if reduceMotion || !isEnabled {
             EmptyView()
         } else {
             GeometryReader { proxy in

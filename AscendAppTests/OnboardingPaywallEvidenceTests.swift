@@ -26,7 +26,8 @@ struct OnboardingPaywallEvidenceTests {
         entitlement: MonetizationEntitlementState = .inactive,
         purchaseResult: PurchaseResult = .cancelled,
         restoredState: MonetizationEntitlementState? = nil,
-        pending: PreAuthPendingPurchase? = nil
+        pending: PreAuthPendingPurchase? = nil,
+        storeHasPlans: Bool = true
     ) async -> Fixture {
         let suite = "onboarding-paywall-evidence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -52,7 +53,11 @@ struct OnboardingPaywallEvidenceTests {
             appAccessReconciler: EvidenceReconciler(),
             userDefaults: UserDefaults(suiteName: "\(suite)-manager")!
         )
-        let provider = EvidenceProvider(trialEligible: trialEligible, purchaseResult: purchaseResult)
+        let provider = EvidenceProvider(
+            trialEligible: trialEligible,
+            purchaseResult: purchaseResult,
+            storeHasPlans: storeHasPlans
+        )
         let ledger = PreAuthPurchaseLedger(userDefaults: defaults)
         if let pending { ledger.markPurchasePending(pending) }
         let model = OnboardingPaywallModel(
@@ -409,6 +414,97 @@ struct OnboardingPaywallEvidenceTests {
         }
     }
 
+    /// Rendered glyphs, because the accessibility tree holds a truncated line's whole string. The
+    /// gift's footer shares its stack with a spacer, which is how it was once squeezed to one line.
+    @Test(arguments: [false, true], [CGSize(width: 402, height: 874), CGSize(width: 375, height: 667)])
+    func theGiftDrawsTheWholeDoNotPurchaseWarning(charged: Bool, size: CGSize) async throws {
+        let fixture = await fixture(
+            startingAt: .exitGift,
+            giftAlreadySeen: true,
+            purchaseResult: charged ? .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed) : .pending
+        )
+        _ = await fixture.model.claimGift()
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            size: size,
+            settle: .turns(40)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("check access") })
+            try await Task.sleep(for: .seconds(2))
+            let drawn = try await screen.recognizedText(scale: 2)
+            #expect(drawn.contains("do not purchase again"), "\(drawn)")
+            try screen.photograph(named: "onboarding-v3-gift-warning-\(charged ? "charged" : "ask-to-buy")-\(Int(size.height))")
+        }
+    }
+
+    /// Dimmed cards are translucent, so the pinned area behind them has to be what stops the perks.
+    @Test(arguments: [CGSize(width: 402, height: 874), CGSize(width: 375, height: 667)])
+    func aLockedPaywallKeepsThePerksFromShowingThroughThePlanCards(size: CGSize) async throws {
+        let fixture = await fixture(
+            startingAt: .paywall,
+            pending: PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+        )
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            size: size,
+            settle: .turns(40)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("check access") })
+            try await Task.sleep(for: .seconds(1.2))
+
+            let card = try #require(try await screen.frame(ofElementLabelled: "Yearly, best value"))
+            var covered: PaywallPerk?
+            for perk in PaywallPerk.all where covered == nil {
+                if let row = try await screen.frame(ofElementLabelled: perk.title), row.intersects(card) {
+                    covered = perk
+                }
+            }
+            let perk = try #require(covered, "no perk scrolls behind the yearly card at this size")
+
+            let drawn = try await screen.recognizedText(scale: 2)
+            #expect(drawn.contains("$29.99"), "\(drawn)")
+            #expect(drawn.contains("billed once a year"), "\(drawn)")
+            #expect(!drawn.contains(perk.subtitle.lowercased()), "\(drawn)")
+            try screen.photograph(named: "onboarding-v3-paywall-locked-\(Int(size.height))")
+        }
+    }
+
+    @Test
+    func withNoPlansTheMessageReadsCleanAndTheDeadButtonStaysStill() async throws {
+        let fixture = await fixture(startingAt: .paywall, storeHasPlans: false)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            size: CGSize(width: 402, height: 874),
+            settle: .turns(40)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("plans are unavailable") })
+            try await Task.sleep(for: .seconds(1.2))
+
+            let drawn = try await screen.recognizedText(scale: 2)
+            #expect(drawn.contains("plans are unavailable right now"), "\(drawn)")
+            #expect(drawn.contains("check your connection"), "\(drawn)")
+            try screen.photograph(named: "onboarding-v3-paywall-no-plans")
+
+            // Long enough for the 3.4 s sweep to cross the button at least once.
+            let button = try #require(try await screen.frame(ofElementLabelled: "Start climbing"))
+            var brightest = 0.0
+            for _ in 0..<18 {
+                let frameMax = try screen.withPixels { pixels in
+                    pixels.pixels(in: button).map(\.luminance).max() ?? 0
+                }
+                brightest = max(brightest, frameMax)
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            #expect(brightest < 100, "a disabled button should not sweep a light: \(brightest)")
+        }
+    }
+
     /// Reads the box on the first frame after it opens. The body waits 0.35 s before it sinks, so a
     /// box that is really animating is still there; a box that was replaced is already gone.
     @Test
@@ -452,16 +548,19 @@ private struct GiftBoxHarness: View {
 private final class EvidenceProvider: PreAuthPaywallPlanProviding {
     let trialEligible: Bool
     let purchaseResult: PurchaseResult
+    let storeHasPlans: Bool
 
-    init(trialEligible: Bool, purchaseResult: PurchaseResult) {
+    init(trialEligible: Bool, purchaseResult: PurchaseResult, storeHasPlans: Bool) {
         self.trialEligible = trialEligible
         self.purchaseResult = purchaseResult
+        self.storeHasPlans = storeHasPlans
     }
 
     func loadPlans() async throws -> [NativePaywallPlan] { try await loadPreAuthPlans() }
 
     func loadPreAuthPlans() async throws -> [NativePaywallPlan] {
-        [
+        guard storeHasPlans else { return [] }
+        return [
             NativePaywallPlan(
                 id: "yearly", title: "Annual", localizedPrice: "$29.99",
                 billingDescription: "Renews annually", trialDescription: nil,

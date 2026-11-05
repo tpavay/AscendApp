@@ -207,6 +207,10 @@ struct OnboardingExitGiftScreen: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 8)
+        // The stack above offers this half of its free height, because it shares it with a spacer.
+        // Taken at face value that squeezes the do-not-purchase warning to one truncated line; a
+        // footer too tall for a small phone scrolls instead.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Behaviour

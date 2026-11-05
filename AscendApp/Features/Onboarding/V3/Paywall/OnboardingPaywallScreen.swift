@@ -13,6 +13,7 @@ struct OnboardingPaywallScreen: View {
 
     /// The close button's delay, from the design.
     static let closeDelay: Duration = .seconds(3)
+    private static let perkFadeHeight: CGFloat = 28
 
     @State private var showsClose = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -58,10 +59,19 @@ struct OnboardingPaywallScreen: View {
                     .padding(.horizontal, 22)
                     .padding(.top, 8)
                     .padding(.bottom, 8)
-                    .background(
-                        LinearGradient(colors: [.black.opacity(0), .black], startPoint: .top, endPoint: .init(x: 0.5, y: 0.18))
-                            .ignoresSafeArea(edges: .bottom)
-                    )
+                    // Opaque from the first card down: a locked card is dimmed, so it is translucent,
+                    // and the message for a store with no plans has no card at all. The perks fade
+                    // out above the pinned area instead of showing through it.
+                    .background {
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.black.opacity(0), .black], startPoint: .top, endPoint: .bottom)
+                                .frame(height: Self.perkFadeHeight)
+                            Color.black
+                        }
+                        .padding(.top, -Self.perkFadeHeight)
+                        .ignoresSafeArea(edges: .bottom)
+                        .allowsHitTesting(false)
+                    }
                 }
             }
         }

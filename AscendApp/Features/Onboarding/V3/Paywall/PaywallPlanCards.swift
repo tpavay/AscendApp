@@ -76,6 +76,8 @@ struct PaywallYearlyCard: View {
                     .padding(.trailing, 18)
                     .offset(y: -12)
             }
+            // Dimmed as one piece when locked, so the border does not draw through the tag.
+            .compositingGroup()
             .padding(.top, 12)
             .contentShape(Rectangle())
         }
