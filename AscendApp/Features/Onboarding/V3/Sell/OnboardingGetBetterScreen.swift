@@ -66,27 +66,21 @@ private struct SellCardDrop: ViewModifier {
     private var delay: Double { 0.15 + 0.22 * Double(index) }
 
     func body(content: Content) -> some View {
-        if reduceMotion {
-            content
-                .opacity(trigger ? 1 : 0)
-                .onAppear { withAnimation(.easeOut(duration: 0.3).delay(delay)) { trigger = true } }
-        } else {
-            content
-                .keyframeAnimator(initialValue: Frame.start, trigger: trigger) { view, frame in
-                    view.offset(y: frame.offset).opacity(frame.opacity)
-                } keyframes: { _ in
-                    KeyframeTrack(\.opacity) {
-                        LinearKeyframe(0, duration: max(delay, 0.001))
-                        LinearKeyframe(1, duration: 0.2)
-                    }
-                    KeyframeTrack(\.offset) {
-                        LinearKeyframe(-60, duration: max(delay, 0.001))
-                        CubicKeyframe(4, duration: 0.35)
-                        CubicKeyframe(0, duration: 0.15)
-                    }
+        content
+            .keyframeAnimator(initialValue: Frame.start, trigger: trigger) { view, frame in
+                view.offset(y: reduceMotion ? 0 : frame.offset).opacity(frame.opacity)
+            } keyframes: { _ in
+                KeyframeTrack(\.opacity) {
+                    LinearKeyframe(0, duration: max(delay, 0.001))
+                    LinearKeyframe(1, duration: 0.2)
                 }
-                .onAppear { trigger = true }
-        }
+                KeyframeTrack(\.offset) {
+                    LinearKeyframe(-60, duration: max(delay, 0.001))
+                    CubicKeyframe(4, duration: 0.35)
+                    CubicKeyframe(0, duration: 0.15)
+                }
+            }
+            .onAppear { trigger = true }
     }
 
     struct Frame {

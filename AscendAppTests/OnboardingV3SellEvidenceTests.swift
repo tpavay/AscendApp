@@ -206,6 +206,27 @@ struct OnboardingV3SellEvidenceTests {
         }
     }
 
+    /// All three chips stay whole on the smallest phone at the largest text size, where the art is
+    /// at its smallest, and none lands on another.
+    @Test
+    func goHarderChipsStayOnScreenAndApartAtTheLargestTextSize() async throws {
+        try await RenderedScreen.host(
+            flow(.goHarder).environment(\.dynamicTypeSize, .accessibility5),
+            size: Self.smallestPhone,
+            settle: .turns(60)
+        ) { screen in
+            let labels = ["Pacer", "Your Best", "more climbers ahead"]
+            var chips: [CGRect] = []
+            for label in labels {
+                let chip = try #require(try await screen.frame(ofElementLabelled: label), "\(label) is not on screen")
+                #expect(chip.minX >= 0 && chip.maxX <= Self.smallestPhone.width, "\(label) \(chip) runs off the screen")
+                #expect(chips.allSatisfy { !$0.intersects(chip) }, "\(label) \(chip) lands on another chip: \(chips)")
+                chips.append(chip)
+            }
+            try screen.photograph(named: "onboarding-v3-sell-02-go-harder-chips-se-accessibility5")
+        }
+    }
+
     // MARK: - 03 Get better
 
     @Test(arguments: Self.phones)
@@ -489,6 +510,114 @@ struct OnboardingV3SellEvidenceTests {
             in: flow(.countMethods),
             photographedAs: "05-count-methods"
         )
+    }
+
+    // MARK: - Reduce Motion changing while a screen is up
+
+    /// A climber can change the setting and come back to the same screen. What has already arrived
+    /// stays: `copy` reads only what is painted, so a rebuilt entrance stuck at opacity 0 never
+    /// satisfies the wait.
+    private func expectEverythingSurvivesAFlip(
+        from start: Bool,
+        of lines: [String],
+        in view: some View
+    ) async throws {
+        let reduceMotion = ReduceMotionSwitch(isOn: start)
+        try await RenderedScreen.host(
+            OnboardingV3ReduceMotionSwitched(reduceMotion: reduceMotion, content: view),
+            size: CGSize(width: 402, height: 874),
+            settle: .turns(30)
+        ) { screen in
+            _ = try await screen.copy { copy in lines.allSatisfy(copy.contains) }
+            try await Task.sleep(for: .seconds(2))
+
+            reduceMotion.isOn.toggle()
+            try await screen.settle(.turns(30))
+
+            let copy = try await screen.copy { copy in lines.allSatisfy(copy.contains) }
+            for line in lines {
+                #expect(copy.contains(line), "\(line) is gone after the flip: \(copy)")
+            }
+        }
+    }
+
+    @Test(arguments: [true, false])
+    func goHarderChipsSurviveAReduceMotionFlip(start: Bool) async throws {
+        try await expectEverythingSurvivesAFlip(
+            from: start,
+            of: ["more climbers ahead", "your best", "pacer · 80 spm", "continue"],
+            in: flow(.goHarder)
+        )
+    }
+
+    @Test(arguments: [true, false])
+    func getBetterCardsSurviveAReduceMotionFlip(start: Bool) async throws {
+        try await expectEverythingSurvivesAFlip(
+            from: start,
+            of: SellRecordCard.examples.map { $0.accessibilitySummary.lowercased() } + ["continue"],
+            in: flow(.getBetter)
+        )
+    }
+
+    @Test(arguments: [true, false])
+    func somethingToChaseReasonsSurviveAReduceMotionFlip(start: Bool) async throws {
+        try await expectEverythingSurvivesAFlip(
+            from: start,
+            of: SellScreenCopy.SomethingToChase.chips.map { $0.lowercased() } + ["continue"],
+            in: somethingToChase(on: Self.aNovemberDay)
+        )
+    }
+
+    @Test(arguments: [true, false])
+    func somethingToChaseGearSurvivesAReduceMotionFlip(start: Bool) async throws {
+        try await expectEverythingSurvivesAFlip(
+            from: start,
+            of: ["25k steps", "1 climb", "5 climbs", "15 climbs", "continue"],
+            in: somethingToChase(on: Self.anOctoberDay)
+        )
+    }
+
+    /// The photo that has settled stays settled when motion comes back on: the same pixels before
+    /// and after, where a photo sent back to its 1.15 start would have moved under them.
+    @Test
+    func theWelcomePhotoStaysSettledWhenMotionComesBackOn() async throws {
+        let reduceMotion = ReduceMotionSwitch(isOn: true)
+        let points = stride(from: 150, through: 500, by: 70).map { CGPoint(x: 240, y: $0) }
+        try await RenderedScreen.host(
+            OnboardingV3ReduceMotionSwitched(reduceMotion: reduceMotion, content: flow(.welcome)),
+            size: CGSize(width: 402, height: 874),
+            settle: .turns(30)
+        ) { screen in
+            _ = try await screen.copy { $0.contains("get started") }
+            let before = try points.map { try screen.color(at: $0) }
+
+            reduceMotion.isOn = false
+            try await screen.settle(.turns(30))
+
+            let after = try points.map { try screen.color(at: $0) }
+            for (first, second) in zip(before, after) {
+                #expect(first.isClose(to: second, tolerance: 4), "the photo moved: \(first) became \(second)")
+            }
+        }
+    }
+}
+
+/// Reduce Motion as a value a test can change while the screen stays mounted.
+@Observable
+private final class ReduceMotionSwitch {
+    var isOn: Bool
+
+    init(isOn: Bool) {
+        self.isOn = isOn
+    }
+}
+
+private struct OnboardingV3ReduceMotionSwitched<Content: View>: View {
+    let reduceMotion: ReduceMotionSwitch
+    let content: Content
+
+    var body: some View {
+        content.environment(\.onboardingReduceMotionOverride, reduceMotion.isOn)
     }
 }
 

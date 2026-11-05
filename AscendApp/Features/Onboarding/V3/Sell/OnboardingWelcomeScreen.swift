@@ -48,8 +48,7 @@ struct OnboardingWelcomeScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.timingCurve(0.2, 0.6, 0.2, 1, duration: 6)) { heroHasSettled = true }
+            withAnimation(reduceMotion ? nil : .timingCurve(0.2, 0.6, 0.2, 1, duration: 6)) { heroHasSettled = true }
         }
         .trackOnce(screen: .onboardingWelcome)
     }

@@ -26,7 +26,11 @@ struct SellGhostLabelChip: View {
     }
 
     let kind: Kind
-    @ScaledMetric(relativeTo: .caption) private var size: CGFloat = 12
+    @ScaledMetric(relativeTo: .caption) private var scaledSize: CGFloat = 12
+
+    /// The label stops at 20 pt, where the smallest phone still holds the pacer's chip whole beside
+    /// a phone at its smallest.
+    private var size: CGFloat { min(scaledSize, 20) }
 
     var body: some View {
         HStack(spacing: 8) {
