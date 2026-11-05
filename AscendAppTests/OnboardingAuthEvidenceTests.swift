@@ -65,7 +65,8 @@ struct OnboardingAuthEvidenceTests {
             #expect(copy.contains("keep climbing"), "\(copy)")
             #expect(!copy.contains("maya d."), "no board: \(copy)")
             #expect(!copy.contains("not ranked yet"), "no climber row: \(copy)")
-            #expect(copy.contains("back"), "a way back: \(copy)")
+            let texts = try await hosted.texts()
+            #expect(texts.contains { $0.text == "Back" && $0.traits.contains(.button) }, "a way back: \(copy)")
             #expect(copy.contains("continue with apple"), "\(copy)")
             try hosted.photograph(named: "onboarding-v3-auth-returning-se")
         }
