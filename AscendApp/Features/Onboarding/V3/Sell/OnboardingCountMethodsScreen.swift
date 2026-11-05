@@ -42,7 +42,7 @@ struct OnboardingCountMethodsScreen: View {
 
             Button(SellScreenCopy.continueTitle, action: coordinator.advance)
                 .buttonStyle(.onboardingPrimary)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 24)
                 .padding(.top, 14)
                 .padding(.bottom, 16)
         }

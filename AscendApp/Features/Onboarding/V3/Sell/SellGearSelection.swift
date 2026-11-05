@@ -4,8 +4,8 @@ import Foundation
 /// itself: the event running today, else the latest one that finished. Nothing about a season is
 /// written in code.
 ///
-/// 11 shows the event's showcase, so 04 never does. An event too small to have gear left over has
-/// no selection, and 04 leads with its reasons instead.
+/// 11 shows the event's showcase, so 04 draws from the rest of the event first and borrows from the
+/// showcase only to reach ``pieceCount``. With no event opened yet there is no selection.
 struct SellGearSelection: Equatable {
     struct Piece: Equatable, Identifiable {
         let item: UnlockItem
@@ -27,29 +27,27 @@ struct SellGearSelection: Equatable {
 
     var pieces: [Piece] { [centerpiece] + companions }
 
-    /// An event with fewer live items than this shows no gear on 04.
-    private static let minimumLiveItems = 7
+    /// The art has a slot for each of these.
+    private static let pieceCount = 4
 
     /// Steps a centrepiece is worth chasing from: a few climbs of work, not a season of it.
     private static let centerpieceStepFloor = 20_000
 
     init?(catalog: UnlockCatalog, today: Date) {
         guard let event = Self.event(in: catalog, today: today) else { return nil }
-        let items = catalog.items(earnedIn: event)
-        guard items.count >= Self.minimumLiveItems else { return nil }
-
         let showcase = catalog.showcase(of: event)
-        let offered = items.filter { !showcase.contains($0) }
-        let centre = offered
+        let offered = catalog.items(earnedIn: event).filter { !showcase.contains($0) }
+        let drawable = offered + showcase.prefix(max(0, Self.pieceCount - offered.count))
+        let centre = drawable
             .filter { $0.earn.metric == .steps && $0.earn.threshold >= Self.centerpieceStepFloor }
             .min { $0.earn.threshold < $1.earn.threshold }
-            ?? offered.last
+            ?? drawable.last
         guard let centre else { return nil }
 
         centerpiece = Self.piece(centre, in: event)
-        companions = offered
+        companions = drawable
             .filter { $0 != centre }
-            .prefix(3)
+            .prefix(Self.pieceCount - 1)
             .map { Self.piece($0, in: event) }
     }
 

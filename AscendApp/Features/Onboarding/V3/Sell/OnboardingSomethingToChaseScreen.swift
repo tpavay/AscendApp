@@ -3,7 +3,7 @@ import SwiftUI
 /// 04 Always something to chase next: the month's gear, popping in and bobbing, each piece labelled
 /// with what it takes, over the reasons to keep climbing. The gear is read from the hosted unlock
 /// catalogue, so it is whatever event is on (or the last one that finished), never a season written
-/// into the build. With no gear to show, the reasons fill the art area instead.
+/// into the build.
 struct OnboardingSomethingToChaseScreen: View {
     let coordinator: OnboardingV3Coordinator
     /// Tests hand in a catalogue and a day; the screen reads the real catalogue and today.
@@ -30,15 +30,9 @@ struct OnboardingSomethingToChaseScreen: View {
             art: {
                 if let selection {
                     gear(selection)
-                } else {
-                    reasons
                 }
             },
-            extras: {
-                if selection != nil {
-                    chips
-                }
-            }
+            extras: { chips }
         )
         .background(alignment: .top) {
             SellGlow(color: Color(red: 240 / 255, green: 140 / 255, blue: 40 / 255), opacity: 0.24)
@@ -110,22 +104,6 @@ struct OnboardingSomethingToChaseScreen: View {
 
     // MARK: - Chips
 
-    /// The chips drawn large in the art area, for an event with no gear to show.
-    private var reasons: some View {
-        VStack(spacing: 12) {
-            ForEach(Array(SellScreenCopy.SomethingToChase.chips.enumerated()), id: \.element) { index, title in
-                SellChaseChip(
-                    title: title,
-                    isHighlighted: title == SellScreenCopy.SomethingToChase.highlightedChip,
-                    isProminent: true
-                )
-                .onboardingEntrance(style: .pop, delay: 0.15 + 0.17 * Double(index), duration: 0.55)
-            }
-        }
-        .padding(.horizontal, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private var chips: some View {
         ShareChipFlowLayout(spacing: 6) {
             ForEach(SellScreenCopy.SomethingToChase.chips, id: \.self) { title in
@@ -142,21 +120,20 @@ struct OnboardingSomethingToChaseScreen: View {
 private struct SellChaseChip: View {
     let title: String
     let isHighlighted: Bool
-    var isProminent = false
 
     @ScaledMetric(relativeTo: .caption) private var size: CGFloat = 12
 
     /// A chip grows with the text but stops at 32 pt, where the smallest phone still holds
     /// "Achievements" on one line.
-    private var effectiveSize: CGFloat { min(isProminent ? size * 1.5 : size, 32) }
+    private var effectiveSize: CGFloat { min(size, 32) }
 
     var body: some View {
         Text(title)
             .font(.custom("Montserrat-ExtraBold", fixedSize: effectiveSize))
             .foregroundStyle(isHighlighted ? OnboardingV3Palette.orange : Color.white)
             .multilineTextAlignment(.center)
-            .padding(.horizontal, isProminent ? 18 : 10)
-            .padding(.vertical, isProminent ? 13 : 7)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(isHighlighted ? Color(hex: "2A1806") : OnboardingV3Palette.controlFill)

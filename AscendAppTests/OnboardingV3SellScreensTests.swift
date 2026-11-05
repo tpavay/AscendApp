@@ -70,14 +70,20 @@ struct OnboardingV3SellScreensTests {
         Calendar.current.date(from: DateComponents(year: year, month: month, day: day, hour: 12))!
     }
 
+    /// Thanksgiving has six items and three are its showcase, so the three others are all drawn and
+    /// the showcase's first fills the fourth place.
     @Test
-    func novemberIsTooSmallAnEventToShowGear() throws {
+    func aSixItemEventFillsItsFourPiecesFromTheShowcase() throws {
         let catalog = catalog()
         let event = try #require(SellGearSelection.event(in: catalog, today: day(2_026, 11, 4)))
+        let selection = try #require(SellGearSelection(catalog: catalog, today: day(2_026, 11, 4)))
 
         #expect(event.id == "thanksgiving-2026")
         #expect(catalog.items(earnedIn: event).count == 6)
-        #expect(SellGearSelection(catalog: catalog, today: day(2_026, 11, 4)) == nil)
+        #expect(selection.centerpiece.item.id == "golden_turkey")
+        #expect(selection.companions.map(\.item.id) == ["cornucopia", "turkey_giant", "harvest_gourd"])
+        #expect(selection.pieces.map(\.requirement) == ["25K STEPS", "5 CLIMBS", "50K STEPS", "OPEN ASCEND"])
+        #expect(Set(selection.pieces.map(\.item)).intersection(catalog.showcase(of: event)).count == 1)
     }
 
     @Test
@@ -94,22 +100,30 @@ struct OnboardingV3SellScreensTests {
         #expect(Set(selection.pieces.map(\.item)).isDisjoint(with: catalog.showcase(of: event)))
     }
 
-    /// Seven items is the smallest event with gear, and none of its seven has a big step goal, so
-    /// the catalogue's last piece outside the showcase is the centrepiece.
+    /// Seven items leave four outside the showcase, so nothing is borrowed from it, and none of the
+    /// seven has a big step goal, so the last of the four is the centrepiece.
     @Test
-    func sevenLiveItemsIsTheSmallestEventThatShowsGear() throws {
+    func anEventWithFourPiecesBesidesItsShowcaseBorrowsNothing() throws {
         let bundled = catalog()
         let event = try #require(bundled.event(id: "halloween-2026"))
-        let items = bundled.items(earnedIn: event)
-        let trimmed = { (count: Int) in
-            UnlockCatalog(version: bundled.version, events: [event], items: Array(items.prefix(count)))
-        }
+        let items = Array(bundled.items(earnedIn: event).prefix(7))
+        let trimmed = UnlockCatalog(version: bundled.version, events: [event], items: items)
 
-        #expect(SellGearSelection(catalog: trimmed(6), today: day(2_026, 10, 15)) == nil)
-
-        let selection = try #require(SellGearSelection(catalog: trimmed(7), today: day(2_026, 10, 15)))
+        let selection = try #require(SellGearSelection(catalog: trimmed, today: day(2_026, 10, 15)))
         #expect(selection.centerpiece.item.id == "ghost_sheet")
         #expect(selection.companions.map(\.item.id) == ["pumpkin_ghost", "pumpkin_heirloom", "candy_corn"])
+    }
+
+    /// An event of three has nothing to borrow beyond itself: it draws what it has.
+    @Test
+    func anEventSmallerThanFourDrawsEveryPieceItHas() throws {
+        let bundled = catalog()
+        let event = try #require(bundled.event(id: "halloween-2026"))
+        let items = Array(bundled.items(earnedIn: event).prefix(3))
+        let trimmed = UnlockCatalog(version: bundled.version, events: [event], items: items)
+
+        let selection = try #require(SellGearSelection(catalog: trimmed, today: day(2_026, 10, 15)))
+        #expect(Set(selection.pieces.map(\.item)) == Set(items))
     }
 
     @Test

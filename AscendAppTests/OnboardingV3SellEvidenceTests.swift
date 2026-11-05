@@ -36,7 +36,8 @@ struct OnboardingV3SellEvidenceTests {
         OnboardingV3FlowView(coordinator: coordinator(at: step))
     }
 
-    /// A day inside the bundled catalogue's Thanksgiving event, which is too small to show gear.
+    /// A day inside the bundled catalogue's Thanksgiving event, whose six items fill 04's four places
+    /// only by borrowing from its showcase.
     nonisolated private static let aNovemberDay = Calendar.current.date(from: DateComponents(year: 2_026, month: 11, day: 4, hour: 12))!
 
     /// A day before the bundled catalogue's first event opens, so there is no event to show.
@@ -334,33 +335,52 @@ struct OnboardingV3SellEvidenceTests {
 
     // MARK: - 04 Something to chase
 
-    /// Thanksgiving has six items, none to spare from the showcase 11 shows, and before the first
-    /// event there is nothing to show at all. Either way the reasons are the art: above the
-    /// headline, and only once.
-    @Test(arguments: Self.phones, [Self.aNovemberDay, Self.anAugustDay])
-    func somethingToChaseWithNoGearMakesTheReasonsTheArt(size: CGSize, day: Date) async throws {
-        let chips = SellScreenCopy.SomethingToChase.chips
+    /// Thanksgiving has only six items, and 04 still draws four pieces from the bundled catalogue
+    /// alone, which is all a climber has before signing in: each whole on the screen, above the
+    /// headline, each in its own place, with the reasons in their row under the message.
+    @Test(arguments: Self.phones)
+    func somethingToChaseInASixItemEventRendersFourPieces(size: CGSize) async throws {
         let headlineLabel = "Always something to chase next."
-        try await RenderedScreen.host(somethingToChase(on: day), size: size, settle: .turns(60)) { screen in
-            let copy = try await screen.copy()
-            #expect(copy.contains("always something to chase next."), "\(copy)")
-            #expect(copy.contains("continue"), "\(copy)")
-            for gone in ["golden turkey", "25k steps", "open ascend", "10 climbs", "1 climb"] {
-                #expect(!copy.contains(gone), "\(gone) is gear: \(copy)")
-            }
+        let pieces = [
+            "Golden Turkey, 25K steps", "Cornucopia, 5 climbs", "Giant Turkey, 50K steps", "Harvest Gourd, Open Ascend"
+        ]
+        let chips = SellScreenCopy.SomethingToChase.chips
+        try await RenderedScreen.host(somethingToChase(on: Self.aNovemberDay), size: size, settle: .turns(60)) { screen in
+            let frames = try await Self.frames(on: screen, of: pieces + chips + [headlineLabel])
+            let headline = try #require(frames[headlineLabel])
 
+            var drawn: [CGRect] = []
+            for piece in pieces {
+                let frame = try #require(frames[piece])
+                #expect(screen.bounds.contains(frame), "\(piece) \(frame) runs off the screen")
+                #expect(frame.maxY <= headline.minY, "\(piece) \(frame) is not above the headline \(headline)")
+                drawn.append(frame)
+            }
+            #expect(Set(drawn.map { "\($0.midX),\($0.midY)" }).count == pieces.count, "pieces share a place: \(drawn)")
+            for chip in chips {
+                let frame = try #require(frames[chip])
+                #expect(frame.minY >= headline.maxY, "\(chip) \(frame) is not under the headline \(headline)")
+            }
+            try screen.photograph(named: "onboarding-v3-sell-04-something-to-chase-november-\(Int(size.height))")
+        }
+    }
+
+    /// Before the first event opens there is no gear to draw, and the reasons keep their row.
+    @Test
+    func somethingToChaseBeforeAnyEventKeepsItsReasons() async throws {
+        let headlineLabel = "Always something to chase next."
+        let chips = SellScreenCopy.SomethingToChase.chips
+        try await RenderedScreen.host(somethingToChase(on: Self.anAugustDay), size: Self.smallestPhone, settle: .turns(60)) { screen in
             let frames = try await Self.frames(on: screen, of: chips + [headlineLabel])
             let headline = try #require(frames[headlineLabel])
             for chip in chips {
                 let frame = try #require(frames[chip])
-                #expect(frame.maxY <= headline.minY, "\(chip) \(frame) is not above the headline \(headline)")
+                #expect(frame.minY >= headline.maxY, "\(chip) \(frame) is not under the headline \(headline)")
             }
-            let elements = try await screen.elements()
-            for chip in chips {
-                #expect(elements.filter { $0.accessibilityLabel == chip }.count == 1, "\(chip) is not drawn once")
+            let copy = try await screen.copy()
+            for gone in ["golden turkey", "25k steps", "open ascend"] {
+                #expect(!copy.contains(gone), "\(gone) is gear: \(copy)")
             }
-            let month = Calendar.current.component(.month, from: day)
-            try screen.photograph(named: "onboarding-v3-sell-04-something-to-chase-month-\(month)-\(Int(size.height))")
         }
     }
 
@@ -413,6 +433,22 @@ struct OnboardingV3SellEvidenceTests {
     }
 
     // MARK: - 05 Count methods
+
+    /// 05 lays out its own button rather than using `SellScreenFrame`, so walking 03 to 05 must not
+    /// change Continue's width or insets.
+    @Test(arguments: Self.phones)
+    func continueHasTheSameFrameOnGetBetterSomethingToChaseAndCountMethods(size: CGSize) async throws {
+        let label = SellScreenCopy.continueTitle
+        var frames: [OnboardingV3Step: CGRect] = [:]
+        for step in [OnboardingV3Step.getBetter, .somethingToChase, .countMethods] {
+            try await RenderedScreen.host(flow(step), size: size, settle: .turns(60)) { screen in
+                frames[step] = try await Self.frames(on: screen, of: [label])[label]
+            }
+        }
+        let reference = try #require(frames[.getBetter])
+        #expect(try #require(frames[.somethingToChase]) == reference)
+        #expect(try #require(frames[.countMethods]) == reference)
+    }
 
     @Test(arguments: Self.phones)
     func countMethodsListsTheThreeWaysWithoutLive(size: CGSize) async throws {
@@ -529,12 +565,12 @@ struct OnboardingV3SellEvidenceTests {
     }
 
     @Test
-    func somethingToChaseReasonsArriveWithReduceMotion() async throws {
+    func somethingToChaseBorrowedGearArrivesWithReduceMotion() async throws {
         try await expectEverythingArrivesWithReduceMotion(
             SellScreenCopy.SomethingToChase.chips.map { $0.lowercased() }
-                + ["always something to chase next.", "continue"],
+                + ["25k steps", "5 climbs", "50k steps", "open ascend", "always something to chase next.", "continue"],
             in: somethingToChase(on: Self.aNovemberDay),
-            photographedAs: "04-reasons"
+            photographedAs: "04-borrowed-gear"
         )
     }
 
