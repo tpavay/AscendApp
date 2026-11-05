@@ -136,15 +136,6 @@ struct OnboardingClimberCardScreen: View {
         .clipped()
         .padding(.horizontal, 8)
         .onboardingCard(cornerRadius: 20)
-        .overlay(alignment: .topTrailing) {
-            if draft.birthday == nil {
-                Text("Scroll to set")
-                    .font(.custom("Montserrat-SemiBold", size: 11))
-                    .foregroundStyle(OnboardingV3Palette.secondary)
-                    .padding(10)
-                    .allowsHitTesting(false)
-            }
-        }
         .accessibilityLabel("Birthday")
     }
 }

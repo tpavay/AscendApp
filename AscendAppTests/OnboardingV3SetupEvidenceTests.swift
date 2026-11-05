@@ -101,6 +101,30 @@ struct OnboardingV3SetupEvidenceTests {
         }
     }
 
+    /// The wheel's own label replaces anything drawn over it in the accessibility tree, so only
+    /// the pixels can show a caption colliding with the year column. Tall enough to hold the wheel.
+    @Test
+    func anUntouchedBirthdayWheelHasNothingDrawnOverItAndLeavesTheBirthdayUnset() async throws {
+        let coordinator = coordinator(at: .climberCard)
+        let screen = OnboardingClimberCardScreen(coordinator: coordinator, system: .imperial)
+        try await RenderedScreen.host(
+            ZStack { OnboardingV3Palette.background.ignoresSafeArea(); screen }
+                .environment(\.onboardingV3Coordinator, coordinator),
+            size: CGSize(width: 402, height: 1300),
+            settle: .turns(40)
+        ) { screen in
+            let drawn = try await screen.recognizedText(scale: 2).lowercased()
+            #expect(drawn.contains("birthday"), "\(drawn)")
+            #expect(!drawn.contains("scroll to set"), "\(drawn)")
+            try screen.photograph(named: "onboarding-v3-climber-card-untouched-wheel")
+
+            try activateAccessibilityElement(labelled: "CONTINUE", in: screen.window)
+            try await screen.settle()
+            #expect(coordinator.step == .claimCity)
+            #expect(coordinator.answers.birthday == nil)
+        }
+    }
+
     // MARK: - 09
 
     @Test(arguments: [nil, Self.accessibilitySize])
