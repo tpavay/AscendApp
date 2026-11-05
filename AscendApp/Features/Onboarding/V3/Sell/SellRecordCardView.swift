@@ -6,13 +6,17 @@ struct SellRecordCardView: View {
     let card: SellRecordCard
 
     @ScaledMetric(relativeTo: .caption) private var kickerSize: CGFloat = 11
-    @ScaledMetric(relativeTo: .headline) private var titleSize: CGFloat = 19
+    @ScaledMetric(relativeTo: .headline) private var scaledTitleSize: CGFloat = 19
     @ScaledMetric(relativeTo: .footnote) private var detailSize: CGFloat = 13
     @ScaledMetric(relativeTo: .headline) private var scaledMedalSize: CGFloat = 52
 
     /// The medal grows with the text but stops at 72 pt, so at an accessibility size the words get
     /// the room instead.
     private var medalSize: CGFloat { min(scaledMedalSize, 72) }
+
+    /// The title stops at 50 pt, where the column beside the medal still holds "Fastest" on the
+    /// smallest phone.
+    private var titleSize: CGFloat { min(scaledTitleSize, 50) }
 
     private static let silver = Color(hex: "C0C0C0")
     private static let goldBorder = Color(hex: "4A3E16")

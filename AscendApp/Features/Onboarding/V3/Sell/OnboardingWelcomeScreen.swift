@@ -8,7 +8,7 @@ import SwiftUI
 struct OnboardingWelcomeScreen: View {
     let coordinator: OnboardingV3Coordinator
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @OnboardingReduceMotion private var reduceMotion
     @State private var heroHasSettled = false
 
     var body: some View {

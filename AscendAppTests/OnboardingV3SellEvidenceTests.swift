@@ -181,6 +181,8 @@ struct OnboardingV3SellEvidenceTests {
             #expect(copy.contains("go harder than you would alone."), "\(copy)")
             #expect(copy.contains("real climbers' best climbs move up beside you"), "\(copy)")
             #expect(copy.contains("more climbers ahead"), "the real crowd chip: \(copy)")
+            let crowdChip = try #require(try await screen.frame(ofElementLabelled: "more climbers ahead"))
+            #expect(screen.bounds.contains(crowdChip), "the crowd chip \(crowdChip) runs off the screen")
             #expect(copy.contains("pacer · 80 spm"), "\(copy)")
             #expect(copy.contains("your best"), "\(copy)")
             #expect(copy.contains("continue"), "\(copy)")
@@ -384,6 +386,109 @@ struct OnboardingV3SellEvidenceTests {
             #expect(recognized.contains("continue"), "legible, not just in the tree: \(recognized)")
             try screen.photograph(named: "onboarding-v3-sell-05-count-methods-se-accessibility3")
         }
+    }
+
+    // MARK: - Reduce Motion
+
+    /// With motion off every line still arrives: `copy` reads only what is painted, so an element
+    /// stuck at opacity 0 never satisfies the wait.
+    private func expectEverythingArrivesWithReduceMotion(
+        _ lines: [String],
+        in view: some View,
+        photographedAs name: String,
+        also check: @MainActor (HostedScreen) throws -> Void = { _ in }
+    ) async throws {
+        try await RenderedScreen.host(
+            view.environment(\.onboardingReduceMotionOverride, true),
+            size: CGSize(width: 402, height: 874),
+            settle: .turns(30)
+        ) { screen in
+            let copy = try await screen.copy { copy in lines.allSatisfy(copy.contains) }
+            for line in lines {
+                #expect(copy.contains(line), "\(line) never arrived: \(copy)")
+            }
+            try check(screen)
+            try screen.photograph(named: "onboarding-v3-sell-reduce-motion-\(name)")
+        }
+    }
+
+    @Test
+    func welcomeArrivesWithReduceMotion() async throws {
+        try await expectEverythingArrivesWithReduceMotion(
+            ["ascend", "stop staring at the clock.", "ascend turns every stair stepper session", "get started", "already climbing? sign in"],
+            in: flow(.welcome),
+            photographedAs: "01-welcome"
+        ) { screen in
+            let sky = try screen.color(at: CGPoint(x: 200, y: 60))
+            #expect(!sky.isNearBlack, "the photo never arrived: \(sky)")
+        }
+    }
+
+    @Test
+    func goHarderArrivesWithReduceMotion() async throws {
+        try await expectEverythingArrivesWithReduceMotion(
+            [
+                SellScreenCopy.GoHarder.screenshotDescription.lowercased(),
+                "more climbers ahead", "your best", "pacer · 80 spm",
+                "go harder than you would alone.", "real climbers' best climbs move up beside you", "continue"
+            ],
+            in: flow(.goHarder),
+            photographedAs: "02-go-harder"
+        )
+    }
+
+    @Test
+    func getBetterArrivesWithReduceMotion() async throws {
+        try await expectEverythingArrivesWithReduceMotion(
+            SellRecordCard.examples.map { $0.accessibilitySummary.lowercased() }
+                + ["see yourself get better.", "the machine forgets every workout.", "continue"],
+            in: flow(.getBetter),
+            photographedAs: "03-get-better"
+        )
+    }
+
+    /// Reduce Motion lays the cards flat and motion tilts them, which proves the override reaches
+    /// the screen: the same read with motion on sees cards of different widths.
+    @Test(arguments: [true, false])
+    func getBetterCardsLieFlatOnlyWithReduceMotion(reduceMotion: Bool) async throws {
+        let labels = SellRecordCard.examples.map(\.accessibilitySummary)
+        try await RenderedScreen.host(
+            flow(.getBetter).environment(\.onboardingReduceMotionOverride, reduceMotion),
+            size: CGSize(width: 402, height: 874),
+            settle: .turns(60)
+        ) { screen in
+            let frames = try await Self.frames(on: screen, of: labels)
+            let widths = Set(frames.values.map { Int($0.width.rounded()) })
+            #expect((widths.count == 1) == reduceMotion, "card widths \(widths)")
+        }
+    }
+
+    @Test
+    func somethingToChaseReasonsArriveWithReduceMotion() async throws {
+        try await expectEverythingArrivesWithReduceMotion(
+            SellScreenCopy.SomethingToChase.chips.map { $0.lowercased() }
+                + ["always something to chase next.", "continue"],
+            in: somethingToChase(on: Self.aNovemberDay),
+            photographedAs: "04-reasons"
+        )
+    }
+
+    @Test
+    func somethingToChaseGearArrivesWithReduceMotion() async throws {
+        try await expectEverythingArrivesWithReduceMotion(
+            ["25k steps", "1 climb", "5 climbs", "15 climbs", "monthly gear", "always something to chase next.", "continue"],
+            in: somethingToChase(on: Self.anOctoberDay),
+            photographedAs: "04-gear"
+        )
+    }
+
+    @Test
+    func countMethodsArrivesWithReduceMotion() async throws {
+        try await expectEverythingArrivesWithReduceMotion(
+            ["climb with what you've got.", "headphones", "apple health", "nothing at all", "continue"],
+            in: flow(.countMethods),
+            photographedAs: "05-count-methods"
+        )
     }
 }
 

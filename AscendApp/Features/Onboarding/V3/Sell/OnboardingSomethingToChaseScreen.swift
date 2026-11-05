@@ -177,7 +177,7 @@ private struct SellGearPieceView: View {
     let bobDelay: Double
     let isCenterpiece: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @OnboardingReduceMotion private var reduceMotion
     @ScaledMetric(relativeTo: .caption2) private var tagSize: CGFloat = 10
     @State private var isUp = false
 

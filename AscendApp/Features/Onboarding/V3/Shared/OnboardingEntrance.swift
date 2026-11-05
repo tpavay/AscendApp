@@ -1,5 +1,20 @@
 import SwiftUI
 
+extension EnvironmentValues {
+    /// Forces Reduce Motion on or off for a rendered test, which cannot set the system's read-only
+    /// value. Nil, always in the app, follows the system.
+    @Entry var onboardingReduceMotionOverride: Bool?
+}
+
+/// Whether the onboarding screens should drop their motion.
+@propertyWrapper
+struct OnboardingReduceMotion: DynamicProperty {
+    @Environment(\.accessibilityReduceMotion) private var system
+    @Environment(\.onboardingReduceMotionOverride) private var override
+
+    var wrappedValue: Bool { override ?? system }
+}
+
 /// The entrance every v3 element makes: it fades in and rises about 16 pt on the design's curve,
 /// staggered by `index`. The pop variant is for badges and chips and overshoots on the way in.
 ///
@@ -26,7 +41,7 @@ struct OnboardingEntrance: ViewModifier {
     var delay: Double = 0
     var duration: Double = 0.5
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @OnboardingReduceMotion private var reduceMotion
     @State private var hasAppeared = false
 
     private var startDelay: Double { delay + Self.stagger * Double(index) }

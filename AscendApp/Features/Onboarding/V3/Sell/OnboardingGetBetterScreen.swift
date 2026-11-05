@@ -5,7 +5,7 @@ import SwiftUI
 struct OnboardingGetBetterScreen: View {
     let coordinator: OnboardingV3Coordinator
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @OnboardingReduceMotion private var reduceMotion
 
     private static let tilts: [Double] = [-1.5, 1, -0.5, 1.2]
 
@@ -60,7 +60,7 @@ struct OnboardingGetBetterScreen: View {
 private struct SellCardDrop: ViewModifier {
     let index: Int
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @OnboardingReduceMotion private var reduceMotion
     @State private var trigger = false
 
     private var delay: Double { 0.15 + 0.22 * Double(index) }

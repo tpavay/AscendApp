@@ -8,7 +8,7 @@ import SwiftUI
 struct OnboardingGoHarderScreen: View {
     let coordinator: OnboardingV3Coordinator
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @OnboardingReduceMotion private var reduceMotion
 
     private static let chipDelays: [Double] = [0.7, 0.95, 1.2]
 
@@ -67,13 +67,13 @@ struct OnboardingGoHarderScreen: View {
 
                 chip(
                     AscendMountainCrowdChip(count: 1, side: .ahead)
-                        .scaleEffect(1.25)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)
                         // The real chip is a translucent black capsule made for the Mountain; on this
                         // black page it needs the hairline the other chips carry.
                         .background(Capsule(style: .continuous).fill(OnboardingV3Palette.controlFill))
                         .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: "2E2E2E"), lineWidth: 1))
+                        .scaleEffect(1.25)
                         .shadow(color: .black.opacity(0.6), radius: 14, y: 8),
                     index: 0
                 )
