@@ -4,7 +4,7 @@ import Foundation
 /// paywall's "Already climbing? Sign in" - sets this first, so the sign-in opens in returning mode.
 ///
 /// Persisted rather than held in memory so a relaunch on the sign-in step reopens the mode the
-/// climber chose. It is cleared when they back out of returning mode.
+/// climber chose. It is cleared when they back out of returning mode or their sign-in lands.
 struct OnboardingAuthReturningRequest: @unchecked Sendable {
     static let storageKey = "onboardingV3.auth.returningRequested"
 
