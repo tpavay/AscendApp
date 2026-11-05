@@ -288,7 +288,7 @@ private struct VoucherRise: ViewModifier {
             .opacity(risen ? 1 : 0)
             .offset(y: risen || reduceMotion ? 0 : 160)
             .scaleEffect(risen || reduceMotion ? 1 : 0.6)
-            .rotationEffect(.degrees(risen ? -2 : 8))
+            .rotationEffect(.degrees(risen || reduceMotion ? -2 : 8))
             .onAppear {
                 withAnimation(
                     reduceMotion
