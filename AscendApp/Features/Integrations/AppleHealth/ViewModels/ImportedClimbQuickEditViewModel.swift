@@ -24,12 +24,14 @@ final class ImportedClimbQuickEditViewModel {
     @ObservationIgnored private let originalSteps: Int
     @ObservationIgnored private let photoService: PhotoService
     @ObservationIgnored private let uploadMedia: @MainActor ([SelectedPhotoItem]) async throws -> [Photo]
+    @ObservationIgnored private let saveChanges: @MainActor (ModelContext) throws -> Void
     @ObservationIgnored private let applyUpdate: @MainActor (ModelContext, LeaderboardWorkoutSnapshot, Workout) throws -> Void
 
     init(
         workout: Workout,
         photoService: PhotoService = PhotoService(),
         uploadMedia: (@MainActor ([SelectedPhotoItem]) async throws -> [Photo])? = nil,
+        saveChanges: @escaping @MainActor (ModelContext) throws -> Void = { try $0.save() },
         applyUpdate: @escaping @MainActor (ModelContext, LeaderboardWorkoutSnapshot, Workout) throws -> Void = { context, before, workout in
             try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: context,
@@ -41,6 +43,7 @@ final class ImportedClimbQuickEditViewModel {
         self.workout = workout
         self.photoService = photoService
         self.uploadMedia = uploadMedia ?? { try await photoService.uploadSelectedPhotos($0) }
+        self.saveChanges = saveChanges
         self.applyUpdate = applyUpdate
         self.originalSteps = workout.steps
         self.stepsText = workout.recordedSteps.map(String.init) ?? ""
@@ -124,6 +127,8 @@ final class ImportedClimbQuickEditViewModel {
         defer { isSaving = false }
 
         let before = LeaderboardWorkoutSnapshot(workout: workout)
+        let photosBefore = workout.photos
+        let highlightBefore = workout.highlightedPhotoId
         var uploaded: [Photo] = []
         do {
             let room = max(SelectedMediaPreparationService.maximumMediaCount - workout.photos.count, 0)
@@ -146,10 +151,12 @@ final class ImportedClimbQuickEditViewModel {
                 }
             }
 
-            try modelContext.save()
-            try applyUpdate(modelContext, before, workout)
-            return true
+            try saveChanges(modelContext)
         } catch {
+            // Nothing landed, so the climb takes these back before they leave Storage. A retry then
+            // counts the room it really has and uploads them again.
+            workout.photos = photosBefore
+            workout.highlightedPhotoId = highlightBefore
             if !uploaded.isEmpty {
                 let orphaned = uploaded
                 Task { try? await photoService.deletePhotos(orphaned) }
@@ -157,6 +164,19 @@ final class ImportedClimbQuickEditViewModel {
             errorMessage = error.userFriendlyMessage
             return false
         }
+
+        do {
+            try applyUpdate(modelContext, before, workout)
+        } catch {
+            // The edit is saved and its photos are the climb's; only the derived surfaces missed
+            // the news, and the next rebuild catches them up.
+            AppDiagnosticsRecorder.shared.record(
+                "apple_health_quick_edit_derived_refresh_failed",
+                level: .warning,
+                details: ["error": String(describing: type(of: error))]
+            )
+        }
+        return true
     }
 
     private func highlightedUploadedID(in uploaded: [Photo]) -> UUID? {

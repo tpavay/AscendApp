@@ -235,6 +235,95 @@ struct AppleHealthImportServiceTests {
         #expect(climb.notes == "Tower day", "the rest of the edit still lands")
     }
 
+    private func quickEditWithUploadedPhotos(
+        on climb: Workout,
+        repository: RecordingQuickEditPhotoRepository,
+        uploaded: [Photo],
+        saveChanges: @escaping @MainActor (ModelContext) throws -> Void = { try $0.save() },
+        applyUpdate: @escaping @MainActor (ModelContext, LeaderboardWorkoutSnapshot, Workout) throws -> Void = { _, _, _ in }
+    ) -> ImportedClimbQuickEditViewModel {
+        let viewModel = ImportedClimbQuickEditViewModel(
+            workout: climb,
+            photoService: PhotoService(repo: repository),
+            uploadMedia: { _ in uploaded },
+            saveChanges: saveChanges,
+            applyUpdate: applyUpdate
+        )
+        viewModel.selectedPhotos = uploaded.map { photo in
+            SelectedPhotoItem(
+                pickerItem: PhotosPickerItem(itemIdentifier: photo.id.uuidString),
+                image: Image(systemName: "photo"),
+                localIdentifier: photo.id.uuidString
+            )
+        }
+        return viewModel
+    }
+
+    private static func uploadedPhotos(_ count: Int) -> [Photo] {
+        (0..<count).map { Photo(url: URL(string: "https://example.com/uploaded-\($0)-\(UUID().uuidString).jpg")!) }
+    }
+
+    @Test
+    func aSaveThatFailsTakesThePhotosBackOffTheClimbAndARetryUploadsThemAgain() async throws {
+        let harness = try AppleHealthImportHarness()
+        harness.addWorkout(daysAgo: 1, steps: 3_000, minutes: 30)
+        await harness.service.syncNow()
+        let climb = try #require(try harness.climbs().first)
+        let uploaded = Self.uploadedPhotos(3)
+        let repository = RecordingQuickEditPhotoRepository()
+        var saveFails = true
+        let viewModel = quickEditWithUploadedPhotos(
+            on: climb,
+            repository: repository,
+            uploaded: uploaded,
+            saveChanges: { context in
+                if saveFails { throw CocoaError(.fileWriteOutOfSpace) }
+                try context.save()
+            }
+        )
+
+        #expect(await viewModel.finish(modelContext: harness.context) == false)
+        #expect(viewModel.errorMessage != nil)
+        #expect(climb.photos.isEmpty, "the climb holds nothing the failed save uploaded")
+        #expect(climb.highlightedPhotoId == nil)
+        try await waitUntilDeleted(uploaded.map(\.url), from: repository)
+
+        saveFails = false
+        #expect(await viewModel.finish(modelContext: harness.context))
+        #expect(climb.photos.map(\.id) == uploaded.map(\.id), "the retry had the room to upload them again")
+    }
+
+    @Test
+    func aFailureAfterTheSaveKeepsThePhotosTheClimbNowHolds() async throws {
+        let harness = try AppleHealthImportHarness()
+        harness.addWorkout(daysAgo: 1, steps: 3_000, minutes: 30)
+        await harness.service.syncNow()
+        let climb = try #require(try harness.climbs().first)
+        let uploaded = Self.uploadedPhotos(2)
+        let repository = RecordingQuickEditPhotoRepository()
+        let viewModel = quickEditWithUploadedPhotos(
+            on: climb,
+            repository: repository,
+            uploaded: uploaded,
+            applyUpdate: { _, _, _ in throw CocoaError(.featureUnsupported) }
+        )
+
+        #expect(await viewModel.finish(modelContext: harness.context), "the edit is saved, so the sheet can close")
+        #expect(viewModel.errorMessage == nil)
+        #expect(climb.photos.map(\.id) == uploaded.map(\.id))
+
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await repository.deletedURLs.isEmpty, "a saved climb's photos stay in Storage")
+    }
+
+    private func waitUntilDeleted(_ urls: [URL], from repository: RecordingQuickEditPhotoRepository) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await Set(repository.deletedURLs) != Set(urls), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await Set(repository.deletedURLs) == Set(urls))
+    }
+
     // MARK: - Never twice
 
     @Test
@@ -1027,5 +1116,17 @@ final class LockedFlag: @unchecked Sendable {
     func set() {
         lock.lock(); defer { lock.unlock() }
         value = true
+    }
+}
+
+private actor RecordingQuickEditPhotoRepository: PhotoRepositoryProtocol {
+    private(set) var deletedURLs: [URL] = []
+
+    func upload(_ data: Data, filename: String) async throws -> URL {
+        URL(string: "https://example.com/\(filename)")!
+    }
+
+    func delete(url: URL) async throws {
+        deletedURLs.append(url)
     }
 }
