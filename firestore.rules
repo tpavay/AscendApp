@@ -239,6 +239,7 @@ service cloud.firestore {
           "location_region",
           "onboarding_first_climb_id",
           "joined_at",
+          "weekly_target_days",
           "createdAt",
           "lastUpdated"
         ]) &&
@@ -300,6 +301,10 @@ service cloud.firestore {
             request.resource.data.onboarding_first_climb_id.size() <= 160)) &&
         (!request.resource.data.keys().hasAny(["joined_at"]) ||
           request.resource.data.joined_at is timestamp) &&
+        (!request.resource.data.keys().hasAny(["weekly_target_days"]) ||
+          (request.resource.data.weekly_target_days is int &&
+            request.resource.data.weekly_target_days >= 1 &&
+            request.resource.data.weekly_target_days <= 7)) &&
         request.resource.data.createdAt is timestamp &&
         request.resource.data.lastUpdated is timestamp;
     }
@@ -1762,6 +1767,18 @@ service cloud.firestore {
 
     match /leaderboard_periods/{docId} {
       allow read, write: if false;
+    }
+
+    // How many climbers each city has, for the signed-out onboarding's
+    // "Claim your city" screen, which runs before there is an account to
+    // check. One document per city, readable by anyone who knows the city's
+    // key and never listable, so the set of cities cannot be walked; the
+    // count and the city's own name are all it carries. The hourly
+    // publishCityClimberCounts function derives it from leaderboard_stats, so
+    // no client may author one.
+    match /public_city_climber_counts/{cityKey} {
+      allow get: if true;
+      allow list, write: if false;
     }
 
     // The frozen final board of a closed weekly, monthly or yearly Steps

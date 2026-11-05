@@ -133,6 +133,11 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// announced; turning it back on resumes from the same anchor, so no workout is lost.
     case appleHealthImport = "apple_health_import_enabled"
 
+    /// Writing the climber's weekly target (`weekly_target_days`) to their private user record.
+    /// Off, a change stays on the device, marked unsynced, and goes up when the switch returns;
+    /// the target itself keeps working because the device's copy is the one Home reads.
+    case weeklyTargetWrites = "weekly_target_writes_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -208,6 +213,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Lets the server push announce a new gear event. Ships off. Read by the Cloud Function, not the app."
         case .appleHealthImport:
             return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
+        case .weeklyTargetWrites:
+            return "Writes the weekly target to the climber's user record; off keeps it on the device."
         }
     }
 }
