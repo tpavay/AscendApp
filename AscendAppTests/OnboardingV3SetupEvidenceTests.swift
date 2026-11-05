@@ -179,7 +179,8 @@ struct OnboardingV3SetupEvidenceTests {
         let coordinator = coordinator(at: .thisMonthEvent, answers: answers)
         let model = OnboardingMonthlyEventModel(
             unlockRepository: FixedUnlocks(catalog: HostedUnlockCatalogRepository.bundledCatalog()),
-            climbRepository: NoLandmarks()
+            climbRepository: NoLandmarks(),
+            isUnlocksEnabled: { true }
         )
         let now = Calendar.current.date(from: day) ?? .now
         return (coordinator, OnboardingThisMonthEventScreen(coordinator: coordinator, model: model, now: now))

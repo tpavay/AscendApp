@@ -423,6 +423,59 @@ struct OnboardingV3SetupTests {
         #expect(OnboardingMonthlyEvent.resolve(catalog: gapped, now: date(2026, 11, 23), calendar: calendar) == .neutral, "eight days out is too early to announce")
     }
 
+    /// Home offers neither of these: a stale build drops every item of a shape it has never heard
+    /// of, and a hidden item is shipped dark.
+    @Test(arguments: [
+        #"{"id":"future_piece","slot":"carry","shape":"not_in_this_build","status":"live","earn":{"path":"event","event":"february-2027","metric":"climbs","threshold":1}}"#,
+        #"{"id":"candy_cane","slot":"carry","shape":"candy_cane","status":"hidden","earn":{"path":"event","event":"february-2027","metric":"climbs","threshold":1}}"#
+    ])
+    func anEventWithNothingToEarnIsNeverAnnounced(onlyItem: String) throws {
+        let catalog = try JSONDecoder().decode(UnlockCatalog.self, from: Data("""
+        {"version":1,"events":[
+          {"id":"february-2027","title":"February","monthName":"February","startsOn":"2027-02-01","endsBefore":"2027-03-01"}
+        ],"items":[\(onlyItem)]}
+        """.utf8))
+        #expect(!catalog.events.isEmpty)
+
+        #expect(OnboardingMonthlyEvent.resolve(catalog: catalog, now: date(2027, 2, 10), calendar: calendar) == .neutral, "while it runs")
+        #expect(OnboardingMonthlyEvent.resolve(catalog: catalog, now: date(2027, 1, 28), calendar: calendar) == .neutral, "in the week before it")
+    }
+
+    @Test
+    func anEventWithNothingToEarnGivesWayToOneThatIsComing() throws {
+        let catalog = try JSONDecoder().decode(UnlockCatalog.self, from: Data("""
+        {"version":1,"events":[
+          {"id":"empty-november","title":"Empty","monthName":"November","startsOn":"2026-11-01","endsBefore":"2026-12-01"},
+          {"id":"winter-lights-2026","title":"Winter Lights","monthName":"December","startsOn":"2026-12-01","endsBefore":"2027-01-01"}
+        ],"items":[
+          \(item("candy_cane", "candy_cane", slot: "carry", event: "winter-lights-2026", metric: "visits", threshold: 1))
+        ]}
+        """.utf8))
+
+        guard case .comingSoon(let soon) = OnboardingMonthlyEvent.resolve(catalog: catalog, now: date(2026, 11, 26), calendar: calendar) else {
+            Issue.record("expected December to be coming soon"); return
+        }
+        #expect(soon.event.id == "winter-lights-2026")
+    }
+
+    @Test
+    func screenElevenIsNeutralWhileUnlocksAreSwitchedOff() throws {
+        let catalog = try twoMonthCatalog()
+        let now = date(2026, 11, 4)
+        func presentation(unlocksOn: Bool) -> OnboardingMonthlyEvent {
+            OnboardingMonthlyEventModel(
+                unlockRepository: FixedCatalog(catalog: catalog),
+                climbRepository: StubClimbCatalogRepository(climbs: []),
+                isUnlocksEnabled: { unlocksOn }
+            ).presentation(now: now, calendar: calendar)
+        }
+
+        #expect(presentation(unlocksOn: false) == .neutral)
+        guard case .running = presentation(unlocksOn: true) else {
+            Issue.record("expected the event while unlocks are on"); return
+        }
+    }
+
     @Test
     func aFinishedEventIsNeverShownAndAnEmptyMonthIsNeutral() throws {
         let catalog = try twoMonthCatalog()

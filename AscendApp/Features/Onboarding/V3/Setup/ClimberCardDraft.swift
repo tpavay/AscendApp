@@ -34,11 +34,6 @@ struct ClimberCardDraft: Equatable, Sendable {
         self.system = system
     }
 
-    /// Whether anything has been entered. Continuing with nothing is the same as skipping.
-    var isEmpty: Bool {
-        gender == nil && birthday == nil && heightCm == nil && weightKg == nil
-    }
-
     // MARK: - Gender
 
     /// The chips, in the order the design draws them.

@@ -18,21 +18,26 @@ final class OnboardingMonthlyEventModel {
 
     @ObservationIgnored private let unlockRepository: any UnlockCatalogRepository
     @ObservationIgnored private let climbRepository: any ClimbCatalogRepository
+    @ObservationIgnored private let isUnlocksEnabled: @MainActor () -> Bool
     @ObservationIgnored private var prefetchTask: Task<Void, Never>?
 
     init(
         unlockRepository: any UnlockCatalogRepository = HostedUnlockCatalogRepository(),
-        climbRepository: any ClimbCatalogRepository = HostedClimbCatalogRepository()
+        climbRepository: any ClimbCatalogRepository = HostedClimbCatalogRepository(),
+        isUnlocksEnabled: @escaping @MainActor () -> Bool = { RemoteFeatureFlagStore.shared.isEnabled(.unlocks) }
     ) {
         self.unlockRepository = unlockRepository
         self.climbRepository = climbRepository
+        self.isUnlocksEnabled = isUnlocksEnabled
         catalog = unlockRepository.loadInitialCatalog()
         landmarks = try? climbRepository.loadInitialCatalog()
     }
 
-    /// What screen 11 shows at `now`.
+    /// What screen 11 shows at `now`: neutral while unlocks are switched off, because Home offers
+    /// no event then either.
     func presentation(now: Date = .now, calendar: Calendar = .current) -> OnboardingMonthlyEvent {
-        OnboardingMonthlyEvent.resolve(catalog: catalog, now: now, calendar: calendar)
+        guard isUnlocksEnabled() else { return .neutral }
+        return OnboardingMonthlyEvent.resolve(catalog: catalog, now: now, calendar: calendar)
     }
 
     /// How many real landmarks a climber can pick from, for the neutral version. Nil until the

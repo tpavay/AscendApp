@@ -19,6 +19,7 @@ Each is built in `MountainGearModel+Winter.swift` from flat colours and metals o
 
 The schedule has to stay full: `scripts/test/unlock-catalog-schedule.test.mjs` goes red when the hosted catalogue has any day uncovered in the next 45 days.
 Onboarding's screen 11 reads the same file (`OnboardingMonthlyEventModel`): the event that is on, an event starting within seven days, or a neutral screen with no gear and nothing dated.
+An event with no live item this build can draw, or any event while `unlocks_enabled` is off, reads neutral there, because Home would not offer it either.
 Adding a month is an edit to `web/public/unlocks/catalog.json` and its bundled copy plus a Hosting deploy, and any new shape is a build that ships at least one release before the event opens.
 
 ## What a climber sees

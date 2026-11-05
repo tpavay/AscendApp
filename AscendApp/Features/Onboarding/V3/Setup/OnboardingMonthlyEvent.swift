@@ -5,6 +5,7 @@ import Foundation
 /// Three versions and no fourth: the event that is on right now, an event that starts within a
 /// week, or a neutral screen with no gear and nothing dated. An event that has ended is never
 /// shown - a month nobody added an event for reads neutral, so nothing on the screen can be stale.
+/// An event with no live item this build can draw is no event at all, as it is for `UnlockStore`.
 enum OnboardingMonthlyEvent: Equatable {
     case running(Running)
     case comingSoon(Upcoming)
@@ -44,12 +45,14 @@ enum OnboardingMonthlyEvent: Equatable {
         now: Date = .now,
         calendar: Calendar = .current
     ) -> OnboardingMonthlyEvent {
-        if let event = catalog.events.first(where: { $0.contains(now, calendar: calendar) }) {
+        let offered = catalog.events.filter { !catalog.items(earnedIn: $0).isEmpty }
+
+        if let event = offered.first(where: { $0.contains(now, calendar: calendar) }) {
             return .running(running(event, in: catalog, now: now, calendar: calendar))
         }
 
         let today = calendar.startOfDay(for: now)
-        let soonest = catalog.events
+        let soonest = offered
             .compactMap { event -> (event: UnlockEvent, start: Date, days: Int)? in
                 guard let start = event.interval(in: calendar)?.start, start > now,
                       let days = calendar.dateComponents([.day], from: today, to: calendar.startOfDay(for: start)).day,

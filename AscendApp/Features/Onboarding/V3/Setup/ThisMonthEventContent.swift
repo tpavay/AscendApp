@@ -33,9 +33,7 @@ struct ThisMonthEventContent: Equatable {
             subline = "Climb this \(event.monthName) and earn gear for your athlete. Everyone can earn every piece."
             pieces = running.pieces
             tiles = [
-                running.piecesToEarn > 0
-                    ? Tile(value: running.piecesToEarn.formatted(), label: "PIECES TO EARN")
-                    : nil,
+                Tile(value: running.piecesToEarn.formatted(), label: "PIECES TO EARN"),
                 Tile(value: running.daysLeft.formatted(), label: running.daysLeft == 1 ? "DAY LEFT" : "DAYS LEFT"),
                 targetTile
             ].compactMap { $0 }
