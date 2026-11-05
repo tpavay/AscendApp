@@ -52,7 +52,6 @@ struct OnboardingUsualClimbScreen: View {
             .buttonStyle(.onboardingPrimary)
             .disabled(choice == nil)
         }
-        .task { OnboardingMonthlyEventModel.shared.prefetch() }
         .trackOnce(screen: .onboardingUsualClimb)
     }
 }

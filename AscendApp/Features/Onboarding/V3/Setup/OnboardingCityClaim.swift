@@ -5,22 +5,17 @@ import Observation
 /// view and the count line never reads a failed read as an empty city.
 struct OnboardingCityClaimCopy: Equatable, Sendable {
     /// The badge's three lines: "#1 IN", the place, and the pill.
-    let badgeKicker: String
+    static let badgeKicker = "#1 IN"
+    static let badgePill = "OPEN"
+
     let badgePlace: String
-    let badgePill: String
     let body: String
-    /// Whether the climber has picked a city, which is what offers CONTINUE.
-    let hasCity: Bool
 
     static let introduction = "Every city gets its own leaderboard. Easier to top your city than the world, and that's where most climbers start."
 
     init(selection: PostAuthLocationSelection?, count: CityClimberCount?) {
-        badgeKicker = "#1 IN"
-        hasCity = selection != nil
-
         guard let selection else {
             badgePlace = "YOUR CITY"
-            badgePill = "OPEN"
             body = Self.introduction
             return
         }
@@ -31,16 +26,13 @@ struct OnboardingCityClaimCopy: Equatable, Sendable {
             // A zero can be a city spelled another way on another phone, so the line says
             // nothing about who has or has not climbed: it is true either way.
             badgePlace = city.uppercased()
-            badgePill = "OPEN"
             body = "Be among the first climbers in \(city). Your first climb puts you on the \(city) board."
         case .climbers(let climbers):
             badgePlace = city.uppercased()
-            badgePill = "OPEN"
             body = climbers == 1 ? "1 climber in \(city) so far." : "\(climbers.formatted()) climbers in \(city) so far."
         case .unknown, nil:
             // No count means no claim about the city: the intro line and the generic badge stand.
             badgePlace = "YOUR CITY"
-            badgePill = "OPEN"
             body = Self.introduction
         }
     }

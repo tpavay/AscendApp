@@ -18,7 +18,6 @@ struct OnboardingWeeklyTargetScreen: View {
         GeometryReader { proxy in
             layout(isCompact: proxy.size.height < 720)
         }
-        .task { OnboardingMonthlyEventModel.shared.prefetch() }
         .trackOnce(screen: .onboardingWeeklyTarget)
     }
 

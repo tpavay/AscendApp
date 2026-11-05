@@ -61,7 +61,6 @@ struct OnboardingClimberCardScreen: View {
                 .buttonStyle(.onboardingPrimary)
             }
         }
-        .task { OnboardingMonthlyEventModel.shared.prefetch() }
         .trackOnce(screen: .onboardingClimberCard)
     }
 

@@ -64,7 +64,6 @@ struct OnboardingThisMonthEventScreen: View {
             }
         }
         .task {
-            model.prefetch()
             guard !reduceMotion else { return }
             withAnimation(.easeOut(duration: 4)) { zoomed = true }
         }

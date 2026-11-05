@@ -232,14 +232,13 @@ struct OnboardingV3SetupTests {
     func aZeroCountSaysNothingAboutWhoHasClimbedAndANonZeroOneKeepsTheDesignsBadge() {
         let empty = OnboardingCityClaimCopy(selection: chicago, count: .climbers(0))
         #expect(empty.badgePlace == "CHICAGO")
-        #expect(empty.badgePill == "OPEN")
         #expect(empty.body == "Be among the first climbers in Chicago. Your first climb puts you on the Chicago board.")
         #expect(!empty.body.contains("Nobody"), "a zero can be a spelling another phone stored differently")
         #expect(!empty.body.contains("has climbed"))
 
         let some = OnboardingCityClaimCopy(selection: chicago, count: .climbers(12))
         #expect(some.body == "12 climbers in Chicago so far.")
-        #expect(some.badgePill == "OPEN", "no outward copy beyond the design")
+        #expect(OnboardingCityClaimCopy.badgePill == "OPEN", "no outward copy beyond the design")
         #expect(OnboardingCityClaimCopy(selection: chicago, count: .climbers(1)).body == "1 climber in Chicago so far.")
         #expect(!some.body.contains("rank"), "no estimated rank")
     }
@@ -254,7 +253,6 @@ struct OnboardingV3SetupTests {
         }
         let before = OnboardingCityClaimCopy(selection: nil, count: nil)
         #expect(before.badgePlace == "YOUR CITY")
-        #expect(!before.hasCity)
     }
 
     // MARK: - Skip clears what an earlier pass stored

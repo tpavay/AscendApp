@@ -25,10 +25,7 @@ struct OnboardingClaimCityScreen: View {
             layout(copy: copy, isCompact: proxy.size.height < 720)
         }
         .animation(.easeInOut(duration: 0.3), value: model.phase)
-        .task {
-            OnboardingMonthlyEventModel.shared.prefetch()
-            await model.refreshCount()
-        }
+        .task { await model.refreshCount() }
         .trackOnce(screen: .onboardingClaimCity)
     }
 
@@ -39,7 +36,7 @@ struct OnboardingClaimCityScreen: View {
 
         return OnboardingSetupLayout(step: .claimCity, onSkip: { Self.skip(coordinator) }) {
             VStack(alignment: .leading, spacing: 14) {
-                CityBadge(kicker: copy.badgeKicker, place: copy.badgePlace, pill: copy.badgePill)
+                CityBadge(kicker: OnboardingCityClaimCopy.badgeKicker, place: copy.badgePlace, pill: OnboardingCityClaimCopy.badgePill)
                     .scaleEffect(badgeScale)
                     .frame(height: 292 * badgeScale)
                     .frame(maxWidth: .infinity)
