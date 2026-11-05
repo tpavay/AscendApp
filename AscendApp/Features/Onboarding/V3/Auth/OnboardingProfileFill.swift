@@ -73,17 +73,21 @@ struct OnboardingProfileFill: Equatable, Sendable {
 
 extension PreAuthOnboardingAnswers {
     /// Whether the climber gave an answer the hand-off still has to deliver: one that belongs on a
-    /// profile, the Health workouts found for the history import, or the days-a-week target. The flow's own bookkeeping -
-    /// when it ended, whether a trial started - is not one.
+    /// profile, the Health workouts found for the history import, the days-a-week target, or the
+    /// usual climb, which only has to leave the device. The flow's own bookkeeping - when it ended,
+    /// whether a trial started - is not one.
     var carriesHandOffWork: Bool {
         birthday != nil || gender != nil || heightCm != nil || weightKg != nil || city != nil ||
-            !foundHealthWorkoutIDs.isEmpty || weeklyTargetDays != nil
+            !foundHealthWorkoutIDs.isEmpty || weeklyTargetDays != nil ||
+            usualClimbSteps != nil || usualClimbMinutes != nil
     }
 
     /// The same answers with everything personal dropped and the flow's bookkeeping kept, which is
     /// what is left on the device once the profile has them and the history has been imported.
     var droppingHandedOffAnswers: PreAuthOnboardingAnswers {
         var kept = self
+        kept.usualClimbSteps = nil
+        kept.usualClimbMinutes = nil
         kept.foundHealthWorkoutIDs = []
         kept.weeklyTargetDays = nil
         kept.gender = nil

@@ -26,16 +26,12 @@ struct OnboardingAuthExampleClimber: Equatable, Identifiable {
 /// The climber's row is never a text field: it carries no caret and no prompt to type a name,
 /// because Ascend never asks for one (`SuppliedNameAdoption`).
 struct OnboardingAuthBoardCard: View {
-    var climbers = OnboardingAuthExampleClimber.weeklyTopThree
-    /// Fixes the countdown's clock for evidence tests and previews.
-    var now: Date?
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.bottom, 14)
 
-            ForEach(climbers) { climber in
+            ForEach(OnboardingAuthExampleClimber.weeklyTopThree) { climber in
                 OnboardingAuthBoardRow(climber: climber)
             }
 
@@ -59,7 +55,7 @@ struct OnboardingAuthBoardCard: View {
 
             Spacer(minLength: 4)
 
-            LeaderboardCountdownLabel(currentPeriodOf: .weekly, fontSize: 11, now: now)
+            LeaderboardCountdownLabel(currentPeriodOf: .weekly, fontSize: 11)
         }
     }
 }

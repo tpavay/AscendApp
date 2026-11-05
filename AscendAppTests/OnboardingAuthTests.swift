@@ -1,3 +1,4 @@
+import FirebaseFirestore
 import Foundation
 import Testing
 import UIKit
@@ -40,10 +41,10 @@ struct OnboardingAuthTests {
     func theSignInOpensInReturningModeFromTheFirstScreenAndTheClaimSpotModeFromThePaywall() {
         let request = OnboardingAuthReturningRequest(userDefaults: defaults())
 
-        #expect(OnboardingAuthViewModel.mode(arrivedFrom: .welcome, returningRequest: request) == .returning)
-        #expect(OnboardingAuthViewModel.mode(arrivedFrom: .paywall, returningRequest: request) == .claimSpot)
-        #expect(OnboardingAuthViewModel.mode(arrivedFrom: .exitGift, returningRequest: request) == .claimSpot)
-        #expect(OnboardingAuthViewModel.mode(arrivedFrom: nil, returningRequest: request) == .claimSpot)
+        #expect(OnboardingAuthMode(arrivedFrom: .welcome, returningRequest: request) == .returning)
+        #expect(OnboardingAuthMode(arrivedFrom: .paywall, returningRequest: request) == .claimSpot)
+        #expect(OnboardingAuthMode(arrivedFrom: .exitGift, returningRequest: request) == .claimSpot)
+        #expect(OnboardingAuthMode(arrivedFrom: nil, returningRequest: request) == .claimSpot)
     }
 
     @Test
@@ -51,10 +52,10 @@ struct OnboardingAuthTests {
         let request = OnboardingAuthReturningRequest(userDefaults: defaults())
         request.set()
 
-        #expect(OnboardingAuthViewModel.mode(arrivedFrom: .paywall, returningRequest: request) == .returning)
+        #expect(OnboardingAuthMode(arrivedFrom: .paywall, returningRequest: request) == .returning)
 
         request.clear()
-        #expect(OnboardingAuthViewModel.mode(arrivedFrom: .paywall, returningRequest: request) == .claimSpot)
+        #expect(OnboardingAuthMode(arrivedFrom: .paywall, returningRequest: request) == .claimSpot)
     }
 
     // MARK: - Profile fill
@@ -129,6 +130,8 @@ struct OnboardingAuthTests {
         var profile: UserDisplayNameData? = UserDisplayNameData(nil)
         var writeFails = false
         var readFails = false
+        var failure: any Error = Refused()
+        var reportedFailures = 0
         var profileWriteEnabled = true
         var writtenFills: [OnboardingProfileFill] = []
         var importedAnswers: [PreAuthOnboardingAnswers] = []
@@ -146,14 +149,15 @@ struct OnboardingAuthTests {
                 isProfileWriteEnabled: { [self] in profileWriteEnabled },
                 readProfile: { [self] _ in
                     events.append("read")
-                    if readFails { throw Refused() }
+                    if readFails { throw failure }
                     return profile
                 },
                 writeProfile: { [self] _, _, fill in
                     events.append("write")
-                    if writeFails { throw Refused() }
+                    if writeFails { throw failure }
                     writtenFills.append(fill)
                 },
+                recordProfileStepFailure: { [self] _ in reportedFailures += 1 },
                 importHealthHistory: { [self] answers in
                     events.append("health")
                     importedAnswers.append(answers)
@@ -295,6 +299,63 @@ struct OnboardingAuthTests {
     }
 
     @Test
+    func aFailureNoRetryWillClearIsReportedAndTheAnswersAreHeld() async {
+        let denied = NSError(domain: FirestoreErrorDomain, code: FirestoreErrorCode.permissionDenied.rawValue)
+        for failsOnRead in [true, false] {
+            let harness = Harness(defaults: defaults(), answers: fullAnswers())
+            harness.recorder.failure = denied
+            harness.recorder.readFails = failsOnRead
+            harness.recorder.writeFails = !failsOnRead
+
+            #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .deferred)
+            #expect(harness.recorder.reportedFailures == 1)
+            #expect(harness.store.answers().carriesHandOffWork)
+        }
+    }
+
+    @Test(arguments: [
+        ProfilePublicationError.requiresConnection,
+        ProfilePublicationError.publishingPaused,
+        NSError(domain: FirestoreErrorDomain, code: FirestoreErrorCode.unavailable.rawValue),
+        URLError(.notConnectedToInternet)
+    ] as [any Error])
+    func aFailureThatClearsOnItsOwnStaysQuietAndTheAnswersAreHeld(failure: any Error) async {
+        let harness = Harness(defaults: defaults(), answers: fullAnswers())
+        harness.recorder.failure = failure
+        harness.recorder.writeFails = true
+
+        #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .deferred)
+        #expect(harness.recorder.reportedFailures == 0)
+        #expect(harness.store.answers().carriesHandOffWork)
+    }
+
+    @Test
+    func theUsualClimbLeavesTheDeviceWithTheOtherAnswers() async {
+        var answers = fullAnswers()
+        answers.usualClimbSteps = 1_800
+        answers.usualClimbMinutes = 22
+        let harness = Harness(defaults: defaults(), answers: answers)
+
+        #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .complete)
+        #expect(harness.store.answers().usualClimbSteps == nil)
+        #expect(harness.store.answers().usualClimbMinutes == nil)
+    }
+
+    @Test
+    func aClimberWhoGaveOnlyAUsualClimbStillHasItCleared() async {
+        var answers = PreAuthOnboardingAnswers()
+        answers.usualClimbSteps = 1_800
+        answers.usualClimbMinutes = 22
+        let harness = Harness(defaults: defaults(), answers: answers)
+
+        #expect(harness.store.answers().carriesHandOffWork)
+        #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .complete)
+        #expect(harness.recorder.writtenFills.isEmpty)
+        #expect(harness.store.answers().usualClimbSteps == nil)
+        #expect(harness.store.answers().usualClimbMinutes == nil)
+    }
+
+    @Test
     func healthHistoryAloneIsStillImportedWhenThereAreNoProfileAnswers() async {
         var answers = PreAuthOnboardingAnswers()
         answers.foundHealthWorkoutIDs = ["w1", "w2"]
@@ -420,6 +481,6 @@ struct OnboardingAuthTests {
 
         coordinator.go(to: .auth)
         #expect(coordinator.previousStep == .welcome)
-        #expect(OnboardingAuthViewModel.mode(arrivedFrom: coordinator.previousStep) == .returning)
+        #expect(OnboardingAuthMode(arrivedFrom: coordinator.previousStep) == .returning)
     }
 }

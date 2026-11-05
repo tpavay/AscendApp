@@ -52,6 +52,8 @@ final class OnboardingV3SignInHandOff {
         var isProfileWriteEnabled: @MainActor () -> Bool
         var readProfile: @MainActor (_ userId: String) async throws -> UserDisplayNameData?
         var writeProfile: @MainActor (_ userId: String, _ email: String?, _ fill: OnboardingProfileFill) async throws -> Void
+        /// Reports a profile read or write that failed for a reason time will not clear.
+        var recordProfileStepFailure: @MainActor (_ error: any Error) -> Void
         /// Brings in the Health history the climber asked for on 07a. Runs only after the profile
         /// has the answers, and only when there were answers to carry.
         var importHealthHistory: @MainActor (_ answers: PreAuthOnboardingAnswers) async -> Void
@@ -153,6 +155,9 @@ final class OnboardingV3SignInHandOff {
                 try await seams.writeProfile(userId, email, fill)
             }
         } catch {
+            if Self.isWorthReporting(error) {
+                seams.recordProfileStepFailure(error)
+            }
             return .deferred
         }
 
@@ -165,6 +170,13 @@ final class OnboardingV3SignInHandOff {
         await seams.importHealthHistory(answers)
         store.update { $0 = $0.droppingHandedOffAnswers }
         return .complete
+    }
+
+    /// No connection and a paused publish both clear on their own and the next run lands the
+    /// answers. A refusal or anything unexpected repeats on every foreground until someone sees it,
+    /// and neither caller shows the climber anything.
+    private static func isWorthReporting(_ error: any Error) -> Bool {
+        !(error is ProfilePublicationError) && ServerReadFailureClass.classify(error) != .unreachable
     }
 }
 
@@ -209,6 +221,13 @@ extension OnboardingV3SignInHandOff {
                         locationCity: fill.city?.city,
                         locationCountry: fill.city?.countryCode,
                         locationRegion: fill.city?.region
+                    )
+                },
+                recordProfileStepFailure: { error in
+                    TelemetryManager.shared.recordError(
+                        error,
+                        context: .firestore,
+                        code: "onboarding_answers_profile_step_failed"
                     )
                 },
                 importHealthHistory: importHealthHistory,

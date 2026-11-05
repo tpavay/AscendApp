@@ -11,16 +11,12 @@ struct OnboardingAuthScreen: View {
     let coordinator: OnboardingV3Coordinator
 
     @Environment(AuthenticationViewModel.self) private var authVM
-    @State private var viewModel: OnboardingAuthViewModel
+    @State private var mode: OnboardingAuthMode
     @State private var isShowingInternalQA = false
 
     init(coordinator: OnboardingV3Coordinator) {
         self.coordinator = coordinator
-        _viewModel = State(
-            initialValue: OnboardingAuthViewModel(
-                mode: OnboardingAuthViewModel.mode(arrivedFrom: coordinator.previousStep)
-            )
-        )
+        _mode = State(initialValue: OnboardingAuthMode(arrivedFrom: coordinator.previousStep))
     }
 
     private var isDisabled: Bool { authVM.authenticationState.isAuthenticating }
@@ -54,7 +50,7 @@ struct OnboardingAuthScreen: View {
 
     @ViewBuilder
     private var topBar: some View {
-        if viewModel.mode == .returning {
+        if mode == .returning {
             OnboardingAuthBackButton {
                 OnboardingAuthReturningRequest().clear()
                 coordinator.back()
@@ -64,7 +60,7 @@ struct OnboardingAuthScreen: View {
         }
 
         AscendWordmark(height: 22, treatment: .onDark)
-            .padding(.top, viewModel.mode == .returning ? 14 : 13)
+            .padding(.top, mode == .returning ? 14 : 13)
             .padding(.leading, 24)
             .contentShape(Rectangle())
             // Five taps open the QA sign-in on dev and staging builds only, the same hatch the
@@ -79,7 +75,7 @@ struct OnboardingAuthScreen: View {
 
     private var copy: some View {
         VStack(alignment: .leading, spacing: 12) {
-            switch viewModel.mode {
+            switch mode {
             case .claimSpot:
                 Text("Last step")
                     .onboardingKicker()
@@ -168,7 +164,7 @@ struct OnboardingAuthScreen: View {
         authVM.errorMessage = nil
         let coordinator = coordinator
         let authVM = authVM
-        let completesFlow = viewModel.mode == .claimSpot
+        let completesFlow = mode == .claimSpot
         let intent = OnboardingV3HandOffIntent()
         if completesFlow { intent.set() }
 
