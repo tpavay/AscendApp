@@ -153,6 +153,13 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off hides Log it and refuses saving a typed climb, and stops re-deriving a climb's leaderboard status on restore or a steps/time edit; stored statuses and saved climbs are left untouched."
+    },
+    "onboarding_v3_enabled": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Rollout switch, ships off. On shows signed-out climbers the 1.3.0 onboarding before sign-in; off keeps the earlier flow whole. Routing and display only; it writes nothing."
     }
   },
   "parameterGroups": {},

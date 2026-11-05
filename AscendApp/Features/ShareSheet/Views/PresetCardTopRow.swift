@@ -8,9 +8,11 @@ struct PresetCardTopRow: View {
     var body: some View {
         HStack(alignment: .center) {
             AscendWordmark(
-                size: 9,
-                letterColor: Color(share: model.palette.wordmarkLetters),
-                markColor: Color(share: model.palette.wordmarkMark)
+                height: 12,
+                treatment: .shareLockup(
+                    letters: model.palette.wordmarkLetters,
+                    mark: model.palette.wordmarkMark
+                )
             )
             Spacer(minLength: 0)
             Text(model.subject.dateText)

@@ -41,6 +41,27 @@ export const SETTING_PARAMETERS = Object.freeze({
 });
 
 /**
+ * Boolean parameters that gate a *rollout* rather than a path that must keep running.
+ *
+ * A kill switch ships on, and flipping it off is the emergency. A rollout is the opposite: the
+ * feature is not live until an operator turns it on, so "off" is its healthy checked-in state and
+ * "on" is the deliberate move. That inverts two rules that would otherwise read a rollout wrongly:
+ * a live `false` is not a tripped switch that must stop an automated republish, and a live `true`
+ * is not drift to quietly overwrite - it is the operator having shipped the feature, and restating
+ * the checked-in `false` over it would pull the feature back from every climber at once.
+ *
+ * `onboarding_v3_enabled` is the first: the 1.3.0 onboarding is built behind it and stays dark
+ * until the captain turns it on.
+ */
+export const ROLLOUT_PARAMETERS = Object.freeze({
+  onboarding_v3_enabled: Object.freeze({ healthyDefault: "false" }),
+});
+
+export function isRolloutParameter(key) {
+  return Object.hasOwn(ROLLOUT_PARAMETERS, key);
+}
+
+/**
  * Parameters whose first publish and every later change are captain operations.
  *
  * The minimum version can lock out the installed base and App Review. The recommended version
@@ -73,8 +94,31 @@ export function isMonotonicSetting(key) {
  * checked-in baseline, so publishing it is the disarm and needs no follow-up. A monotonic setting
  * never returns to parity, so the override is the only way past the guard and it leaves the
  * project at the floor; the value has to be put back by hand, and the tool knows what it was.
+ *
+ * A rollout an operator turned on is the same shape: the checked-in template is pinned to `false`,
+ * so it cannot match the live project until the rollout is retired, and each full replace pulls the
+ * feature back until it is turned on again. A rollout the live project holds off with no conditions
+ * returns to parity like a threshold does.
  */
 export function overrideRecoveryStep(key, liveTemplate) {
+  if (isRolloutParameter(key)) {
+    const liveParameter = templateParameters(liveTemplate)[key];
+    if (isParameterOff(liveParameter) && liveParameter?.conditionalValues === undefined) {
+      return null;
+    }
+
+    const liveValue = liveParameter?.defaultValue?.value;
+    const conditions = liveParameter?.conditionalValues === undefined ? "" : " and its conditional values";
+
+    return (
+      `${key} is a rollout, and publishing restates "${ROLLOUT_PARAMETERS[key].healthyDefault}" over ` +
+      `the live ${JSON.stringify(liveValue)}${conditions}, which moves every climber's next launch ` +
+      "back off the feature. The checked-in value stays false by design, so the template will not " +
+      "match the live project and every full replace repeats this until the rollout is retired. " +
+      `Immediately after publishing, set ${key} back to ${JSON.stringify(liveValue)}${conditions} in the console.`
+    );
+  }
+
   if (!isMonotonicSetting(key)) {
     return null;
   }
@@ -175,6 +219,7 @@ export function findActiveKillSwitches(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   return Object.keys(templateParameters(localTemplate))
     .filter(isAutomaticallyPublishedParameter)
+    .filter((key) => !isRolloutParameter(key))
     .filter((key) => isParameterOff(liveParameters[key]))
     .sort();
 }
@@ -205,7 +250,7 @@ export function findArmedSettings(liveTemplate, localTemplate) {
   const liveParameters = templateParameters(liveTemplate);
   const localParameters = templateParameters(localTemplate);
 
-  return Object.keys(SETTING_PARAMETERS)
+  return [...Object.keys(SETTING_PARAMETERS), ...Object.keys(ROLLOUT_PARAMETERS)]
     .filter(
       (key) =>
         localParameters[key] !== undefined &&
@@ -345,10 +390,11 @@ export function flagParityProblems(localTemplate, swiftSource) {
 export const MAX_PARAMETER_DESCRIPTION_LENGTH = 256;
 
 /**
- * Where the checked-in template departs from the shape every kill switch must have.
+ * Where the checked-in template departs from the shape each kind of parameter must have.
  *
- * The template is the *healthy* state, so every parameter ships on: a checked-in `false` would
- * publish a project into the disabled state the switch exists to reach deliberately.
+ * The template is the *healthy* state. A kill switch ships on, because a checked-in `false` would
+ * publish a project into the disabled state the switch exists to reach deliberately. A setting ships
+ * at its baseline, and a rollout ships off, because a checked-in `true` would turn it on for everyone.
  */
 export function templateShapeProblems(localTemplate) {
   const parameters = templateParameters(localTemplate);
@@ -379,7 +425,15 @@ export function templateShapeProblems(localTemplate) {
       if (parameter?.valueType !== "BOOLEAN") {
         problems.push(`${key} must be declared BOOLEAN, not ${parameter?.valueType ?? "untyped"}.`);
       }
-      if (parameter?.defaultValue?.value !== "true") {
+      if (isRolloutParameter(key)) {
+        if (parameter?.defaultValue?.value !== ROLLOUT_PARAMETERS[key].healthyDefault) {
+          problems.push(
+            `${key} is a rollout and must ship at "${ROLLOUT_PARAMETERS[key].healthyDefault}" - ` +
+              "the checked-in template is the healthy state, and a checked-in true would turn " +
+              "the feature on for every climber the moment it is published.",
+          );
+        }
+      } else if (parameter?.defaultValue?.value !== "true") {
         problems.push(
           `${key} must ship on - the checked-in template is the healthy state, and publishing a ` +
             "checked-in false would disable a path nobody chose to disable.",

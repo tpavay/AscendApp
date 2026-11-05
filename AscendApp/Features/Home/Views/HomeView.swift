@@ -371,7 +371,7 @@ struct HomeView: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 12) {
-                    AscendWordmark(size: 16, letterColor: .white)
+                    AscendWordmark(height: 20, treatment: .onDark)
                         .padding(.top, 12)
 
                     if !globeViewModel.mapScene.legendTiers.isEmpty {

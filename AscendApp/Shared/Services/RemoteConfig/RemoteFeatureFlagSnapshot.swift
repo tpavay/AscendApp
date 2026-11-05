@@ -64,11 +64,12 @@ struct RemoteFeatureFlagSnapshot: Sendable, Equatable {
         resolution(for: flag).source
     }
 
-    /// The flags an operator has actively switched off, for diagnostics. Empty on the happy path,
-    /// so a non-empty value is always worth logging.
+    /// The kill switches an operator has actively switched off, for diagnostics. Empty on the happy
+    /// path, so a non-empty value is always worth logging - which is why a rollout, whose healthy
+    /// state is off, is not counted.
     var disabledFlagKeys: [String] {
         RemoteFeatureFlag.allCases
-            .filter { isEnabled($0) == false }
+            .filter { $0.isRollout == false && isEnabled($0) == false }
             .map(\.key)
             .sorted()
     }

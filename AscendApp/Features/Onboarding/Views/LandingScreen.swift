@@ -17,13 +17,7 @@ struct LandingScreen: View {
                 let centerX = geometry.size.width / 2
 
                 ZStack(alignment: .topLeading) {
-                    AscendWordmark(
-                        size: 30 * typeScale,
-                        letterColor: .white,
-                        letterSpacing: 5.0 * typeScale,
-                        iconSize: 52 * typeScale,
-                        iconTrailingSpacing: 14 * typeScale
-                    )
+                    AscendWordmark(height: 40 * typeScale, treatment: .onDark)
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .position(x: centerX, y: 200 * scaleY)
 

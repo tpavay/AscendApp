@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import AscendApp
 
@@ -91,6 +92,23 @@ struct PresetPreferencesTests {
         #expect(StickerStyle.Color.black.wordmarkMarkHex == 0x86D30A)
         for color in [StickerStyle.Color.lime, .coral, .sky] {
             #expect(color.wordmarkMarkHex == 0xFFFFFF)
+        }
+    }
+
+    /// The brand artwork carries the lime A itself, so white and black stickers keep theirs. The
+    /// coloured stickers tint the A white and the letters the sticker's colour.
+    @Test
+    func aStickerColorPicksTheWordmarkTreatmentForItsBackdrop() {
+        var white = StickerStyle.defaults
+        white.color = .white
+        var black = StickerStyle.defaults
+        black.color = .black
+        #expect(StickerInk(style: white).wordmark == .onDark)
+        #expect(StickerInk(style: black).wordmark == .onLight)
+        for color in [StickerStyle.Color.lime, .coral, .sky] {
+            var style = StickerStyle.defaults
+            style.color = color
+            #expect(StickerInk(style: style).wordmark == .twoColour(mark: Color(shareHex: 0xFFFFFF), letters: Color(shareHex: color.hex)))
         }
     }
 }

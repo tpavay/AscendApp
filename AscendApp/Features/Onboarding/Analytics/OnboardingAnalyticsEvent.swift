@@ -2,8 +2,43 @@ import Foundation
 
 struct OnboardingAnalyticsContext: Sendable, Hashable {
     static let flowID = "onboarding"
-    static let currentFlowVersion = "v1"
+
+    /// The pre-sign-in flow of 1.3.0: selling screens, setup, paywall, then sign-in last.
+    static let currentFlowVersion = "v3"
+    /// The flow that ships while `onboarding_v3_enabled` is off. Every context the old screens
+    /// build defaults to it, so switching the new flow on never relabels the old funnel.
+    static let legacyFlowVersion = "v1"
+
+    /// The v3 funnel, in order. Written out by hand on purpose and never derived from
+    /// ``OnboardingV3Step``: `step_index` and `step_count` are what a funnel reads positions from, so
+    /// a step added to the enum must be placed here deliberately or the index would silently
+    /// develop a gap. `OnboardingV3KitTests.theHandWrittenFunnelOrderMatchesTheStepEnum` holds the
+    /// two lists to the same members.
+    ///
+    /// Branches (`health_permission` and `health_history` on the Health path, `usual_climb` on the
+    /// other) share one ordering; funnels read a branch by `step_id`.
     static let orderedStepIDs = [
+        "welcome",
+        "go_harder",
+        "get_better",
+        "something_to_chase",
+        "count_methods",
+        "health_connect",
+        "health_permission",
+        "health_history",
+        "usual_climb",
+        "climber_card",
+        "claim_city",
+        "weekly_target",
+        "this_month_event",
+        "notification_primer",
+        "paywall",
+        "exit_gift",
+        "auth"
+    ]
+
+    /// The v1 funnel's order, kept only while the old flow still ships behind the v3 switch.
+    static let legacyOrderedStepIDs = [
         "welcome",
         "watch_yourself_get_better",
         "reason_to_come_back",
@@ -27,6 +62,10 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "paywall"
     ]
 
+    static func orderedStepIDs(forFlowVersion flowVersion: String) -> [String] {
+        flowVersion == legacyFlowVersion ? legacyOrderedStepIDs : orderedStepIDs
+    }
+
     /// The index reported for a step that is not part of the canonical flow. Contexts are built
     /// from content arrays, so an added carousel page or guide screen can drift out of the ordered
     /// list - and onboarding is the one flow a user has no way around, so instrumentation drift
@@ -42,21 +81,24 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
 
     init(
         segmentID: String,
-        flowVersion: String = Self.currentFlowVersion,
+        flowVersion: String = Self.legacyFlowVersion,
         stepID: String
     ) {
-        let canonicalStepIndex = Self.canonicalStepIndex(for: stepID)
+        let canonicalStepIndex = Self.canonicalStepIndex(for: stepID, flowVersion: flowVersion)
         assert(canonicalStepIndex != nil, "Unknown onboarding analytics step: \(stepID)")
 
         self.segmentID = segmentID
         self.flowVersion = flowVersion
         self.stepID = stepID
         stepIndex = canonicalStepIndex ?? Self.unknownStepIndex
-        stepCount = Self.orderedStepIDs.count
+        stepCount = Self.orderedStepIDs(forFlowVersion: flowVersion).count
     }
 
-    static func canonicalStepIndex(for stepID: String) -> Int? {
-        orderedStepIDs.firstIndex(of: stepID)
+    static func canonicalStepIndex(
+        for stepID: String,
+        flowVersion: String = Self.legacyFlowVersion
+    ) -> Int? {
+        orderedStepIDs(forFlowVersion: flowVersion).firstIndex(of: stepID)
     }
 }
 

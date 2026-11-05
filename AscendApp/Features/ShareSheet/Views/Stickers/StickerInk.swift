@@ -8,13 +8,16 @@ struct StickerInk {
     let color: Color
     /// Black stickers flip their shadows and their filled-cell text to white.
     let isDark: Bool
-    let markColor: Color
+    let wordmark: AscendWordmark.Treatment
 
     init(style: StickerStyle) {
         font = style.font.presetFont
         color = Color(shareHex: style.color.hex)
         isDark = style.color == .black
-        markColor = Color(shareHex: style.color.wordmarkMarkHex)
+        wordmark = .shareLockup(
+            letters: ShareColor(style.color.hex),
+            mark: ShareColor(style.color.wordmarkMarkHex)
+        )
     }
 
     /// One line of sticker text. `lineHeight` is a CSS-style multiple of `size`; Text's natural

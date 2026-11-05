@@ -6,12 +6,14 @@ import {
   APP_PARAMETER_SOURCE_PATHS,
   MAX_PARAMETER_DESCRIPTION_LENGTH,
   SETTING_PARAMETERS,
+  ROLLOUT_PARAMETERS,
   appFlagKeys,
   findActiveKillSwitches,
   findArmedSettings,
   flagParityProblems,
   isMonotonicSetting,
   isParameterOff,
+  isRolloutParameter,
   isSettingParameter,
   overrideRecoveryStep,
   templateParameters,
@@ -221,6 +223,44 @@ test("a setting is held to its own shape contract, not the kill-switch one", () 
   assert.ok(problems.some((problem) => problem.includes("healthy baseline")));
 });
 
+test("a rollout ships off, and a checked-in true is refused", () => {
+  // The opposite of a kill switch: the feature is dark until an operator turns it on, so the
+  // checked-in healthy state is "false" and publishing a "true" would launch it fleet-wide.
+  assert.ok(isRolloutParameter("onboarding_v3_enabled"));
+  assert.ok(!isRolloutParameter("workout_cloud_backup_writes_enabled"));
+  assert.equal(ROLLOUT_PARAMETERS.onboarding_v3_enabled.healthyDefault, "false");
+
+  const shipped = {
+    parameters: {
+      onboarding_v3_enabled: {
+        defaultValue: {value: "false"},
+        valueType: "BOOLEAN",
+        description: "rollout",
+      },
+    },
+  };
+  assert.deepEqual(templateShapeProblems(shipped), []);
+
+  shipped.parameters.onboarding_v3_enabled.defaultValue.value = "true";
+  const problems = templateShapeProblems(shipped);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /is a rollout and must ship at "false"/);
+});
+
+test("a rollout that is off is the healthy state, not a tripped switch", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  assert.equal(live.parameters.onboarding_v3_enabled.defaultValue.value, "false");
+  assert.deepEqual(findActiveKillSwitches(live, localTemplate), []);
+});
+
+test("a rollout an operator turned on stops the full replace that would pull it back", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.onboarding_v3_enabled.defaultValue.value = "true";
+
+  assert.deepEqual(findArmedSettings(live, localTemplate), ["onboarding_v3_enabled"]);
+  assert.deepEqual(findActiveKillSwitches(live, localTemplate), []);
+});
+
 test("minimum and recommended app versions ship as inert strings", () => {
   for (const key of ["minimum_supported_app_version", "recommended_app_version"]) {
     assert.ok(isSettingParameter(key));
@@ -372,7 +412,36 @@ test("a lever that returns to parity on its own needs no follow-up step", () => 
   assert.equal(overrideRecoveryStep("workout_cloud_backup_writes_enabled", live), null);
 });
 
-test("only settings marked monotonic carry the permanent-refusal follow-up", () => {
+test("a rollout that is on names the console step, and says the checked-in false stays", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.onboarding_v3_enabled.defaultValue.value = "true";
+
+  const step = overrideRecoveryStep("onboarding_v3_enabled", live);
+
+  assert.match(step, /restates "false" over the live "true"/);
+  assert.match(step, /checked-in value stays false/);
+  assert.match(step, /set onboarding_v3_enabled back to "true" in the console/);
+});
+
+test("a rollout scoped by conditions names them in the console step", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.onboarding_v3_enabled.conditionalValues = { Internal: { value: "true" } };
+
+  const step = overrideRecoveryStep("onboarding_v3_enabled", live);
+
+  assert.match(step, /over the live "false" and its conditional values/);
+  assert.match(step, /back to "false" and its conditional values in the console/);
+});
+
+test("a rollout the live project holds off needs no follow-up step", () => {
+  const live = liveTemplateMatchingCheckedIn();
+  live.parameters.onboarding_v3_enabled.description = "reworded in the console";
+
+  assert.deepEqual(findArmedSettings(live, localTemplate), ["onboarding_v3_enabled"]);
+  assert.equal(overrideRecoveryStep("onboarding_v3_enabled", live), null);
+});
+
+test("only settings marked monotonic read as monotonic", () => {
   assert.ok(isMonotonicSetting("workout_sync_recovery_epoch"));
   assert.equal(isMonotonicSetting("minimum_supported_app_version"), false);
   assert.equal(isMonotonicSetting("workout_cloud_backup_writes_enabled"), false);

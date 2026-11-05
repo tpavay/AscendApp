@@ -103,18 +103,35 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// edited. Off, Log it is not offered and every stored status is left exactly as it is.
     case climbLogging = "climb_logging_enabled"
 
+    /// The pre-sign-in onboarding of 1.3.0: selling screens, setup questions and the paywall before
+    /// sign-in. Off, a signed-out climber gets the flow that shipped before it, whole. Display and
+    /// routing only - it writes nothing, and the answers it collects stay on the device until a
+    /// later switch-gated step sends them. Unlike every other flag it ships off, because it is a
+    /// rollout and not a path that must keep running (`docs/remote-config-kill-switches.md`).
+    case onboardingV3 = "onboarding_v3_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
     /// device.
     ///
-    /// Every flag ships `true` - fetch failure falls back to the app's normal, tested behaviour
+    /// Every kill switch ships `true`, and ``onboardingV3`` - a rollout - ships `false`. Fetch failure falls back to the app's normal, tested behaviour
     /// rather than to "off". The reasoning is written up in
     /// `docs/remote-config-kill-switches.md`; the short version is that a fetch failure almost
     /// always means "this device is offline", and an offline device that silently stopped backing
     /// up workouts would make the safety mechanism the leading cause of the data loss it exists to
     /// prevent.
-    var shippedDefault: Bool { true }
+    var shippedDefault: Bool {
+        switch self {
+        case .onboardingV3: false
+        default: true
+        }
+    }
+
+    /// Whether this flag gates a rollout instead of a path that must keep running. A rollout is
+    /// dark until an operator turns it on, so being off is its healthy state and says nothing about
+    /// an incident.
+    var isRollout: Bool { shippedDefault == false }
 
     /// What an operator turns off when they flip this flag. Surfaced in the debug console so the
     /// person reaching for the switch under pressure does not have to guess.
@@ -158,6 +175,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Resumes a dead session automatically on relaunch instead of asking first."
         case .climbLogging:
             return "Offers Log it and saves typed climbs; re-derives a climb's leaderboard status."
+        case .onboardingV3:
+            return "Shows the 1.3.0 pre-sign-in onboarding to signed-out climbers. Ships off."
         }
     }
 }

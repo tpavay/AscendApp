@@ -104,7 +104,8 @@ Every layout shares one approach, in `PresetFitGeometry` (pure widths) with `Pre
 - **A big number beside its caption** (the Classic steps, the Rank position, the Curve and Splits headlines) scales before its caption moves: the headlines by at most 15%, the others by at most half. Past that the caption drops to its own line under the number.
 - **Minimal** may break between one stat and the next and never inside one, and the dot stays with the stat before it.
 - A long rank number gets looser tracking, because tracking does not scale with the text and the design's -0.06em would overlap its digits.
-- The card pins `dynamicTypeSize(.large)`, so the wordmark's scaled font cannot make the preview differ from the export for a climber running larger text.
+- The card pins `dynamicTypeSize(.large)`, so a view inside it that reads the text size cannot make the preview differ from the export for a climber running larger text.
+  The wordmark does not depend on that pin: it is a fixed-height image.
 `PresetFitGeometryTests` pins the rules, and `PresetCardFitTests` reads every layout through Vision at the captain's own figures and at the extremes, and fails when a figure is split or cut.
 The Splits and Split table layouts draw one bar or row per split, so a climb with very many splits (a 24 hour one has 144) meets a different limit, which this section does not cover.
 

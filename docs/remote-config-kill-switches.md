@@ -43,6 +43,25 @@ Public profile publishing reaches a shared service that would need a live backen
 The client no longer publishes standings at all - the server derives them from the canonical workouts (`functions/src/leaderboardStats.ts`), so the only kill switch that reaches the leaderboard now is `workout_cloud_backup_writes_enabled`: hold the workout backup and no new standing is derived, because the evidence never lands.
 That is the correct choke point, and it defers rather than drops.
 
+### Rollouts, which ship off
+
+A rollout gates a feature that is not live until an operator turns it on, so it inverts the kill switch contract: the checked-in template and `RemoteFeatureFlag.shippedDefault` are `false`, and `true` is the deliberate move.
+`RemoteFeatureFlag.isRollout` names them, and `scripts/lib/remote-config-template.mjs` holds them in `ROLLOUT_PARAMETERS` so the rest of the tooling reads them rightly:
+
+- A live `false` is the healthy state, so it never counts as a tripped switch that stops an automated republish, and `RemoteFeatureFlagSnapshot.disabledFlagKeys` leaves it out of the diagnostics warning.
+- A live `true` is the operator having shipped the feature, so the full replace refuses over it exactly as it does over an armed setting - restating the checked-in `false` would pull the feature back from every climber at once.
+- That refusal repeats on every full replace while the rollout is on, because the checked-in value stays `false` until the rollout is retired and the template can never match the live project. The only way past is `--allow-overwriting-active-kill-switch <key>`, and the script prints the step that has to follow it: **immediately set the rollout back to its live value, and any conditional values, in the console**, because the publish moves every climber's next launch back off the feature.
+- The template shape check requires a rollout to be `BOOLEAN` and to ship `"false"`, and the additive dev and staging publish carries a new rollout over at `false`, which is the safe direction.
+
+| Parameter | Turning it on starts | Off keeps |
+|---|---|---|
+| `onboarding_v3_enabled` | The 1.3.0 pre-sign-in onboarding for signed-out climbers: selling screens, setup questions and the paywall before sign-in | The onboarding that shipped before it, whole. The flow writes nothing to Firestore; the answers it collects stay on the device until a later switch-gated step sends them |
+
+A flip of `onboarding_v3_enabled` takes effect on the next launch, never on a running one, so a climber is never swapped between flows mid-screen.
+`OnboardingV3RouteLatch` decides once per launch.
+A device whose persisted activation already carries the flag decides on it immediately.
+A device the backend has never answered about it holds on the wordmark until the first fetch ends, for at most 1.5 seconds, and a fetch that fails or runs out the clock leaves it on the shipped `false` for that launch.
+
 ### Settings, which are not switches
 
 A kill switch is a Boolean that ships on and is flipped off to stop a path.
@@ -149,7 +168,7 @@ Release builds ship neither.
 
 ## What happens when the fetch fails
 
-**Chosen posture: fail to the last known good value, and failing that, to the compiled-in default - which is `true` (feature enabled) for every current flag.**
+**Chosen posture: fail to the last known good value, and failing that, to the compiled-in default - which is `true` (feature enabled) for every kill switch and `false` for a rollout.**
 A fetch failure never changes app behaviour on its own.
 
 Resolution order, per flag:
@@ -200,7 +219,8 @@ It reads the live template first and **refuses** while any lever is in use, unle
 Two shapes count: a managed flag currently off, and a **setting** moved away from its healthy baseline.
 A setting has no "off" value to recognise - it is in use at whatever value an operator moved it to - so it is caught by comparing the live parameter against the checked-in one in full, conditions included.
 That covers every entry in `SETTING_PARAMETERS`, enumerated from the catalog rather than named one by one: an armed version threshold, and a bumped `workout_sync_recovery_epoch`, whose reset to `0` is not a no-op but a fleet-wide re-open of every stopped sync series.
-The epoch is the one lever whose refusal is permanent once it fires, because it is only ever increased and so never returns to the checked-in floor - see "Settings, which are not switches" for the override and the console step that has to follow it.
+The epoch's refusal is permanent once it fires, because it is only ever increased and so never returns to the checked-in floor - see "Settings, which are not switches" for the override and the console step that has to follow it.
+A rollout that is on refuses the same way for as long as it stays on - see "Rollouts, which ship off".
 
 ```bash
 cd scripts
