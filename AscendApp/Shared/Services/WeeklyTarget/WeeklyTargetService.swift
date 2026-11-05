@@ -1,3 +1,4 @@
+import FirebaseAuth
 import Foundation
 
 /// Where a weekly target is read and changed: Settings and Home's ring.
@@ -13,6 +14,7 @@ struct WeeklyTargetService {
     private let isWriteEnabled: @MainActor () -> Bool
     private let readRemote: @MainActor (String) async throws -> WeeklyTarget?
     private let writeRemote: @MainActor (String, WeeklyTarget?) async throws -> Void
+    private let onTargetChange: @MainActor (String, WeeklyTarget?) -> Void
     private let queue: WeeklyTargetSyncQueue
 
     init(
@@ -24,12 +26,18 @@ struct WeeklyTargetService {
         writeRemote: @escaping @MainActor (String, WeeklyTarget?) async throws -> Void = { userId, target in
             try await UserDataRepository.shared.updateWeeklyTarget(userId: userId, target: target)
         },
+        onTargetChange: @escaping @MainActor (String, WeeklyTarget?) -> Void = { userId, target in
+            // A read that answers after a sign-out must not re-arm the nudge for nobody.
+            guard Auth.auth().currentUser?.uid == userId else { return }
+            LocalReminderCoordinator.shared.weeklyTargetChanged(to: target)
+        },
         queue: WeeklyTargetSyncQueue = .shared
     ) {
         self.store = store
         self.isWriteEnabled = isWriteEnabled
         self.readRemote = readRemote
         self.writeRemote = writeRemote
+        self.onTargetChange = onTargetChange
         self.queue = queue
     }
 
@@ -42,6 +50,7 @@ struct WeeklyTargetService {
     @discardableResult
     func save(_ target: WeeklyTarget?, for userId: String) async -> Bool {
         store.save(target, for: userId)
+        onTargetChange(userId, target)
         return await queue.run(for: userId) { await pushIfNeeded(for: userId) }
     }
 
@@ -49,6 +58,7 @@ struct WeeklyTargetService {
     /// account's answer is adopted. Returns the target to show.
     @discardableResult
     func reconcile(for userId: String) async -> WeeklyTarget? {
+        let before = store.target(for: userId)
         await queue.run(for: userId) {
             if store.hasUnsyncedChange(for: userId) {
                 return await pushIfNeeded(for: userId)
@@ -62,7 +72,13 @@ struct WeeklyTargetService {
                 return false
             }
         }
-        return store.target(for: userId)
+        let after = store.target(for: userId)
+        // An account with no target says nothing about an onboarding answer that has not been
+        // handed off yet, so no target only counts when it is a change.
+        if after != nil || after != before {
+            onTargetChange(userId, after)
+        }
+        return after
     }
 
     private func pushIfNeeded(for userId: String) async -> Bool {

@@ -6,7 +6,7 @@ Two small pieces of the 1.3.0 onboarding that outlive it.
 
 A climber can choose a target of one to seven climbing days a week, on onboarding screen 10 or in Settings -> Weekly target.
 It is optional: skipping leaves it unset, and a climber with no target gets no weekly ring on Home.
-The local weekly-target nudge (`LocalReminderCoordinator`) reads the onboarding answer below, not `WeeklyTargetStore`, so a target set or cleared in Settings does not reach it yet.
+The local weekly-target nudge (`LocalReminderCoordinator`) reads the onboarding answer below, and `WeeklyTargetService` keeps that answer true to the device's target, so a target set, changed or cleared in Settings takes effect on the nudge at once.
 Everyone has the week streak (`WeeklyStreak`, a week with any climb) whether or not they set a target, and the streak is never computed from it.
 
 - `WeeklyTarget` and `WeeklyTargetProgress` (`Shared/Models/WeeklyTarget.swift`) are the value and the count of distinct climbed days in the Monday week.

@@ -202,6 +202,7 @@ struct WeeklyTargetTests {
         var writes: [WeeklyTarget?] = []
         var failsWrites = false
         var failsReads = false
+        var published: [WeeklyTarget?] = []
     }
 
     private func service(store: WeeklyTargetStore, remote: Remote, writesEnabled: Bool) -> WeeklyTargetService {
@@ -216,7 +217,9 @@ struct WeeklyTargetTests {
                 if remote.failsWrites { throw URLError(.notConnectedToInternet) }
                 remote.writes.append(target)
                 remote.stored = target
-            }
+            },
+            onTargetChange: { _, target in remote.published.append(target) },
+            queue: WeeklyTargetSyncQueue()
         )
     }
 
@@ -295,6 +298,54 @@ struct WeeklyTargetTests {
         let service = service(store: store, remote: remote, writesEnabled: true)
 
         #expect(await service.reconcile(for: "alice") == nil)
+    }
+
+    // MARK: - What the nudge is told
+
+    @Test
+    func everySavePublishesTheTargetWhateverTheNetworkDoes() async {
+        let store = store(), remote = Remote()
+        remote.failsWrites = true
+        let service = service(store: store, remote: remote, writesEnabled: true)
+
+        await service.save(WeeklyTarget(days: 3), for: "alice")
+        await service.save(nil, for: "alice")
+
+        #expect(remote.published == [WeeklyTarget(days: 3), nil])
+    }
+
+    @Test
+    func anAdoptedTargetIsPublished() async {
+        let store = store(), remote = Remote()
+        remote.stored = WeeklyTarget(days: 4)
+        let service = service(store: store, remote: remote, writesEnabled: true)
+
+        await service.reconcile(for: "alice")
+
+        #expect(remote.published == [WeeklyTarget(days: 4)])
+    }
+
+    @Test
+    func aTargetClearedOnAnotherPhoneIsPublished() async {
+        let store = store(), remote = Remote()
+        store.save(WeeklyTarget(days: 4), for: "alice")
+        store.markSynced(for: "alice")
+        let service = service(store: store, remote: remote, writesEnabled: true)
+
+        await service.reconcile(for: "alice")
+
+        #expect(remote.published == [nil])
+    }
+
+    /// Screen 10's answer has no hand-off yet, so the account has no target while the nudge does.
+    @Test
+    func anAccountWithNoTargetLeavesAnOnboardingAnswerAlone() async {
+        let store = store(), remote = Remote()
+        let service = service(store: store, remote: remote, writesEnabled: true)
+
+        await service.reconcile(for: "alice")
+
+        #expect(remote.published.isEmpty)
     }
 
     // MARK: - One at a time
