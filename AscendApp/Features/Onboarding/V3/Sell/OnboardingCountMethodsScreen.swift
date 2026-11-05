@@ -80,9 +80,25 @@ private struct SellMethodRow: View {
     let symbol: String
     let tile: [Color]
 
-    @ScaledMetric(relativeTo: .headline) private var titleSize: CGFloat = 17
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .headline) private var scaledTitleSize: CGFloat = 17
     @ScaledMetric(relativeTo: .footnote) private var detailSize: CGFloat = 13
-    @ScaledMetric(relativeTo: .headline) private var tileSize: CGFloat = 60
+    @ScaledMetric(relativeTo: .headline) private var scaledTileSize: CGFloat = 60
+
+    /// The tile grows with the text but stops at 72 pt, so at an accessibility size the words get
+    /// the room instead.
+    private var tileSize: CGFloat { min(scaledTileSize, 72) }
+
+    /// The title stops at 30 pt, where the column beside the tile still holds "Headphones" on the
+    /// smallest phone.
+    private var titleSize: CGFloat { min(scaledTitleSize, 30) }
+
+    /// The badge moves under the title at an accessibility size, where the two no longer fit a line.
+    private var titleLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+            : AnyLayout(HStackLayout(spacing: 8))
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
@@ -102,7 +118,7 @@ private struct SellMethodRow: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
+                titleLayout {
                     Text(method.title)
                         .font(.custom("Montserrat-ExtraBold", fixedSize: titleSize))
                         .foregroundStyle(Color.white)

@@ -120,8 +120,9 @@ struct OnboardingV3SellScreensTests {
     }
 
     @Test
-    func beforeAnyEventTheNextOneToOpenIsUsed() {
-        #expect(SellGearSelection.event(in: catalog(), today: day(2_026, 8, 1))?.id == "halloween-2026")
+    func beforeAnyEventHasOpenedThereIsNoGear() {
+        #expect(SellGearSelection.event(in: catalog(), today: day(2_026, 8, 1)) == nil)
+        #expect(SellGearSelection(catalog: catalog(), today: day(2_026, 8, 1)) == nil)
     }
 
     @Test

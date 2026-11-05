@@ -39,6 +39,9 @@ struct OnboardingV3SellEvidenceTests {
     /// A day inside the bundled catalogue's Thanksgiving event, which is too small to show gear.
     nonisolated private static let aNovemberDay = Calendar.current.date(from: DateComponents(year: 2_026, month: 11, day: 4, hour: 12))!
 
+    /// A day before the bundled catalogue's first event opens, so there is no event to show.
+    nonisolated private static let anAugustDay = Calendar.current.date(from: DateComponents(year: 2_026, month: 8, day: 1, hour: 12))!
+
     /// A day inside the bundled catalogue's Halloween event, which has gear beyond its showcase.
     nonisolated private static let anOctoberDay = Calendar.current.date(from: DateComponents(year: 2_026, month: 10, day: 15, hour: 12))!
 
@@ -64,6 +67,31 @@ struct OnboardingV3SellEvidenceTests {
         let elements = try await screen.elements(reading: 400) { read($0).count == labels.count }
         return read(elements)
     }
+
+    /// Reads `words` off the pixels of a screen as wide as the smallest phone and tall enough to
+    /// show all of it. A word broken across lines is whole in the accessibility tree and only OCR
+    /// can see the break.
+    private func expectWholeWords(
+        _ words: [String],
+        in view: some View,
+        at textSize: DynamicTypeSize,
+        photographedAs name: String
+    ) async throws {
+        try await RenderedScreen.host(
+            view.environment(\.dynamicTypeSize, textSize),
+            size: CGSize(width: Self.smallestPhone.width, height: 2_600),
+            settle: .turns(60)
+        ) { screen in
+            _ = try await screen.copy()
+            let recognized = try await screen.recognizedText(scale: 2).lowercased()
+            for word in words {
+                #expect(recognized.contains(word), "\(word) is broken at \(textSize): \(recognized)")
+            }
+            try screen.photograph(named: "\(name)-\(textSize)")
+        }
+    }
+
+    nonisolated private static let accessibilitySizes: [DynamicTypeSize] = [.accessibility3, .accessibility5]
 
     /// A phone as a full-bleed screen meets it: how much of the top and bottom the system keeps.
     struct PhoneShape: CustomTestStringConvertible, Sendable {
@@ -227,15 +255,26 @@ struct OnboardingV3SellEvidenceTests {
         }
     }
 
+    @Test(arguments: Self.accessibilitySizes)
+    func getBetterCardsNeverBreakAWord(textSize: DynamicTypeSize) async throws {
+        try await expectWholeWords(
+            ["time", "fastest", "steps"],
+            in: flow(.getBetter),
+            at: textSize,
+            photographedAs: "onboarding-v3-sell-03-whole-words"
+        )
+    }
+
     // MARK: - 04 Something to chase
 
-    /// Thanksgiving has six items, none to spare from the showcase 11 shows, so the reasons are
-    /// the art: above the headline, and only once.
-    @Test(arguments: Self.phones)
-    func somethingToChaseInASmallEventMakesTheReasonsTheArt(size: CGSize) async throws {
+    /// Thanksgiving has six items, none to spare from the showcase 11 shows, and before the first
+    /// event there is nothing to show at all. Either way the reasons are the art: above the
+    /// headline, and only once.
+    @Test(arguments: Self.phones, [Self.aNovemberDay, Self.anAugustDay])
+    func somethingToChaseWithNoGearMakesTheReasonsTheArt(size: CGSize, day: Date) async throws {
         let chips = SellScreenCopy.SomethingToChase.chips
         let headlineLabel = "Always something to chase next."
-        try await RenderedScreen.host(somethingToChase(on: Self.aNovemberDay), size: size, settle: .turns(60)) { screen in
+        try await RenderedScreen.host(somethingToChase(on: day), size: size, settle: .turns(60)) { screen in
             let copy = try await screen.copy()
             #expect(copy.contains("always something to chase next."), "\(copy)")
             #expect(copy.contains("continue"), "\(copy)")
@@ -253,7 +292,8 @@ struct OnboardingV3SellEvidenceTests {
             for chip in chips {
                 #expect(elements.filter { $0.accessibilityLabel == chip }.count == 1, "\(chip) is not drawn once")
             }
-            try screen.photograph(named: "onboarding-v3-sell-04-something-to-chase-november-\(Int(size.height))")
+            let month = Calendar.current.component(.month, from: day)
+            try screen.photograph(named: "onboarding-v3-sell-04-something-to-chase-month-\(month)-\(Int(size.height))")
         }
     }
 
@@ -293,6 +333,18 @@ struct OnboardingV3SellEvidenceTests {
         }
     }
 
+    @Test(arguments: Self.accessibilitySizes)
+    func somethingToChaseChipsNeverBreakAWord(textSize: DynamicTypeSize) async throws {
+        for (day, month) in [(Self.aNovemberDay, "november"), (Self.anOctoberDay, "october")] {
+            try await expectWholeWords(
+                ["leaderboards", "achievements"],
+                in: somethingToChase(on: day),
+                at: textSize,
+                photographedAs: "onboarding-v3-sell-04-whole-words-\(month)"
+            )
+        }
+    }
+
     // MARK: - 05 Count methods
 
     @Test(arguments: Self.phones)
@@ -307,6 +359,16 @@ struct OnboardingV3SellEvidenceTests {
             #expect(copy.contains("continue"), "\(copy)")
             try screen.photograph(named: "onboarding-v3-sell-05-count-methods-\(Int(size.height))")
         }
+    }
+
+    @Test(arguments: Self.accessibilitySizes)
+    func countMethodsTitlesNeverBreakAWord(textSize: DynamicTypeSize) async throws {
+        try await expectWholeWords(
+            ["headphones", "health", "nothing", "best"],
+            in: flow(.countMethods),
+            at: textSize,
+            photographedAs: "onboarding-v3-sell-05-whole-words"
+        )
     }
 
     @Test

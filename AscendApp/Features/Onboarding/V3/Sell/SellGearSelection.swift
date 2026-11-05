@@ -1,8 +1,8 @@
 import Foundation
 
 /// The gear 04 shows, picked from the hosted unlock catalogue so the screen follows the month by
-/// itself: the event running today, else the latest one that finished, else the next one to open.
-/// Nothing about a season is written in code.
+/// itself: the event running today, else the latest one that finished. Nothing about a season is
+/// written in code.
 ///
 /// 11 shows the event's showcase, so 04 never does. An event too small to have gear left over has
 /// no selection, and 04 leads with its reasons instead.
@@ -59,21 +59,15 @@ struct SellGearSelection: Equatable {
         )
     }
 
-    /// The event whose window holds `today`; with none, the one that ended most recently; with
-    /// none of those, the one that opens first.
+    /// The event whose window holds `today`; with none, the one that ended most recently.
     static func event(in catalog: UnlockCatalog, today: Date, calendar: Calendar = .current) -> UnlockEvent? {
         if let running = catalog.events.first(where: { $0.contains(today, calendar: calendar) }) {
             return running
         }
-        let finished = catalog.events
+        return catalog.events
             .compactMap { event in event.interval(in: calendar).map { (event, $0.end) } }
             .filter { $0.1 <= today }
             .max { $0.1 < $1.1 }?
-            .0
-        if let finished { return finished }
-        return catalog.events
-            .compactMap { event in event.interval(in: calendar).map { (event, $0.start) } }
-            .min { $0.1 < $1.1 }?
             .0
     }
 }

@@ -146,9 +146,13 @@ private struct SellChaseChip: View {
 
     @ScaledMetric(relativeTo: .caption) private var size: CGFloat = 12
 
+    /// A chip grows with the text but stops at 32 pt, where the smallest phone still holds
+    /// "Achievements" on one line.
+    private var effectiveSize: CGFloat { min(isProminent ? size * 1.5 : size, 32) }
+
     var body: some View {
         Text(title)
-            .font(.custom("Montserrat-ExtraBold", fixedSize: isProminent ? size * 1.5 : size))
+            .font(.custom("Montserrat-ExtraBold", fixedSize: effectiveSize))
             .foregroundStyle(isHighlighted ? OnboardingV3Palette.orange : Color.white)
             .multilineTextAlignment(.center)
             .padding(.horizontal, isProminent ? 18 : 10)
