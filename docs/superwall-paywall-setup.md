@@ -102,7 +102,7 @@ Closing it (the X appears after three seconds) always opens screen 14, the welco
 How the purchase works:
 
 - A signed-out install is an anonymous RevenueCat customer, and `RevenueCatNativePaywallPlanProvider(allowsAnonymousPurchase: true)` is the only purchase path that may buy as one. The signed-in gate still refuses a purchase with no uid.
-- `PreAuthPurchaseLedger` remembers on the device that the paywall was reached and what was bought. A relaunch opens on the paywall (`AppRootRoute.preAuthPaywall`) or, once bought, on sign-in.
+- `PreAuthPurchaseLedger` remembers on the device that the paywall was reached and what was bought. A relaunch opens the flow on the paywall (`OnboardingV3Coordinator(startingAt:)`) or, once bought, on sign-in.
 - After sign-in, `PreAuthPurchaseTransfer.completeAfterSignIn()` moves the purchase onto the uid: `logIn` already carries it for a uid RevenueCat has never seen, and for a known uid one restore moves it. It then calls `reconcileAppAccess` until the server answers `active`, because a client cannot read `users/{uid}/entitlements/app_access` itself.
 - Prices, the monthly equivalent and the discount percentage come from StoreKit. The percentage rounds down.
 
@@ -116,9 +116,10 @@ The welcome product, `ascend_yearly_welcome` (`ascend_staging_yearly_welcome` in
 Captain-gated before production, none of it done by the build:
 
 1. Create the product in App Store Connect with its 7-day offer.
-2. Remove the one-month introductory offer from `ascend_yearly`.
-3. Add the product to `app_access` in RevenueCat.
-4. Create and pin the new `REVENUECAT_SERVER_CONFIG` version (`docs/functions-secret-versions.md`).
+2. Add the product to `app_access` in RevenueCat.
+3. Create and pin the new `REVENUECAT_SERVER_CONFIG` version (`docs/functions-secret-versions.md`).
+
+Whether to remove the one-month introductory offer from `ascend_yearly` is a separate captain decision; this change neither requires nor performs it.
 
 ## Verified Vendor State
 

@@ -17,7 +17,15 @@ struct PaywallYearlyCard: View {
                         .textCase(.uppercase)
                         .foregroundStyle(.white)
 
-                    Text(subtitle)
+                    // The amount charged leads: it is the largest figure on the card, with the
+                    // monthly equivalent a smaller line beside it.
+                    Text(plan.localizedPrice)
+                        .paywallText(.black, size: 28, relativeTo: .title2)
+                        .foregroundStyle(.white)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+
+                    Text("billed once a year")
                         .paywallText(.semiBold, size: 14, relativeTo: .subheadline)
                         .foregroundStyle(OnboardingV3Palette.secondary)
                 }
@@ -26,7 +34,7 @@ struct PaywallYearlyCard: View {
                 if let perMonth = plan.localizedPricePerMonth {
                     VStack(alignment: .trailing, spacing: 0) {
                         Text(perMonth)
-                            .paywallText(.black, size: 28, relativeTo: .title2)
+                            .paywallText(.extraBold, size: 15, relativeTo: .subheadline)
                             .foregroundStyle(.white)
                             .minimumScaleFactor(0.6)
                             .lineLimit(1)
@@ -94,7 +102,6 @@ struct PaywallYearlyCard: View {
     private var subtitle: String {
         "\(plan.localizedPrice) billed once a year"
     }
-
     private var accessibilityLabel: String {
         var parts = ["Yearly, best value", subtitle]
         if let perMonth = plan.localizedPricePerMonth { parts.append("\(perMonth) per month") }

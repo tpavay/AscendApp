@@ -24,7 +24,6 @@ struct RootView: View {
     @State private var onboardingV3Coordinator = OnboardingV3Coordinator(
         startingAt: PreAuthPurchaseLedger().resumeStep ?? .welcome
     )
-    @State private var resumesAtPreAuthPaywall = PreAuthPurchaseLedger().progress().reachedPaywallAt != nil
     @State private var onboardingV3RouteLatch = OnboardingV3RouteLatch()
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
@@ -47,7 +46,7 @@ struct RootView: View {
                 routeContent(for: rootRoute)
             case .signedOutHold:
                 routeContent(for: rootRoute)
-            case .preAuthOnboarding, .preAuthPaywall:
+            case .preAuthOnboarding:
                 routeContent(for: rootRoute)
             case .signingIn:
                 routeContent(for: rootRoute)
@@ -300,9 +299,7 @@ struct RootView: View {
             entitlementState: monetizationManager.entitlementStateForRouting,
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
             allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting,
-            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow,
-            resumesAtPreAuthPaywall: resumesAtPreAuthPaywall
-                && RemoteFeatureFlagStore.shared.isEnabled(.preAuthPaywall)
+            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow
         )
 
         // At the very start of onboarding we do not yet know whether this account
@@ -382,7 +379,7 @@ struct RootView: View {
                 SignedOutHoldView()
             }
 
-        case .preAuthOnboarding, .preAuthPaywall:
+        case .preAuthOnboarding:
             routeScreen(route) {
                 OnboardingV3FlowView(coordinator: onboardingV3Coordinator)
             }

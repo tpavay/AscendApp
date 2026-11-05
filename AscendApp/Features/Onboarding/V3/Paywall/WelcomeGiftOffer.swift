@@ -90,7 +90,7 @@ struct WelcomeGiftCopy: Equatable, Sendable {
             headlineAccent = ["is on us."]
             subline = "Then \(offer.price) a year, locked in."
             callToAction = "Claim my gift"
-            finePrint = "\(Self.zeroPrice(like: offer.price)) today, then \(offer.price)/year. Cancel anytime."
+            finePrint = "Free today, then \(offer.price)/year. Cancel anytime."
         } else {
             trialLine = nil
             headlineLead = ["\(offer.price) a year,"]
@@ -100,12 +100,5 @@ struct WelcomeGiftCopy: Equatable, Sendable {
             callToAction = "Claim my gift"
             finePrint = "\(offer.price) today, then every year. Cancel anytime."
         }
-    }
-
-    /// The store's own zero, so a euro or a yen price does not read "$0 today".
-    private static func zeroPrice(like price: String) -> String {
-        let digits = price.filter { $0.isNumber || $0 == "." || $0 == "," }
-        guard !digits.isEmpty else { return "0" }
-        return price.replacingOccurrences(of: digits, with: "0")
     }
 }

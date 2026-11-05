@@ -68,6 +68,11 @@ struct OnboardingPaywallScreen: View {
         .background(Color.black.ignoresSafeArea())
         .task { await start() }
         .task(id: model.giftOffer != nil) { await revealClose() }
+        // Access can arrive while this screen is up: a purchase still confirming, an Ask to Buy
+        // approved on another device, a restore. Whatever the route, a climber who holds it moves on.
+        .onChange(of: model.holdsAccess) { _, holdsAccess in
+            if holdsAccess { advanceFromHere() }
+        }
         .trackOnce(screen: .onboardingPaywall)
     }
 
@@ -203,9 +208,18 @@ struct OnboardingPaywallScreen: View {
     }
 
     private var footer: some View {
-        ViewThatFits(in: .horizontal) {
-            footerRow
-            VStack(spacing: 0) { footerRow }
+        VStack(spacing: 0) {
+            ViewThatFits(in: .horizontal) {
+                footerRow
+                VStack(spacing: 0) { footerRow }
+            }
+
+            // A climber with an account never has to pay to reach sign-in: the same exit the
+            // welcome screen offers, into the same returning-mode sign-in.
+            Button("Already climbing? Sign in") { coordinator.go(to: .auth) }
+                .buttonStyle(.plain)
+                .frame(minHeight: 36)
+                .disabled(model.isBusy)
         }
         .paywallText(.semiBold, size: 12, relativeTo: .caption)
         .foregroundStyle(Color(hex: "8E8E8E"))
@@ -224,7 +238,7 @@ struct OnboardingPaywallScreen: View {
             Link("Terms", destination: URL(string: "https://ascendstepper.com/terms")!)
             Link("Privacy", destination: URL(string: "https://ascendstepper.com/privacy")!)
         }
-        .frame(minHeight: 44)
+        .frame(minHeight: 36)
     }
 
     @ViewBuilder
@@ -267,14 +281,22 @@ struct OnboardingPaywallScreen: View {
         // Off, the flow skips the paywall and the sign-in that follows hands the climber to the
         // paywall that sells after it.
         guard RemoteFeatureFlagStore.shared.isEnabled(.preAuthPaywall) else {
-            coordinator.advance()
+            advanceFromHere()
             return
         }
 
         model.markPaywallReached()
         await model.load()
         // Bought before a relaunch, or restored: nothing is left to sell.
-        if model.holdsAccess { coordinator.advance() }
+        if model.holdsAccess { advanceFromHere() }
+    }
+
+    /// Moves on only while this screen is still the one showing, so a purchase that completes and an
+    /// entitlement that arrives a moment later cannot advance the flow twice - the second advance
+    /// from sign-in would end it.
+    private func advanceFromHere() {
+        guard coordinator.step == .paywall else { return }
+        coordinator.advance()
     }
 
     private func revealClose() async {
@@ -292,7 +314,7 @@ struct OnboardingPaywallScreen: View {
         case .purchased(let startedTrial):
             HapticsManager.shared.trigger(.success)
             coordinator.update { $0.trialStarted = startedTrial }
-            coordinator.advance()
+            advanceFromHere()
         case .cancelled, .notCompleted:
             break
         }
@@ -301,7 +323,7 @@ struct OnboardingPaywallScreen: View {
     private func restore() async {
         if await model.restore() == .restored {
             HapticsManager.shared.trigger(.success)
-            coordinator.advance()
+            advanceFromHere()
         }
     }
 }

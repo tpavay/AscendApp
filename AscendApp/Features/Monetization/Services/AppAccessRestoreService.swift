@@ -91,7 +91,8 @@ final class AppAccessRestoreService {
         let identity = context.identity ?? currentIdentity
         track(
             PaywallAnalyticsEvent.revenueCatRestoreStarted(context: context),
-            for: identity
+            for: identity,
+            allowingAnonymous: context.source == .onboardingPaywall
         )
         guard restorer.isRevenueCatConfigured else {
             let outcome = AppAccessRestoreOutcome.failed(
@@ -312,7 +313,8 @@ final class AppAccessRestoreService {
                     context: context,
                     identityMatches: identityMatches
                 ),
-                for: identity
+                for: identity,
+                allowingAnonymous: context.source == .onboardingPaywall
             )
         case .notFound:
             track(
@@ -321,7 +323,8 @@ final class AppAccessRestoreService {
                     context: context,
                     identityMatches: identityMatches
                 ),
-                for: identity
+                for: identity,
+                allowingAnonymous: context.source == .onboardingPaywall
             )
         case .failed(let error):
             let errorType = explicitErrorType ?? Self.analyticsErrorType(for: error)
@@ -332,17 +335,25 @@ final class AppAccessRestoreService {
                     context: context,
                     identityMatches: identityMatches
                 ),
-                for: identity
+                for: identity,
+                allowingAnonymous: context.source == .onboardingPaywall
             )
         }
     }
 
+    /// - Parameter allowingAnonymous: Set only for the pre-sign-in paywall's restore, whose identity
+    ///   is the anonymous customer's. It is reported on the device's own analytics identity, which
+    ///   sign-in merges, the same way an anonymous purchase is.
     private func track(
         _ event: PaywallAnalyticsEvent,
-        for identity: MonetizationIdentityTransition?
+        for identity: MonetizationIdentityTransition?,
+        allowingAnonymous: Bool = false
     ) {
-        guard let userID = identity?.userID else { return }
-        telemetry.track(event, ifIdentifiedAs: userID)
+        if let userID = identity?.userID {
+            telemetry.track(event, ifIdentifiedAs: userID)
+        } else if allowingAnonymous, identity != nil {
+            telemetry.track(event)
+        }
     }
 
     private static func analyticsErrorType(for error: any Error) -> RevenueCatAnalyticsErrorType {

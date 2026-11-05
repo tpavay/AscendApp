@@ -28,6 +28,9 @@ struct OnboardingExitGiftScreen: View {
         }
         .background(Color.black.ignoresSafeArea())
         .task { await start() }
+        .onChange(of: model.holdsAccess) { _, holdsAccess in
+            if holdsAccess { advanceFromHere() }
+        }
         .trackOnce(screen: .onboardingExitGift)
     }
 
@@ -64,13 +67,44 @@ struct OnboardingExitGiftScreen: View {
 
         return GeometryReader { proxy in
             ScrollView {
-                VStack(spacing: 0) {
+                // One box for both states, so its lid and body animate when `isOpen` changes
+                // instead of being replaced by a second view that starts out gone.
+                ZStack(alignment: .top) {
+                    if !isOpen {
+                        closedHeader
+                            .padding(.top, 70)
+                    }
+
+                    giftBox
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .offset(y: isOpen ? 0 : 20)
+
+                    if !isOpen {
+                        Text("Tap to open")
+                            .paywallText(.bold, size: 15, relativeTo: .subheadline)
+                            .foregroundStyle(Color(hex: "BDBDBD"))
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                            .padding(.bottom, 40)
+                            .onboardingEntrance(index: 3)
+                    }
+
                     if isOpen {
-                        openState(offer: offer, copy: copy)
-                    } else {
-                        closedState
+                        VStack(spacing: 0) {
+                            WelcomeGiftVoucher(offer: offer, copy: copy)
+                                .modifier(VoucherRise(reduceMotion: reduceMotion))
+                                .padding(.horizontal, 26)
+                                .padding(.top, 44)
+
+                            Spacer(minLength: 16)
+
+                            if showsFooter {
+                                footer(copy: copy)
+                                    .transition(.opacity.combined(with: .offset(y: reduceMotion ? 0 : 14)))
+                            }
+                        }
                     }
                 }
+                .padding(.horizontal, isOpen ? 0 : 24)
                 .frame(maxWidth: .infinity, minHeight: proxy.size.height)
             }
             .scrollBounceBehavior(.basedOnSize)
@@ -79,68 +113,36 @@ struct OnboardingExitGiftScreen: View {
         .animation(reduceMotion ? .easeInOut(duration: 0.3) : nil, value: isOpen)
     }
 
-    private var closedState: some View {
-        VStack(spacing: 28) {
-            VStack(spacing: 10) {
-                Text("Before you go")
-                    .onboardingKicker()
-                    .onboardingEntrance(index: 0)
+    private var closedHeader: some View {
+        VStack(spacing: 10) {
+            Text("Before you go")
+                .onboardingKicker()
+                .onboardingEntrance(index: 0)
 
-                Text("Open your\nwelcome gift.")
-                    .paywallText(.black, size: 36, tracking: -0.02, relativeTo: .largeTitle)
-                    .textCase(.uppercase)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-                    .minimumScaleFactor(0.5)
-                    .accessibilityAddTraits(.isHeader)
-                    .onboardingEntrance(index: 1)
+            Text("Open your\nwelcome gift.")
+                .paywallText(.black, size: 36, tracking: -0.02, relativeTo: .largeTitle)
+                .textCase(.uppercase)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+                .minimumScaleFactor(0.5)
+                .accessibilityAddTraits(.isHeader)
+                .onboardingEntrance(index: 1)
 
-                Text("A better price, just for you.")
-                    .onboardingSecondary()
-                    .onboardingEntrance(index: 2)
-            }
-            .padding(.top, 70)
-
-            Spacer(minLength: 10)
-
-            Button(action: open) {
-                WelcomeGiftBox(isOpen: false)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open your gift")
-
-            Text("Tap to open")
-                .paywallText(.bold, size: 15, relativeTo: .subheadline)
-                .foregroundStyle(Color(hex: "BDBDBD"))
-                .onboardingEntrance(index: 3)
-
-            Spacer(minLength: 40)
+            Text("A better price, just for you.")
+                .onboardingSecondary()
+                .onboardingEntrance(index: 2)
         }
-        .padding(.horizontal, 24)
-        .frame(maxWidth: .infinity)
     }
 
-    private func openState(offer: WelcomeGiftOffer, copy: WelcomeGiftCopy) -> some View {
-        VStack(spacing: 0) {
-            ZStack {
-                WelcomeGiftBox(isOpen: true)
-                    .offset(y: 110)
-
-                WelcomeGiftVoucher(offer: offer, copy: copy)
-                    .modifier(VoucherRise(reduceMotion: reduceMotion))
-            }
-            .padding(.horizontal, 26)
-            .padding(.top, 44)
-
-            Spacer(minLength: 16)
-
-            if showsFooter {
-                footer(copy: copy)
-                    .transition(.opacity.combined(with: .offset(y: reduceMotion ? 0 : 14)))
-            }
+    private var giftBox: some View {
+        Button(action: open) {
+            WelcomeGiftBox(isOpen: isOpen)
+                .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
+        .disabled(isOpen)
+        .accessibilityLabel("Open your gift")
+        .accessibilityHidden(isOpen)
     }
 
     private func footer(copy: WelcomeGiftCopy) -> some View {
@@ -181,6 +183,16 @@ struct OnboardingExitGiftScreen: View {
                         .accessibilityAddTraits(.updatesFrequently)
                 }
 
+                // The gift sells an auto-renewing subscription, so its terms are one tap away here
+                // as they are on the paywall.
+                HStack(spacing: 18) {
+                    Link("Terms", destination: URL(string: "https://ascendstepper.com/terms")!)
+                    Link("Privacy", destination: URL(string: "https://ascendstepper.com/privacy")!)
+                }
+                .paywallText(.semiBold, size: 12, relativeTo: .caption)
+                .foregroundStyle(Color(hex: "8E8E8E"))
+                .frame(minHeight: 36)
+
                 Button("No thanks") { coordinator.go(to: .paywall) }
                     .buttonStyle(.plain)
                     .paywallText(.bold, size: 13, relativeTo: .footnote)
@@ -197,12 +209,9 @@ struct OnboardingExitGiftScreen: View {
 
     private func start() async {
         guard RemoteFeatureFlagStore.shared.isEnabled(.preAuthPaywall) else {
-            coordinator.advance()
+            advanceFromHere()
             return
         }
-
-        // The plans may not be loaded when a relaunch resumes straight on this screen.
-        if model.loadState == .loading { await model.load() }
 
         let hasSeenGift = coordinator.answers.welcomeGiftFirstShownAt != nil
         if !hasSeenGift {
@@ -229,12 +238,19 @@ struct OnboardingExitGiftScreen: View {
         }
     }
 
+    /// Moves on only while this screen is still the one showing, so a purchase that completes and an
+    /// entitlement that arrives a moment later cannot advance the flow twice.
+    private func advanceFromHere() {
+        guard coordinator.step == .exitGift else { return }
+        coordinator.advance()
+    }
+
     private func claim() async {
         switch await model.claimGift() {
         case .purchased(let startedTrial):
             HapticsManager.shared.trigger(.success)
             coordinator.update { $0.trialStarted = startedTrial }
-            coordinator.advance()
+            advanceFromHere()
         case .cancelled, .notCompleted:
             break
         }

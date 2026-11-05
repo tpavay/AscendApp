@@ -128,7 +128,6 @@ struct ReturningSubscriberJourneyTranscriptTests {
         case .signedOut: "signedOut (welcome screen, with Already have an account? Sign in)"
         case .signedOutHold: "signedOutHold (wordmark, until the launch decides the signed-out route)"
         case .preAuthOnboarding: "preAuthOnboarding (v3 flow, signed out)"
-        case .preAuthPaywall: "preAuthPaywall (v3 flow resumed on the paywall, signed out)"
         case .signingIn: "signingIn"
         case .restoringSession: "restoringSession"
         case .resolving: "resolving (neutral Checking your access surface)"

@@ -91,7 +91,7 @@ struct OnboardingPaywallEvidenceTests {
             for line in [
                 "never climb a boring minute again", "someone to chase", "yearly",
                 "$29.99 billed once a year", "$2.49", "per month", "lifetime", "$49.99 once",
-                "start climbing", "cancel anytime", "restore", "terms", "privacy", "close"
+                "start climbing", "cancel anytime", "restore", "terms", "privacy", "close", "already climbing? sign in"
             ] {
                 #expect(copy.contains(line), "missing \(line): \(copy)")
             }
@@ -156,7 +156,7 @@ struct OnboardingPaywallEvidenceTests {
     @Test
     func theOpenGiftNamesTheTrialOnlyWhenTheAppleIDCanStillTakeIt() async throws {
         for (eligible, expected, forbidden) in [
-            (true, ["welcome offer", "$9.99", "$29.99", "plus 7 days free", "your first week", "on us", "then $9.99 a year, locked in", "claim my gift", "$0 today, then $9.99/year. cancel anytime", "no thanks", "66% off"], ["won't show up again", "ends in"]),
+            (true, ["welcome offer", "$9.99", "$29.99", "plus 7 days free", "your first week", "on us", "then $9.99 a year, locked in", "claim my gift", "free today, then $9.99/year. cancel anytime", "no thanks", "66% off", "terms", "privacy"], ["won't show up again", "ends in"]),
             (false, ["welcome offer", "$9.99 a year", "locked in", "that's 66% off, every year you climb", "claim my gift", "$9.99 today, then every year. cancel anytime", "no thanks"], ["free", "first week", "on us", "won't show up again", "ends in"])
         ] {
             let fixture = await fixture(startingAt: .exitGift, trialEligible: eligible, giftAlreadySeen: true)

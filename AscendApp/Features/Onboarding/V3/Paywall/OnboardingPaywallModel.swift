@@ -56,7 +56,9 @@ final class OnboardingPaywallModel {
     private(set) var yearly: NativePaywallPlan?
     private(set) var lifetime: NativePaywallPlan?
     private(set) var welcome: NativePaywallPlan?
-    private(set) var holdsAccess = false
+    /// A purchase or restore this model completed. The entitlement itself is read live, so a grant
+    /// that arrives later - an Ask to Buy approval, a purchase still confirming - is seen too.
+    private(set) var completedPurchase = false
     var selectedPlanID: String?
 
     @ObservationIgnored private let provider: any PreAuthPaywallPlanProviding
@@ -93,6 +95,15 @@ final class OnboardingPaywallModel {
 
     var isBusy: Bool { activity != .idle }
 
+    /// Whether this install already holds the entitlement: a purchase made before a relaunch, one
+    /// confirmed late, or one restored. Reads RevenueCat's state each time, so the screens can react
+    /// to it arriving while they are up.
+    var holdsAccess: Bool {
+        completedPurchase || monetization.entitlementState.hasActiveEntitlement(
+            configuration.revenueCatEntitlementID
+        )
+    }
+
     /// The gift, when the store has published its product. Without it there is nothing behind the
     /// paywall's close button, so the button is not drawn.
     var giftOffer: WelcomeGiftOffer? {
@@ -103,7 +114,7 @@ final class OnboardingPaywallModel {
     // MARK: - Loading
 
     func load() async {
-        refreshAccess()
+        completedPurchase = false
         loadState = .loading
         notice = nil
 
@@ -125,14 +136,6 @@ final class OnboardingPaywallModel {
             loadState = .ready
             if selectedPlan == nil || selectedPlanID == nil { selectedPlanID = yearly?.id }
         }
-    }
-
-    /// Reads whether this install already holds the entitlement - a purchase made before a
-    /// relaunch, or one restored - so the paywall steps aside instead of selling twice.
-    func refreshAccess() {
-        holdsAccess = monetization.entitlementState.hasActiveEntitlement(
-            configuration.revenueCatEntitlementID
-        )
     }
 
     // MARK: - Purchase
@@ -185,7 +188,7 @@ final class OnboardingPaywallModel {
                     startedTrial: startedTrial
                 )
             )
-            holdsAccess = true
+            completedPurchase = true
             return .purchased(startedTrial: startedTrial)
         case .cancelled:
             return .cancelled
@@ -228,7 +231,7 @@ final class OnboardingPaywallModel {
                     startedTrial: false
                 )
             )
-            holdsAccess = true
+            completedPurchase = true
             return .restored
         case .notFound:
             notice = .nothingToRestore

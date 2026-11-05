@@ -54,7 +54,7 @@ struct WelcomeGiftOfferTests {
         #expect(copy.headlineLead == ["Your first week"])
         #expect(copy.headlineAccent == ["is on us."])
         #expect(copy.subline == "Then $9.99 a year, locked in.")
-        #expect(copy.finePrint == "$0 today, then $9.99/year. Cancel anytime.")
+        #expect(copy.finePrint == "Free today, then $9.99/year. Cancel anytime.")
         #expect(copy.stamp == "66%")
     }
 
@@ -86,13 +86,13 @@ struct WelcomeGiftOfferTests {
     }
 
     @Test
-    func aStorePriceInAnotherCurrencyKeepsItsOwnZero() throws {
+    func aStorePriceInAnotherCurrencyIsQuotedAsTheStoreWritesIt() throws {
         let offer = try #require(WelcomeGiftOffer(
             welcome: plan("w", price: 9.99, label: "9,99 €", trial: NativeSubscriptionPeriod(value: 7, unit: .day)),
             regular: plan("y", price: 29.99, label: "29,99 €")
         ))
 
-        #expect(WelcomeGiftCopy(offer).finePrint == "0 € today, then 9,99 €/year. Cancel anytime.")
+        #expect(WelcomeGiftCopy(offer).finePrint == "Free today, then 9,99 €/year. Cancel anytime.")
     }
 
     @Test
@@ -187,57 +187,6 @@ struct PreAuthPurchaseLedgerTests {
 
         #expect(ledger.resumeStep == nil)
         #expect(ledger.progress() == PreAuthPaywallProgress())
-    }
-}
-
-@Suite
-struct PreAuthPaywallRouteTests {
-    private func route(
-        resumes: Bool,
-        entitlement: MonetizationEntitlementState = .inactive,
-        showsV3: Bool? = true,
-        state: AuthenticationState = .unauthenticated
-    ) -> AppRootRoute {
-        AppRootRouteResolver.resolve(
-            updatePresentation: nil,
-            authenticationState: state,
-            userId: state == .authenticated ? "u1" : nil,
-            postAuthOnboardingPhase: .complete,
-            entitlementState: entitlement,
-            requiredEntitlementID: "app_access",
-            showsPreAuthOnboardingV3: showsV3,
-            resumesAtPreAuthPaywall: resumes
-        )
-    }
-
-    @Test
-    func aSignedOutInstallThatReachedThePaywallResumesOnIt() {
-        #expect(route(resumes: true) == .preAuthPaywall)
-        #expect(route(resumes: true, entitlement: .unknown) == .preAuthPaywall)
-    }
-
-    @Test
-    func aPurchaseMadeAsTheAnonymousCustomerSkipsThePaywall() {
-        #expect(route(resumes: true, entitlement: .active(["app_access"])) == .preAuthOnboarding)
-    }
-
-    @Test
-    func nothingResumesWithoutTheFlowOrTheMarker() {
-        #expect(route(resumes: false) == .preAuthOnboarding)
-        #expect(route(resumes: true, showsV3: false) == .signedOut)
-        #expect(route(resumes: true, showsV3: nil) == .signedOutHold)
-    }
-
-    @Test
-    func aSignedInClimberNeverSeesIt() {
-        #expect(route(resumes: true, state: .authenticated) == .paywall)
-    }
-
-    @Test
-    func theRouteReportsLikeItsSibling() {
-        #expect(AppRootRoute.preAuthPaywall.telemetryScreenName == nil)
-        #expect(AppLifecycleAnalyticsEvent.RootRoute(.preAuthPaywall) == .preAuthPaywall)
-        #expect(AppLifecycleAnalyticsEvent.RootRoute.preAuthPaywall.isResolved)
     }
 }
 
