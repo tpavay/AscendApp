@@ -31,6 +31,10 @@ final class AppleHealthConnectViewModel {
     ) {
         self.authorization = authorization
         self.importService = importService
+        if importService.needsImportChoice {
+            step = .choose
+            foundCount = importService.waitingWorkoutCount
+        }
     }
 
     /// What the choice screen says it found.

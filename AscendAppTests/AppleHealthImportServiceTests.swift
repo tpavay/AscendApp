@@ -648,6 +648,52 @@ struct AppleHealthImportServiceTests {
         #expect(try harness.climbs().count == (choosesAutomatic ? 4 : 0), "after the choice, the choice is what runs")
     }
 
+    @Test(arguments: [false, true])
+    func theChoiceSurvivesTheAppEndingBeforeTheClimberPicks(choosesAutomatic: Bool) async throws {
+        let harness = try AppleHealthImportHarness()
+        harness.addWorkout(daysAgo: 1)
+        harness.addWorkout(daysAgo: 4)
+        let connect = AppleHealthConnectViewModel(authorization: harness.authorization, importService: harness.service)
+        await connect.requestAccess()
+        #expect(connect.step == .choose)
+        #expect(harness.settings.isImportChoicePending(for: "someone-else") == false, "the hold is per climber")
+
+        let relaunched = harness.relaunchedService()
+        #expect(relaunched.needsImportChoice)
+        await relaunched.syncNow()
+        harness.addWorkout(daysAgo: 0.02)
+        await relaunched.syncNow()
+        #expect(try harness.climbs().isEmpty, "a relaunch does not pick for the climber")
+        #expect(try harness.records().count == 3)
+
+        let resumed = AppleHealthConnectViewModel(authorization: harness.authorization, importService: relaunched)
+        #expect(resumed.step == .choose, "the choice screen comes back")
+        #expect(resumed.foundCount == 3)
+
+        resumed.choosesAutomatic = choosesAutomatic
+        await resumed.confirmChoice()
+        #expect(!relaunched.needsImportChoice)
+        #expect(try harness.climbs().count == (choosesAutomatic ? 3 : 0))
+
+        let afterTheChoice = harness.relaunchedService()
+        #expect(!afterTheChoice.needsImportChoice, "picked once is picked for good")
+        harness.addWorkout(daysAgo: 0.01)
+        await afterTheChoice.syncNow()
+        #expect(try harness.climbs().count == (choosesAutomatic ? 4 : 0))
+        let fresh = AppleHealthConnectViewModel(authorization: harness.authorization, importService: afterTheChoice)
+        #expect(fresh.step == .connect)
+    }
+
+    @Test
+    func aPendingChoiceDoesNotDemandAnAnswerWhileImportIsNotOnOffer() async throws {
+        let harness = try AppleHealthImportHarness()
+        await harness.service.discoverWithoutImporting()
+        #expect(harness.service.needsImportChoice)
+
+        harness.authorization.importConnectionState = .revoked
+        #expect(!harness.service.needsImportChoice, "reconnecting comes first, and it returns to the choice")
+    }
+
     @Test
     func autoImportDefaultsOnAndIsPerClimber() throws {
         let harness = try AppleHealthImportHarness()

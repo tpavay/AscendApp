@@ -134,6 +134,16 @@ final class AppleHealthImportHarness {
     let defaults: UserDefaults
     let settings: AppleHealthImportSettings
     let service: AppleHealthImportService
+    private let makeService: @MainActor () -> AppleHealthImportService
+
+    /// A new process on the same device: everything in memory is gone, and the settings and the
+    /// store are what they were.
+    func relaunchedService() -> AppleHealthImportService {
+        let relaunched = makeService()
+        relaunched.configure(modelContext: context)
+        relaunched.confirmCloudClimbsRestored(for: Self.userID)
+        return relaunched
+    }
 
     /// The moment "now" is, and the join date a month before it. Fixed by default so a test's dates
     /// never depend on the day it runs; a hosted screen that words its rows against the real clock
@@ -164,21 +174,26 @@ final class AppleHealthImportHarness {
         settings = AppleHealthImportSettings(defaults: defaults)
 
         let holder = HarnessState()
-        service = AppleHealthImportService(
-            reader: reader,
-            authorization: authorization,
-            settings: settings,
-            notifier: notifier,
-            remover: remover,
-            featureFlags: featureFlags,
-            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
-            currentUserID: { holder.userID },
-            joinDate: { referenceNow.addingTimeInterval(-30 * 24 * 3600) },
-            applyCreated: { _, workouts in holder.created.append(workouts) },
-            isUpdateRequired: { holder.isUpdateRequired },
-            now: { holder.clock },
-            observerCompletionBound: observerCompletionBound
-        )
+        let (reader, authorization, settings, notifier, remover) = (reader, authorization, settings, notifier, remover)
+        let makeService: @MainActor () -> AppleHealthImportService = {
+            AppleHealthImportService(
+                reader: reader,
+                authorization: authorization,
+                settings: settings,
+                notifier: notifier,
+                remover: remover,
+                featureFlags: featureFlags,
+                sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+                currentUserID: { holder.userID },
+                joinDate: { referenceNow.addingTimeInterval(-30 * 24 * 3600) },
+                applyCreated: { _, workouts in holder.created.append(workouts) },
+                isUpdateRequired: { holder.isUpdateRequired },
+                now: { holder.clock },
+                observerCompletionBound: observerCompletionBound
+            )
+        }
+        self.makeService = makeService
+        service = makeService()
         holder.userID = Self.userID
         holder.clock = referenceNow
         state = holder

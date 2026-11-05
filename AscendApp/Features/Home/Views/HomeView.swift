@@ -296,6 +296,9 @@ struct HomeView: View {
                 onClose: { showingHealthConnectFlow = false }
             )
         }
+        .onChange(of: importService.needsImportChoice, initial: true) { _, needsChoice in
+            if needsChoice { showingHealthConnectFlow = true }
+        }
         .navigationDestination(isPresented: $showingImports) {
             AppleHealthImportsView()
         }

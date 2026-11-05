@@ -1,6 +1,6 @@
 import Foundation
 
-/// The four small facts Apple Health import keeps between launches.
+/// The small facts Apple Health import keeps between launches.
 ///
 /// Keyed by the signed-in climber's uid, because each one is a statement about that climber's
 /// ledger: an anchor from another account's store would skip workouts this account has never met,
@@ -24,6 +24,17 @@ struct AppleHealthImportSettings {
 
     func setAutoImportEnabled(_ isEnabled: Bool, for userID: String) {
         defaults.set(isEnabled, forKey: key("autoImport", userID))
+    }
+
+    /// Whether the Connect flow has looked at Health and the climber has not yet picked how workouts
+    /// import. Durable because the app can end on that screen, and a relaunch reading the default
+    /// of auto-import on would make the choice for them.
+    func isImportChoicePending(for userID: String) -> Bool {
+        defaults.bool(forKey: key("importChoicePending", userID))
+    }
+
+    func setImportChoicePending(_ isPending: Bool, for userID: String) {
+        defaults.set(isPending, forKey: key("importChoicePending", userID))
     }
 
     /// When Imports was last opened. The badge counts only workouts that started after it.

@@ -188,7 +188,6 @@ struct MainTabView: View {
         .sheet(item: $healthImport.quickEditRequest) { request in
             if let climb = try? HealthWorkoutLedger(modelContext: modelContext).climb(withID: request.workoutID) {
                 ImportedClimbQuickEditSheet(workout: climb, importService: healthImport)
-                    .appSheetStyle(.fitted())
             } else {
                 // The climb was removed or never reached this store. Nothing to edit.
                 Color.black.onAppear { healthImport.quickEditRequest = nil }

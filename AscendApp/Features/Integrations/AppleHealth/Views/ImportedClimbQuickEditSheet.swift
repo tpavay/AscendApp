@@ -123,6 +123,7 @@ struct ImportedClimbQuickEditSheet: View {
             }
         }
         .trackOnce(screen: .importedClimbQuickEdit)
+        .appSheetStyle(.fitted(), isInteractiveDismissDisabled: viewModel.isSaving || isRemoving)
     }
 
     // MARK: - Pieces

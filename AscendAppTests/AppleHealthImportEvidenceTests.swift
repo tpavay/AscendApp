@@ -201,6 +201,23 @@ struct AppleHealthImportEvidenceTests {
         }
     }
 
+    @Test("The connect flow opens on the choice when the app ended there before the climber picked")
+    func theFlowReopensOnThePendingChoice() async throws {
+        let harness = try AppleHealthImportHarness(referenceNow: Date())
+        harness.addWorkout(daysAgo: 1, steps: 4_912, minutes: 62.83)
+        harness.addWorkout(daysAgo: 2, steps: 3_207, minutes: 41.2)
+        await harness.service.discoverWithoutImporting()
+        let relaunched = harness.relaunchedService()
+
+        try await RenderedScreen.host(
+            AppleHealthConnectFlowView(importService: relaunched, onFinished: {}, onClose: {})
+                .modelContainer(harness.container)
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("we found 2") }
+            #expect(copy.contains("we found 2 stair stepper workouts"), "\(copy)")
+        }
+    }
+
     // MARK: - Connect
 
     @Test("The connect screens read as the mocks do")

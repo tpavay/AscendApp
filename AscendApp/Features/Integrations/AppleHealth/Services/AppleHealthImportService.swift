@@ -70,6 +70,9 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     // MARK: Observable state
 
     private(set) var isAutoImportEnabled = true
+    /// From the Connect flow's look at Health until the climber picks how workouts import. Passes
+    /// only file workouts meanwhile, or Let me choose would have nothing left to choose.
+    private(set) var isImportChoicePending = false
     /// The red count on the + button and the Climb sheet's Health button. Zero with auto-import on.
     private(set) var badgeCount = 0
     private(set) var homeNotice: HomeNotice?
@@ -99,9 +102,6 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     /// Imports the climber asked for, which run outside a pass and must be drained like one.
     @ObservationIgnored private var requestedImports: [UUID: Task<ImportBatch, Never>] = [:]
     @ObservationIgnored private var rerunRequested = false
-    /// From the Connect flow's look at Health until the climber picks how workouts import. Passes
-    /// only file workouts meanwhile, or Let me choose would have nothing left to choose.
-    @ObservationIgnored private var isAwaitingImportChoice = false
     @ObservationIgnored private var isObserving = false
     /// The climber whose climbs the authenticated bootstrap has restored from the cloud in this
     /// session, behind the account-ownership gate. Only then may a pass with no anchor run.
@@ -178,7 +178,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         passTask?.cancel()
         requestedImports.values.forEach { $0.cancel() }
         rerunRequested = false
-        isAwaitingImportChoice = false
+        isImportChoicePending = false
         stopObserving()
         homeNotice = nil
         badgeCount = 0
@@ -236,6 +236,11 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         }
     }
 
+    /// Whether the choice screen has to come back: the app ended on it before the climber picked.
+    var needsImportChoice: Bool {
+        isImportChoicePending && offeredImportConnectionState == .connected
+    }
+
     /// Whether import can read workouts, or nil when import is not on offer at all: a device with
     /// no Health, or the kill switch off.
     var offeredImportConnectionState: AppleHealthConnectionState? {
@@ -246,8 +251,9 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     // MARK: - Settings
 
     func setAutoImportEnabled(_ isEnabled: Bool) async {
-        isAwaitingImportChoice = false
         guard let userID = currentUserID() else { return }
+        settings.setImportChoicePending(false, for: userID)
+        isImportChoicePending = false
         settings.setAutoImportEnabled(isEnabled, for: userID)
         isAutoImportEnabled = isEnabled
         if isEnabled {
@@ -294,7 +300,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             defer { self.passTask = nil }
             repeat {
                 self.rerunRequested = false
-                await self.runPass(importsAutomatically: self.isAutoImportEnabled && !self.isAwaitingImportChoice)
+                await self.runPass(importsAutomatically: self.importsAutomatically)
             } while self.rerunRequested && !Task.isCancelled
         }
         passTask = task
@@ -306,7 +312,10 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     /// Health holds and imports nothing, so the choice screen can say what it found.
     @discardableResult
     func discoverWithoutImporting() async -> Int {
-        isAwaitingImportChoice = true
+        if let userID = currentUserID() {
+            settings.setImportChoicePending(true, for: userID)
+            isImportChoicePending = true
+        }
         guard canImport else { return 0 }
         startObservingIfPossible()
         while let passTask { await passTask.value }
@@ -318,7 +327,16 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         }
         passTask = task
         await task.value
-        return (try? ledger()?.notImportedCount()) ?? 0
+        return waitingWorkoutCount
+    }
+
+    var waitingWorkoutCount: Int {
+        (try? ledger()?.notImportedCount()) ?? 0
+    }
+
+    private var importsAutomatically: Bool {
+        guard let userID = currentUserID() else { return false }
+        return isAutoImportEnabled && !settings.isImportChoicePending(for: userID)
     }
 
     private func runPass(importsAutomatically: Bool) async {
@@ -685,9 +703,11 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     private func reloadSettings() {
         guard let userID = currentUserID() else {
             isAutoImportEnabled = true
+            isImportChoicePending = false
             return
         }
         isAutoImportEnabled = settings.isAutoImportEnabled(for: userID)
+        isImportChoicePending = settings.isImportChoicePending(for: userID)
     }
 
     private func ledger() -> HealthWorkoutLedger? {
