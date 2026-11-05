@@ -1,3 +1,4 @@
+import FirebaseAuth
 import Foundation
 import SwiftUI
 import Testing
@@ -262,6 +263,8 @@ struct OnboardingV3SetupEvidenceTests {
         DateComponents(year: 2027, month: 6, day: 10, hour: 12)
     ])
     func theHeroIsAPhotographBeforeSignIn(on day: DateComponents) async throws {
+        try Auth.auth().signOut()
+        #expect(Auth.auth().currentUser == nil)
         let catalogue = try HostedClimbCatalogRepository().loadInitialCatalog()
         let landmark = try #require(catalogue.availableClimbs.first)
         let coordinator = coordinator(at: .thisMonthEvent)
@@ -296,10 +299,26 @@ struct OnboardingV3SetupEvidenceTests {
                 let orange = try screen.withPixels { pixels in
                     pixels.count(in: photoRegion) { $0.red > 90 && Int($0.red) > Int($0.green) + 30 && Int($0.green) > Int($0.blue) + 10 }
                 }
-                #expect(orange > 500, "only \(orange) photo pixels in the art")
+                #expect(orange > 10_000, "only \(orange) photo pixels in the art")
                 try screen.photograph(named: "onboarding-v3-this-month-hero-\(day.year ?? 0)-\(Int(phone.height))")
             }
         }
+    }
+
+    /// The art is always in the app, so the choice cannot depend on a session or the network: a
+    /// haunted event draws its own, and every other version draws the screen's photograph.
+    @Test(arguments: [
+        (DateComponents(year: 2026, month: 10, day: 15, hour: 12), "Seasonal/HauntedStairwell"),
+        (DateComponents(year: 2026, month: 11, day: 4, hour: 12), "OnboardingEventHero"),
+        (DateComponents(year: 2027, month: 6, day: 10, hour: 12), "OnboardingEventHero")
+    ])
+    func theHeroArtShipsInTheApp(on day: DateComponents, expected: String) throws {
+        let now = try #require(Calendar.current.date(from: day))
+        let name = OnboardingMonthlyEvent
+            .resolve(catalog: HostedUnlockCatalogRepository.bundledCatalog(), now: now)
+            .heroImageName
+        #expect(name == expected)
+        #expect(UIImage(named: name) != nil)
     }
 
     // MARK: - Home

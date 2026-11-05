@@ -39,6 +39,14 @@ enum OnboardingMonthlyEvent: Equatable {
         let startsOn: Date
     }
 
+    /// The bundled art behind the screen: a themed event's own, else the screen's photograph.
+    var heroImageName: String {
+        if case .running(let running) = self, running.event.theme?.style == .haunted {
+            return "Seasonal/HauntedStairwell"
+        }
+        return "OnboardingEventHero"
+    }
+
     /// The version for `now`.
     static func resolve(
         catalog: UnlockCatalog,

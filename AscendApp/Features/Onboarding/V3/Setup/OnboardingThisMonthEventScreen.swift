@@ -72,13 +72,12 @@ struct OnboardingThisMonthEventScreen: View {
 
     // MARK: - Art
 
-    /// The event's themed art when it has one, else a landmark photograph. Both ship in the app:
-    /// this screen runs before sign-in and Storage refuses `climb-images/` to a signed-out caller,
-    /// so `ClimbArtworkView` can only ever draw its placeholder here. It zooms from 1.15 to 1 over
-    /// four seconds and fades into black behind the copy.
+    /// Bundled art only: this screen runs before sign-in and Storage refuses `climb-images/` to a
+    /// signed-out caller, so `ClimbArtworkView` can only ever draw its placeholder here. It zooms
+    /// from 1.15 to 1 over four seconds and fades into black behind the copy.
     private func art(height: CGFloat, copyOverlapsArt: Bool) -> some View {
         Color.clear.overlay {
-            Image(isHaunted ? "Seasonal/HauntedStairwell" : "OnboardingLandmarkEmpireCard")
+            Image(presentation.heroImageName)
                 .resizable()
                 .scaledToFill()
         }
@@ -105,11 +104,6 @@ struct OnboardingThisMonthEventScreen: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(edges: .top)
         .accessibilityHidden(true)
-    }
-
-    private var isHaunted: Bool {
-        guard case .running(let running) = presentation else { return false }
-        return running.event.theme?.style == .haunted
     }
 
     // MARK: - Copy
