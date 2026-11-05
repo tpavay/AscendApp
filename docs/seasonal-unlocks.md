@@ -52,6 +52,7 @@ That first open recounts before the event intro shows, and the intro says what t
 An event may also carry a `theme`, how it dresses the mountain, and a `showcase`, the ids of the three items its Home card shows (its first three items when absent).
 
 Without a build, the file can move an event's dates, change a threshold, or switch a shipped item live ("ship dark, drop live").
+With `gear_drop_push_enabled` on, an event reaching its first day is also a push to every opted-in device, announced once for good (`docs/climb-drop-notifications.md`, Gear drops).
 Setting an item `retired` stops new earning only: the event page, the intro and the finish card drop it, while Your Athlete keeps it, earned and wearable, for every climber who already earned it (`UnlockCatalog.gearItems`).
 A retired item may carry a `retiredOn` day: a new phone earns it back from the climbs before that day and never from a climb on or after it (`UnlockCatalog.retiredItems`).
 A retired item with no `retiredOn` is never re-derived, so only the device that remembered it keeps it.

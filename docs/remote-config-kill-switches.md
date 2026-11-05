@@ -30,6 +30,8 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `attempt_heartbeats_enabled` | Writing the sixty-second liveness heartbeat `users/{uid}/attempt_heartbeats/{sessionID}` during a headphone session, and the write that closes it (`docs/headphone-session-recovery.md`) | Nothing - a heartbeat is a report about now, so a blocked one is simply not sent; the climb itself is untouched and the server's stall detector sees no heartbeat for that session |
 | `headphone_session_auto_resume_enabled` | Resuming a dead headphone session automatically on relaunch: the wall-clock gap credit written into the draft and the sensor restart without a prompt | Every recovered draft goes through the recovery screen instead, exactly as the dead process wrote it, until the climber acts; turning the switch back on resumes the next draft automatically |
 | `climb_logging_enabled` | Logging a climb by hand: the Log it entry on the Start sheet and the save behind it, plus re-deriving a climb's leaderboard status from its pace when it is restored from the cloud or its steps or time are edited | Nothing is dropped: climbs already logged stay, and every stored leaderboard status is left as it is. The server derives standings from the workout's own evidence either way, so the boards are unaffected |
+| `weekly_target_reminder_enabled` | Scheduling the local weekly-target nudge (`LocalReminderScheduler.reconcileWeeklyTarget`), and clears the pending one | Nothing is dropped: the climber's target and climbs are untouched, and the next reconcile after the switch returns - a launch, a foreground, a saved climb - schedules the nudge again |
+| `trial_ending_reminder_enabled` | Scheduling the local reminder two days before a free trial ends (`LocalReminderScheduler.reconcileTrialEnding`), and clears the pending one | The trial itself is untouched; a trial that has not yet reached its day 5 gets the reminder on the next reconcile after the switch returns |
 
 The invariant across all of them: **a blocked path defers its work, it never drops it.**
 Two exceptions have nothing to defer: `step_accuracy_raw_capture_upload_enabled`, whose capture lives only in memory until the calibration sheet decides its fate, and `attempt_heartbeats_enabled`, whose heartbeat is a statement about this minute; what a blocked climb loses in either case is diagnostic data only.
@@ -56,6 +58,14 @@ A rollout gates a feature that is not live until an operator turns it on, so it 
 | Parameter | Turning it on starts | Off keeps |
 |---|---|---|
 | `onboarding_v3_enabled` | The 1.3.0 pre-sign-in onboarding for signed-out climbers: selling screens, setup questions and the paywall before sign-in | The onboarding that shipped before it, whole. The flow writes nothing to Firestore; the answers it collects stay on the device until a later switch-gated step sends them |
+| `gear_drop_push_enabled` | The server push that announces a new gear event (`functions/src/gearDropPush.ts`). Read by the Cloud Function from the Remote Config template, never by the app | Silence: no dispatch is created and nothing is sent. The event stays unannounced, so the first sweep after the switch is turned on sends it if it is still inside its three-day window; a function that cannot read the switch, or finds it absent, sends nothing |
+
+**Decision for the captain before turning `gear_drop_push_enabled` on.**
+Climbers who are opted in today agreed to alerts about new climbs only (the onboarding says "Get an Ascend alert when new climbs open", the Collection says "Be the first to know when new climbs drop", and the Settings toggle is "New climb drops").
+The gear push reuses that one preference, so turning it on sends a gear announcement to every one of them, including those on 1.2.x, and the only way to stop it is the toggle that also ends climb alerts.
+App Store guideline 4.5.4 requires an explicit opt-in for promotional pushes.
+The choices are to accept the reuse, to send gear only to climbers who opt in from now on, or to give gear its own preference with the Settings label changed to match, which is new durable state.
+Until that is decided the switch stays off.
 
 A flip of `onboarding_v3_enabled` takes effect on the next launch, never on a running one, so a climber is never swapped between flows mid-screen.
 `OnboardingV3RouteLatch` decides once per launch.

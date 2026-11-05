@@ -24,7 +24,9 @@ struct RemoteFeatureFlagResolutionTests {
     func theOnboardingRolloutShipsOffAndIsNotReportedAsADisabledSwitch() {
         let snapshot = RemoteFeatureFlagSnapshot.shippedDefaults
 
-        #expect(RemoteFeatureFlag.allCases.filter(\.isRollout) == [.onboardingV3])
+        #expect(RemoteFeatureFlag.allCases.filter(\.isRollout) == [.onboardingV3, .gearDropPush])
+        #expect(snapshot.isEnabled(.gearDropPush) == false)
+        #expect(snapshot.source(of: .gearDropPush) == .shippedDefault)
         #expect(snapshot.isEnabled(.onboardingV3) == false)
         #expect(snapshot.source(of: .onboardingV3) == .shippedDefault)
         #expect(snapshot.disabledFlagKeys.isEmpty)

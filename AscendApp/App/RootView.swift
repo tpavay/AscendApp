@@ -95,6 +95,7 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
             enrichmentService.configure(modelContext: modelContext)
+            LocalReminderCoordinator.shared.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             scheduleAuthenticatedSessionWork()
         }
@@ -141,7 +142,10 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
         }
-        .onChange(of: authVM.user?.uid) { _, _ in
+        .onChange(of: authVM.user?.uid) { previousUid, currentUid in
+            if previousUid != nil, currentUid == nil {
+                LocalReminderCoordinator.shared.sessionEnded()
+            }
             // The sheet belongs to the session that opened it, or it re-presents itself unprompted
             // over the next climber's gate. But deletion ends the session at the auth step, several
             // steps before the local sweep finishes, so the clear waits for the dialog to say it is

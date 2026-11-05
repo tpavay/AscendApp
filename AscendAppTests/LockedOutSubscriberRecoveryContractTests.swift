@@ -164,11 +164,14 @@ struct LockedOutSubscriberRecoveryContractTests {
         // clear UserDefaults, the image cache and the pending uploads. Clearing the flag on the
         // session change tore the dialog down inside that window, so a failing sweep raised its
         // alert on a sheet nobody could see - a silent leftover in an irreversible flow.
-        let sessionChange = try #require(
-            root
-                .range(of: ".onChange(of: authVM.user?.uid)")
-                .map { String(root[$0.lowerBound...].prefix(600)) }
-        )
+        // Read to the next modifier, not a character count: the handler is where anything else
+        // that must follow a session change lands, and that must not read as losing the deferral.
+        let sessionChangeStart = try #require(
+            root.range(of: ".onChange(of: authVM.user?.uid)")
+        ).upperBound
+        let afterSessionChange = root[sessionChangeStart...]
+        let nextModifier = try #require(afterSessionChange.range(of: ".onChange(of:")).lowerBound
+        let sessionChange = String(afterSessionChange[..<nextModifier])
         #expect(!sessionChange.contains("isShowingGateAccountDeletion = false"))
         #expect(sessionChange.contains("dismissGateAccountDeletionWhenResolved()"))
 

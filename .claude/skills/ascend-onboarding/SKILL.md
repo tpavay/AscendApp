@@ -53,6 +53,7 @@ With it on, a signed-out climber gets the 1.3.0 flow instead: selling screens, s
   Every shipped string says the same thing - "Get an Ascend alert when new climbs open", "A new landmark opens in the catalog" - and the promise is fairness at the open, not a head start before it.
   Advance notice is not available to promise: the catalogue is a static file with no unlock timestamp, so counting back from an open would take both a catalogue schema change and a client that withholds a published climb.
   `scripts/test/climb-drop-promise-contract.test.mjs` fails any surface or document that reintroduces it.
+- With `onboarding_v3_enabled` on, the primer (screen 12) also promises gear, weekly-target and trial-ending nudges; `docs/climb-drop-notifications.md` owns them.
 
 ## Content discipline
 - Survey and paywall content is product-defined. Engineers should not ship onboarding screens, copy, or content beyond what product has provided mocks for.
