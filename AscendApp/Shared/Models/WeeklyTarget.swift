@@ -4,7 +4,7 @@ import Foundation
 ///
 /// A target is optional and belongs to the climber who set it. Everyone has the week streak
 /// (`WeeklyStreak`, a week with any climb) whether or not they set one; the weekly ring on Home
-/// and the weekly-target reminder exist only for a climber who did.
+/// exists only for a climber who did.
 struct WeeklyTarget: Equatable, Hashable, Codable, Sendable {
     static let validDays = 1...7
 
@@ -47,8 +47,8 @@ struct WeeklyTarget: Equatable, Hashable, Codable, Sendable {
 /// How far through this week's target a climber is: the distinct days they climbed in the app's
 /// Monday week, against the days they chose.
 ///
-/// There is no progress without a target, which is how the ring and the reminder stay away from
-/// a climber who skipped it.
+/// There is no progress without a target, which is how the ring stays away from a climber who
+/// skipped it.
 struct WeeklyTargetProgress: Equatable, Sendable {
     let target: WeeklyTarget
     /// Different calendar days this week with a climb. Two climbs on one Monday are one day.

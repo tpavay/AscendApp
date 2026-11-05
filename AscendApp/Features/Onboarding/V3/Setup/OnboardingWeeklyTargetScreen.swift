@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// 10: how many days a week. Optional: Skip and "No target for now" leave the target unset, and a
-/// climber with no target never gets the weekly ring or the reminder. Nothing is preselected and
-/// the number reads "?" until a bar is tapped.
+/// climber with no target never gets the weekly ring. Nothing is preselected and the number reads
+/// "?" until a bar is tapped.
 struct OnboardingWeeklyTargetScreen: View {
     let coordinator: OnboardingV3Coordinator
 

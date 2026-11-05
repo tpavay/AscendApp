@@ -1,7 +1,6 @@
 import Foundation
 
-/// Where a weekly target is read and changed: Settings, onboarding's hand-off after sign-in, and
-/// Home's ring.
+/// Where a weekly target is read and changed: Settings and Home's ring.
 ///
 /// The device's copy answers instantly and is the one Home reads. The account's copy
 /// (`users/{uid}.weekly_target_days`) carries it to a new phone, and its write sits behind the

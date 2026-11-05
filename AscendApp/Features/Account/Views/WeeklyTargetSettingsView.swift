@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Settings -> Weekly target: set it, change it, or clear it. Clearing removes the ring from Home
-/// and the reminder, and leaves the week streak, which never depended on a target.
+/// and leaves the week streak, which never depended on a target.
 struct WeeklyTargetSettingsView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var selection: WeeklyTarget?

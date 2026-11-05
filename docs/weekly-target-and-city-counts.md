@@ -5,7 +5,8 @@ Two small pieces of the 1.3.0 onboarding that outlive it.
 ## Weekly target
 
 A climber can choose a target of one to seven climbing days a week, on onboarding screen 10 or in Settings -> Weekly target.
-It is optional: skipping leaves it unset, and a climber with no target gets no weekly ring on Home and no weekly-target reminder.
+It is optional: skipping leaves it unset, and a climber with no target gets no weekly ring on Home.
+No weekly-target reminder is built yet, for any climber.
 Everyone has the week streak (`WeeklyStreak`, a week with any climb) whether or not they set a target, and the streak is never computed from it.
 
 - `WeeklyTarget` and `WeeklyTargetProgress` (`Shared/Models/WeeklyTarget.swift`) are the value and the count of distinct climbed days in the Monday week.
@@ -16,7 +17,8 @@ Everyone has the week streak (`WeeklyStreak`, a week with any climb) whether or 
   Off, a change stays on the device marked unsynced, and goes up when the switch returns (`WeeklyTargetService.reconcile`).
 - A new phone adopts the account's target once a launch, unless the device holds a change the account has not seen.
 - One account's reads and writes run one at a time (`WeeklyTargetSyncQueue`), so an older write can never land after a newer one.
-- Onboarding keeps the answer in `PreAuthOnboardingAnswers.weeklyTargetDays`; the hand-off after sign-in writes it through `WeeklyTargetService.save`.
+- Onboarding keeps the answer on the device in `PreAuthOnboardingAnswers.weeklyTargetDays`.
+  No hand-off after sign-in is built yet, so nothing carries that answer to the account or to Home's ring; the hand-off has to write through `WeeklyTargetService.save`.
 
 ## City climber counts
 
