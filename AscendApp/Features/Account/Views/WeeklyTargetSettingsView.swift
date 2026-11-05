@@ -26,7 +26,7 @@ struct WeeklyTargetSettingsView: View {
                     }
                 }
 
-                row(title: "No target", detail: "No ring and no reminder", isSelected: hasLoaded && selection == nil) {
+                row(title: "No target", detail: "No ring", isSelected: hasLoaded && selection == nil) {
                     choose(nil)
                 }
             }
