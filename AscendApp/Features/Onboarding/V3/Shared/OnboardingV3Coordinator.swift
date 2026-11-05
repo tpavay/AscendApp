@@ -44,6 +44,10 @@ final class OnboardingV3Coordinator {
 
     var canGoBack: Bool { !trail.isEmpty }
 
+    /// The screen back would return to. The sign-in screen reads it to tell a climber who walked
+    /// the whole flow from one who tapped "Already climbing? Sign in" on the first screen.
+    var previousStep: OnboardingV3Step? { trail.last }
+
     var analyticsContext: OnboardingAnalyticsContext {
         OnboardingAnalyticsContext(
             segmentID: Self.segmentID,

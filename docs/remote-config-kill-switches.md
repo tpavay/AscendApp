@@ -58,7 +58,8 @@ A rollout gates a feature that is not live until an operator turns it on, so it 
 
 | Parameter | Turning it on starts | Off keeps |
 |---|---|---|
-| `onboarding_v3_enabled` | The 1.3.0 pre-sign-in onboarding for signed-out climbers: selling screens, setup questions and the paywall before sign-in | The onboarding that shipped before it, whole. The flow writes nothing to Firestore; the answers it collects stay on the device until a later switch-gated step sends them |
+| `onboarding_answers_profile_write_enabled` | Writing the birthday, gender, height, weight and city a climber gave before signing in to their profile, right after sign-in (`OnboardingV3SignInHandOff`) | The answers stay on the device exactly as given and are written on the next hand-off once the switch is back on; nothing is dropped. The sign-in, the purchase transfer and post-sign-in onboarding completion do not depend on it |
+| `onboarding_v3_enabled` | The 1.3.0 pre-sign-in onboarding for signed-out climbers: selling screens, setup questions and the paywall before sign-in | The onboarding that shipped before it, whole. The flow writes nothing to Firestore itself; the answers it collects stay on the device until sign-in, and `onboarding_answers_profile_write_enabled` gates the write |
 | `gear_drop_push_enabled` | The server push that announces a new gear event (`functions/src/gearDropPush.ts`). Read by the Cloud Function from the Remote Config template, never by the app | Silence: no dispatch is created and nothing is sent. The event stays unannounced, so the first sweep after the switch is turned on sends it if it is still inside its three-day window; a function that cannot read the switch, or finds it absent, sends nothing |
 
 **Decision for the captain before turning `gear_drop_push_enabled` on.**

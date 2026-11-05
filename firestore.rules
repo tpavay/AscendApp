@@ -1836,6 +1836,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // The signed-out onboarding's weekly board: the top three of this week's
+    // Steps board, rank, public name, public photo and total, no uid. Derived by
+    // refreshPublicWeeklyStepsTopBoard through the Admin SDK, so no client ever
+    // writes it. Readable by anyone, signed in or not, because the climber
+    // reading it is still deciding whether to sign up; that is the whole
+    // reason it is a separate document from the paid-reader leaderboard_stats.
+    match /public_weekly_steps_top/{docId} {
+      allow read: if docId == "current";
+      allow write: if false;
+    }
+
     match /feedback/{feedbackId} {
       allow create: if isSignedIn() &&
         isValidFeedbackDocument() &&

@@ -31,6 +31,9 @@ export {
 } from "./leaderboardStats";
 export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
 export {
+  refreshPublicWeeklyStepsTopBoard,
+} from "./publicWeeklyStepsTop";
+export {
   onPublicIdentityPropagationJobWritten,
   onPublicProfileIdentityWritten,
 } from "./publicIdentityPropagation";
