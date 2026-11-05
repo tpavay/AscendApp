@@ -37,7 +37,7 @@ struct AppleHealthImportSettings {
         defaults.set(isPending, forKey: key("importChoicePending", userID))
     }
 
-    /// When Imports was last opened. The badge counts only workouts that started after it.
+    /// When Imports was last opened. The badge counts only workouts Ascend found after it.
     func importsLastViewedAt(for userID: String) -> Date? {
         defaults.object(forKey: key("importsLastViewedAt", userID)) as? Date
     }
