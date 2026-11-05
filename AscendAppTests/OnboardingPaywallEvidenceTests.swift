@@ -174,11 +174,60 @@ struct OnboardingPaywallEvidenceTests {
         }
     }
 
+    private func closedGiftFrames(on screen: HostedScreen) async throws -> (subline: CGRect, box: CGRect, tap: CGRect) {
+        let elements = try await screen.elements(until: { found in
+            found.contains { $0.accessibilityLabel == "Tap to open" }
+        })
+        func frame(_ label: String) throws -> CGRect {
+            try #require(elements.first { $0.accessibilityLabel == label }).accessibilityFrame
+        }
+        return (
+            try frame("A better price, just for you."),
+            try frame("Open your gift"),
+            try frame("Tap to open")
+        )
+    }
+
+    @Test(arguments: [CGSize(width: 375, height: 667), CGSize(width: 402, height: 874)])
+    func theClosedGiftKeepsItsWordsClearOfTheBoxAtAnAccessibilityTextSize(size: CGSize) async throws {
+        let fixture = await fixture(startingAt: .exitGift)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(\.dynamicTypeSize, .accessibility3),
+            size: size,
+            settle: .turns(40)
+        ) { screen in
+            let frames = try await closedGiftFrames(on: screen)
+            #expect(frames.subline.maxY <= frames.box.minY, "the box covers the header: \(frames)")
+            #expect(frames.box.maxY <= frames.tap.minY, "the box covers the prompt: \(frames)")
+        }
+    }
+
+    @Test(arguments: [CGSize(width: 375, height: 667), CGSize(width: 402, height: 874)])
+    func theClosedGiftCentresTheBoxTwentyPointsLowAtTheDefaultTextSize(size: CGSize) async throws {
+        let fixture = await fixture(startingAt: .exitGift)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            size: size,
+            settle: .turns(40)
+        ) { screen in
+            let frames = try await closedGiftFrames(on: screen)
+            let insets = screen.root.safeAreaInsets
+            let safeMidY = insets.top + (screen.bounds.height - insets.top - insets.bottom) / 2
+            #expect(abs(frames.box.midY - (safeMidY + 20)) <= 4, "\(frames) around \(safeMidY)")
+            #expect(frames.subline.maxY <= frames.box.minY, "\(frames)")
+        }
+    }
+
     @Test
     func theOpenGiftNamesTheTrialOnlyWhenTheAppleIDCanStillTakeIt() async throws {
         for (eligible, expected, forbidden) in [
-            (true, ["welcome offer", "$9.99", "$29.99", "plus 7 days free", "your first week", "on us", "then $9.99 a year, locked in", "claim my gift", "free today, then $9.99/year. cancel anytime", "no thanks", "66% off", "terms", "privacy"], ["won't show up again", "ends in"]),
-            (false, ["welcome offer", "$9.99 a year", "locked in", "that's 66% off, every year you climb", "claim my gift", "$9.99 today, then every year. cancel anytime", "no thanks"], ["free", "first week", "on us", "won't show up again", "ends in"])
+            (true, ["welcome offer", "$9.99", "$29.99", "plus 7 days free", "your first week", "on us", "then $9.99 a year, locked in", "claim my gift", "free today, then $9.99/year. cancel anytime", "no thanks", "66% off", "terms", "privacy"], ["won't show up again", "ends in", "before you go", "tap to open"]),
+            (false, ["welcome offer", "$9.99 a year", "locked in", "that's 66% off, every year you climb", "claim my gift", "$9.99 today, then every year. cancel anytime", "no thanks"], ["free", "first week", "on us", "won't show up again", "ends in", "before you go", "tap to open"])
         ] {
             let fixture = await fixture(startingAt: .exitGift, trialEligible: eligible, giftAlreadySeen: true)
 

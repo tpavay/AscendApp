@@ -68,25 +68,34 @@ struct OnboardingExitGiftScreen: View {
         return GeometryReader { proxy in
             ScrollView {
                 // One box for both states, so its lid and body animate when `isOpen` changes
-                // instead of being replaced by a second view that starts out gone.
+                // instead of being replaced by a second view that starts out gone. The words around
+                // it share the spare height evenly, which centres it until they need more, and keep
+                // their room once hidden, so opening never moves it.
                 ZStack(alignment: .top) {
-                    if !isOpen {
+                    VStack(spacing: 0) {
                         closedHeader
                             .padding(.top, 70)
-                    }
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .opacity(isOpen ? 0 : 1)
+                            .accessibilityHidden(isOpen)
 
-                    giftBox
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .offset(y: 20)
+                        giftBox
+                            .offset(y: 20)
 
-                    if !isOpen {
                         Text("Tap to open")
                             .paywallText(.bold, size: 15, relativeTo: .subheadline)
                             .foregroundStyle(Color(hex: "BDBDBD"))
-                            .frame(maxHeight: .infinity, alignment: .bottom)
-                            .padding(.bottom, 40)
+                            .multilineTextAlignment(.center)
                             .onboardingEntrance(index: 3)
+                            .padding(.top, 36)
+                            .padding(.bottom, 40)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            .opacity(isOpen ? 0 : 1)
+                            .accessibilityHidden(isOpen)
                     }
+                    .padding(.horizontal, 24)
 
                     if isOpen {
                         VStack(spacing: 0) {
@@ -104,7 +113,6 @@ struct OnboardingExitGiftScreen: View {
                         }
                     }
                 }
-                .padding(.horizontal, isOpen ? 0 : 24)
                 .frame(maxWidth: .infinity, minHeight: proxy.size.height)
             }
             .scrollBounceBehavior(.basedOnSize)
