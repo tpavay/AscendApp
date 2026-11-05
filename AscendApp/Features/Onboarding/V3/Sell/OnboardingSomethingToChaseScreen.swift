@@ -9,6 +9,8 @@ struct OnboardingSomethingToChaseScreen: View {
     /// Tests hand in a catalogue and a day; the screen reads the real catalogue and today.
     let selection: SellGearSelection?
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     init(coordinator: OnboardingV3Coordinator, catalog: UnlockCatalog? = nil, today: Date = .now) {
         self.coordinator = coordinator
         let catalog = catalog ?? HostedUnlockCatalogRepository().loadInitialCatalog()
@@ -54,6 +56,15 @@ struct OnboardingSomethingToChaseScreen: View {
         Slot(x: 0.2, anchor: .bottom, size: 0.28, tilt: -6, delay: 0.65)
     ]
 
+    /// Enlarged labels are wide enough to reach the centrepiece, so it narrows and moves left and the
+    /// top right piece goes as far right as its label allows, which leaves a clear column between them.
+    private static let enlargedTextSlots: [Slot] = [
+        Slot(x: 0.52, anchor: .middle(0.47), size: 0.38, tilt: -4, delay: 0.15),
+        slots[1],
+        Slot(x: 1, anchor: .top, size: 0.30, tilt: -8, delay: 0.5),
+        slots[3]
+    ]
+
     private struct Slot {
         enum Anchor {
             case top
@@ -75,9 +86,10 @@ struct OnboardingSomethingToChaseScreen: View {
     private func gear(_ selection: SellGearSelection) -> some View {
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height * 0.9)
+            let slots = dynamicTypeSize > .large ? Self.enlargedTextSlots : Self.slots
             ZStack {
                 ForEach(Array(selection.pieces.enumerated()), id: \.element.id) { index, piece in
-                    let slot = Self.slots[min(index, Self.slots.count - 1)]
+                    let slot = slots[min(index, slots.count - 1)]
                     let size = side * slot.size
                     let height = Self.pieceHeight(size: size)
                     let halfWidth = max(size, 110) / 2
@@ -162,6 +174,29 @@ private struct SellGearPieceView: View {
     /// 110 pt column would otherwise break "GOLDEN TURKEY" mid-word.
     private var effectiveTagSize: CGFloat { min(isCenterpiece ? tagSize + 1 : tagSize, 16) }
 
+    /// The centrepiece's name and requirement share a line when they fit. Otherwise the separator
+    /// stays on the name's line, or goes when the name itself has no room for it, and never starts
+    /// a line.
+    @ViewBuilder private var tag: some View {
+        if isCenterpiece {
+            let name = piece.name.uppercased()
+            ViewThatFits(in: .horizontal) {
+                Text("\(name) · \(piece.requirement)")
+                    .lineLimit(1)
+                VStack(spacing: 0) {
+                    Text("\(name) ·").lineLimit(1)
+                    Text(piece.requirement).lineLimit(1)
+                }
+                VStack(spacing: 0) {
+                    Text(name)
+                    Text(piece.requirement)
+                }
+            }
+        } else {
+            Text(piece.requirement)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 6) {
             Image(piece.item.shape.thumbnailName)
@@ -173,7 +208,7 @@ private struct SellGearPieceView: View {
                 .offset(y: isUp ? -SellMotion.gearBobDistance(reduceMotion: reduceMotion) : 0)
                 .accessibilityHidden(true)
 
-            Text(isCenterpiece ? "\(piece.name.uppercased()) · \(piece.requirement)" : piece.requirement)
+            tag
                 .font(.custom("Montserrat-ExtraBold", fixedSize: effectiveTagSize))
                 .tracking(effectiveTagSize * 0.12)
                 .foregroundStyle(isCenterpiece ? OnboardingV3Palette.orange : Color(hex: "9A9A9A"))

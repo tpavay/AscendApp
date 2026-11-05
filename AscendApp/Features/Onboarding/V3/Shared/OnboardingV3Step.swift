@@ -82,15 +82,15 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
     var alternateExits: [OnboardingV3Exit] {
         switch self {
         case .welcome:
-            [OnboardingV3Exit(title: "Already climbing? Sign in", destination: .auth)]
+            [OnboardingV3Exit(prompt: "Already have an account? ", action: "Sign in", destination: .auth)]
         case .healthConnect:
-            [OnboardingV3Exit(title: "I don't track workouts", destination: .usualClimb)]
+            [OnboardingV3Exit(action: "I don't track workouts", destination: .usualClimb)]
         case .healthPermission:
-            [OnboardingV3Exit(title: "No stair stepper workouts found", destination: .usualClimb)]
+            [OnboardingV3Exit(action: "No stair stepper workouts found", destination: .usualClimb)]
         case .paywall:
-            [OnboardingV3Exit(title: "Close", destination: .exitGift)]
+            [OnboardingV3Exit(action: "Close", destination: .exitGift)]
         case .exitGift:
-            [OnboardingV3Exit(title: "No thanks", destination: .paywall)]
+            [OnboardingV3Exit(action: "No thanks", destination: .paywall)]
         default:
             []
         }
@@ -98,6 +98,10 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
 }
 
 struct OnboardingV3Exit: Equatable, Sendable {
-    let title: String
+    /// The words leading into the action, which a screen may draw quieter than the action.
+    var prompt = ""
+    let action: String
     let destination: OnboardingV3Step
+
+    var title: String { prompt + action }
 }

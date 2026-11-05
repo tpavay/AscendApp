@@ -6,12 +6,10 @@ import Foundation
 /// the screen, not from here.
 enum SellScreenCopy {
     enum Welcome {
-        static let headlineLead = ["Stop", "staring", "at the"]
-        static let headlineAccent = ["clock."]
-        static let body = "Ascend turns every stair stepper session into a climb up a real mountain, with real people beside you. The minutes fly, and you actually want to come back."
+        static let headlineLead = ["Congratulations,"]
+        static let headlineAccent = ["you're on your way"]
+        static let body = "to enjoying the stair stepper like never before."
         static let start = "Get started"
-        static let signInPrompt = "Already climbing? "
-        static let signIn = "Sign in"
     }
 
     enum GoHarder {
@@ -73,7 +71,8 @@ enum SellScreenCopy {
     static var all: [String] {
         var strings = [continueTitle]
         strings += Welcome.headlineLead + Welcome.headlineAccent
-        strings += [Welcome.body, Welcome.start, Welcome.signInPrompt, Welcome.signIn]
+        strings += [Welcome.body, Welcome.start]
+        strings += OnboardingV3Step.welcome.alternateExits.map(\.title)
         strings += GoHarder.headlineLead + GoHarder.headlineAccent
         strings += [GoHarder.body, GoHarder.screenshotDescription]
         strings += GetBetter.headlineLead + GetBetter.headlineAccent

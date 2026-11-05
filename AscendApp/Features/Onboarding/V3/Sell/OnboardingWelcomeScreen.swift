@@ -30,7 +30,7 @@ struct OnboardingWelcomeScreen: View {
                     // The words sit on the bottom of the photo; at an accessibility text size they
                     // outgrow it and scroll, while the two actions below stay put.
                     ScrollView {
-                        message(isCompact: isCompact)
+                        message(isCompact: isCompact, screenWidth: proxy.size.width)
                             .padding(.horizontal, 24)
                             .padding(.top, 12)
                     }
@@ -83,13 +83,21 @@ struct OnboardingWelcomeScreen: View {
             .accessibilityHidden(true)
     }
 
-    private func message(isCompact: Bool) -> some View {
+    /// Each headline line runs edge to edge between the 24 pt margins. The longer line is 12 em wide
+    /// in Montserrat Black at the headline's tracking, plus a little room for rounding.
+    static func headlineSize(screenWidth: CGFloat) -> CGFloat {
+        (screenWidth - 48) / 12.1
+    }
+
+    private func message(isCompact: Bool, screenWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: isCompact ? 14 : 22) {
             OnboardingHeadline(
                 SellScreenCopy.Welcome.headlineLead,
                 accentLines: SellScreenCopy.Welcome.headlineAccent,
-                size: isCompact ? 36 : 46
+                size: Self.headlineSize(screenWidth: screenWidth)
             )
+            // The lines already fill the width, so a larger text size has nowhere to grow.
+            .dynamicTypeSize(.large)
             .onboardingEntrance(delay: 0.2, duration: 0.6)
 
             Text(SellScreenCopy.Welcome.body)
@@ -126,7 +134,7 @@ struct OnboardingWelcomeScreen: View {
                 Button {
                     coordinator.go(to: signIn.destination)
                 } label: {
-                    Text("\(Text(SellScreenCopy.Welcome.signInPrompt))\(Text(SellScreenCopy.Welcome.signIn).foregroundStyle(Color.white))")
+                    Text("\(Text(signIn.prompt))\(Text(signIn.action).foregroundStyle(Color.white))")
                 }
                 .buttonStyle(.onboardingQuietLink)
                 .accessibilityLabel(signIn.title)

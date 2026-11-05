@@ -114,9 +114,9 @@ struct OnboardingV3SellEvidenceTests {
         try await RenderedScreen.host(flow(.welcome), size: size, settle: .turns(30)) { screen in
             let copy = try await screen.copy()
             #expect(copy.contains("ascend"), "the real wordmark is labelled Ascend: \(copy)")
-            #expect(copy.contains("stop staring at the clock."), "\(copy)")
+            #expect(copy.contains("congratulations, you're on your way"), "\(copy)")
             #expect(copy.contains("get started"), "\(copy)")
-            #expect(copy.contains("already climbing? sign in"), "\(copy)")
+            #expect(copy.contains("already have an account? sign in"), "\(copy)")
             #expect(!copy.contains("onboarding progress"), "01 has no bar: \(copy)")
             try screen.photograph(named: "onboarding-v3-sell-01-welcome-\(Int(size.height))")
         }
@@ -131,7 +131,7 @@ struct OnboardingV3SellEvidenceTests {
         ) { screen in
             let copy = try await screen.copy()
             #expect(copy.contains("get started"), "\(copy)")
-            #expect(copy.contains("already climbing? sign in"), "\(copy)")
+            #expect(copy.contains("already have an account? sign in"), "\(copy)")
             try screen.photograph(named: "onboarding-v3-sell-01-welcome-se-accessibility3")
         }
     }
@@ -161,7 +161,7 @@ struct OnboardingV3SellEvidenceTests {
             let insets = controller.view.safeAreaInsets
             try #require(insets.top == phone.top && insets.bottom == phone.bottom, "hosted with \(insets)")
 
-            let signInLabel = "Already climbing? Sign in"
+            let signInLabel = "Already have an account? Sign in"
             let frames = try await Self.frames(on: screen, of: ["Ascend", signInLabel])
             let wordmark = try #require(frames["Ascend"])
             let signIn = try #require(frames[signInLabel])
@@ -365,6 +365,43 @@ struct OnboardingV3SellEvidenceTests {
         }
     }
 
+    /// With enlarged labels no piece of gear reaches into another's column or label, on either phone
+    /// and at the sizes where a label stops growing. A piece's frame is its picture and its label.
+    @Test(arguments: Self.phones, [DynamicTypeSize.xxxLarge, .accessibility1, .accessibility5])
+    func somethingToChaseKeepsGearOffEveryLabelAtLargeTextSizes(size: CGSize, textSize: DynamicTypeSize) async throws {
+        let pieces = [
+            "Golden Turkey, 25K steps", "Cornucopia, 5 climbs", "Giant Turkey, 50K steps", "Harvest Gourd, Open Ascend"
+        ]
+        try await RenderedScreen.host(
+            somethingToChase(on: Self.aNovemberDay).environment(\.dynamicTypeSize, textSize),
+            size: size,
+            settle: .turns(60)
+        ) { screen in
+            let frames = try await Self.frames(on: screen, of: pieces)
+            for (index, piece) in pieces.enumerated() {
+                let frame = try #require(frames[piece])
+                #expect(frame.minX >= 0 && frame.maxX <= size.width, "\(piece) \(frame) runs off the screen")
+                for other in pieces[(index + 1)...] {
+                    let otherFrame = try #require(frames[other])
+                    #expect(!frame.intersects(otherFrame), "\(piece) \(frame) lands on \(other) \(otherFrame)")
+                }
+            }
+        }
+    }
+
+    /// The centrepiece's separator never starts a line. VoiceOver reads a label with no separator,
+    /// so only the pixels show this.
+    @Test(arguments: Self.phones)
+    func somethingToChaseCenterpieceRequirementStartsItsOwnLine(size: CGSize) async throws {
+        try await RenderedScreen.host(somethingToChase(on: Self.aNovemberDay), size: size, settle: .turns(60)) { screen in
+            let recognized = try await screen.recognizedText(scale: 3).lowercased()
+            let line = recognized.split(whereSeparator: \.isNewline).first { $0.contains("25k steps") }
+            let requirement = try #require(line, "\(recognized)")
+            #expect(requirement.hasPrefix("25k steps") || requirement.contains("turkey"), "\(requirement)")
+            try screen.photograph(named: "onboarding-v3-sell-04-centerpiece-tag-\(Int(size.height))")
+        }
+    }
+
     /// Before the first event opens there is no gear to draw, and the reasons keep their row.
     @Test
     func somethingToChaseBeforeAnyEventKeepsItsReasons() async throws {
@@ -516,7 +553,7 @@ struct OnboardingV3SellEvidenceTests {
     @Test
     func welcomeArrivesWithReduceMotion() async throws {
         try await expectEverythingArrivesWithReduceMotion(
-            ["ascend", "stop staring at the clock.", "ascend turns every stair stepper session", "get started", "already climbing? sign in"],
+            ["ascend", "congratulations, you're on your way", "to enjoying the stair stepper like never before.", "get started", "already have an account? sign in"],
             in: flow(.welcome),
             photographedAs: "01-welcome"
         ) { screen in
