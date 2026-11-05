@@ -19,6 +19,7 @@ struct WelcomeGiftOffer: Equatable, Sendable {
         let duration: String
         /// What "your first ..." calls it: "week", "month", "14 days".
         let span: String
+        let spanIsPlural: Bool
     }
 
     init?(welcome: NativePaywallPlan, regular: NativePaywallPlan) {
@@ -55,12 +56,13 @@ struct WelcomeGiftOffer: Equatable, Sendable {
         }
 
         let duration = count == 1 ? "1 \(unit)" : "\(count) \(unit)s"
-        let span = if count == 7, unit == "day" {
+        let isOneWeek = count == 7 && unit == "day"
+        let span = if isOneWeek {
             "week"
         } else {
             count == 1 ? unit : duration
         }
-        return FreeTrial(duration: duration, span: span)
+        return FreeTrial(duration: duration, span: span, spanIsPlural: count > 1 && !isOneWeek)
     }
 }
 
@@ -82,7 +84,7 @@ struct WelcomeGiftCopy: Equatable, Sendable {
         if let trial = offer.freeTrial {
             trialLine = "Plus \(trial.duration) free".uppercased()
             headlineLead = ["Your first \(trial.span)"]
-            headlineAccent = ["is on us."]
+            headlineAccent = [trial.spanIsPlural ? "are on us." : "is on us."]
             subline = "Then \(offer.price) a year, locked in."
             callToAction = "Claim my gift"
             finePrint = "Free today, then \(offer.price)/year. Cancel anytime."

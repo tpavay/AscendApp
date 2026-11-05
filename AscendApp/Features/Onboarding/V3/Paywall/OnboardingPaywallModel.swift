@@ -26,6 +26,7 @@ final class OnboardingPaywallModel {
         case idle
         case purchasing
         case restoring
+        case checkingAccess
     }
 
     /// What the climber is told after something did not finish. Each is one sentence on screen.
@@ -67,8 +68,9 @@ final class OnboardingPaywallModel {
     @ObservationIgnored private let ledger: PreAuthPurchaseLedger
     @ObservationIgnored private let configuration: MonetizationConfiguration
     @ObservationIgnored private let now: () -> Date
-    /// The plan Apple is still deciding on: Ask to Buy, or a charge RevenueCat has not confirmed.
-    @ObservationIgnored private var unconfirmedPlan: NativePaywallPlan?
+    /// What Apple is still deciding on: Ask to Buy, or a charge RevenueCat has not confirmed. Nothing
+    /// else can be bought meanwhile, because another product would be a second real charge.
+    private var unconfirmedPurchase: (plan: NativePaywallPlan, notice: Notice)?
 
     init(
         provider: (any PreAuthPaywallPlanProviding)? = nil,
@@ -97,6 +99,10 @@ final class OnboardingPaywallModel {
 
     var isBusy: Bool { activity != .idle }
 
+    var isAwaitingConfirmation: Bool { unconfirmedPurchase != nil }
+
+    var locksPurchase: Bool { isBusy || isAwaitingConfirmation }
+
     /// Whether this install already holds the entitlement: a purchase made before a relaunch, one
     /// confirmed late, or one restored. Reads RevenueCat's state each time, so the screens can react
     /// to it arriving while they are up.
@@ -118,7 +124,7 @@ final class OnboardingPaywallModel {
     func load() async {
         completedPurchase = false
         loadState = .loading
-        notice = nil
+        notice = unconfirmedPurchase?.notice
 
         do {
             let plans = try await provider.loadPreAuthPlans()
@@ -154,7 +160,7 @@ final class OnboardingPaywallModel {
     }
 
     private func purchase(_ plan: NativePaywallPlan) async -> PurchaseOutcome {
-        guard activity == .idle else { return .notCompleted }
+        guard !locksPurchase else { return .notCompleted }
         guard let identity = monetization.identityGeneration else {
             notice = .accountUnavailable
             return .notCompleted
@@ -188,13 +194,13 @@ final class OnboardingPaywallModel {
         case .cancelled:
             return .cancelled
         case .pending:
-            unconfirmedPlan = plan
+            unconfirmedPurchase = (plan, .pendingApproval)
             notice = .pendingApproval
             return .notCompleted
         case .failed(let error):
             if let controllerError = error as? RevenueCatPurchaseControllerError,
                case .entitlementUnconfirmed = controllerError {
-                unconfirmedPlan = plan
+                unconfirmedPurchase = (plan, .verificationUnavailable)
                 notice = .verificationUnavailable
             } else {
                 notice = .checkoutFailed
@@ -220,16 +226,33 @@ final class OnboardingPaywallModel {
 
         switch outcome {
         case .restored:
-            recordRestoredAccess()
             completedPurchase = true
+            recordHeldAccess()
             return .restored
         case .notFound:
+            // Apple's own answer that this Apple ID holds nothing, so a declined Ask to Buy ends here.
+            unconfirmedPurchase = nil
             notice = .nothingToRestore
         case .failed:
             notice = .restoreFailed
         }
 
         return .notCompleted
+    }
+
+    // MARK: - Checking
+
+    /// Asks again whether the unconfirmed purchase has landed. Access arriving moves the screens on
+    /// through ``holdsAccess``; anything else leaves the lock and its warning in place.
+    func checkAccess() async {
+        guard activity == .idle, let unconfirmedPurchase else { return }
+
+        activity = .checkingAccess
+        notice = nil
+        await monetization.refreshEntitlements(force: true, waitsForPendingIdentity: true)
+        activity = .idle
+
+        if !holdsAccess { notice = unconfirmedPurchase.notice }
     }
 
     // MARK: - Progress
@@ -248,12 +271,21 @@ final class OnboardingPaywallModel {
         guard holdsAccess else { return false }
 
         if ledger.progress().purchase == nil {
-            if let unconfirmedPlan {
-                recordPurchase(of: unconfirmedPlan)
+            if let unconfirmedPurchase {
+                recordPurchase(of: unconfirmedPurchase.plan)
             } else {
-                recordRestoredAccess()
+                ledger.recordPurchase(
+                    PreAuthPurchase(
+                        source: .restore,
+                        productID: "restored",
+                        purchasedAt: now(),
+                        startedTrial: false
+                    )
+                )
             }
         }
+        unconfirmedPurchase = nil
+        notice = nil
 
         return ledger.progress().purchase?.startedTrial ?? false
     }
@@ -264,17 +296,6 @@ final class OnboardingPaywallModel {
                 productID: plan.id,
                 purchasedAt: now(),
                 startedTrial: plan.freeTrialPeriod != nil
-            )
-        )
-    }
-
-    private func recordRestoredAccess() {
-        ledger.recordPurchase(
-            PreAuthPurchase(
-                source: .restore,
-                productID: "restored",
-                purchasedAt: now(),
-                startedTrial: false
             )
         )
     }

@@ -177,6 +177,7 @@ struct OnboardingPaywallScreen: View {
                     ) { select(lifetime) }
                 }
             }
+            .disabled(model.locksPurchase)
         }
     }
 
@@ -190,18 +191,22 @@ struct OnboardingPaywallScreen: View {
                     .accessibilityAddTraits(.updatesFrequently)
             }
 
-            Button {
-                Task { await purchase() }
-            } label: {
-                if model.activity == .purchasing {
-                    ProgressView().tint(.black)
-                } else {
-                    Text(purchaseTitle)
+            if model.isAwaitingConfirmation {
+                PaywallCheckAccessButton(model: model)
+            } else {
+                Button {
+                    Task { await purchase() }
+                } label: {
+                    if model.activity == .purchasing {
+                        ProgressView().tint(.black)
+                    } else {
+                        Text(purchaseTitle)
+                    }
                 }
+                .buttonStyle(.onboardingPrimary)
+                .paywallSheen()
+                .disabled(model.loadState != .ready || model.isBusy)
             }
-            .buttonStyle(.onboardingPrimary)
-            .paywallSheen()
-            .disabled(model.loadState != .ready || model.isBusy)
 
             footer
         }
@@ -272,7 +277,6 @@ struct OnboardingPaywallScreen: View {
     }
 
     private func select(_ plan: NativePaywallPlan) {
-        guard !model.isBusy else { return }
         HapticsManager.shared.trigger(.selection)
         model.selectedPlanID = plan.id
     }
@@ -331,6 +335,28 @@ struct OnboardingPaywallScreen: View {
             HapticsManager.shared.trigger(.success)
             advanceFromHere()
         }
+    }
+}
+
+// MARK: - Waiting on Apple
+
+/// Stands in for the buy button while a purchase is unconfirmed: the screen says not to purchase
+/// again, so the one action left re-checks without starting another.
+struct PaywallCheckAccessButton: View {
+    let model: OnboardingPaywallModel
+
+    var body: some View {
+        Button {
+            Task { await model.checkAccess() }
+        } label: {
+            if model.activity == .checkingAccess {
+                ProgressView().tint(.black)
+            } else {
+                Text("Check access")
+            }
+        }
+        .buttonStyle(.onboardingPrimary)
+        .disabled(model.isBusy)
     }
 }
 

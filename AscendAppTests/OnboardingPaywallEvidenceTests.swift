@@ -23,7 +23,8 @@ struct OnboardingPaywallEvidenceTests {
         startingAt step: OnboardingV3Step,
         trialEligible: Bool = true,
         giftAlreadySeen: Bool = false,
-        entitlement: MonetizationEntitlementState = .inactive
+        entitlement: MonetizationEntitlementState = .inactive,
+        purchaseResult: PurchaseResult = .cancelled
     ) async -> Fixture {
         let suite = "onboarding-paywall-evidence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -47,7 +48,7 @@ struct OnboardingPaywallEvidenceTests {
             appAccessReconciler: EvidenceReconciler(),
             userDefaults: UserDefaults(suiteName: "\(suite)-manager")!
         )
-        let provider = EvidenceProvider(trialEligible: trialEligible)
+        let provider = EvidenceProvider(trialEligible: trialEligible, purchaseResult: purchaseResult)
         let ledger = PreAuthPurchaseLedger(userDefaults: defaults)
         let model = OnboardingPaywallModel(
             provider: provider,
@@ -201,6 +202,36 @@ struct OnboardingPaywallEvidenceTests {
     }
 
     @Test
+    func anUnconfirmedPurchaseOffersACheckInsteadOfAnotherPurchaseOnBothScreens() async throws {
+        let paywall = await fixture(startingAt: .paywall, purchaseResult: .pending)
+        _ = await paywall.model.purchaseSelectedPlan()
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: paywall.coordinator)
+                .environment(\.onboardingPaywallModel, paywall.model),
+            settle: .turns(100)
+        ) { screen in
+            let copy = try await screen.copy(until: { $0.contains("check access") })
+            #expect(copy.contains("do not purchase again"), "\(copy)")
+            #expect(!copy.contains("start climbing"), "\(copy)")
+        }
+
+        let gift = await fixture(startingAt: .exitGift, giftAlreadySeen: true, purchaseResult: .pending)
+        _ = await gift.model.claimGift()
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: gift.coordinator)
+                .environment(\.onboardingPaywallModel, gift.model),
+            size: Self.smallestPhone,
+            settle: .turns(120)
+        ) { screen in
+            let copy = try await screen.copy(until: { $0.contains("check access") })
+            #expect(copy.contains("do not purchase again"), "\(copy)")
+            #expect(!copy.contains("claim my gift"), "\(copy)")
+        }
+    }
+
+    @Test
     func aClimberWhoAlreadyHoldsAccessIsRememberedAsThePaywallMovesThemOn() async throws {
         let fixture = await fixture(startingAt: .paywall, entitlement: .active(["app_access"]))
         let coordinator = fixture.coordinator
@@ -257,7 +288,12 @@ private struct GiftBoxHarness: View {
 @MainActor
 private final class EvidenceProvider: PreAuthPaywallPlanProviding {
     let trialEligible: Bool
-    init(trialEligible: Bool) { self.trialEligible = trialEligible }
+    let purchaseResult: PurchaseResult
+
+    init(trialEligible: Bool, purchaseResult: PurchaseResult) {
+        self.trialEligible = trialEligible
+        self.purchaseResult = purchaseResult
+    }
 
     func loadPlans() async throws -> [NativePaywallPlan] { try await loadPreAuthPlans() }
 
@@ -282,7 +318,7 @@ private final class EvidenceProvider: PreAuthPaywallPlanProviding {
         ]
     }
 
-    func purchase(planID: String) async -> PurchaseResult { .cancelled }
+    func purchase(planID: String) async -> PurchaseResult { purchaseResult }
 }
 
 @MainActor

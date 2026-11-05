@@ -86,16 +86,17 @@ struct WelcomeGiftOfferTests {
     }
 
     @Test(arguments: [
-        (NativeSubscriptionPeriod(value: 1, unit: .day), "PLUS 1 DAY FREE", "Your first day"),
-        (NativeSubscriptionPeriod(value: 7, unit: .day), "PLUS 7 DAYS FREE", "Your first week"),
-        (NativeSubscriptionPeriod(value: 2, unit: .week), "PLUS 14 DAYS FREE", "Your first 14 days"),
-        (NativeSubscriptionPeriod(value: 2, unit: .month), "PLUS 2 MONTHS FREE", "Your first 2 months"),
-        (NativeSubscriptionPeriod(value: 1, unit: .year), "PLUS 1 YEAR FREE", "Your first year")
+        (NativeSubscriptionPeriod(value: 1, unit: .day), "PLUS 1 DAY FREE", "Your first day", "is on us."),
+        (NativeSubscriptionPeriod(value: 7, unit: .day), "PLUS 7 DAYS FREE", "Your first week", "is on us."),
+        (NativeSubscriptionPeriod(value: 2, unit: .week), "PLUS 14 DAYS FREE", "Your first 14 days", "are on us."),
+        (NativeSubscriptionPeriod(value: 2, unit: .month), "PLUS 2 MONTHS FREE", "Your first 2 months", "are on us."),
+        (NativeSubscriptionPeriod(value: 1, unit: .year), "PLUS 1 YEAR FREE", "Your first year", "is on us.")
     ])
     func everyTrialLengthReadsAsASentence(
         period: NativeSubscriptionPeriod,
         trialLine: String,
-        headline: String
+        headline: String,
+        accent: String
     ) throws {
         let offer = try #require(WelcomeGiftOffer(
             welcome: plan("w", price: 9.99, label: "$9.99", trial: period),
@@ -105,6 +106,7 @@ struct WelcomeGiftOfferTests {
 
         #expect(copy.trialLine == trialLine)
         #expect(copy.headlineLead == [headline])
+        #expect(copy.headlineAccent == [accent])
     }
 
     @Test
@@ -462,6 +464,112 @@ struct OnboardingPaywallModelTests {
 
         #expect(model.recordHeldAccess())
         #expect(ledger.progress().purchase == recorded)
+    }
+
+    private func unconfirmedPurchaseResult(isAskToBuy: Bool) -> PurchaseResult {
+        isAskToBuy ? .pending : .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
+    }
+
+    @Test(arguments: [true, false])
+    func nothingElseCanBeBoughtWhileAPurchaseIsUnconfirmed(isAskToBuy: Bool) async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = unconfirmedPurchaseResult(isAskToBuy: isAskToBuy)
+        let (model, _) = make(provider: provider)
+        await model.load()
+        _ = await model.purchaseSelectedPlan()
+        provider.purchaseResult = .purchased
+
+        model.selectedPlanID = "lifetime"
+        #expect(await model.purchaseSelectedPlan() == .notCompleted)
+        #expect(await model.claimGift() == .notCompleted)
+
+        #expect(provider.purchasedPlanIDs == ["yearly"])
+        #expect(model.locksPurchase)
+    }
+
+    @Test(arguments: [true, false])
+    func theWarningSurvivesThePaywallLoadingAgain(isAskToBuy: Bool) async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = unconfirmedPurchaseResult(isAskToBuy: isAskToBuy)
+        let (model, _) = make(provider: provider)
+        await model.load()
+        _ = await model.claimGift()
+
+        await model.load()
+
+        #expect(model.notice == (isAskToBuy ? .pendingApproval : .verificationUnavailable))
+        #expect(model.isAwaitingConfirmation)
+    }
+
+    @Test
+    func checkingWithNoAccessYetKeepsTheLockAndTheWarning() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .pending
+        let (model, _) = make(provider: provider)
+        await model.load()
+        _ = await model.purchaseSelectedPlan()
+
+        await model.checkAccess()
+
+        #expect(model.notice == .pendingApproval)
+        #expect(model.isAwaitingConfirmation)
+        #expect(model.activity == .idle)
+    }
+
+    @Test
+    func checkingAfterAccessLandsReleasesTheLockOnceTheHoldingIsRecorded() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .pending
+        let service = EntitlementServiceStub(entitlementState: .inactive)
+        let (model, ledger) = make(provider: provider, entitlementService: service)
+        await model.load()
+        _ = await model.claimGift()
+
+        service.setEntitlementState(.active(["app_access"]))
+        await model.checkAccess()
+        #expect(model.holdsAccess)
+
+        #expect(model.recordHeldAccess())
+        #expect(ledger.progress().purchase?.productID == "welcome")
+        #expect(!model.isAwaitingConfirmation)
+        #expect(model.notice == nil)
+    }
+
+    @Test
+    func aRestoreThatFindsNothingEndsADeclinedAskToBuy() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .pending
+        let service = EntitlementServiceStub(entitlementState: .inactive)
+        let (model, ledger) = make(provider: provider, entitlementService: service)
+        await model.load()
+        _ = await model.purchaseSelectedPlan()
+
+        #expect(await model.restore() == .notCompleted)
+
+        #expect(model.notice == .nothingToRestore)
+        #expect(!model.locksPurchase)
+        #expect(ledger.resumeStep == nil)
+        provider.purchaseResult = .purchased
+        #expect(await model.purchaseSelectedPlan() == .purchased(startedTrial: false))
+    }
+
+    @Test
+    func aRestoreThatFindsTheUnconfirmedChargeRecordsThatPlan() async throws {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
+        let service = EntitlementServiceStub(entitlementState: .inactive)
+        service.restoredState = .active(["app_access"])
+        let (model, ledger) = make(provider: provider, entitlementService: service)
+        await model.load()
+        _ = await model.claimGift()
+
+        #expect(await model.restore() == .restored)
+
+        let purchase = try #require(ledger.progress().purchase)
+        #expect(purchase.source == .purchase)
+        #expect(purchase.productID == "welcome")
+        #expect(purchase.startedTrial)
+        #expect(!model.isAwaitingConfirmation)
     }
 
     @Test

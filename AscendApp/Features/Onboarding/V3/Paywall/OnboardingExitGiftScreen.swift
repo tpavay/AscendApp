@@ -77,7 +77,7 @@ struct OnboardingExitGiftScreen: View {
 
                     giftBox
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .offset(y: isOpen ? 0 : 20)
+                        .offset(y: 20)
 
                     if !isOpen {
                         Text("Tap to open")
@@ -156,18 +156,22 @@ struct OnboardingExitGiftScreen: View {
             }
 
             VStack(spacing: 6) {
-                Button {
-                    Task { await claim() }
-                } label: {
-                    if model.activity == .purchasing {
-                        ProgressView().tint(.black)
-                    } else {
-                        Text(copy.callToAction)
+                if model.isAwaitingConfirmation {
+                    PaywallCheckAccessButton(model: model)
+                } else {
+                    Button {
+                        Task { await claim() }
+                    } label: {
+                        if model.activity == .purchasing {
+                            ProgressView().tint(.black)
+                        } else {
+                            Text(copy.callToAction)
+                        }
                     }
+                    .buttonStyle(.onboardingPrimary)
+                    .paywallSheen()
+                    .disabled(model.isBusy)
                 }
-                .buttonStyle(.onboardingPrimary)
-                .paywallSheen()
-                .disabled(model.isBusy)
 
                 Text(copy.finePrint)
                     .paywallText(.medium, size: 12, relativeTo: .caption)
