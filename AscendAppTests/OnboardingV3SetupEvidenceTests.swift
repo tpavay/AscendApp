@@ -246,6 +246,62 @@ struct OnboardingV3SetupEvidenceTests {
         }
     }
 
+    private struct OneLandmark: ClimbCatalogRepository {
+        let snapshot: ClimbCatalogSnapshot
+        func loadInitialCatalog() throws -> ClimbCatalogSnapshot { snapshot }
+        func refreshCatalog() async throws -> ClimbCatalogSnapshot { snapshot }
+    }
+
+    /// Screen 11 runs signed out, and Storage refuses `climb-images/` to a signed-out caller, so a
+    /// Storage-backed hero never loads and draws its placeholder - a climb's name in the middle of
+    /// the art - behind the copy. The accessibility tree cannot see that, because the art is hidden
+    /// from it, so this reads the glyphs. The landmark catalogue is present here on purpose: it is
+    /// what a real install has and what the other renders in this suite leave out.
+    @Test(arguments: [
+        DateComponents(year: 2026, month: 11, day: 4, hour: 12),
+        DateComponents(year: 2027, month: 6, day: 10, hour: 12)
+    ])
+    func theHeroIsAPhotographBeforeSignIn(on day: DateComponents) async throws {
+        let catalogue = try HostedClimbCatalogRepository().loadInitialCatalog()
+        let landmark = try #require(catalogue.availableClimbs.first)
+        let coordinator = coordinator(at: .thisMonthEvent)
+        let model = OnboardingMonthlyEventModel(
+            unlockRepository: FixedUnlocks(catalog: HostedUnlockCatalogRepository.bundledCatalog()),
+            climbRepository: OneLandmark(snapshot: ClimbCatalogSnapshot(
+                climbs: [landmark],
+                source: .bootstrap,
+                catalogVersion: 1,
+                featuredClimbId: landmark.id,
+                updatedAt: nil
+            )),
+            isUnlocksEnabled: { true }
+        )
+        let now = try #require(Calendar.current.date(from: day))
+        let screen = OnboardingThisMonthEventScreen(coordinator: coordinator, model: model, now: now)
+
+        for phone in [Self.smallestPhone, RenderedScreen.iPhone16ProSize] {
+            let photoRegion = CGRect(x: 0, y: 0, width: phone.width, height: phone.height * 0.4)
+
+            try await RenderedScreen.host(
+                ZStack { OnboardingV3Palette.background.ignoresSafeArea(); screen }
+                    .environment(\.onboardingV3Coordinator, coordinator),
+                size: phone,
+                settle: .turns(40)
+            ) { screen in
+                let reading = try await screen.recognizedText(scale: 2)
+                #expect(!reading.contains(landmark.name.lowercased()), "\(reading)")
+                #expect(reading.contains("let's climb"), "\(reading)")
+
+                // A photograph, not the bare gradient: the sunset is orange where the gradient is lime.
+                let orange = try screen.withPixels { pixels in
+                    pixels.count(in: photoRegion) { $0.red > 90 && Int($0.red) > Int($0.green) + 30 && Int($0.green) > Int($0.blue) + 10 }
+                }
+                #expect(orange > 500, "only \(orange) photo pixels in the art")
+                try screen.photograph(named: "onboarding-v3-this-month-hero-\(day.year ?? 0)-\(Int(phone.height))")
+            }
+        }
+    }
+
     // MARK: - Home
 
     @Test

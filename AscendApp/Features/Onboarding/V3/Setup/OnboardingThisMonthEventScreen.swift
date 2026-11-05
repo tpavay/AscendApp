@@ -38,7 +38,7 @@ struct OnboardingThisMonthEventScreen: View {
 
         GeometryReader { proxy in
             ZStack(alignment: .top) {
-                art(height: proxy.size.height * 0.66)
+                art(height: proxy.size.height * 0.66, copyOverlapsArt: proxy.size.height < 720)
 
                 VStack(spacing: 0) {
                     OnboardingProgressHeader(step: .thisMonthEvent)
@@ -72,25 +72,15 @@ struct OnboardingThisMonthEventScreen: View {
 
     // MARK: - Art
 
-    /// The event's themed art when it has one, else a landmark photograph. It zooms from 1.15 to 1
-    /// over four seconds and fades into black behind the copy.
-    private func art(height: CGFloat) -> some View {
-        ZStack {
-            LinearGradient(
-                colors: [OnboardingV3Palette.accent.opacity(0.28), Color(hex: "0A0A0A")],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            if isHaunted {
-                Color.clear.overlay {
-                    Image("Seasonal/HauntedStairwell")
-                        .resizable()
-                        .scaledToFill()
-                }
-            } else if let landmark = model.heroLandmark {
-                ClimbArtworkView(climb: landmark, variant: .hero)
-            }
+    /// The event's themed art when it has one, else a landmark photograph. Both ship in the app:
+    /// this screen runs before sign-in and Storage refuses `climb-images/` to a signed-out caller,
+    /// so `ClimbArtworkView` can only ever draw its placeholder here. It zooms from 1.15 to 1 over
+    /// four seconds and fades into black behind the copy.
+    private func art(height: CGFloat, copyOverlapsArt: Bool) -> some View {
+        Color.clear.overlay {
+            Image(isHaunted ? "Seasonal/HauntedStairwell" : "OnboardingLandmarkEmpireCard")
+                .resizable()
+                .scaledToFill()
         }
         .frame(height: height)
         .frame(maxWidth: .infinity)
@@ -98,6 +88,8 @@ struct OnboardingThisMonthEventScreen: View {
         // never draw past the gradient that darkens it.
         .scaleEffect(reduceMotion || zoomed ? 1 : 1.15)
         .clipped()
+        // On a small phone the copy starts right under the header, over the art's brightest part.
+        .overlay(Color.black.opacity(copyOverlapsArt ? 0.3 : 0))
         .overlay(
             LinearGradient(
                 stops: [
@@ -155,13 +147,15 @@ struct OnboardingThisMonthEventScreen: View {
                             .foregroundStyle(OnboardingV3Palette.secondary)
                             .lineLimit(2)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(14)
                     .onboardingCard(cornerRadius: 16)
                     .accessibilityElement(children: .combine)
                     .onboardingEntrance(index: index + 4, duration: 0.45)
                 }
             }
+            // A two-line label must not leave one tile taller than the others beside it.
+            .fixedSize(horizontal: false, vertical: true)
         }
 
         if let fineLine = content.fineLine {

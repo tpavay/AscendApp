@@ -7,7 +7,7 @@ import Observation
 /// Onboarding runs signed out on a fresh install, so the catalogue is fetched when the flow opens
 /// (Hosting needs no sign-in) and the screen starts from the cached or bundled copy, which a slow
 /// or failed fetch simply leaves in place. The landmark catalogue loads the same way for the
-/// neutral version's count and photograph.
+/// neutral version's count.
 @MainActor
 @Observable
 final class OnboardingMonthlyEventModel {
@@ -44,14 +44,6 @@ final class OnboardingMonthlyEventModel {
     /// landmark catalogue has answered, and the copy then drops the number rather than guess it.
     var availableLandmarkCount: Int? {
         landmarks.map { $0.availableClimbs.count }.flatMap { $0 > 0 ? $0 : nil }
-    }
-
-    /// The landmark whose photograph tops the screen: the catalogue's featured climb when it is
-    /// open to climb, else its first open one.
-    var heroLandmark: Climb? {
-        guard let landmarks else { return nil }
-        let available = landmarks.availableClimbs
-        return available.first { $0.id == landmarks.featuredClimbId } ?? available.first
     }
 
     /// Starts both refreshes once. The flow calls it when it opens.
