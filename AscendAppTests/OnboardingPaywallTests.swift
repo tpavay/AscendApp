@@ -565,35 +565,96 @@ struct OnboardingPaywallModelTests {
 
         #expect(model.notice == .verificationUnavailable)
         #expect(model.locksPurchase)
-        #expect(ledger.progress().pendingProductID == "yearly")
+        #expect(ledger.progress().pendingPurchase?.productID == "yearly")
         model.selectedPlanID = "lifetime"
         #expect(await model.purchaseSelectedPlan() == .notCompleted)
         #expect(provider.purchasedPlanIDs == ["yearly"])
     }
 
-    @Test(arguments: [true, false])
-    func aRelaunchWhilePendingReopensThePaywallStillLocked(isAskToBuy: Bool) async {
+    private func relaunched(
+        after result: PurchaseResult,
+        provider relaunchedProvider: StubPlanProvider
+    ) async -> (OnboardingPaywallModel, PreAuthPurchaseLedger) {
         let provider = StubPlanProvider(plans: plans())
-        provider.purchaseResult = unconfirmedPurchaseResult(isAskToBuy: isAskToBuy)
+        provider.purchaseResult = result
         let (first, ledger) = make(provider: provider)
         await first.load()
         _ = await first.claimGift()
-        #expect(ledger.progress().pendingProductID == "welcome")
         ledger.markPaywallReached()
 
-        let relaunchedProvider = StubPlanProvider(plans: plans())
-        let (relaunched, _) = make(provider: relaunchedProvider, ledger: ledger)
-        await relaunched.load()
+        let (model, _) = make(provider: relaunchedProvider, ledger: ledger)
+        await model.load()
+        return (model, ledger)
+    }
+
+    @Test
+    func aRelaunchedUnconfirmedChargeStaysLockedThroughARestoreThatFindsNothing() async {
+        let provider = StubPlanProvider(plans: plans())
+        let (model, ledger) = await relaunched(
+            after: .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed),
+            provider: provider
+        )
 
         #expect(ledger.resumeStep == .paywall)
-        #expect(relaunched.isAwaitingConfirmation)
-        #expect(relaunched.notice == .verificationUnavailable)
-        #expect(await relaunched.purchaseSelectedPlan() == .notCompleted)
-        #expect(await relaunched.claimGift() == .notCompleted)
-        #expect(relaunchedProvider.purchasedPlanIDs.isEmpty)
+        #expect(ledger.progress().pendingPurchase == PreAuthPendingPurchase(productID: "welcome", hold: .unconfirmedCharge))
+        #expect(model.notice == .verificationUnavailable)
+        #expect(await model.purchaseSelectedPlan() == .notCompleted)
+        #expect(await model.claimGift() == .notCompleted)
+        #expect(provider.purchasedPlanIDs.isEmpty)
 
-        #expect(await relaunched.restore() == .notCompleted)
-        #expect(relaunched.locksPurchase)
+        #expect(await model.restore() == .notCompleted)
+
+        #expect(model.locksPurchase)
+        #expect(model.notice == .verificationUnavailable)
+    }
+
+    @Test
+    func aRelaunchedAskToBuyIsLockedUntilARestoreFindsItDeclined() async {
+        let provider = StubPlanProvider(plans: plans())
+        let (model, ledger) = await relaunched(after: .pending, provider: provider)
+
+        #expect(ledger.progress().pendingPurchase == PreAuthPendingPurchase(productID: "welcome", hold: .askToBuy))
+        #expect(model.notice == .pendingApproval)
+        #expect(await model.purchaseSelectedPlan() == .notCompleted)
+        #expect(provider.purchasedPlanIDs.isEmpty)
+
+        #expect(await model.restore() == .notCompleted)
+
+        #expect(model.notice == .nothingToRestore)
+        #expect(!model.locksPurchase)
+        #expect(ledger.progress().pendingPurchase == nil)
+        #expect(await model.purchaseSelectedPlan() == .purchased(startedTrial: false))
+    }
+
+    @Test
+    func aTrialStartedThisSessionSurvivesThePlansReloadingWithoutIt() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
+        let service = EntitlementServiceStub(entitlementState: .inactive)
+        let (model, ledger) = make(provider: provider, entitlementService: service)
+        await model.load()
+        _ = await model.claimGift()
+
+        provider.plans = plans(trial: false)
+        await model.load()
+        service.setEntitlementState(.active(["app_access"]))
+
+        #expect(model.recordHeldAccess())
+        #expect(ledger.progress().purchase?.startedTrial == true)
+    }
+
+    @Test
+    func releasingForTheSignInExitClearsTheMarker() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .pending
+        let (model, ledger) = make(provider: provider)
+        await model.load()
+        _ = await model.purchaseSelectedPlan()
+
+        model.releaseUnconfirmedPurchase()
+
+        #expect(ledger.progress().pendingPurchase == nil)
+        #expect(!model.isAwaitingConfirmation)
     }
 
     @Test
@@ -602,7 +663,7 @@ struct OnboardingPaywallModelTests {
         let ledger = PreAuthPurchaseLedger(
             userDefaults: UserDefaults(suiteName: "OnboardingPaywallModelTests-\(UUID().uuidString)")!
         )
-        ledger.markPurchasePending(productID: "yearly")
+        ledger.markPurchasePending(PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge))
         let (model, _) = make(provider: provider, ledger: ledger)
         await model.load()
 
@@ -616,7 +677,7 @@ struct OnboardingPaywallModelTests {
             userDefaults: UserDefaults(suiteName: "OnboardingPaywallModelTests-\(UUID().uuidString)")!
         )
         ledger.markPaywallReached()
-        ledger.markPurchasePending(productID: "welcome")
+        ledger.markPurchasePending(PreAuthPendingPurchase(productID: "welcome", hold: .askToBuy))
         let service = EntitlementServiceStub(entitlementState: .inactive)
         let (model, _) = make(
             provider: StubPlanProvider(plans: plans()),
@@ -629,7 +690,7 @@ struct OnboardingPaywallModelTests {
         #expect(model.recordHeldAccess())
 
         #expect(!model.isAwaitingConfirmation)
-        #expect(ledger.progress().pendingProductID == nil)
+        #expect(ledger.progress().pendingPurchase == nil)
         #expect(ledger.resumeStep == .auth)
         #expect(ledger.progress().purchase?.productID == "welcome")
     }
@@ -645,7 +706,7 @@ struct OnboardingPaywallModelTests {
 
         let (relaunched, _) = make(provider: StubPlanProvider(plans: plans()), ledger: ledger)
 
-        #expect(ledger.progress().pendingProductID == nil)
+        #expect(ledger.progress().pendingPurchase == nil)
         #expect(!relaunched.isAwaitingConfirmation)
     }
 
@@ -657,11 +718,11 @@ struct OnboardingPaywallModelTests {
 
         provider.purchaseResult = .cancelled
         _ = await model.purchaseSelectedPlan()
-        #expect(ledger.progress().pendingProductID == nil)
+        #expect(ledger.progress().pendingPurchase == nil)
 
         provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.missingStoreKitProduct)
         _ = await model.purchaseSelectedPlan()
-        #expect(ledger.progress().pendingProductID == nil)
+        #expect(ledger.progress().pendingPurchase == nil)
         #expect(!model.locksPurchase)
     }
 
@@ -798,6 +859,16 @@ struct PreAuthPurchaseTransferTests {
         #expect(await transfer.completeAfterSignIn() == .nothingToTransfer)
         #expect(transferring.calls.isEmpty)
         #expect(invoker.calls == 0)
+    }
+
+    @Test
+    func signingInWithNothingBoughtClearsAPendingMarker() async {
+        let transferring = StubTransferring()
+        let (transfer, ledger) = make(bought: false, transferring: transferring, invoker: StubInvoker([.active]))
+        ledger.markPurchasePending(PreAuthPendingPurchase(productID: "yearly", hold: .askToBuy))
+
+        #expect(await transfer.completeAfterSignIn() == .nothingToTransfer)
+        #expect(ledger.progress().pendingPurchase == nil)
     }
 
     @Test

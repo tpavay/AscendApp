@@ -26,7 +26,7 @@ struct OnboardingPaywallEvidenceTests {
         entitlement: MonetizationEntitlementState = .inactive,
         purchaseResult: PurchaseResult = .cancelled,
         restoredState: MonetizationEntitlementState? = nil,
-        pendingProductID: String? = nil
+        pending: PreAuthPendingPurchase? = nil
     ) async -> Fixture {
         let suite = "onboarding-paywall-evidence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -54,7 +54,7 @@ struct OnboardingPaywallEvidenceTests {
         )
         let provider = EvidenceProvider(trialEligible: trialEligible, purchaseResult: purchaseResult)
         let ledger = PreAuthPurchaseLedger(userDefaults: defaults)
-        if let pendingProductID { ledger.markPurchasePending(productID: pendingProductID) }
+        if let pending { ledger.markPurchasePending(pending) }
         let model = OnboardingPaywallModel(
             provider: provider,
             monetization: manager,
@@ -238,7 +238,10 @@ struct OnboardingPaywallEvidenceTests {
 
     @Test
     func aRelaunchWhilePendingReopensThePaywallWithNoWayToBuy() async throws {
-        let fixture = await fixture(startingAt: .paywall, pendingProductID: "yearly")
+        let fixture = await fixture(
+            startingAt: .paywall,
+            pending: PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+        )
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
@@ -248,6 +251,25 @@ struct OnboardingPaywallEvidenceTests {
             let copy = try await screen.copy(until: { $0.contains("check access") })
             #expect(copy.contains("do not purchase again"), "\(copy)")
             #expect(!copy.contains("start climbing"), "\(copy)")
+        }
+    }
+
+    @Test
+    func theSignInExitLeavesNoMarkerBehind() async throws {
+        let fixture = await fixture(
+            startingAt: .paywall,
+            pending: PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+        )
+        let coordinator = fixture.coordinator
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            settle: .turns(40)
+        ) { screen in
+            try activateAccessibilityElement(labelled: "Already climbing? Sign in", in: screen.root)
+            try await screen.settle(.until { _ in coordinator.step == .auth })
+            #expect(fixture.ledger.progress().pendingPurchase == nil)
         }
     }
 

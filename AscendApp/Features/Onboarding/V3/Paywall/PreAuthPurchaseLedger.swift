@@ -12,9 +12,19 @@ struct PreAuthPaywallProgress: Codable, Equatable, Sendable {
     /// until sign-in moves it onto the account, and a relaunch before then opens on sign-in.
     var purchase: PreAuthPurchase?
 
-    /// The product Apple is still deciding on. While it is here nothing else can be bought, so a
-    /// relaunch cannot turn one purchase into two.
-    var pendingProductID: String?
+    /// What Apple is still deciding on. While it is here nothing else can be bought, so a relaunch
+    /// cannot turn one purchase into two.
+    var pendingPurchase: PreAuthPendingPurchase?
+}
+
+struct PreAuthPendingPurchase: Codable, Equatable, Sendable {
+    enum Hold: String, Codable, Sendable {
+        case askToBuy
+        case unconfirmedCharge
+    }
+
+    var productID: String
+    var hold: Hold
 }
 
 struct PreAuthPurchase: Codable, Equatable, Sendable {
@@ -73,12 +83,12 @@ struct PreAuthPurchaseLedger: @unchecked Sendable {
         update { $0.purchase = purchase }
     }
 
-    func markPurchasePending(productID: String) {
-        update { $0.pendingProductID = productID }
+    func markPurchasePending(_ pending: PreAuthPendingPurchase) {
+        update { $0.pendingPurchase = pending }
     }
 
     func clearPendingPurchase() {
-        update { $0.pendingProductID = nil }
+        update { $0.pendingPurchase = nil }
     }
 
     /// The purchase has moved onto the account, or the climber is no longer in this flow.

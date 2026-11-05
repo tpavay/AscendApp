@@ -221,7 +221,10 @@ struct OnboardingPaywallScreen: View {
 
             // A climber with an account never has to pay to reach sign-in: the same exit the
             // welcome screen offers, into the same returning-mode sign-in.
-            Button("Already climbing? Sign in") { coordinator.go(to: .auth) }
+            Button("Already climbing? Sign in") {
+                model.releaseUnconfirmedPurchase()
+                coordinator.go(to: .auth)
+            }
                 .buttonStyle(.plain)
                 .frame(minHeight: 36)
                 .disabled(model.isBusy)
