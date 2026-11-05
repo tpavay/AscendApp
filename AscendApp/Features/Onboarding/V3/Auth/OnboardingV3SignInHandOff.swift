@@ -31,11 +31,12 @@ struct OnboardingV3HandOffIntent: @unchecked Sendable {
 /// 2. An anonymous purchase moves onto the account, whatever route led here - bought then signed in,
 ///    restored, the gift, or "Already climbing? Sign in" - and the purchase ledger is cleared
 ///    afterwards, because a signed-in climber has nothing left to resume.
-/// 3. The answers the climber gave are written to the profile, filling blanks only, then the Health
-///    history the climber asked for is imported, and the answers are dropped from the device. Health
-///    authorization and the history read happened before sign-in; the import itself needs an
-///    account, so it waits for this step. The ongoing import (`syncNow()`) is the authenticated
-///    bootstrap's own work and is not started here.
+/// 3. The answers the climber gave are written to the profile, filling blanks only, then the
+///    days-a-week target is saved, the Health history the climber asked for is imported, and the
+///    answers are dropped from the device. Health authorization and the history read happened
+///    before sign-in; the import itself needs an account, so it waits for this step. The ongoing
+///    import (`syncNow()`) is the authenticated bootstrap's own work and is not started here.
+/// 4. The weekly reminder is put back from the target the account holds.
 ///
 /// Step 3 is the only one that writes a profile, and it sits behind
 /// `onboarding_answers_profile_write_enabled`: switched off, the answers stay on the device exactly

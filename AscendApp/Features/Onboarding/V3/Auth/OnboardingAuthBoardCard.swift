@@ -2,9 +2,9 @@ import SwiftUI
 
 /// One of the three example climbers the sign-in board shows on top.
 ///
-/// They are fixed: the board is a picture of what the weekly Steps board looks like, drawn with the
-/// same example climbers and avatars the earlier onboarding already ships. No read, no network and
-/// no real climber is involved, so there is no identity to moderate and nothing to go stale.
+/// They are fixed: the board is a picture of what the weekly Steps board looks like, drawn with
+/// avatars the earlier onboarding already ships. No read, no network and no real climber is
+/// involved, so there is no identity to moderate and nothing to go stale.
 struct OnboardingAuthExampleClimber: Equatable, Identifiable {
     let rank: Int
     let name: String
