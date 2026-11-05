@@ -621,6 +621,33 @@ struct AppleHealthImportServiceTests {
         #expect(harness.service.isAutoImportEnabled)
     }
 
+    @Test(arguments: [false, true])
+    func nothingImportsInTheBackgroundUntilTheClimberPicks(choosesAutomatic: Bool) async throws {
+        let harness = try AppleHealthImportHarness()
+        harness.addWorkout(daysAgo: 1)
+        harness.addWorkout(daysAgo: 4)
+        let connect = AppleHealthConnectViewModel(authorization: harness.authorization, importService: harness.service)
+        await connect.requestAccess()
+        #expect(connect.step == .choose)
+
+        await harness.service.syncNow()
+        harness.addWorkout(daysAgo: 0.02)
+        let observed = LockedFlag()
+        harness.reader.deliverObserverNotification { observed.set() }
+        try await waitUntil { observed.isSet }
+
+        #expect(try harness.climbs().isEmpty, "a foreground or a new workout does not choose for the climber")
+        #expect(try harness.records().count == 3, "new workouts still wait in the list")
+
+        connect.choosesAutomatic = choosesAutomatic
+        await connect.confirmChoice()
+        #expect(try harness.climbs().count == (choosesAutomatic ? 3 : 0))
+
+        harness.addWorkout(daysAgo: 0.01)
+        await harness.service.syncNow()
+        #expect(try harness.climbs().count == (choosesAutomatic ? 4 : 0), "after the choice, the choice is what runs")
+    }
+
     @Test
     func autoImportDefaultsOnAndIsPerClimber() throws {
         let harness = try AppleHealthImportHarness()

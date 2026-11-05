@@ -23,11 +23,13 @@ final class ImportedClimbQuickEditViewModel {
 
     @ObservationIgnored private let originalSteps: Int
     @ObservationIgnored private let photoService: PhotoService
+    @ObservationIgnored private let uploadMedia: @MainActor ([SelectedPhotoItem]) async throws -> [Photo]
     @ObservationIgnored private let applyUpdate: @MainActor (ModelContext, LeaderboardWorkoutSnapshot, Workout) throws -> Void
 
     init(
         workout: Workout,
         photoService: PhotoService = PhotoService(),
+        uploadMedia: (@MainActor ([SelectedPhotoItem]) async throws -> [Photo])? = nil,
         applyUpdate: @escaping @MainActor (ModelContext, LeaderboardWorkoutSnapshot, Workout) throws -> Void = { context, before, workout in
             try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: context,
@@ -38,6 +40,7 @@ final class ImportedClimbQuickEditViewModel {
     ) {
         self.workout = workout
         self.photoService = photoService
+        self.uploadMedia = uploadMedia ?? { try await photoService.uploadSelectedPhotos($0) }
         self.applyUpdate = applyUpdate
         self.originalSteps = workout.steps
         self.stepsText = workout.recordedSteps.map(String.init) ?? ""
@@ -94,6 +97,19 @@ final class ImportedClimbQuickEditViewModel {
 
     var canFinish: Bool { refusalMessage == nil && !isSaving }
 
+    /// Whether the climb can take another photo. A full climb has nothing for the picker to offer.
+    var hasRoomForPhotos: Bool {
+        workout.photos.count < SelectedMediaPreparationService.maximumMediaCount
+    }
+
+    var photoButtonTitle: String {
+        guard hasRoomForPhotos else {
+            let limit = SelectedMediaPreparationService.maximumMediaCount
+            return "\(workout.photos.count) of \(limit) photos"
+        }
+        return selectedPhotos.isEmpty ? "Photo" : "Photo · \(selectedPhotos.count)"
+    }
+
     // MARK: - Actions
 
     /// Applies what was typed and saves. Returns whether the sheet can close.
@@ -113,7 +129,7 @@ final class ImportedClimbQuickEditViewModel {
             let room = max(SelectedMediaPreparationService.maximumMediaCount - workout.photos.count, 0)
             let uploadable = Array(selectedPhotos.prefix(room))
             if !uploadable.isEmpty {
-                uploaded = try await photoService.uploadSelectedPhotos(uploadable)
+                uploaded = try await uploadMedia(uploadable)
             }
 
             if stepsChanged {

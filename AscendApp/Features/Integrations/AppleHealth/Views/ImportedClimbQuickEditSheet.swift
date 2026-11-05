@@ -16,6 +16,7 @@ struct ImportedClimbQuickEditSheet: View {
     /// Mounts the steps field. Focus cannot do it: `@FocusState` drops a value no mounted view is
     /// bound to, so the field gets focus once it is on screen.
     @State private var isEditingSteps = false
+    @State private var isRemoving = false
 
     private let importService: AppleHealthImportService
 
@@ -23,7 +24,11 @@ struct ImportedClimbQuickEditSheet: View {
         workout: Workout,
         importService: AppleHealthImportService = .shared
     ) {
-        _viewModel = State(initialValue: ImportedClimbQuickEditViewModel(workout: workout))
+        self.init(viewModel: ImportedClimbQuickEditViewModel(workout: workout), importService: importService)
+    }
+
+    init(viewModel: ImportedClimbQuickEditViewModel, importService: AppleHealthImportService) {
+        _viewModel = State(initialValue: viewModel)
         self.importService = importService
     }
 
@@ -63,9 +68,11 @@ struct ImportedClimbQuickEditSheet: View {
 
             HStack(spacing: 12) {
                 optionButton(
-                    title: viewModel.selectedPhotos.isEmpty ? "Photo" : "Photo · \(viewModel.selectedPhotos.count)",
+                    title: viewModel.photoButtonTitle,
                     systemImage: "camera"
                 ) { activeSheet = .photo }
+                .disabled(!viewModel.hasRoomForPhotos)
+                .opacity(viewModel.hasRoomForPhotos ? 1 : 0.5)
 
                 optionButton(
                     title: viewModel.effortRating.map { "Effort · \(Int($0))" } ?? "Effort",
@@ -80,6 +87,7 @@ struct ImportedClimbQuickEditSheet: View {
             doneButton
 
             Button {
+                isRemoving = true
                 Task {
                     await importService.removeImportedClimb(workoutID: viewModel.workout.id)
                     dismiss()
@@ -93,6 +101,7 @@ struct ImportedClimbQuickEditSheet: View {
             }
             .buttonStyle(.plain)
         }
+        .disabled(viewModel.isSaving || isRemoving)
         .padding(.horizontal, 20)
         .padding(.top, 24)
         .padding(.bottom, 12)
