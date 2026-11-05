@@ -20,6 +20,22 @@
       "startsOn": "2026-11-01",
       "endsBefore": "2026-12-01",
       "showcase": ["harvest_gourd", "roast_turkey", "pumpkin_pie"]
+    },
+    {
+      "id": "winter-lights-2026",
+      "title": "Winter Lights",
+      "monthName": "December",
+      "startsOn": "2026-12-01",
+      "endsBefore": "2027-01-01",
+      "showcase": ["candy_cane", "gift_box", "winter_hat"]
+    },
+    {
+      "id": "new-year-2027",
+      "title": "New Year",
+      "monthName": "January",
+      "startsOn": "2027-01-01",
+      "endsBefore": "2027-02-01",
+      "showcase": ["party_hat", "sparkler", "gold_trophy"]
     }
   ],
   "items": [
@@ -294,6 +310,136 @@
         "event": "thanksgiving-2026",
         "metric": "steps",
         "threshold": 50000
+      }
+    },
+    {
+      "id": "candy_cane",
+      "slot": "carry",
+      "shape": "candy_cane",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "winter-lights-2026",
+        "metric": "visits",
+        "threshold": 1
+      }
+    },
+    {
+      "id": "gift_box",
+      "slot": "carry",
+      "shape": "gift_box",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "winter-lights-2026",
+        "metric": "climbs",
+        "threshold": 1
+      }
+    },
+    {
+      "id": "winter_hat",
+      "slot": "head",
+      "shape": "winter_hat",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "winter-lights-2026",
+        "metric": "climbs",
+        "threshold": 3
+      }
+    },
+    {
+      "id": "ornament",
+      "slot": "carry",
+      "shape": "ornament",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "winter-lights-2026",
+        "metric": "climbs",
+        "threshold": 10
+      }
+    },
+    {
+      "id": "giant_ornament",
+      "slot": "carry",
+      "shape": "giant_ornament",
+      "rarity": "legendary",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "winter-lights-2026",
+        "metric": "steps",
+        "threshold": 100000
+      }
+    },
+    {
+      "id": "party_hat",
+      "slot": "head",
+      "shape": "party_hat",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "new-year-2027",
+        "metric": "visits",
+        "threshold": 1
+      }
+    },
+    {
+      "id": "sparkler",
+      "slot": "carry",
+      "shape": "sparkler",
+      "rarity": "core",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "new-year-2027",
+        "metric": "climbs",
+        "threshold": 1
+      }
+    },
+    {
+      "id": "fireworks_rocket",
+      "slot": "carry",
+      "shape": "fireworks_rocket",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "new-year-2027",
+        "metric": "climbs",
+        "threshold": 10
+      }
+    },
+    {
+      "id": "gold_trophy",
+      "slot": "carry",
+      "shape": "gold_trophy",
+      "rarity": "rare",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "new-year-2027",
+        "metric": "days",
+        "threshold": 20
+      }
+    },
+    {
+      "id": "giant_trophy",
+      "slot": "carry",
+      "shape": "giant_trophy",
+      "rarity": "legendary",
+      "status": "live",
+      "earn": {
+        "path": "event",
+        "event": "new-year-2027",
+        "metric": "steps",
+        "threshold": 100000
       }
     }
   ]

@@ -28,6 +28,13 @@ import * as admin from "firebase-admin";
 export const PUBLIC_CITY_CLIMBER_COUNTS_COLLECTION =
   "public_city_climber_counts";
 export const PUBLIC_CITY_CLIMBER_COUNTS_SCHEMA_VERSION = 1;
+/**
+ * The document that says a run has happened. A city with no climber has no
+ * document, so "no document" alone cannot tell "nobody here" from "this has
+ * never run"; the app reads this one beside the city's and treats a missing
+ * summary as an answer it does not have, never as zero.
+ */
+export const PUBLIC_CITY_CLIMBER_COUNTS_SUMMARY_ID = "_summary";
 
 const LEADERBOARD_STATS_COLLECTION = "leaderboard_stats";
 const ALL_TIME_FRAME = "all_time";
@@ -144,6 +151,7 @@ export interface CityCountsPort {
   readAllTimeRows(): Promise<CityStatsRow[]>;
   readPublishedKeys(): Promise<string[]>;
   writeCounts(tallies: CityTally[]): Promise<void>;
+  writeSummary(summary: CityCountsSummary): Promise<void>;
   deleteCounts(keys: string[]): Promise<void>;
 }
 
@@ -171,11 +179,14 @@ export async function refreshCityClimberCounts(
   await port.writeCounts(tallies);
   await port.deleteCounts(stale);
 
-  return {
+  const summary = {
     cities: tallies.length,
     climbers: tallies.reduce((sum, tally) => sum + tally.climbers, 0),
     deleted: stale.length,
   };
+  // Last, so a summary is only ever there once the counts it vouches for are.
+  await port.writeSummary(summary);
+  return summary;
 }
 
 /**
@@ -212,7 +223,9 @@ export function makeAdminCityCountsPort(): CityCountsPort {
 
     async readPublishedKeys() {
       const snapshot = await counts.select().get();
-      return snapshot.docs.map((document) => document.id);
+      return snapshot.docs
+        .map((document) => document.id)
+        .filter((id) => id !== PUBLIC_CITY_CLIMBER_COUNTS_SUMMARY_ID);
     },
 
     async writeCounts(tallies) {
@@ -230,6 +243,15 @@ export function makeAdminCityCountsPort(): CityCountsPort {
         }
         await batch.commit();
       }
+    },
+
+    async writeSummary(summary) {
+      await counts.doc(PUBLIC_CITY_CLIMBER_COUNTS_SUMMARY_ID).set({
+        schemaVersion: PUBLIC_CITY_CLIMBER_COUNTS_SCHEMA_VERSION,
+        cities: summary.cities,
+        climbers: summary.climbers,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     },
 
     async deleteCounts(keys) {

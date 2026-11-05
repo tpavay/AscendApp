@@ -9,6 +9,18 @@ Carried, head and costume items are shapes of their own riding the skeleton; kit
 A printed tank was tried and dropped: on the athlete it read as one colour, not a design.
 Each slot is stored under its own name on `users/{uid}/athlete_look/current`, and `firestore.rules` lists the items each slot accepts.
 
+## December and January
+
+The next two events ship their gear art in 1.3.0, ahead of their dates, because an item whose shape an installed build cannot draw is skipped silently (`UnlockTests.anItemThisBuildCannotDrawIsSkippedNotFatal`).
+Winter Lights (`winter-lights-2026`, December) awards the candy cane for opening Ascend, the gift box, the winter hat, the ornament and the giant ornament.
+New Year (`new-year-2027`, January) awards the party hat, the sparkler, the rocket, the gold trophy and the giant trophy.
+Each is built in `MountainGearModel+Winter.swift` from flat colours and metals only, so it needs no texture and no new material, and its picture is in `Assets.xcassets/Gear`.
+`firestore.rules` already lists the shapes, so the rules deploy ahead of the build that offers them.
+
+The schedule has to stay full: `scripts/test/unlock-catalog-schedule.test.mjs` goes red when the hosted catalogue has any day uncovered in the next 45 days.
+Onboarding's screen 11 reads the same file (`OnboardingMonthlyEventModel`): the event that is on, an event starting within seven days, or a neutral screen with no gear and nothing dated.
+Adding a month is an edit to `web/public/unlocks/catalog.json` and its bundled copy plus a Hosting deploy, and any new shape is a build that ships at least one release before the event opens.
+
 ## What a climber sees
 
 The design is the captain's round-20 approval of 2026-10-02; the build handoff with its reference prototype is kept with the firstmate design record.

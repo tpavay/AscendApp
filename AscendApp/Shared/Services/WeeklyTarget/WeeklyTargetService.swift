@@ -48,7 +48,7 @@ struct WeeklyTargetService {
     @discardableResult
     func reconcile(for userId: String) async -> WeeklyTarget? {
         if store.hasUnsyncedChange(for: userId) {
-            await pushIfNeeded(for: userId)
+            _ = await pushIfNeeded(for: userId)
         } else {
             // A read that failed is not an account with no target, so only an answer is adopted.
             do {

@@ -141,6 +141,16 @@ struct MountainGearModel: Sendable {
         case .pumpkinPie: pie()
         case .goldenTurkey: turkey(skin: .metal(gold, roughness: 0.22))
         case .turkeyGiant: turkey(skin: .color(roastBrown, roughness: 0.32), scale: 2.4)
+        case .candyCane: candyCane()
+        case .giftBox: giftBox()
+        case .winterHat: winterHat()
+        case .ornament: ornament()
+        case .giantOrnament: ornament(scale: 3.4)
+        case .partyHat: partyHat()
+        case .sparkler: sparkler()
+        case .fireworksRocket: fireworksRocket()
+        case .goldTrophy: trophy()
+        case .giantTrophy: trophy(scale: 2.8)
         }
     }
 

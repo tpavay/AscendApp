@@ -4,6 +4,7 @@ import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {
   CityCountsPort,
+  CityCountsSummary,
   CityStatsRow,
   CityTally,
   cityCountKey,
@@ -84,6 +85,8 @@ test("rows with no usable city are not counted", () => {
 class FakePort implements CityCountsPort {
   written: CityTally[] = [];
   deleted: string[] = [];
+  summary: CityCountsSummary | null = null;
+  order: string[] = [];
 
   constructor(
     private readonly rows: CityStatsRow[],
@@ -100,6 +103,12 @@ class FakePort implements CityCountsPort {
 
   async writeCounts(tallies: CityTally[]): Promise<void> {
     this.written = tallies;
+    this.order.push("counts");
+  }
+
+  async writeSummary(summary: CityCountsSummary): Promise<void> {
+    this.summary = summary;
+    this.order.push("summary");
   }
 
   async deleteCounts(keys: string[]): Promise<void> {
@@ -118,4 +127,13 @@ test("a run writes current counts and removes a city nobody climbs in", async ()
   assert.deepEqual(summary, {cities: 1, climbers: 2, deleted: 1});
   assert.deepEqual(port.deleted, ["US__tx__austin"]);
   assert.equal(port.written[0]?.climbers, 2);
+  assert.deepEqual(port.summary, summary);
+});
+
+test("the summary is written last, after the counts it vouches for", async () => {
+  const port = new FakePort([row("a", "Chicago")], []);
+
+  await refreshCityClimberCounts(port);
+
+  assert.deepEqual(port.order, ["counts", "summary"]);
 });
