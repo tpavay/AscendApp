@@ -14,6 +14,11 @@ struct OnboardingPaywallScreen: View {
     /// The close button's delay, from the design.
     static let closeDelay: Duration = .seconds(3)
     private static let perkFadeHeight: CGFloat = 28
+    private static let closeTopPadding: CGFloat = 8
+    private static let closeSize: CGFloat = 44
+    /// The page stops here, so nothing scrolls under the close button or into the status bar.
+    private static let pageTopInset = closeTopPadding + closeSize
+    private static let pageFadeHeight: CGFloat = 16
 
     @State private var showsClose = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -30,48 +35,39 @@ struct OnboardingPaywallScreen: View {
                 hero(width: proxy.size.width, height: heroHeight)
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        headline
-                            .padding(.top, max(heroHeight - 110, 70))
+                    VStack(spacing: 20) {
+                        VStack(alignment: .leading, spacing: 20) {
+                            headline
+                                .padding(.top, max(heroHeight - 110, 70) - Self.pageTopInset)
 
-                        perks
+                            perks
+                        }
+                        .padding(.horizontal, 22)
 
                         // At an accessibility size the plans and the button scroll with the page,
                         // because pinned they would cover it.
                         if dynamicTypeSize.isAccessibilitySize {
-                            planCards
-                            purchaseControls
+                            purchaseArea
                         }
                     }
-                    .padding(.horizontal, 22)
                     .padding(.bottom, 16)
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .scrollIndicators(.hidden)
+                .mask {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: Self.pageFadeHeight)
+                        Color.black
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+                }
+                .padding(.top, Self.pageTopInset)
             }
             .overlay(alignment: .topLeading) { closeButton }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !dynamicTypeSize.isAccessibilitySize {
-                    VStack(spacing: 8) {
-                        planCards
-                        purchaseControls
-                    }
-                    .padding(.horizontal, 22)
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
-                    // Opaque from the first card down: a locked card is dimmed, so it is translucent,
-                    // and the message for a store with no plans has no card at all. The perks fade
-                    // out above the pinned area instead of showing through it.
-                    .background {
-                        VStack(spacing: 0) {
-                            LinearGradient(colors: [.black.opacity(0), .black], startPoint: .top, endPoint: .bottom)
-                                .frame(height: Self.perkFadeHeight)
-                            Color.black
-                        }
-                        .padding(.top, -Self.perkFadeHeight)
-                        .ignoresSafeArea(edges: .bottom)
-                        .allowsHitTesting(false)
-                    }
+                    purchaseArea
                 }
             }
         }
@@ -150,6 +146,28 @@ struct OnboardingPaywallScreen: View {
         }
     }
 
+    /// Opaque from the first card down: a locked card is dimmed, so it is translucent, and the message
+    /// for a store with no plans has no card at all. Whatever passes behind it, the perks or the
+    /// photograph, fades out above it instead of showing through.
+    private var purchaseArea: some View {
+        VStack(spacing: 8) {
+            planCards
+            purchaseControls
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 8)
+        .background {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.black.opacity(0), .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: Self.perkFadeHeight)
+                Color.black
+            }
+            .padding(.top, -Self.perkFadeHeight)
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+        }
+    }
+
     @ViewBuilder
     private var planCards: some View {
         switch model.loadState {
@@ -225,8 +243,8 @@ struct OnboardingPaywallScreen: View {
     private var footer: some View {
         VStack(spacing: 0) {
             ViewThatFits(in: .horizontal) {
-                footerRow
-                VStack(spacing: 0) { footerRow }
+                HStack(spacing: 18) { footerItems }
+                VStack(spacing: 0) { footerItems }
             }
 
             // A climber with an account never has to pay to reach sign-in: the same exit the
@@ -239,24 +257,27 @@ struct OnboardingPaywallScreen: View {
                 .frame(minHeight: 36)
                 .disabled(model.isBusy)
         }
+        .multilineTextAlignment(.center)
         .paywallText(.semiBold, size: 12, relativeTo: .caption)
         .foregroundStyle(Color(hex: "8E8E8E"))
     }
 
-    private var footerRow: some View {
-        HStack(spacing: 18) {
-            // Cancelling is only a thing for the plan that renews.
-            Text(model.selectedPlan?.billing == .oneTime ? "Pay once. No renewal." : "Cancel anytime")
+    @ViewBuilder
+    private var footerItems: some View {
+        // Cancelling is only a thing for the plan that renews.
+        Text(model.selectedPlan?.billing == .oneTime ? "Pay once. No renewal." : "Cancel anytime")
+            .frame(minHeight: 36)
 
-            Button(model.activity == .restoring ? "Restoring..." : "Restore") {
-                Task { await restore() }
-            }
-            .disabled(model.isBusy)
-
-            Link("Terms", destination: URL(string: "https://ascendstepper.com/terms")!)
-            Link("Privacy", destination: URL(string: "https://ascendstepper.com/privacy")!)
+        Button(model.activity == .restoring ? "Restoring..." : "Restore") {
+            Task { await restore() }
         }
         .frame(minHeight: 36)
+        .disabled(model.isBusy)
+
+        Link("Terms", destination: URL(string: "https://ascendstepper.com/terms")!)
+            .frame(minHeight: 36)
+        Link("Privacy", destination: URL(string: "https://ascendstepper.com/privacy")!)
+            .frame(minHeight: 36)
     }
 
     @ViewBuilder
@@ -268,13 +289,13 @@ struct OnboardingPaywallScreen: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: Self.closeSize, height: Self.closeSize)
                     .background(Color.black.opacity(0.5), in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
             .padding(.leading, 20)
-            .padding(.top, 8)
+            .padding(.top, Self.closeTopPadding)
             .transition(.opacity)
         }
     }
@@ -411,9 +432,17 @@ struct PaywallPerk: Equatable {
 
 private struct PaywallPerkRow: View {
     let perk: PaywallPerk
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// At an accessibility size the text needs the art's column, or its longest words break.
+    private var layout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 14))
+    }
 
     var body: some View {
-        HStack(spacing: 14) {
+        layout {
             art
                 .frame(width: 52, height: 52)
                 .background(Color(hex: "141414"))

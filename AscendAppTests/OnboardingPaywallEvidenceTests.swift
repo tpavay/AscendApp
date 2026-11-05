@@ -207,6 +207,8 @@ struct OnboardingPaywallEvidenceTests {
             for line in ["welcome offer", "$9.99"] {
                 #expect(copy.contains(line), "missing \(line): \(copy)")
             }
+            let drawn = try await screen.recognizedText(scale: 3)
+            #expect(drawn.contains("66%"), "the stamp should draw its whole figure: \(drawn)")
             try screen.photograph(named: "onboarding-v3-gift-open-accessibility")
         }
     }
@@ -471,6 +473,115 @@ struct OnboardingPaywallEvidenceTests {
             #expect(!drawn.contains(perk.subtitle.lowercased()), "\(drawn)")
             try screen.photograph(named: "onboarding-v3-paywall-locked-\(Int(size.height))")
         }
+    }
+
+    /// Rendered glyphs, because the accessibility tree holds a word broken across two lines whole.
+    /// The window is tall enough to draw the whole page at once; the width is what breaks a word.
+    @Test(arguments: [CGFloat(375), 402], [DynamicTypeSize.accessibility3, .accessibility5])
+    func noWordBreaksOnThePaywallAtAnAccessibilityTextSize(width: CGFloat, textSize: DynamicTypeSize) async throws {
+        let fixture = await fixture(startingAt: .paywall)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(\.dynamicTypeSize, textSize),
+            size: CGSize(width: width, height: 3200),
+            settle: .turns(40)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("privacy") })
+            try await Task.sleep(for: .seconds(1.2))
+
+            let drawn = try await screen.recognizedText(scale: 2)
+            for word in [
+                "improving", "somewhere", "yearly", "best value", "$29.99", "lifetime", "renewal", "$49.99",
+                "cancel", "anytime", "restore", "terms", "privacy"
+            ] {
+                #expect(drawn.contains(word), "\(word) did not draw whole: \(drawn)")
+            }
+            try screen.photograph(named: "onboarding-v3-paywall-words-\(Int(width))-\(textSize)")
+        }
+    }
+
+    /// Scrolled to its end, the page has to stop below the close button rather than pass under it
+    /// and on into the status bar.
+    @Test(arguments: [CGSize(width: 402, height: 874), CGSize(width: 375, height: 667)])
+    func scrollingThePerksKeepsTheHeadlineClearOfTheCloseButton(size: CGSize) async throws {
+        let fixture = await fixture(startingAt: .paywall)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            size: size,
+            settle: .turns(40)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("close") })
+            let close = try #require(try await screen.frame(ofElementLabelled: "Close"))
+
+            let page = try #require(screen.root.descendants(of: UIScrollView.self).first { !$0.bounds.isEmpty })
+            let end = page.contentSize.height + page.adjustedContentInset.bottom - page.bounds.height
+            #expect(end > 0, "the page should scroll at this size")
+            page.setContentOffset(CGPoint(x: 0, y: end), animated: false)
+            try await screen.settle()
+            try await Task.sleep(for: .seconds(1.2))
+
+            let pageTop = page.convert(page.bounds, to: nil).minY
+            #expect(pageTop >= close.maxY, "\(pageTop) starts above the close button's bottom, \(close.maxY)")
+            if size == Self.smallestPhone {
+                // Only here is the page long enough to carry the last line of the headline that far.
+                let drawn = try await screen.recognizedText(scale: 2)
+                #expect(!drawn.contains("again"), "\(drawn)")
+            }
+            try screen.photograph(named: "onboarding-v3-paywall-scrolled-\(Int(size.height))")
+        }
+    }
+
+    /// At an accessibility size the plans scroll over the photograph, and dimmed cards are translucent.
+    @Test
+    func aLockedPlanCardScrolledOverThePhotographStaysReadable() async throws {
+        let fixture = await fixture(
+            startingAt: .paywall,
+            pending: PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+        )
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(\.dynamicTypeSize, .accessibility3),
+            size: Self.smallestPhone,
+            settle: .turns(40)
+        ) { screen in
+            let page = try #require(screen.root.descendants(of: UIScrollView.self).first { !$0.bounds.isEmpty })
+            // Beside the card, in the margin no text uses, and below where the page starts.
+            let photoBand = CGRect(x: 0, y: 150, width: 18, height: 60)
+            let brightest: @MainActor () throws -> Double = {
+                try screen.withPixels { pixels in
+                    pixels.pixels(in: photoBand).map(\.luminance).max() ?? 0
+                }
+            }
+            _ = try await screen.copy(until: { $0.contains("never climb") })
+            #expect(try brightest() > 30, "this band should hold the photograph before the card arrives")
+
+            try await scrollLockedCard(to: photoBand.minY - 20, on: page, screen: screen)
+            #expect(try brightest() < 30, "the photograph shows beside a locked card")
+            let drawn = try await screen.recognizedText(scale: 2)
+            #expect(drawn.contains("$29.99"), "\(drawn)")
+            try screen.photograph(named: "onboarding-v3-paywall-locked-accessibility-scrolled")
+        }
+    }
+
+    /// Scrolls the page until the yearly card's top sits at `wantedTop`.
+    private func scrollLockedCard(to wantedTop: CGFloat, on page: UIScrollView, screen: HostedScreen) async throws {
+        for _ in 0..<12 {
+            guard let card = try await screen.text(containing: "Yearly, best value", reading: 20)?.frame else {
+                page.setContentOffset(CGPoint(x: 0, y: page.contentOffset.y + 300), animated: false)
+                try await screen.settle()
+                continue
+            }
+            if abs(card.minY - wantedTop) < 2 { return }
+            page.setContentOffset(CGPoint(x: 0, y: page.contentOffset.y + card.minY - wantedTop), animated: false)
+            try await screen.settle()
+        }
+        Issue.record("the yearly card never reached the photograph")
     }
 
     @Test

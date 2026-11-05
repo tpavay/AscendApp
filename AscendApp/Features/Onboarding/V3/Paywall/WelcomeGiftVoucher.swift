@@ -107,6 +107,10 @@ struct WelcomeGiftVoucher: View {
                 Text("OFF")
                     .paywallText(.black, size: 12, tracking: 0.1, relativeTo: .caption)
             }
+            // The circle stays this size at every text size, so the figure shrinks to fit it.
+            .lineLimit(1)
+            .minimumScaleFactor(0.3)
+            .padding(10)
             .foregroundStyle(OnboardingV3Palette.accent)
             .frame(width: 78, height: 78)
             .background(Color(hex: "0A0A0A"), in: Circle())
