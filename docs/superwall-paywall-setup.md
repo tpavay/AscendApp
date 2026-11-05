@@ -39,9 +39,10 @@ Monthly is deliberately not audited, so taking it out of the offering reports no
 Until an environment's `default` offering carries its Lifetime product, every 1.2.3 launch there reports `monetization_offering_mismatch` once, and that report is true: attach the product, do not silence the audit.
 
 `ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID` stays a build setting that the app itself no longer reads.
-The deploy guards read every `ASCEND_REVENUECAT_*_PRODUCT_ID` to decide which products the server allowlist must keep (`docs/functions-secret-versions.md`) and which products a live paywall may offer (`scripts/validate-superwall-live-artifact.mjs`), and Monthly is still on sale, so it stays in both sets.
+The deploy guard reads every `ASCEND_REVENUECAT_*_PRODUCT_ID` to decide which products the server allowlist must keep (`docs/functions-secret-versions.md`), and `scripts/validate-superwall-live-artifact.mjs` reads the Yearly, Lifetime and Monthly settings to decide which products a live paywall may offer.
+Monthly is still on sale, so it stays in both sets.
 
-There is no weekly launch product and no separate discounted launch offer.
+There is no weekly launch product, and the only discounted plan is the pre-sign-in welcome gift described below.
 Do not add either to a Superwall campaign, Hosting content, or release checklist.
 
 ## Lifetime
@@ -97,13 +98,18 @@ What the validator still refuses is a paywall that offers nothing, or one that s
 The 1.3.0 onboarding (`onboarding_v3_enabled`) sells before sign-in, behind the kill switch `preauth_paywall_enabled`.
 Screen 13 is a native paywall with Yearly and, as the smaller card under it, Lifetime.
 Closing it (the X appears after three seconds) always opens screen 14, the welcome gift, for as long as the climber holds no entitlement.
+The X is not drawn while the store has not published the welcome product, because nothing would be behind it.
+The paywall also carries the welcome screen's sign-in exit, so a climber with an account never has to pay to reach sign-in.
 `AscendApp/Features/Onboarding/V3/Paywall/` owns both screens, and the native screen is the shipped design: the `onboarding_paywall` Superwall placement is kept only for purchase and restore attribution, so a campaign on it never covers the design.
 
 How the purchase works:
 
 - A signed-out install is an anonymous RevenueCat customer, and `RevenueCatNativePaywallPlanProvider(allowsAnonymousPurchase: true)` is the only purchase path that may buy as one. The signed-in gate still refuses a purchase with no uid.
 - `PreAuthPurchaseLedger` remembers on the device that the paywall was reached and what was bought. A relaunch opens the flow on the paywall (`OnboardingV3Coordinator(startingAt:)`) or, once bought, on sign-in.
-- After sign-in, `PreAuthPurchaseTransfer.completeAfterSignIn()` moves the purchase onto the uid: `logIn` already carries it for a uid RevenueCat has never seen, and for a known uid one restore moves it. It then calls `reconcileAppAccess` until the server answers `active`, because a client cannot read `users/{uid}/entitlements/app_access` itself.
+- The ledger also holds what Apple has not settled, and nothing can be bought while it does, because another product would be a second charge.
+  The sign-in exit releases an Ask to Buy, which has charged nothing; an unconfirmed charge stays held until sign-in completes.
+- After sign-in, `PreAuthPurchaseTransfer.completeAfterSignIn()` moves the purchase onto the uid: `logIn` already carries it for a uid RevenueCat has never seen, and for a known uid one restore moves it. It covers an unconfirmed charge the same way, then calls `reconcileAppAccess` up to six times until the server answers `active`, because a client cannot read `users/{uid}/entitlements/app_access` itself.
+  A grant still pending after that is left to the reconciliation that runs from launch and foreground.
 - Prices, the monthly equivalent and the discount percentage come from StoreKit. The percentage rounds down.
 
 The welcome product, `ascend_yearly_welcome` (`ascend_staging_yearly_welcome` in Debug and Staging, `ASCEND_REVENUECAT_WELCOME_PRODUCT_ID`):
