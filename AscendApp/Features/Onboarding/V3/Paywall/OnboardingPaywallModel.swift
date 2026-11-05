@@ -314,7 +314,14 @@ final class OnboardingPaywallModel {
         resetNotice()
     }
 
-    /// Ends the hold. Also what the sign-in exit calls, so a marker it leaves behind cannot lock the
+    /// The sign-in exit lets go of an Ask to Buy, which has charged nothing. A charge stays held, so
+    /// leaving sign-in without signing in cannot reopen the buy button.
+    func releaseAskToBuyHold() {
+        guard unconfirmedPurchase?.pending.hold == .askToBuy else { return }
+        releaseUnconfirmedPurchase()
+    }
+
+    /// Ends the hold, in the ledger and here. Sign-in completing calls it, so a marker cannot lock the
     /// paywall after a later sign-out.
     func releaseUnconfirmedPurchase() {
         ledger.clearPendingPurchase()

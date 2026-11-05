@@ -28,6 +28,7 @@ final class PreAuthPurchaseTransfer {
     private let maxAttempts: Int
     private let retryDelay: Duration
     private let sleep: @Sendable (Duration) async throws -> Void
+    private let releaseUnconfirmedPurchase: @MainActor () -> Void
 
     init(
         ledger: PreAuthPurchaseLedger = PreAuthPurchaseLedger(),
@@ -35,7 +36,10 @@ final class PreAuthPurchaseTransfer {
         invoker: any AppAccessReconciliationInvoking = FunctionsAppAccessReconciliationInvoker(),
         maxAttempts: Int = 6,
         retryDelay: Duration = .seconds(2),
-        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        releaseUnconfirmedPurchase: @escaping @MainActor () -> Void = {
+            OnboardingPaywallModel.live.releaseUnconfirmedPurchase()
+        }
     ) {
         self.ledger = ledger
         self.monetization = monetization
@@ -43,14 +47,14 @@ final class PreAuthPurchaseTransfer {
         self.maxAttempts = maxAttempts
         self.retryDelay = retryDelay
         self.sleep = sleep
+        self.releaseUnconfirmedPurchase = releaseUnconfirmedPurchase
     }
 
     /// Runs after the sign-in has been identified with RevenueCat.
     func completeAfterSignIn() async -> Outcome {
-        guard ledger.progress().purchase != nil else {
-            ledger.clearPendingPurchase()
-            return .nothingToTransfer
-        }
+        releaseUnconfirmedPurchase()
+
+        guard ledger.progress().purchase != nil else { return .nothingToTransfer }
 
         guard await accountHoldsEntitlement() else { return .notTransferred }
 

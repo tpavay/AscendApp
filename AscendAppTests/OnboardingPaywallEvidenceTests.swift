@@ -254,11 +254,57 @@ struct OnboardingPaywallEvidenceTests {
         }
     }
 
+    private func expectThePaywallOffersNoPurchase(on screen: HostedScreen) async throws {
+        let copy = try await screen.copy(until: { $0.contains("check access") })
+        #expect(copy.contains("do not purchase again"), "\(copy)")
+        #expect(!copy.contains("start climbing"), "\(copy)")
+
+        let elements = try await screen.elements()
+        let lifetimeCard = try #require(elements.first { $0.accessibilityLabel?.hasPrefix("Lifetime") == true })
+        #expect(lifetimeCard.accessibilityTraits.contains(.notEnabled))
+    }
+
     @Test
-    func theSignInExitLeavesNoMarkerBehind() async throws {
+    func anUnconfirmedChargeStaysLockedAfterTheSignInExitBackAndARelaunch() async throws {
+        let charge = PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+        let fixture = await fixture(startingAt: .paywall, pending: charge)
+        let coordinator = fixture.coordinator
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            settle: .turns(40)
+        ) { screen in
+            try activateAccessibilityElement(labelled: "Already climbing? Sign in", in: screen.root)
+            try await screen.settle(.until { _ in coordinator.step == .auth })
+            #expect(fixture.ledger.progress().pendingPurchase == charge)
+
+            coordinator.back()
+            try await screen.settle(.until { _ in coordinator.step == .paywall })
+            try await screen.settle(.turns(20))
+            try await expectThePaywallOffersNoPurchase(on: screen)
+        }
+
+        #expect(fixture.ledger.resumeStep == .paywall)
+        let relaunched = await self.fixture(
+            startingAt: .paywall,
+            pending: fixture.ledger.progress().pendingPurchase
+        )
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: relaunched.coordinator)
+                .environment(\.onboardingPaywallModel, relaunched.model),
+            settle: .turns(40)
+        ) { screen in
+            try await expectThePaywallOffersNoPurchase(on: screen)
+        }
+    }
+
+    @Test
+    func theSignInExitLetsGoOfAnAskToBuy() async throws {
         let fixture = await fixture(
             startingAt: .paywall,
-            pending: PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+            pending: PreAuthPendingPurchase(productID: "yearly", hold: .askToBuy)
         )
         let coordinator = fixture.coordinator
 
@@ -270,6 +316,42 @@ struct OnboardingPaywallEvidenceTests {
             try activateAccessibilityElement(labelled: "Already climbing? Sign in", in: screen.root)
             try await screen.settle(.until { _ in coordinator.step == .auth })
             #expect(fixture.ledger.progress().pendingPurchase == nil)
+
+            coordinator.back()
+            try await screen.settle(.until { _ in coordinator.step == .paywall })
+            let copy = try await screen.copy(until: { $0.contains("start climbing") })
+            #expect(!copy.contains("check access"), "\(copy)")
+        }
+    }
+
+    @Test
+    func goingBackToTheGiftWhileHoldingAccessOffersNoSale() async throws {
+        let fixture = await fixture(
+            startingAt: .paywall,
+            giftAlreadySeen: true,
+            purchaseResult: .purchased
+        )
+        let coordinator = fixture.coordinator
+        coordinator.go(to: .exitGift)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            settle: .turns(40)
+        ) { screen in
+            #expect(await fixture.model.claimGift() == .purchased(startedTrial: true))
+            try await screen.settle(.until { _ in coordinator.step == .auth })
+            // Back arrives from a sign-in screen that has finished fading in. Sooner, SwiftUI revives
+            // the gift that is still fading out instead of mounting a new one.
+            try await screen.settle(.turns(20))
+
+            coordinator.back()
+            #expect(coordinator.step == .exitGift)
+            try await screen.settle(.until { _ in coordinator.step == .auth })
+            try await screen.settle(.turns(20))
+
+            let copy = try await screen.copy()
+            #expect(!copy.contains("claim my gift"), "\(copy)")
         }
     }
 

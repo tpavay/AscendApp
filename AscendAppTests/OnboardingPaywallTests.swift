@@ -644,14 +644,44 @@ struct OnboardingPaywallModelTests {
     }
 
     @Test
-    func releasingForTheSignInExitClearsTheMarker() async {
+    func theSignInExitReleasesAnAskToBuyButNotACharge() async {
         let provider = StubPlanProvider(plans: plans())
         provider.purchaseResult = .pending
+        let (askToBuy, askToBuyLedger) = make(provider: provider)
+        await askToBuy.load()
+        _ = await askToBuy.purchaseSelectedPlan()
+
+        askToBuy.releaseAskToBuyHold()
+
+        #expect(askToBuyLedger.progress().pendingPurchase == nil)
+        #expect(!askToBuy.isAwaitingConfirmation)
+
+        provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
+        let (charge, chargeLedger) = make(provider: provider)
+        await charge.load()
+        _ = await charge.purchaseSelectedPlan()
+
+        charge.releaseAskToBuyHold()
+
+        #expect(chargeLedger.progress().pendingPurchase?.hold == .unconfirmedCharge)
+        #expect(charge.locksPurchase)
+    }
+
+    @Test
+    func aCompletedSignInReleasesAnUnconfirmedChargeInTheLedgerAndTheModel() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
         let (model, ledger) = make(provider: provider)
         await model.load()
         _ = await model.purchaseSelectedPlan()
+        let transfer = PreAuthPurchaseTransfer(
+            ledger: ledger,
+            monetization: StubTransferring(),
+            invoker: StubInvoker([.active]),
+            releaseUnconfirmedPurchase: { model.releaseUnconfirmedPurchase() }
+        )
 
-        model.releaseUnconfirmedPurchase()
+        #expect(await transfer.completeAfterSignIn() == .nothingToTransfer)
 
         #expect(ledger.progress().pendingPurchase == nil)
         #expect(!model.isAwaitingConfirmation)
@@ -845,7 +875,8 @@ struct PreAuthPurchaseTransferTests {
             invoker: invoker,
             maxAttempts: 3,
             retryDelay: .zero,
-            sleep: { _ in }
+            sleep: { _ in },
+            releaseUnconfirmedPurchase: {}
         )
         return (transfer, ledger)
     }
@@ -859,16 +890,6 @@ struct PreAuthPurchaseTransferTests {
         #expect(await transfer.completeAfterSignIn() == .nothingToTransfer)
         #expect(transferring.calls.isEmpty)
         #expect(invoker.calls == 0)
-    }
-
-    @Test
-    func signingInWithNothingBoughtClearsAPendingMarker() async {
-        let transferring = StubTransferring()
-        let (transfer, ledger) = make(bought: false, transferring: transferring, invoker: StubInvoker([.active]))
-        ledger.markPurchasePending(PreAuthPendingPurchase(productID: "yearly", hold: .askToBuy))
-
-        #expect(await transfer.completeAfterSignIn() == .nothingToTransfer)
-        #expect(ledger.progress().pendingPurchase == nil)
     }
 
     @Test

@@ -217,6 +217,11 @@ struct OnboardingExitGiftScreen: View {
             return
         }
 
+        if model.holdsAccess {
+            advanceHoldingAccess()
+            return
+        }
+
         model.resetNotice()
 
         let hasSeenGift = coordinator.answers.welcomeGiftFirstShownAt != nil
