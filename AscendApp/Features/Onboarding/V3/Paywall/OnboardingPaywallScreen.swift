@@ -333,7 +333,7 @@ struct OnboardingPaywallScreen: View {
     private func restore() async {
         if await model.restore() == .restored {
             HapticsManager.shared.trigger(.success)
-            advanceFromHere()
+            advanceHoldingAccess()
         }
     }
 }

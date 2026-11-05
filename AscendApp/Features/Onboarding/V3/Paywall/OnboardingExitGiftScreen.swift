@@ -217,6 +217,8 @@ struct OnboardingExitGiftScreen: View {
             return
         }
 
+        model.resetNotice()
+
         let hasSeenGift = coordinator.answers.welcomeGiftFirstShownAt != nil
         if !hasSeenGift {
             coordinator.update { $0.welcomeGiftFirstShownAt = Date() }

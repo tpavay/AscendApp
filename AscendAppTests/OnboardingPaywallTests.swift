@@ -554,6 +554,135 @@ struct OnboardingPaywallModelTests {
     }
 
     @Test
+    func aRestoreThatFindsNothingKeepsTheLockOnAnUnconfirmedCharge() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
+        let (model, ledger) = make(provider: provider)
+        await model.load()
+        _ = await model.purchaseSelectedPlan()
+
+        #expect(await model.restore() == .notCompleted)
+
+        #expect(model.notice == .verificationUnavailable)
+        #expect(model.locksPurchase)
+        #expect(ledger.progress().pendingProductID == "yearly")
+        model.selectedPlanID = "lifetime"
+        #expect(await model.purchaseSelectedPlan() == .notCompleted)
+        #expect(provider.purchasedPlanIDs == ["yearly"])
+    }
+
+    @Test(arguments: [true, false])
+    func aRelaunchWhilePendingReopensThePaywallStillLocked(isAskToBuy: Bool) async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = unconfirmedPurchaseResult(isAskToBuy: isAskToBuy)
+        let (first, ledger) = make(provider: provider)
+        await first.load()
+        _ = await first.claimGift()
+        #expect(ledger.progress().pendingProductID == "welcome")
+        ledger.markPaywallReached()
+
+        let relaunchedProvider = StubPlanProvider(plans: plans())
+        let (relaunched, _) = make(provider: relaunchedProvider, ledger: ledger)
+        await relaunched.load()
+
+        #expect(ledger.resumeStep == .paywall)
+        #expect(relaunched.isAwaitingConfirmation)
+        #expect(relaunched.notice == .verificationUnavailable)
+        #expect(await relaunched.purchaseSelectedPlan() == .notCompleted)
+        #expect(await relaunched.claimGift() == .notCompleted)
+        #expect(relaunchedProvider.purchasedPlanIDs.isEmpty)
+
+        #expect(await relaunched.restore() == .notCompleted)
+        #expect(relaunched.locksPurchase)
+    }
+
+    @Test
+    func aRelaunchedLockHoldsEvenWhenThePlansCannotLoad() async {
+        let provider = StubPlanProvider(plans: [])
+        let ledger = PreAuthPurchaseLedger(
+            userDefaults: UserDefaults(suiteName: "OnboardingPaywallModelTests-\(UUID().uuidString)")!
+        )
+        ledger.markPurchasePending(productID: "yearly")
+        let (model, _) = make(provider: provider, ledger: ledger)
+        await model.load()
+
+        #expect(model.loadState == .unavailable)
+        #expect(model.isAwaitingConfirmation)
+    }
+
+    @Test
+    func accessLandingAfterARelaunchClearsTheMarkerAndMovesToSignIn() async throws {
+        let ledger = PreAuthPurchaseLedger(
+            userDefaults: UserDefaults(suiteName: "OnboardingPaywallModelTests-\(UUID().uuidString)")!
+        )
+        ledger.markPaywallReached()
+        ledger.markPurchasePending(productID: "welcome")
+        let service = EntitlementServiceStub(entitlementState: .inactive)
+        let (model, _) = make(
+            provider: StubPlanProvider(plans: plans()),
+            entitlementService: service,
+            ledger: ledger
+        )
+        await model.load()
+
+        service.setEntitlementState(.active(["app_access"]))
+        #expect(model.recordHeldAccess())
+
+        #expect(!model.isAwaitingConfirmation)
+        #expect(ledger.progress().pendingProductID == nil)
+        #expect(ledger.resumeStep == .auth)
+        #expect(ledger.progress().purchase?.productID == "welcome")
+    }
+
+    @Test
+    func aReleasedAskToBuyDoesNotComeBackOnRelaunch() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .pending
+        let (first, ledger) = make(provider: provider)
+        await first.load()
+        _ = await first.purchaseSelectedPlan()
+        _ = await first.restore()
+
+        let (relaunched, _) = make(provider: StubPlanProvider(plans: plans()), ledger: ledger)
+
+        #expect(ledger.progress().pendingProductID == nil)
+        #expect(!relaunched.isAwaitingConfirmation)
+    }
+
+    @Test
+    func aCancelledOrFailedPurchaseLeavesNoMarker() async {
+        let provider = StubPlanProvider(plans: plans())
+        let (model, ledger) = make(provider: provider)
+        await model.load()
+
+        provider.purchaseResult = .cancelled
+        _ = await model.purchaseSelectedPlan()
+        #expect(ledger.progress().pendingProductID == nil)
+
+        provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.missingStoreKitProduct)
+        _ = await model.purchaseSelectedPlan()
+        #expect(ledger.progress().pendingProductID == nil)
+        #expect(!model.locksPurchase)
+    }
+
+    @Test
+    func resettingDropsAOneOffNoticeButKeepsTheWarning() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.missingStoreKitProduct)
+        let (model, _) = make(provider: provider)
+        await model.load()
+        _ = await model.purchaseSelectedPlan()
+        #expect(model.notice == .checkoutFailed)
+        model.resetNotice()
+        #expect(model.notice == nil)
+
+        provider.purchaseResult = .pending
+        _ = await model.purchaseSelectedPlan()
+        model.resetNotice()
+        #expect(model.notice == .pendingApproval)
+    }
+
+    @Test
     func aRestoreThatFindsTheUnconfirmedChargeRecordsThatPlan() async throws {
         let provider = StubPlanProvider(plans: plans())
         provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)

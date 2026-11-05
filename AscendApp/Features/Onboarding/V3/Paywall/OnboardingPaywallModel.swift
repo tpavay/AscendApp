@@ -70,7 +70,7 @@ final class OnboardingPaywallModel {
     @ObservationIgnored private let now: () -> Date
     /// What Apple is still deciding on: Ask to Buy, or a charge RevenueCat has not confirmed. Nothing
     /// else can be bought meanwhile, because another product would be a second real charge.
-    private var unconfirmedPurchase: (plan: NativePaywallPlan, notice: Notice)?
+    private var unconfirmedPurchase: (productID: String, notice: Notice)?
 
     init(
         provider: (any PreAuthPaywallPlanProviding)? = nil,
@@ -84,6 +84,9 @@ final class OnboardingPaywallModel {
         self.ledger = ledger
         self.now = now
         configuration = monetization.configuration
+        // The ledger keeps only the product, so a relaunch cannot tell Ask to Buy from a charge and
+        // takes the reading that cannot charge twice.
+        unconfirmedPurchase = ledger.progress().pendingProductID.map { ($0, .verificationUnavailable) }
         self.provider = provider ?? RevenueCatNativePaywallPlanProvider(
             configuration: monetization.configuration,
             allowsAnonymousPurchase: true,
@@ -124,7 +127,7 @@ final class OnboardingPaywallModel {
     func load() async {
         completedPurchase = false
         loadState = .loading
-        notice = unconfirmedPurchase?.notice
+        resetNotice()
 
         do {
             let plans = try await provider.loadPreAuthPlans()
@@ -188,20 +191,18 @@ final class OnboardingPaywallModel {
 
         switch result {
         case .purchased:
-            recordPurchase(of: plan)
+            recordPurchase(productID: plan.id, startedTrial: plan.freeTrialPeriod != nil)
             completedPurchase = true
             return .purchased(startedTrial: plan.freeTrialPeriod != nil)
         case .cancelled:
             return .cancelled
         case .pending:
-            unconfirmedPurchase = (plan, .pendingApproval)
-            notice = .pendingApproval
+            holdUnconfirmed(plan, notice: .pendingApproval)
             return .notCompleted
         case .failed(let error):
             if let controllerError = error as? RevenueCatPurchaseControllerError,
                case .entitlementUnconfirmed = controllerError {
-                unconfirmedPurchase = (plan, .verificationUnavailable)
-                notice = .verificationUnavailable
+                holdUnconfirmed(plan, notice: .verificationUnavailable)
             } else {
                 notice = .checkoutFailed
             }
@@ -230,9 +231,15 @@ final class OnboardingPaywallModel {
             recordHeldAccess()
             return .restored
         case .notFound:
-            // Apple's own answer that this Apple ID holds nothing, so a declined Ask to Buy ends here.
-            unconfirmedPurchase = nil
-            notice = .nothingToRestore
+            // RevenueCat found no access, which a charge it has not attached looks like too, so that
+            // lock stays. Ask to Buy is released, undecided or declined: the two read the same, and
+            // this is the only way out of a declined one.
+            if unconfirmedPurchase?.notice == .verificationUnavailable {
+                notice = .verificationUnavailable
+            } else {
+                releaseUnconfirmedPurchase()
+                notice = .nothingToRestore
+            }
         case .failed:
             notice = .restoreFailed
         }
@@ -257,6 +264,11 @@ final class OnboardingPaywallModel {
 
     // MARK: - Progress
 
+    /// Drops whatever the last screen was told, keeping only the warning not to purchase again.
+    func resetNotice() {
+        notice = unconfirmedPurchase?.notice
+    }
+
     func markPaywallReached() {
         ledger.markPaywallReached(at: now())
     }
@@ -272,7 +284,12 @@ final class OnboardingPaywallModel {
 
         if ledger.progress().purchase == nil {
             if let unconfirmedPurchase {
-                recordPurchase(of: unconfirmedPurchase.plan)
+                let plan = [yearly, lifetime, welcome].compactMap { $0 }
+                    .first { $0.id == unconfirmedPurchase.productID }
+                recordPurchase(
+                    productID: unconfirmedPurchase.productID,
+                    startedTrial: plan?.freeTrialPeriod != nil
+                )
             } else {
                 ledger.recordPurchase(
                     PreAuthPurchase(
@@ -284,18 +301,29 @@ final class OnboardingPaywallModel {
                 )
             }
         }
-        unconfirmedPurchase = nil
+        releaseUnconfirmedPurchase()
         notice = nil
 
         return ledger.progress().purchase?.startedTrial ?? false
     }
 
-    private func recordPurchase(of plan: NativePaywallPlan) {
+    private func holdUnconfirmed(_ plan: NativePaywallPlan, notice: Notice) {
+        ledger.markPurchasePending(productID: plan.id)
+        unconfirmedPurchase = (plan.id, notice)
+        self.notice = notice
+    }
+
+    private func releaseUnconfirmedPurchase() {
+        ledger.clearPendingPurchase()
+        unconfirmedPurchase = nil
+    }
+
+    private func recordPurchase(productID: String, startedTrial: Bool) {
         ledger.recordPurchase(
             PreAuthPurchase(
-                productID: plan.id,
+                productID: productID,
                 purchasedAt: now(),
-                startedTrial: plan.freeTrialPeriod != nil
+                startedTrial: startedTrial
             )
         )
     }

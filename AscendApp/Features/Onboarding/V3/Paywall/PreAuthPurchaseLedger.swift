@@ -11,6 +11,10 @@ struct PreAuthPaywallProgress: Codable, Equatable, Sendable {
     /// Apple took the money as the anonymous RevenueCat customer. The purchase waits on the device
     /// until sign-in moves it onto the account, and a relaunch before then opens on sign-in.
     var purchase: PreAuthPurchase?
+
+    /// The product Apple is still deciding on. While it is here nothing else can be bought, so a
+    /// relaunch cannot turn one purchase into two.
+    var pendingProductID: String?
 }
 
 struct PreAuthPurchase: Codable, Equatable, Sendable {
@@ -67,6 +71,14 @@ struct PreAuthPurchaseLedger: @unchecked Sendable {
 
     func recordPurchase(_ purchase: PreAuthPurchase) {
         update { $0.purchase = purchase }
+    }
+
+    func markPurchasePending(productID: String) {
+        update { $0.pendingProductID = productID }
+    }
+
+    func clearPendingPurchase() {
+        update { $0.pendingProductID = nil }
     }
 
     /// The purchase has moved onto the account, or the climber is no longer in this flow.

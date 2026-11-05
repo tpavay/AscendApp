@@ -24,7 +24,9 @@ struct OnboardingPaywallEvidenceTests {
         trialEligible: Bool = true,
         giftAlreadySeen: Bool = false,
         entitlement: MonetizationEntitlementState = .inactive,
-        purchaseResult: PurchaseResult = .cancelled
+        purchaseResult: PurchaseResult = .cancelled,
+        restoredState: MonetizationEntitlementState? = nil,
+        pendingProductID: String? = nil
     ) async -> Fixture {
         let suite = "onboarding-paywall-evidence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -41,15 +43,18 @@ struct OnboardingPaywallEvidenceTests {
             MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "lifetime",
             MonetizationConfiguration.revenueCatWelcomeProductIDInfoKey: "welcome"
         ])
+        let service = EntitlementServiceStub(entitlementState: entitlement)
+        service.restoredState = restoredState
         let manager = MonetizationManager(
             configuration: configuration,
-            entitlementService: EntitlementServiceStub(entitlementState: entitlement),
+            entitlementService: service,
             paywallPresenter: EvidencePresenter(),
             appAccessReconciler: EvidenceReconciler(),
             userDefaults: UserDefaults(suiteName: "\(suite)-manager")!
         )
         let provider = EvidenceProvider(trialEligible: trialEligible, purchaseResult: purchaseResult)
         let ledger = PreAuthPurchaseLedger(userDefaults: defaults)
+        if let pendingProductID { ledger.markPurchasePending(productID: pendingProductID) }
         let model = OnboardingPaywallModel(
             provider: provider,
             monetization: manager,
@@ -228,6 +233,60 @@ struct OnboardingPaywallEvidenceTests {
             let copy = try await screen.copy(until: { $0.contains("check access") })
             #expect(copy.contains("do not purchase again"), "\(copy)")
             #expect(!copy.contains("claim my gift"), "\(copy)")
+        }
+    }
+
+    @Test
+    func aRelaunchWhilePendingReopensThePaywallWithNoWayToBuy() async throws {
+        let fixture = await fixture(startingAt: .paywall, pendingProductID: "yearly")
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            settle: .turns(100)
+        ) { screen in
+            let copy = try await screen.copy(until: { $0.contains("check access") })
+            #expect(copy.contains("do not purchase again"), "\(copy)")
+            #expect(!copy.contains("start climbing"), "\(copy)")
+        }
+    }
+
+    @Test
+    func restoringAnUnconfirmedTrialCarriesTheTrialIntoTheAnswers() async throws {
+        let fixture = await fixture(
+            startingAt: .paywall,
+            purchaseResult: .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed),
+            restoredState: .active(["app_access"])
+        )
+        _ = await fixture.model.claimGift()
+        let coordinator = fixture.coordinator
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            settle: .turns(40)
+        ) { screen in
+            try activateAccessibilityElement(labelled: "Restore", in: screen.root)
+            try await screen.settle(.until { _ in coordinator.step == .auth })
+            #expect(coordinator.answers.trialStarted)
+            #expect(fixture.ledger.progress().purchase?.startedTrial == true)
+        }
+    }
+
+    @Test
+    func aNoticeFromThePaywallDoesNotFollowTheClimberOntoTheGift() async throws {
+        let fixture = await fixture(startingAt: .exitGift, giftAlreadySeen: true)
+        _ = await fixture.model.restore()
+        #expect(fixture.model.notice == .nothingToRestore)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            size: Self.smallestPhone,
+            settle: .turns(120)
+        ) { screen in
+            let copy = try await screen.copy(until: { $0.contains("no thanks") })
+            #expect(!copy.contains("no active ascend purchase"), "\(copy)")
         }
     }
 
