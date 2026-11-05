@@ -16,12 +16,14 @@ struct OnboardingPaywallEvidenceTests {
     private struct Fixture {
         let model: OnboardingPaywallModel
         let coordinator: OnboardingV3Coordinator
+        let ledger: PreAuthPurchaseLedger
     }
 
     private func fixture(
         startingAt step: OnboardingV3Step,
         trialEligible: Bool = true,
-        giftAlreadySeen: Bool = false
+        giftAlreadySeen: Bool = false,
+        entitlement: MonetizationEntitlementState = .inactive
     ) async -> Fixture {
         let suite = "onboarding-paywall-evidence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -40,20 +42,21 @@ struct OnboardingPaywallEvidenceTests {
         ])
         let manager = MonetizationManager(
             configuration: configuration,
-            entitlementService: EntitlementServiceStub(entitlementState: .inactive),
+            entitlementService: EntitlementServiceStub(entitlementState: entitlement),
             paywallPresenter: EvidencePresenter(),
             appAccessReconciler: EvidenceReconciler(),
             userDefaults: UserDefaults(suiteName: "\(suite)-manager")!
         )
         let provider = EvidenceProvider(trialEligible: trialEligible)
+        let ledger = PreAuthPurchaseLedger(userDefaults: defaults)
         let model = OnboardingPaywallModel(
             provider: provider,
             monetization: manager,
             restoreService: AppAccessRestoreService(entitlementID: "app_access", restorer: { manager }),
-            ledger: PreAuthPurchaseLedger(userDefaults: defaults)
+            ledger: ledger
         )
         await model.load()
-        return Fixture(model: model, coordinator: coordinator)
+        return Fixture(model: model, coordinator: coordinator, ledger: ledger)
     }
 
     private let paywallCopy = [
@@ -196,6 +199,59 @@ struct OnboardingPaywallEvidenceTests {
             try screen.photograph(named: "onboarding-v3-gift-open-accessibility")
         }
     }
+
+    @Test
+    func aClimberWhoAlreadyHoldsAccessIsRememberedAsThePaywallMovesThemOn() async throws {
+        let fixture = await fixture(startingAt: .paywall, entitlement: .active(["app_access"]))
+        let coordinator = fixture.coordinator
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            settle: .until { _ in coordinator.step == .auth }
+        ) { _ in
+            #expect(coordinator.step == .auth)
+            #expect(fixture.ledger.resumeStep == .auth)
+        }
+    }
+
+    /// Reads the box on the first frame after it opens. The body waits 0.35 s before it sinks, so a
+    /// box that is really animating is still there; a box that was replaced is already gone.
+    @Test
+    func openingTheBoxAnimatesTheBoxThatWasThere() async throws {
+        let driver = GiftBoxDriver()
+        let size = CGSize(width: 300, height: 300)
+        // The body's left panel, clear of the ribbon: the box is 180 by 190, centred.
+        let bodyPanel = CGPoint(x: (size.width - 180) / 2 + 40, y: (size.height + 190) / 2 - 50)
+
+        try await RenderedScreen.host(GiftBoxHarness(driver: driver), size: size) { screen in
+            #expect(!(try screen.color(at: bodyPanel).isNearBlack), "the closed box should show its body")
+
+            driver.isOpen = true
+            try await screen.settle(.turns(1))
+            #expect(!(try screen.color(at: bodyPanel).isNearBlack), "the box vanished instead of animating")
+
+            try await Task.sleep(for: .seconds(1.2))
+            #expect(try screen.color(at: bodyPanel).isNearBlack, "the opened box should be gone")
+        }
+    }
+}
+
+@MainActor
+@Observable
+private final class GiftBoxDriver {
+    var isOpen = false
+}
+
+private struct GiftBoxHarness: View {
+    let driver: GiftBoxDriver
+
+    var body: some View {
+        ZStack {
+            Color.black
+            WelcomeGiftBox(isOpen: driver.isOpen)
+        }
+    }
 }
 
 @MainActor
@@ -217,7 +273,7 @@ private final class EvidenceProvider: PreAuthPaywallPlanProviding {
                 billingDescription: "Pay once. No renewal.", trialDescription: nil, price: 49.99
             ),
             NativePaywallPlan(
-                id: "welcome", title: "Welcome", localizedPrice: "$9.99",
+                id: "welcome", title: "Annual", localizedPrice: "$9.99",
                 billingDescription: "Renews annually",
                 trialDescription: trialEligible ? "7 days free" : nil,
                 price: 9.99,

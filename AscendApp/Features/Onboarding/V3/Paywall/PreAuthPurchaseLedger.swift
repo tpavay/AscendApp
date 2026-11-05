@@ -16,14 +16,14 @@ struct PreAuthPaywallProgress: Codable, Equatable, Sendable {
 struct PreAuthPurchase: Codable, Equatable, Sendable {
     enum Source: String, Codable, Sendable {
         case purchase
-        /// Restore found a purchase on the Apple ID, so sign-in opens in returning mode.
+        /// The access was already on the Apple ID rather than bought from these screens.
         case restore
     }
 
     var source: Source = .purchase
     var productID: String
     var purchasedAt: Date
-    /// Whether the product started a free trial, which is what the trial-ending reminder reads.
+    /// Whether the product started a free trial.
     var startedTrial: Bool
 }
 

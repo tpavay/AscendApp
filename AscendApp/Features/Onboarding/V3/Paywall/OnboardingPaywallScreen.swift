@@ -71,7 +71,7 @@ struct OnboardingPaywallScreen: View {
         // Access can arrive while this screen is up: a purchase still confirming, an Ask to Buy
         // approved on another device, a restore. Whatever the route, a climber who holds it moves on.
         .onChange(of: model.holdsAccess) { _, holdsAccess in
-            if holdsAccess { advanceFromHere() }
+            if holdsAccess { advanceHoldingAccess() }
         }
         .trackOnce(screen: .onboardingPaywall)
     }
@@ -288,7 +288,7 @@ struct OnboardingPaywallScreen: View {
         model.markPaywallReached()
         await model.load()
         // Bought before a relaunch, or restored: nothing is left to sell.
-        if model.holdsAccess { advanceFromHere() }
+        if model.holdsAccess { advanceHoldingAccess() }
     }
 
     /// Moves on only while this screen is still the one showing, so a purchase that completes and an
@@ -297,6 +297,12 @@ struct OnboardingPaywallScreen: View {
     private func advanceFromHere() {
         guard coordinator.step == .paywall else { return }
         coordinator.advance()
+    }
+
+    private func advanceHoldingAccess() {
+        let startedTrial = model.recordHeldAccess()
+        coordinator.update { $0.trialStarted = startedTrial }
+        advanceFromHere()
     }
 
     private func revealClose() async {

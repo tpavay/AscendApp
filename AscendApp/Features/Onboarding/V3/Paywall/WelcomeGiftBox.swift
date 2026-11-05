@@ -82,22 +82,20 @@ private struct GiftShake: ViewModifier {
     let isActive: Bool
 
     func body(content: Content) -> some View {
-        if isActive {
-            content.keyframeAnimator(initialValue: 0.0, repeating: true) { view, angle in
-                view.rotationEffect(.degrees(angle), anchor: .bottom)
-            } keyframes: { _ in
-                KeyframeTrack {
-                    LinearKeyframe(0, duration: 1.4)
-                    LinearKeyframe(-6, duration: 0.08)
-                    LinearKeyframe(6, duration: 0.08)
-                    LinearKeyframe(-5, duration: 0.08)
-                    LinearKeyframe(4, duration: 0.08)
-                    LinearKeyframe(-2, duration: 0.08)
-                    LinearKeyframe(0, duration: 0.2)
-                }
+        // Always the same modifier: a branch here would replace the box the moment it opens, and the
+        // replacement starts out gone with nothing left to animate.
+        content.keyframeAnimator(initialValue: 0.0, repeating: isActive) { view, angle in
+            view.rotationEffect(.degrees(angle), anchor: .bottom)
+        } keyframes: { _ in
+            KeyframeTrack {
+                LinearKeyframe(0, duration: 1.4)
+                LinearKeyframe(-6, duration: 0.08)
+                LinearKeyframe(6, duration: 0.08)
+                LinearKeyframe(-5, duration: 0.08)
+                LinearKeyframe(4, duration: 0.08)
+                LinearKeyframe(-2, duration: 0.08)
+                LinearKeyframe(0, duration: 0.2)
             }
-        } else {
-            content
         }
     }
 }

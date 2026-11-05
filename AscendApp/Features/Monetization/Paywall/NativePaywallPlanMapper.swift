@@ -50,7 +50,7 @@ struct NativePaywallProductTerms: Equatable, Sendable {
 enum NativePaywallPlanMapper {
     /// - Parameter welcomeProductID: The gift's yearly product. Only the pre-sign-in paywall passes
     ///   it, so the signed-in gate's plan list - which sells the two launch plans and nothing else -
-    ///   is unchanged. It maps as a subscription after the launch plans.
+    ///   is unchanged. It maps as an Annual subscription after the launch plans.
     static func plans(
         from products: [NativePaywallProductTerms],
         eligibilityByProductID: [String: NativeTrialEligibility],
@@ -71,24 +71,17 @@ enum NativePaywallPlanMapper {
             guard let product = productsByID[productID] else { return nil }
             let title: String
             switch productID {
-            case yearlyProductID:
+            case lifetimeProductID:
                 title = String(
-                    localized: "subscription.plan.annual",
-                    defaultValue: "Annual",
-                    bundle: localizedBundle,
-                    locale: locale
-                )
-            case welcomeProductID:
-                title = String(
-                    localized: "subscription.plan.welcome",
-                    defaultValue: "Welcome",
+                    localized: "subscription.plan.lifetime",
+                    defaultValue: "Lifetime",
                     bundle: localizedBundle,
                     locale: locale
                 )
             default:
                 title = String(
-                    localized: "subscription.plan.lifetime",
-                    defaultValue: "Lifetime",
+                    localized: "subscription.plan.annual",
+                    defaultValue: "Annual",
                     bundle: localizedBundle,
                     locale: locale
                 )

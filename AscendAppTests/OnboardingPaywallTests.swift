@@ -82,7 +82,29 @@ struct WelcomeGiftOfferTests {
         let copy = WelcomeGiftCopy(offer)
 
         #expect(copy.trialLine == "PLUS 1 MONTH FREE")
-        #expect(copy.headlineLead == ["Your first 1 month"])
+        #expect(copy.headlineLead == ["Your first month"])
+    }
+
+    @Test(arguments: [
+        (NativeSubscriptionPeriod(value: 1, unit: .day), "PLUS 1 DAY FREE", "Your first day"),
+        (NativeSubscriptionPeriod(value: 7, unit: .day), "PLUS 7 DAYS FREE", "Your first week"),
+        (NativeSubscriptionPeriod(value: 2, unit: .week), "PLUS 14 DAYS FREE", "Your first 14 days"),
+        (NativeSubscriptionPeriod(value: 2, unit: .month), "PLUS 2 MONTHS FREE", "Your first 2 months"),
+        (NativeSubscriptionPeriod(value: 1, unit: .year), "PLUS 1 YEAR FREE", "Your first year")
+    ])
+    func everyTrialLengthReadsAsASentence(
+        period: NativeSubscriptionPeriod,
+        trialLine: String,
+        headline: String
+    ) throws {
+        let offer = try #require(WelcomeGiftOffer(
+            welcome: plan("w", price: 9.99, label: "$9.99", trial: period),
+            regular: plan("y", price: 29.99, label: "$29.99")
+        ))
+        let copy = WelcomeGiftCopy(offer)
+
+        #expect(copy.trialLine == trialLine)
+        #expect(copy.headlineLead == [headline])
     }
 
     @Test
@@ -235,7 +257,7 @@ struct OnboardingPaywallModelTests {
                 billingDescription: "Pay once. No renewal.", trialDescription: nil, price: 49.99
             ),
             NativePaywallPlan(
-                id: "welcome", title: "Welcome", localizedPrice: "$9.99",
+                id: "welcome", title: "Annual", localizedPrice: "$9.99",
                 billingDescription: "Renews annually", trialDescription: trial ? "7 days free" : nil,
                 price: 9.99, freeTrialPeriod: trial ? NativeSubscriptionPeriod(value: 1, unit: .week) : nil
             )
@@ -245,6 +267,7 @@ struct OnboardingPaywallModelTests {
     private func make(
         provider: StubPlanProvider,
         entitlement: MonetizationEntitlementState = .inactive,
+        entitlementService: EntitlementServiceStub? = nil,
         ledger: PreAuthPurchaseLedger? = nil
     ) -> (OnboardingPaywallModel, PreAuthPurchaseLedger) {
         let ledger = ledger ?? PreAuthPurchaseLedger(
@@ -252,7 +275,7 @@ struct OnboardingPaywallModelTests {
         )
         let manager = MonetizationManager(
             configuration: Self.configuration,
-            entitlementService: EntitlementServiceStub(entitlementState: entitlement),
+            entitlementService: entitlementService ?? EntitlementServiceStub(entitlementState: entitlement),
             paywallPresenter: NoopPresenter(),
             appAccessReconciler: NoopReconciler(),
             userDefaults: UserDefaults(suiteName: "OnboardingPaywallModelTests-m-\(UUID().uuidString)")!
@@ -387,6 +410,70 @@ struct OnboardingPaywallModelTests {
         await model.load()
 
         #expect(model.holdsAccess)
+    }
+
+    @Test(arguments: [true, false])
+    func accessThatArrivesAfterThePurchaseCallIsRememberedAsThatPurchase(isAskToBuy: Bool) async throws {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = isAskToBuy
+            ? .pending
+            : .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
+        let service = EntitlementServiceStub(entitlementState: .inactive)
+        let (model, ledger) = make(provider: provider, entitlementService: service)
+        await model.load()
+
+        #expect(await model.claimGift() == .notCompleted)
+        #expect(ledger.resumeStep == nil)
+
+        service.setEntitlementState(.active(["app_access"]))
+        let startedTrial = model.recordHeldAccess()
+
+        #expect(startedTrial)
+        #expect(ledger.resumeStep == .auth)
+        let purchase = try #require(ledger.progress().purchase)
+        #expect(purchase.source == .purchase)
+        #expect(purchase.productID == "welcome")
+        #expect(purchase.startedTrial)
+    }
+
+    @Test
+    func accessWithNoPurchaseBehindItIsRememberedAsRestored() async {
+        let (model, ledger) = make(
+            provider: StubPlanProvider(plans: plans()),
+            entitlement: .active(["app_access"])
+        )
+        await model.load()
+
+        #expect(!model.recordHeldAccess())
+        #expect(ledger.resumeStep == .auth)
+        #expect(ledger.progress().purchase?.source == .restore)
+    }
+
+    @Test
+    func recordingHeldAccessKeepsThePurchaseAlreadyRecorded() async throws {
+        let provider = StubPlanProvider(plans: plans())
+        let service = EntitlementServiceStub(entitlementState: .inactive)
+        let (model, ledger) = make(provider: provider, entitlementService: service)
+        await model.load()
+        _ = await model.claimGift()
+        let recorded = try #require(ledger.progress().purchase)
+
+        service.setEntitlementState(.active(["app_access"]))
+
+        #expect(model.recordHeldAccess())
+        #expect(ledger.progress().purchase == recorded)
+    }
+
+    @Test
+    func noAccessRecordsNothing() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .pending
+        let (model, ledger) = make(provider: provider)
+        await model.load()
+        _ = await model.claimGift()
+
+        #expect(!model.recordHeldAccess())
+        #expect(ledger.resumeStep == nil)
     }
 }
 
@@ -581,9 +668,11 @@ struct WelcomeProductConfigurationTests {
 
         let preAuth = NativePaywallPlanMapper.plans(
             from: products, eligibilityByProductID: ["w": .eligible],
-            yearlyProductID: "y", lifetimeProductID: "l", welcomeProductID: "w"
+            yearlyProductID: "y", lifetimeProductID: "l", welcomeProductID: "w",
+            locale: Locale(identifier: "en_US")
         )
         #expect(preAuth.map(\.id) == ["y", "w"])
+        #expect(preAuth.last?.title == "Annual")
         #expect(preAuth.last?.freeTrialPeriod == NativeSubscriptionPeriod(value: 1, unit: .week))
         #expect(preAuth.last?.price == 9.99)
 

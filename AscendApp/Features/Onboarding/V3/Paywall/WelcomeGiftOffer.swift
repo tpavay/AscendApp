@@ -17,8 +17,8 @@ struct WelcomeGiftOffer: Equatable, Sendable {
     struct FreeTrial: Equatable, Sendable {
         /// "7 days", as the store's period reads once a single week is spelled out.
         let duration: String
-        /// Whether the period is exactly seven days, which is when "first week" is the true name.
-        let isOneWeek: Bool
+        /// What "your first ..." calls it: "week", "month", "14 days".
+        let span: String
     }
 
     init?(welcome: NativePaywallPlan, regular: NativePaywallPlan) {
@@ -44,27 +44,23 @@ struct WelcomeGiftOffer: Equatable, Sendable {
     private static func freeTrial(from period: NativeSubscriptionPeriod?) -> FreeTrial? {
         guard let period else { return nil }
 
-        let days: Int? = switch period.unit {
-        case .day: period.value
-        case .week: period.value * 7
-        case .month, .year, .unknown: nil
+        let count: Int
+        let unit: String
+        switch period.unit {
+        case .day: (count, unit) = (period.value, "day")
+        case .week: (count, unit) = (period.value * 7, "day")
+        case .month: (count, unit) = (period.value, "month")
+        case .year: (count, unit) = (period.value, "year")
+        case .unknown: return nil
         }
 
-        if let days {
-            return FreeTrial(
-                duration: days == 1 ? "1 day" : "\(days) days",
-                isOneWeek: days == 7
-            )
+        let duration = count == 1 ? "1 \(unit)" : "\(count) \(unit)s"
+        let span = if count == 7, unit == "day" {
+            "week"
+        } else {
+            count == 1 ? unit : duration
         }
-
-        let unit: String? = switch period.unit {
-        case .month: period.value == 1 ? "month" : "months"
-        case .year: period.value == 1 ? "year" : "years"
-        case .day, .week, .unknown: nil
-        }
-        guard let unit else { return nil }
-
-        return FreeTrial(duration: "\(period.value) \(unit)", isOneWeek: false)
+        return FreeTrial(duration: duration, span: span)
     }
 }
 
@@ -84,9 +80,8 @@ struct WelcomeGiftCopy: Equatable, Sendable {
         stamp = offer.percentOff.map { "\($0)%" }
 
         if let trial = offer.freeTrial {
-            let span = trial.isOneWeek ? "week" : trial.duration
             trialLine = "Plus \(trial.duration) free".uppercased()
-            headlineLead = ["Your first \(span)"]
+            headlineLead = ["Your first \(trial.span)"]
             headlineAccent = ["is on us."]
             subline = "Then \(offer.price) a year, locked in."
             callToAction = "Claim my gift"

@@ -29,7 +29,7 @@ struct OnboardingExitGiftScreen: View {
         .background(Color.black.ignoresSafeArea())
         .task { await start() }
         .onChange(of: model.holdsAccess) { _, holdsAccess in
-            if holdsAccess { advanceFromHere() }
+            if holdsAccess { advanceHoldingAccess() }
         }
         .trackOnce(screen: .onboardingExitGift)
     }
@@ -243,6 +243,12 @@ struct OnboardingExitGiftScreen: View {
     private func advanceFromHere() {
         guard coordinator.step == .exitGift else { return }
         coordinator.advance()
+    }
+
+    private func advanceHoldingAccess() {
+        let startedTrial = model.recordHeldAccess()
+        coordinator.update { $0.trialStarted = startedTrial }
+        advanceFromHere()
     }
 
     private func claim() async {

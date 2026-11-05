@@ -67,6 +67,8 @@ final class OnboardingPaywallModel {
     @ObservationIgnored private let ledger: PreAuthPurchaseLedger
     @ObservationIgnored private let configuration: MonetizationConfiguration
     @ObservationIgnored private let now: () -> Date
+    /// The plan Apple is still deciding on: Ask to Buy, or a charge RevenueCat has not confirmed.
+    @ObservationIgnored private var unconfirmedPlan: NativePaywallPlan?
 
     init(
         provider: (any PreAuthPaywallPlanProviding)? = nil,
@@ -180,24 +182,19 @@ final class OnboardingPaywallModel {
 
         switch result {
         case .purchased:
-            let startedTrial = plan.freeTrialPeriod != nil
-            ledger.recordPurchase(
-                PreAuthPurchase(
-                    productID: plan.id,
-                    purchasedAt: now(),
-                    startedTrial: startedTrial
-                )
-            )
+            recordPurchase(of: plan)
             completedPurchase = true
-            return .purchased(startedTrial: startedTrial)
+            return .purchased(startedTrial: plan.freeTrialPeriod != nil)
         case .cancelled:
             return .cancelled
         case .pending:
+            unconfirmedPlan = plan
             notice = .pendingApproval
             return .notCompleted
         case .failed(let error):
             if let controllerError = error as? RevenueCatPurchaseControllerError,
                case .entitlementUnconfirmed = controllerError {
+                unconfirmedPlan = plan
                 notice = .verificationUnavailable
             } else {
                 notice = .checkoutFailed
@@ -223,14 +220,7 @@ final class OnboardingPaywallModel {
 
         switch outcome {
         case .restored:
-            ledger.recordPurchase(
-                PreAuthPurchase(
-                    source: .restore,
-                    productID: "restored",
-                    purchasedAt: now(),
-                    startedTrial: false
-                )
-            )
+            recordRestoredAccess()
             completedPurchase = true
             return .restored
         case .notFound:
@@ -246,6 +236,47 @@ final class OnboardingPaywallModel {
 
     func markPaywallReached() {
         ledger.markPaywallReached(at: now())
+    }
+
+    /// Writes down access no purchase call reported - an Ask to Buy approval, a charge confirmed late,
+    /// an Apple ID that already held it - so a relaunch resumes at sign-in and the transfer has
+    /// something to move. The screens call it before moving on.
+    ///
+    /// - Returns: Whether the recorded purchase started a free trial.
+    @discardableResult
+    func recordHeldAccess() -> Bool {
+        guard holdsAccess else { return false }
+
+        if ledger.progress().purchase == nil {
+            if let unconfirmedPlan {
+                recordPurchase(of: unconfirmedPlan)
+            } else {
+                recordRestoredAccess()
+            }
+        }
+
+        return ledger.progress().purchase?.startedTrial ?? false
+    }
+
+    private func recordPurchase(of plan: NativePaywallPlan) {
+        ledger.recordPurchase(
+            PreAuthPurchase(
+                productID: plan.id,
+                purchasedAt: now(),
+                startedTrial: plan.freeTrialPeriod != nil
+            )
+        )
+    }
+
+    private func recordRestoredAccess() {
+        ledger.recordPurchase(
+            PreAuthPurchase(
+                source: .restore,
+                productID: "restored",
+                purchasedAt: now(),
+                startedTrial: false
+            )
+        )
     }
 }
 
