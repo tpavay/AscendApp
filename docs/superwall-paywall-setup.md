@@ -104,20 +104,25 @@ The paywall also carries the welcome screen's sign-in exit, so a climber with an
 
 How the purchase works:
 
-- A signed-out install is an anonymous RevenueCat customer, and `RevenueCatNativePaywallPlanProvider(allowsAnonymousPurchase: true)` is the only purchase path that may buy as one. The signed-in gate still refuses a purchase with no uid.
-- `PreAuthPurchaseLedger` remembers on the device that the paywall was reached and what was bought. A relaunch opens the flow on the paywall (`OnboardingV3Coordinator(startingAt:)`) or, once bought, on sign-in.
+- A signed-out install is an anonymous RevenueCat customer, and `RevenueCatNativePaywallPlanProvider(allowsAnonymousPurchase: true)` is the only purchase path that may buy as one.
+  The signed-in gate still refuses a purchase with no uid.
+- `PreAuthPurchaseLedger` remembers on the device that the paywall was reached and what was bought.
+  A relaunch opens the flow on the paywall (`OnboardingV3Coordinator(startingAt:)`) or, once bought, on sign-in.
 - The ledger also holds what Apple has not settled, and nothing can be bought while it does, because another product would be a second charge.
   The sign-in exit releases an Ask to Buy, which has charged nothing; an unconfirmed charge stays held until sign-in completes.
-- After sign-in, `PreAuthPurchaseTransfer.completeAfterSignIn()` moves the purchase onto the uid: `logIn` already carries it for a uid RevenueCat has never seen, and for a known uid one restore moves it. It covers an unconfirmed charge the same way, then calls `reconcileAppAccess` up to six times until the server answers `active`, because a client cannot read `users/{uid}/entitlements/app_access` itself.
+- After sign-in, `PreAuthPurchaseTransfer.completeAfterSignIn()` moves the purchase onto the uid: `logIn` already carries it for a uid RevenueCat has never seen, and for a known uid one restore moves it.
+  It covers an unconfirmed charge the same way, then calls `reconcileAppAccess` up to six times until the server answers `active`, because a client cannot read `users/{uid}/entitlements/app_access` itself.
   A grant still pending after that is left to the reconciliation that runs from launch and foreground.
-- Prices, the monthly equivalent and the discount percentage come from StoreKit. The percentage rounds down.
+- Prices, the monthly equivalent and the discount percentage come from StoreKit.
+  The percentage rounds down.
 
 The welcome product, `ascend_yearly_welcome` (`ascend_staging_yearly_welcome` in Debug and Staging, `ASCEND_REVENUECAT_WELCOME_PRODUCT_ID`):
 
 - $9.99 a year with a 7-day free introductory offer, in the same subscription group as `ascend_yearly`, so an Apple ID holds one or the other and takes one trial.
 - Attached to `app_access` in RevenueCat, and allowlisted in `REVENUECAT_SERVER_CONFIG`; the deploy preflight requires it because the build sells it.
 - It is deliberately not in `MonetizationConfiguration.launchProductIDs`: the offering audit and the signed-in gate never offer it, and a hosted paywall may not list it.
-- Eligibility decides the gift's words. Only an Apple ID StoreKit still lets take the trial reads "Plus 7 days free" and "Your first week is on us"; every other reads "$9.99 a year, locked in".
+- Eligibility decides the gift's words.
+  Only an Apple ID StoreKit still lets take the trial reads "Plus 7 days free" and "Your first week is on us"; every other reads "$9.99 a year, locked in".
 
 Captain-gated before production, none of it done by the build:
 
