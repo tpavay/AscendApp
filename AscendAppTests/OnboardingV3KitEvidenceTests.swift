@@ -3,7 +3,7 @@ import SwiftUI
 import Testing
 @testable import AscendApp
 
-/// The kit on screen: the stub flow with the real header, wordmark and buttons, at the smallest
+/// The kit on screen: the flow with the real header, wordmark and buttons, at the smallest
 /// phone Ascend supports and at an accessibility text size. Photographs are written only when
 /// `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
@@ -22,7 +22,7 @@ struct OnboardingV3KitEvidenceTests {
     }
 
     @Test
-    func theWelcomeStubShowsTheRealWordmarkAndItsTwoActions() async throws {
+    func theWelcomeShowsTheRealWordmarkAndItsTwoActions() async throws {
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: coordinator()),
             size: Self.smallestPhone,
@@ -30,7 +30,7 @@ struct OnboardingV3KitEvidenceTests {
         ) { screen in
             let copy = try await screen.copy()
             #expect(copy.contains("ascend"), "the wordmark is labelled Ascend: \(copy)")
-            #expect(copy.contains("continue"), "\(copy)")
+            #expect(copy.contains("get started"), "\(copy)")
             #expect(copy.contains("already climbing? sign in"), "\(copy)")
             #expect(!copy.contains("onboarding progress"), "01 has no bar: \(copy)")
             try screen.photograph(named: "onboarding-v3-welcome-se")
