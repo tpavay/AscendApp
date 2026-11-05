@@ -35,8 +35,8 @@ struct SellRecordCard: Equatable, Identifiable {
     var title: String { metric.title }
 
     /// "7,309 steps · Oct 3". Every card carries its number; the design's first card left it out.
-    func detail(calendar: Calendar = .current) -> String {
-        let date = calendar.date(from: DateComponents(year: 2_026, month: month, day: day)) ?? .now
+    func detail() -> String {
+        let date = Calendar.current.date(from: DateComponents(year: 2_026, month: month, day: day)) ?? .now
         return "\(value) · \(date.formatted(.dateTime.month(.abbreviated).day()))"
     }
 

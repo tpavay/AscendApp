@@ -33,8 +33,8 @@ struct SellGearSelection: Equatable {
     /// Steps a centrepiece is worth chasing from: a few climbs of work, not a season of it.
     private static let centerpieceStepFloor = 20_000
 
-    init?(catalog: UnlockCatalog, today: Date, calendar: Calendar = .current) {
-        guard let event = Self.event(in: catalog, today: today, calendar: calendar) else { return nil }
+    init?(catalog: UnlockCatalog, today: Date) {
+        guard let event = Self.event(in: catalog, today: today) else { return nil }
         let items = catalog.items(earnedIn: event)
         guard items.count >= Self.minimumLiveItems else { return nil }
 
@@ -62,12 +62,12 @@ struct SellGearSelection: Equatable {
     }
 
     /// The event whose window holds `today`; with none, the one that ended most recently.
-    static func event(in catalog: UnlockCatalog, today: Date, calendar: Calendar = .current) -> UnlockEvent? {
-        if let running = catalog.events.first(where: { $0.contains(today, calendar: calendar) }) {
+    static func event(in catalog: UnlockCatalog, today: Date) -> UnlockEvent? {
+        if let running = catalog.events.first(where: { $0.contains(today) }) {
             return running
         }
         return catalog.events
-            .compactMap { event in event.interval(in: calendar).map { (event, $0.end) } }
+            .compactMap { event in event.interval(in: .current).map { (event, $0.end) } }
             .filter { $0.1 <= today }
             .max { $0.1 < $1.1 }?
             .0

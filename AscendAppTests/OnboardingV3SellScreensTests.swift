@@ -44,15 +44,13 @@ struct OnboardingV3SellScreensTests {
 
     @Test
     func theFourRecordCardsCarryTheSpecsNumbers() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = Locale(identifier: "en_US")
         let cards = SellRecordCard.examples
 
         #expect(cards.map(\.kicker) == ["ALL-TIME BEST", "ALL-TIME BEST", "2ND ALL-TIME", "2ND ALL-TIME"])
         #expect(cards.map(\.title) == [
             "Most Steps in 60 Min", "Fastest 3,000 Steps", "Most Steps in 60 Min", "Fastest 2,000 Steps"
         ])
-        #expect(cards.map { $0.detail(calendar: calendar) } == [
+        #expect(cards.map { $0.detail() } == [
             "7,309 steps · Oct 3", "40:08 · Oct 5", "5,004 steps · Oct 9", "24:33 · Sep 29"
         ])
     }
