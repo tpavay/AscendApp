@@ -105,7 +105,8 @@ struct OnboardingPaywallEvidenceTests {
             for line in [
                 "never climb a boring minute again", "someone to chase", "yearly",
                 "$29.99 billed once a year", "$2.49", "per month", "lifetime", "$49.99 once",
-                "start climbing", "cancel anytime", "restore", "terms", "privacy", "close", "already climbing? sign in"
+                "start climbing", "cancel anytime", "restore", "terms", "privacy", "close",
+                OnboardingPaywallScreen.signInExitTitle.lowercased()
             ] {
                 #expect(copy.contains(line), "missing \(line): \(copy)")
             }
@@ -282,7 +283,7 @@ struct OnboardingPaywallEvidenceTests {
                 .environment(\.onboardingPaywallModel, fixture.model),
             settle: .turns(40)
         ) { screen in
-            try activateAccessibilityElement(labelled: "Already climbing? Sign in", in: screen.root)
+            try activateAccessibilityElement(labelled: OnboardingPaywallScreen.signInExitTitle, in: screen.root)
             try await screen.settle(.until { _ in coordinator.step == .auth })
             #expect(fixture.ledger.progress().pendingPurchase == charge)
 
@@ -320,7 +321,7 @@ struct OnboardingPaywallEvidenceTests {
                 .environment(\.onboardingPaywallModel, fixture.model),
             settle: .turns(40)
         ) { screen in
-            try activateAccessibilityElement(labelled: "Already climbing? Sign in", in: screen.root)
+            try activateAccessibilityElement(labelled: OnboardingPaywallScreen.signInExitTitle, in: screen.root)
             try await screen.settle(.until { _ in coordinator.step == .auth })
             #expect(fixture.ledger.progress().pendingPurchase == nil)
 

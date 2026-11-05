@@ -19,6 +19,8 @@ struct OnboardingPaywallScreen: View {
     /// The page stops here, so nothing scrolls under the close button or into the status bar.
     private static let pageTopInset = closeTopPadding + closeSize
     private static let pageFadeHeight: CGFloat = 16
+    /// The welcome screen's exit, so the two can never read differently.
+    static let signInExitTitle = OnboardingV3Step.welcome.alternateExits[0].title
 
     @State private var showsClose = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -249,13 +251,13 @@ struct OnboardingPaywallScreen: View {
 
             // A climber with an account never has to pay to reach sign-in: the same exit the
             // welcome screen offers, into the same returning-mode sign-in.
-            Button("Already climbing? Sign in") {
+            Button(Self.signInExitTitle) {
                 model.releaseAskToBuyHold()
                 coordinator.go(to: .auth)
             }
-                .buttonStyle(.plain)
-                .frame(minHeight: 36)
-                .disabled(model.isBusy)
+            .buttonStyle(.plain)
+            .frame(minHeight: 36)
+            .disabled(model.isBusy)
         }
         .multilineTextAlignment(.center)
         .paywallText(.semiBold, size: 12, relativeTo: .caption)
