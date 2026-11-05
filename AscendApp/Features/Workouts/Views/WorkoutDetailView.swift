@@ -431,7 +431,7 @@ struct WorkoutDetailView: View {
     private var provenanceFooter: some View {
         if let footnote = workout.origin.detailFootnote {
             VStack(spacing: 10) {
-                if workout.origin == .manual, workout.exceedsPaceCeiling {
+                if workout.exceedsPaceCeiling {
                     Text(LoggedClimbCopy.savedOffTheBoardsNote(stepsPerMinute: workout.stepsPerMinute ?? 0))
                         .font(.montserratMedium(size: 12))
                         .foregroundStyle(Color.ascendCaution)

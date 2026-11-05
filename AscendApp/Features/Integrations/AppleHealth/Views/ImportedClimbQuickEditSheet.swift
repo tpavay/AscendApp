@@ -13,6 +13,9 @@ struct ImportedClimbQuickEditSheet: View {
     @State private var viewModel: ImportedClimbQuickEditViewModel
     @State private var activeSheet: OptionalSheet?
     @FocusState private var focusedField: Field?
+    /// Mounts the steps field. Focus cannot do it: `@FocusState` drops a value no mounted view is
+    /// bound to, so the field gets focus once it is on screen.
+    @State private var isEditingSteps = false
 
     private let importService: AppleHealthImportService
 
@@ -155,20 +158,24 @@ struct ImportedClimbQuickEditSheet: View {
     /// reason this sheet exists.
     private var stepsTile: some View {
         Button {
-            focusedField = .steps
+            isEditingSteps = true
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    if focusedField == .steps {
+                    if isEditingSteps {
                         TextField("—", text: $viewModel.stepsText)
                             .keyboardType(.numberPad)
                             .focused($focusedField, equals: .steps)
                             .font(.montserratBold(size: 24))
                             .foregroundStyle(.white)
                             .minimumScaleFactor(0.7)
+                            .onAppear { focusedField = .steps }
                             .onChange(of: viewModel.stepsText) { _, newValue in
                                 let digits = WorkoutInputValidation.filterNumericInput(newValue)
                                 viewModel.stepsText = String(digits.prefix(6))
+                            }
+                            .onChange(of: focusedField) { _, field in
+                                if field != .steps { isEditingSteps = false }
                             }
                     } else {
                         // Grouped when at rest, like every other number on the screen; the plain

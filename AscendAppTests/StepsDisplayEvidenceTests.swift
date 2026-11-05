@@ -199,6 +199,35 @@ struct StepsDisplayEvidenceTests {
         #expect(text(for: live).contains("Steps: 0"), "a live climb's zero is a measurement")
     }
 
+    @Test(
+        "A climb's detail says why the pace check kept it off the leaderboards, however it arrived",
+        arguments: [WorkoutSource.appleHealth, .manual]
+    )
+    func theDetailExplainsAClimbOffTheBoards(source: WorkoutSource) async throws {
+        func publishesTheNote(steps: Int) async throws -> Bool {
+            let climb = Workout(
+                name: "Stair Stepper",
+                date: Date(),
+                duration: 1_800,
+                steps: steps,
+                floors: steps / 16,
+                source: source
+            )
+            return try await withAccessibilityAutomation {
+                try await HostedWorkoutDetailScreen.run(for: climb) { screen in
+                    screen.scroll(to: screen.pageOffsets.last ?? 0)
+                    screen.settle(for: 0.6)
+                    return accessibilityElements(under: screen.window).contains {
+                        $0.accessibilityLabel?.contains("stays off the leaderboards") == true
+                    }
+                }
+            }
+        }
+
+        #expect(try await publishesTheNote(steps: 7_500), "250 a minute is off the boards")
+        #expect(try await !publishesTheNote(steps: 4_000), "a climb that ranks has nothing to explain")
+    }
+
     @Test("A climb with no steps offers Add steps where Share was, and only then")
     func theMenuOffersAddStepsInPlaceOfShare() async throws {
         var shared = 0
