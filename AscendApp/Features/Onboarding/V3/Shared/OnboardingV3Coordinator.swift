@@ -14,6 +14,9 @@ final class OnboardingV3Coordinator {
     /// The analytics flow every context of this pass reports under.
     static let segmentID = "onboarding_v3"
 
+    /// How long one screen takes to fade into the next, in seconds.
+    fileprivate static let transitionSeconds = 0.25
+
     private(set) var step: OnboardingV3Step
     private(set) var answers: PreAuthOnboardingAnswers
 
@@ -22,12 +25,16 @@ final class OnboardingV3Coordinator {
     private var trail: [OnboardingV3Step] = []
 
     @ObservationIgnored private let store: PreAuthOnboardingStore
+    @ObservationIgnored private let now: () -> ContinuousClock.Instant
+    @ObservationIgnored private var transitionEnd: ContinuousClock.Instant?
 
     init(
         store: PreAuthOnboardingStore = PreAuthOnboardingStore(),
-        startingAt step: OnboardingV3Step = .welcome
+        startingAt step: OnboardingV3Step = .welcome,
+        now: @escaping () -> ContinuousClock.Instant = { .now }
     ) {
         self.store = store
+        self.now = now
         self.step = step
         answers = store.answers()
     }
@@ -54,7 +61,12 @@ final class OnboardingV3Coordinator {
     }
 
     /// Follows the current screen's primary action. On the last screen it finishes the flow.
+    ///
+    /// Ignored while a transition runs: the outgoing screen's button still takes taps during the
+    /// fade, so a double tap would otherwise skip the screen it just opened.
     func advance() {
+        if let transitionEnd, now() < transitionEnd { return }
+
         guard let destination = step.primaryDestination else {
             finish()
             return
@@ -80,6 +92,7 @@ final class OnboardingV3Coordinator {
     private func show(_ destination: OnboardingV3Step, from origin: OnboardingV3Step) {
         lastShownProgress = OnboardingProgressTable.value(for: origin) ?? OnboardingProgressTable.entryValue
         step = destination
+        transitionEnd = now() + .seconds(Self.transitionSeconds)
     }
 
     // MARK: - Answers
@@ -111,7 +124,7 @@ struct OnboardingV3FlowView: View {
                 .id(coordinator.step)
                 .transition(.opacity)
         }
-        .animation(.easeInOut(duration: 0.25), value: coordinator.step)
+        .animation(.easeInOut(duration: OnboardingV3Coordinator.transitionSeconds), value: coordinator.step)
         .environment(\.onboardingV3Coordinator, coordinator)
         .environment(\.colorScheme, .dark)
         .preferredColorScheme(.dark)

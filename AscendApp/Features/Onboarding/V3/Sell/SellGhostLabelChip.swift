@@ -59,11 +59,12 @@ struct SellGhostLabelChip: View {
     }
 }
 
-/// Centres a chip on a point, moved only as far as keeps it whole inside the art: a chip's width
-/// follows the text size, so a point chosen for one size can put it off the screen at another. It
-/// is offered the width of the art, and a label wider than that wraps.
+/// Puts a chip's `anchor` on a point, moved only as far as keeps the chip whole inside the art: a
+/// chip's width follows the text size, so a point chosen for one size can put it off the screen at
+/// another. It is offered the width of the art, and a label wider than that wraps.
 struct SellChipPlacement: Layout {
-    let center: CGPoint
+    let point: CGPoint
+    var anchor: UnitPoint = .center
 
     private static let margin: CGFloat = 4
 
@@ -75,11 +76,14 @@ struct SellChipPlacement: Layout {
         guard let chip = subviews.first else { return }
         let inner = bounds.insetBy(dx: Self.margin, dy: Self.margin)
         let size = chip.sizeThatFits(ProposedViewSize(width: inner.width, height: nil))
-        let point = CGPoint(x: bounds.minX + center.x, y: bounds.minY + center.y)
+        let center = CGPoint(
+            x: bounds.minX + point.x + (0.5 - anchor.x) * size.width,
+            y: bounds.minY + point.y + (0.5 - anchor.y) * size.height
+        )
         chip.place(
             at: CGPoint(
-                x: min(max(point.x, inner.minX + size.width / 2), inner.maxX - size.width / 2),
-                y: min(max(point.y, inner.minY + size.height / 2), inner.maxY - size.height / 2)
+                x: min(max(center.x, inner.minX + size.width / 2), inner.maxX - size.width / 2),
+                y: min(max(center.y, inner.minY + size.height / 2), inner.maxY - size.height / 2)
             ),
             anchor: .center,
             proposal: ProposedViewSize(size)

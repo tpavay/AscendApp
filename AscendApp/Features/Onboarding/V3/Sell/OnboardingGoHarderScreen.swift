@@ -57,11 +57,14 @@ struct OnboardingGoHarderScreen: View {
                     .onboardingEntrance(style: .rise(40), duration: 0.8)
                     .position(center)
 
-                SellChipPlacement(center: CGPoint(x: center.x - phoneWidth * 0.34, y: center.y + phoneHeight * 0.28)) {
+                // Ends where the screenshot's SPM card does, so the elapsed time beside it stays
+                // whole. The chip keeps its width as the phone scales, so only its trailing edge can
+                // hold that line.
+                SellChipPlacement(point: CGPoint(x: center.x - phoneWidth * 0.11, y: center.y + phoneHeight * 0.28), anchor: .trailing) {
                     chip(SellGhostLabelChip(kind: .pacer(stepsPerMinute: 80)), index: 2)
                 }
 
-                SellChipPlacement(center: CGPoint(x: center.x + phoneWidth * 0.5, y: center.y + phoneHeight * 0.02)) {
+                SellChipPlacement(point: CGPoint(x: center.x + phoneWidth * 0.5, y: center.y + phoneHeight * 0.02)) {
                     chip(SellGhostLabelChip(kind: .personalBest), index: 1)
                 }
 

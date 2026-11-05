@@ -20,7 +20,7 @@ struct OnboardingV3SellEvidenceTests {
         let suite = "onboarding-v3-sell-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        let coordinator = OnboardingV3Coordinator(store: PreAuthOnboardingStore(userDefaults: defaults), startingAt: .welcome)
+        let coordinator = OnboardingV3Coordinator(store: PreAuthOnboardingStore(userDefaults: defaults), startingAt: .welcome, now: everyTapAfterTheTransition())
         var path: [OnboardingV3Step] = []
         var current: OnboardingV3Step? = .welcome
         while let step = current, step != target {
@@ -191,6 +191,23 @@ struct OnboardingV3SellEvidenceTests {
         }
     }
 
+    /// The pacer chip sits over the screenshot's SPM card and stops short of the elapsed time, on
+    /// a phone whose art is wide and on one whose art is narrow. The chip keeps its width while the
+    /// art scales, so its leading edge is free to run past the phone.
+    @Test(arguments: Self.phones)
+    func goHarderPacerChipLeavesTheElapsedTimeWhole(size: CGSize) async throws {
+        try await RenderedScreen.host(flow(.goHarder), size: size, settle: .turns(60)) { screen in
+            let chip = try #require(try await screen.frame(ofElementLabelled: "Pacer, 80 steps per minute"))
+            let phone = try #require(try await screen.frame(ofElementLabelled: SellScreenCopy.GoHarder.screenshotDescription))
+            // The frame bounds the phone at its 4 degree tilt, which is 1.148 times its width.
+            let phoneWidth = phone.width / 1.148
+            // Where the tilted screenshot's elapsed card starts, measured off the asset.
+            let elapsedCardMinX = phone.midX - phoneWidth * 0.105
+            #expect(chip.maxX <= elapsedCardMinX, "the chip \(chip) covers the elapsed card at \(elapsedCardMinX)")
+            #expect(screen.bounds.contains(chip), "the chip \(chip) runs off the screen")
+        }
+    }
+
     @Test
     func goHarderAtAnAccessibilityTextSizeKeepsContinueReachable() async throws {
         try await RenderedScreen.host(
@@ -232,7 +249,7 @@ struct OnboardingV3SellEvidenceTests {
     @Test
     func aChipPlacedOffTheArtMovesInAndWraps() async throws {
         let art = CGSize(width: 180, height: 200)
-        let view = SellChipPlacement(center: CGPoint(x: -50, y: -50)) {
+        let view = SellChipPlacement(point: CGPoint(x: -50, y: -50)) {
             SellGhostLabelChip(kind: .pacer(stepsPerMinute: 80))
         }
         .frame(width: art.width, height: art.height)

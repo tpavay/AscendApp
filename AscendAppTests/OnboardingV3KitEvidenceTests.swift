@@ -16,7 +16,7 @@ struct OnboardingV3KitEvidenceTests {
         let suite = "onboarding-v3-evidence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        let coordinator = OnboardingV3Coordinator(store: PreAuthOnboardingStore(userDefaults: defaults), startingAt: step)
+        let coordinator = OnboardingV3Coordinator(store: PreAuthOnboardingStore(userDefaults: defaults), startingAt: step, now: everyTapAfterTheTransition())
         for _ in 0..<taps { coordinator.advance() }
         return coordinator
     }
