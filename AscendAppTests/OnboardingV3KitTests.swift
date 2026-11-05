@@ -110,7 +110,7 @@ struct OnboardingV3KitTests {
 
     @Test
     func theFirstBarAnimatesFromFifteenAndLaterBarsFromThePreviousValue() {
-        let coordinator = OnboardingV3Coordinator(store: makeStore())
+        let coordinator = OnboardingV3Coordinator(store: makeStore(), now: everyTapAfterTheTransition())
 
         coordinator.advance()
         #expect(coordinator.step == .goHarder)
@@ -122,8 +122,26 @@ struct OnboardingV3KitTests {
     }
 
     @Test
+    func twoQuickTapsAdvanceExactlyOneScreen() {
+        var clock = ContinuousClock.now
+        let coordinator = OnboardingV3Coordinator(store: makeStore(), now: { clock })
+
+        coordinator.advance()
+        coordinator.advance()
+        #expect(coordinator.step == .goHarder)
+
+        clock += .milliseconds(249)
+        coordinator.advance()
+        #expect(coordinator.step == .goHarder)
+
+        clock += .milliseconds(1)
+        coordinator.advance()
+        #expect(coordinator.step == .getBetter)
+    }
+
+    @Test
     func goingBackAnimatesTheBarDownward() {
-        let coordinator = OnboardingV3Coordinator(store: makeStore())
+        let coordinator = OnboardingV3Coordinator(store: makeStore(), now: everyTapAfterTheTransition())
         coordinator.advance()
         coordinator.advance()
         coordinator.advance()
@@ -138,7 +156,7 @@ struct OnboardingV3KitTests {
 
     @Test
     func backRetracesTheBranchTheClimberTook() {
-        let coordinator = OnboardingV3Coordinator(store: makeStore(), startingAt: .healthConnect)
+        let coordinator = OnboardingV3Coordinator(store: makeStore(), startingAt: .healthConnect, now: everyTapAfterTheTransition())
 
         coordinator.go(to: .usualClimb)
         coordinator.advance()
@@ -156,7 +174,7 @@ struct OnboardingV3KitTests {
 
     @Test
     func theWholeFlowWalksFromWelcomeToTheEnd() {
-        let coordinator = OnboardingV3Coordinator(store: makeStore())
+        let coordinator = OnboardingV3Coordinator(store: makeStore(), now: everyTapAfterTheTransition())
         var visited: [OnboardingV3Step] = [coordinator.step]
 
         while coordinator.step.primaryDestination != nil {
@@ -336,5 +354,15 @@ struct OnboardingV3KitTests {
         #expect(AppRootRoute.preAuthOnboarding.telemetryScreenName == nil)
         #expect(AppLifecycleAnalyticsEvent.RootRoute(.preAuthOnboarding) == .preAuthOnboarding)
         #expect(AppLifecycleAnalyticsEvent.RootRoute.preAuthOnboarding.isResolved)
+    }
+}
+
+/// A clock for a test that walks the flow one tap at a time: each reading is a second after the
+/// last, so no tap lands inside the transition the one before it started.
+func everyTapAfterTheTransition() -> () -> ContinuousClock.Instant {
+    var instant = ContinuousClock.now
+    return {
+        instant += .seconds(1)
+        return instant
     }
 }

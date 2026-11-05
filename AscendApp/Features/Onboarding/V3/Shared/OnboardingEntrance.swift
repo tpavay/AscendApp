@@ -1,5 +1,20 @@
 import SwiftUI
 
+extension EnvironmentValues {
+    /// Forces Reduce Motion on or off for a rendered test, which cannot set the system's read-only
+    /// value. Nil, always in the app, follows the system.
+    @Entry var onboardingReduceMotionOverride: Bool?
+}
+
+/// Whether the onboarding screens should drop their motion.
+@propertyWrapper
+struct OnboardingReduceMotion: DynamicProperty {
+    @Environment(\.accessibilityReduceMotion) private var system
+    @Environment(\.onboardingReduceMotionOverride) private var override
+
+    var wrappedValue: Bool { override ?? system }
+}
+
 /// The entrance every v3 element makes: it fades in and rises about 16 pt on the design's curve,
 /// staggered by `index`. The pop variant is for badges and chips and overshoots on the way in.
 ///
@@ -26,39 +41,32 @@ struct OnboardingEntrance: ViewModifier {
     var delay: Double = 0
     var duration: Double = 0.5
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @OnboardingReduceMotion private var reduceMotion
     @State private var hasAppeared = false
 
     private var startDelay: Double { delay + Self.stagger * Double(index) }
 
     func body(content: Content) -> some View {
-        if reduceMotion {
+        switch style {
+        case .rise(let distance):
             content
                 .opacity(hasAppeared ? 1 : 0)
+                .offset(y: hasAppeared || reduceMotion ? 0 : distance)
                 .onAppear {
-                    withAnimation(.easeOut(duration: 0.3).delay(startDelay)) { hasAppeared = true }
+                    let animation = reduceMotion ? Animation.easeOut(duration: 0.3) : Self.curve(duration: duration)
+                    withAnimation(animation.delay(startDelay)) { hasAppeared = true }
                 }
-        } else {
-            switch style {
-            case .rise(let distance):
-                content
-                    .opacity(hasAppeared ? 1 : 0)
-                    .offset(y: hasAppeared ? 0 : distance)
-                    .onAppear {
-                        withAnimation(Self.curve(duration: duration).delay(startDelay)) { hasAppeared = true }
-                    }
-            case .pop:
-                content
-                    .keyframeAnimator(
-                        initialValue: PopFrame.start,
-                        trigger: hasAppeared
-                    ) { view, frame in
-                        view.scaleEffect(frame.scale).opacity(frame.opacity)
-                    } keyframes: { _ in
-                        Self.popKeyframes(startDelay: startDelay, duration: duration)
-                    }
-                    .onAppear { hasAppeared = true }
-            }
+        case .pop:
+            content
+                .keyframeAnimator(
+                    initialValue: PopFrame.start,
+                    trigger: hasAppeared
+                ) { view, frame in
+                    view.scaleEffect(reduceMotion ? 1 : frame.scale).opacity(frame.opacity)
+                } keyframes: { _ in
+                    Self.popKeyframes(startDelay: startDelay, duration: duration)
+                }
+                .onAppear { hasAppeared = true }
         }
     }
 

@@ -3,7 +3,7 @@ import SwiftUI
 import Testing
 @testable import AscendApp
 
-/// The kit on screen: the stub flow with the real header, wordmark and buttons, at the smallest
+/// The kit on screen: the flow with the real header, wordmark and buttons, at the smallest
 /// phone Ascend supports and at an accessibility text size. Photographs are written only when
 /// `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
@@ -16,13 +16,13 @@ struct OnboardingV3KitEvidenceTests {
         let suite = "onboarding-v3-evidence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        let coordinator = OnboardingV3Coordinator(store: PreAuthOnboardingStore(userDefaults: defaults), startingAt: step)
+        let coordinator = OnboardingV3Coordinator(store: PreAuthOnboardingStore(userDefaults: defaults), startingAt: step, now: everyTapAfterTheTransition())
         for _ in 0..<taps { coordinator.advance() }
         return coordinator
     }
 
     @Test
-    func theWelcomeStubShowsTheRealWordmarkAndItsTwoActions() async throws {
+    func theWelcomeShowsTheRealWordmarkAndItsTwoActions() async throws {
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: coordinator()),
             size: Self.smallestPhone,
@@ -30,8 +30,8 @@ struct OnboardingV3KitEvidenceTests {
         ) { screen in
             let copy = try await screen.copy()
             #expect(copy.contains("ascend"), "the wordmark is labelled Ascend: \(copy)")
-            #expect(copy.contains("continue"), "\(copy)")
-            #expect(copy.contains("already climbing? sign in"), "\(copy)")
+            #expect(copy.contains("get started"), "\(copy)")
+            #expect(copy.contains("already have an account? sign in"), "\(copy)")
             #expect(!copy.contains("onboarding progress"), "01 has no bar: \(copy)")
             try screen.photograph(named: "onboarding-v3-welcome-se")
         }
@@ -162,20 +162,28 @@ struct OnboardingV3KitEvidenceTests {
         }
     }
 
-    /// The welcome headline at the board's 46 pt on the smallest phone, for comparing with the handoff.
-    @Test
-    func theWelcomeHeadlineFitsTheSmallestPhone() async throws {
+    /// The welcome headline holds one line each on both phones, between the 24 pt margins.
+    @Test(arguments: [CGSize(width: 375, height: 667), CGSize(width: 402, height: 874)])
+    func theWelcomeHeadlineHoldsOneLineEachOnBothPhones(size: CGSize) async throws {
+        let fontSize = OnboardingWelcomeScreen.headlineSize(screenWidth: size.width)
         try await hostHeadline(
-            OnboardingHeadline(["Stop staring"], accentLines: ["at the clock."], size: 46),
-            size: Self.smallestPhone
+            OnboardingHeadline(
+                SellScreenCopy.Welcome.headlineLead,
+                accentLines: SellScreenCopy.Welcome.headlineAccent,
+                size: fontSize
+            ),
+            size: size
         ) { screen in
             try screen.withPixels(scale: 2) { pixels in
                 let lead = try #require(pixels.bounds { $0.isNearWhite })
                 let closing = try #require(pixels.bounds { $0.isClose(to: RGBA(red: 0x86, green: 0xD3, blue: 0x0A, alpha: 255)) })
-                #expect(lead.minX >= 23 && lead.maxX <= 352, "\(lead)")
-                #expect(closing.minX >= 23 && closing.maxX <= 352, "\(closing)")
+                #expect(lead.minX >= 23 && lead.maxX <= size.width - 23, "\(lead)")
+                #expect(closing.minX >= 23 && closing.maxX <= size.width - 23, "\(closing)")
+                #expect(lead.height <= fontSize * 1.05, "CONGRATULATIONS, broke across lines: \(lead)")
+                #expect(closing.height <= fontSize * 1.05, "YOU'RE ON YOUR WAY broke across lines: \(closing)")
+                #expect(lead.width >= (size.width - 48) * 0.8, "shrunk far below its width: \(lead)")
             }
-            try screen.photograph(named: "onboarding-v3-headline-46-se")
+            try screen.photograph(named: "onboarding-v3-headline-welcome-\(Int(size.height))")
         }
     }
 
@@ -218,7 +226,7 @@ struct OnboardingV3KitEvidenceTests {
     /// and neither does any line the design wrote as one.
     @Test(arguments: [
         (["Welcome"], [String]()),
-        (["Stop staring"], ["at the clock."])
+        (["See yourself"], ["get better."])
     ])
     func aHeadlineShrinksRatherThanBreakAWordAtTheLargestTextSize(lead: [String], accent: [String]) async throws {
         try await RenderedScreen.host(

@@ -44,7 +44,7 @@ struct OnboardingHeadline: View {
     /// - Parameters:
     ///   - lead: The lines in white.
     ///   - accentLines: The closing line or lines in the accent.
-    ///   - size: 46 on the welcome screen, 34 typically, 31 to 38 elsewhere.
+    ///   - size: 34 typically, 31 to 38 elsewhere; the welcome screen sizes its own to the phone.
     init(_ lead: [String], accentLines: [String] = [], accent: Accent = .lime, size: CGFloat = 34) {
         leadLines = lead
         self.accentLines = accentLines
@@ -279,9 +279,9 @@ struct OnboardingSelectRow: View {
     ScrollView {
         VStack(alignment: .leading, spacing: 18) {
             Text("Kicker").onboardingKicker()
-            OnboardingHeadline(["Stop staring"], accentLines: ["at the clock."], size: 46)
+            OnboardingHeadline(["Congratulations,"], accentLines: ["you're on your way"], size: 28)
             OnboardingHeadline(["See yourself"], accentLines: ["get better."], accent: .gold)
-            Text("Ascend turns every stair stepper session into a climb up a real mountain.")
+            Text("to enjoying the stair stepper like never before.")
                 .onboardingBody()
             Text("Secondary line").onboardingSecondary()
             OnboardingSelectRow(title: "30 to 45 min", subtitle: "~3,000 steps", isSelected: true) {}
