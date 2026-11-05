@@ -21,6 +21,7 @@ struct OnboardingProfileFill: Equatable, Sendable {
     /// The bounds `firestore.rules` and the profile editors share.
     static let weightKgRange = 0.0...400.0
     static let heightCmRange = 90.0...240.0
+    static let locationTextLength = 1...120
 
     /// - Parameter existing: The stored profile, or `nil` for an account that has none yet.
     static func plan(
@@ -52,8 +53,8 @@ struct OnboardingProfileFill: Equatable, Sendable {
         }
 
         let existingCity = existing?.locationCity?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if existingCity?.isEmpty ?? true, let city = answers.city, isWritable(city) {
-            fill.city = city
+        if existingCity?.isEmpty ?? true {
+            fill.city = answers.city.flatMap(writableCity)
         }
 
         return fill
@@ -65,9 +66,23 @@ struct OnboardingProfileFill: Equatable, Sendable {
         )
     }
 
-    private static func isWritable(_ city: PreAuthOnboardingCity) -> Bool {
+    /// The city as the rules will take it, or `nil` when its name or country cannot be written. A
+    /// region is optional on a profile, so one the rules would refuse is left off rather than
+    /// costing the climber their city.
+    private static func writableCity(_ city: PreAuthOnboardingCity) -> PreAuthOnboardingCity? {
         let name = city.city.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !name.isEmpty && name.count <= 120 && city.countryCode.count == 2
+        let country = city.countryCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard locationTextLength.contains(name.count),
+              country.range(of: #"^[A-Z]{2}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+
+        let region = city.region?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var writable = city
+        writable.city = name
+        writable.countryCode = country
+        writable.region = locationTextLength.contains(region.count) ? region : nil
+        return writable
     }
 }
 

@@ -121,6 +121,47 @@ struct OnboardingAuthTests {
         #expect(fill.gender == .woman)
     }
 
+    private func plannedCity(
+        city: String = "Denver",
+        region: String?,
+        countryCode: String = "US"
+    ) -> PreAuthOnboardingCity? {
+        var answers = PreAuthOnboardingAnswers()
+        answers.city = PreAuthOnboardingCity(city: city, region: region, countryCode: countryCode, countryName: "Anywhere")
+        return OnboardingProfileFill.plan(answers: answers, existing: nil, now: Self.now).city
+    }
+
+    @Test(arguments: ["", "  ", String(repeating: "r", count: 121)])
+    func aRegionTheRulesWouldRefuseIsLeftOffAndTheCityStays(region: String) {
+        let city = plannedCity(region: region)
+
+        #expect(city?.city == "Denver")
+        #expect(city?.region == nil)
+    }
+
+    @Test
+    func aRegionAtTheRulesLimitIsKept() {
+        let longest = String(repeating: "r", count: 120)
+
+        #expect(plannedCity(region: longest)?.region == longest)
+        #expect(plannedCity(region: nil)?.region == nil)
+    }
+
+    @Test
+    func theCityIsMeasuredAsItWillBeWritten() {
+        let city = plannedCity(city: "  Denver \n", region: " CO ", countryCode: " us ")
+
+        #expect(city?.city == "Denver")
+        #expect(city?.region == "CO")
+        #expect(city?.countryCode == "US")
+        #expect(plannedCity(city: String(repeating: "c", count: 121), region: nil) == nil)
+    }
+
+    @Test(arguments: ["", "U", "USA", "1A", "U."])
+    func aCountryTheRulesWouldRefuseKeepsTheWholeCityOffTheProfile(countryCode: String) {
+        #expect(plannedCity(region: "CO", countryCode: countryCode) == nil)
+    }
+
     // MARK: - Hand-off routes
 
     /// A recording stand-in for every seam, in the order they are reached.
