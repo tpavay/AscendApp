@@ -24,7 +24,7 @@ struct OnboardingAuthTests {
         let climbers = OnboardingAuthExampleClimber.weeklyTopThree
 
         #expect(climbers.map(\.rank) == [1, 2, 3])
-        #expect(climbers.map(\.name) == ["Maya D.", "Noah R.", "Ava M."])
+        #expect(climbers.map(\.name) == ["Mason D.", "Noah R.", "Ava M."])
         #expect(climbers.map(\.steps) == ["38,891", "12,335", "9,720"])
     }
 

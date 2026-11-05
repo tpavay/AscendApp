@@ -14,7 +14,7 @@ struct OnboardingAuthExampleClimber: Equatable, Identifiable {
     var id: Int { rank }
 
     static let weeklyTopThree = [
-        OnboardingAuthExampleClimber(rank: 1, name: "Maya D.", steps: "38,891", avatarImageName: "OnboardingLeaderboardAvatarMaya"),
+        OnboardingAuthExampleClimber(rank: 1, name: "Mason D.", steps: "38,891", avatarImageName: "OnboardingLeaderboardAvatarMaya"),
         OnboardingAuthExampleClimber(rank: 2, name: "Noah R.", steps: "12,335", avatarImageName: "OnboardingLeaderboardAvatarNoah"),
         OnboardingAuthExampleClimber(rank: 3, name: "Ava M.", steps: "9,720", avatarImageName: "OnboardingLeaderboardAvatarAva")
     ]
