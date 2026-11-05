@@ -1,5 +1,7 @@
 import Foundation
+import PhotosUI
 import SwiftData
+import SwiftUI
 import Testing
 @testable import AscendApp
 
@@ -123,6 +125,114 @@ struct AppleHealthImportServiceTests {
         #expect(!viewModel.canFinish)
         #expect(try await viewModel.finish(modelContext: harness.context) == false)
         #expect(climb.steps == 3_000)
+    }
+
+    @Test
+    func aPassCancelledDuringItsHealthReadDrainsFirstAndWritesNoClimb() async throws {
+        let harness = try AppleHealthImportHarness()
+        await harness.service.syncNow()
+        harness.addWorkout(daysAgo: 0.02, steps: 4_912, minutes: 62)
+        harness.reader.holdsSnapshots = true
+        let pass = Task { await harness.service.syncNow() }
+        try await waitForHeldSnapshot(harness)
+
+        try await assertCancellingDrainsAndWritesNothing(harness)
+        await pass.value
+
+        await harness.service.syncNow()
+        #expect(try harness.climbs().count == 1, "deferred, not dropped: the next session's pass imports it")
+    }
+
+    @Test
+    func anImportTheClimberAskedForIsDrainedTooAndWritesNoClimb() async throws {
+        let harness = try AppleHealthImportHarness()
+        await harness.service.setAutoImportEnabled(false)
+        let snapshot = harness.addWorkout(daysAgo: 1, steps: 4_912, minutes: 62)
+        await harness.service.syncNow()
+        harness.reader.holdsSnapshots = true
+        let request = Task { await harness.service.importRecords(withUUIDs: [snapshot.uuid.uuidString]) }
+        try await waitForHeldSnapshot(harness)
+
+        try await assertCancellingDrainsAndWritesNothing(harness)
+        #expect(await request.value.isEmpty)
+        #expect(try harness.record(snapshot)?.state == .notImported, "the workout stays waiting")
+    }
+
+    @Test
+    func aSyncDuringACancelledPassWaitsItOutAndRunsItsOwn() async throws {
+        let harness = try AppleHealthImportHarness()
+        await harness.service.syncNow()
+        harness.addWorkout(daysAgo: 0.02, steps: 4_912, minutes: 62)
+        harness.reader.holdsSnapshots = true
+        let cancelled = Task { await harness.service.syncNow() }
+        try await waitForHeldSnapshot(harness)
+        harness.service.cancelInFlightWork()
+
+        let next = Task { await harness.service.syncNow() }
+        for _ in 0..<20 { await Task.yield() }
+        harness.reader.releaseSnapshots()
+        await cancelled.value
+        await next.value
+
+        #expect(try harness.climbs().count == 1, "the new session's pass did not join the dying one")
+    }
+
+    private func waitForHeldSnapshot(_ harness: AppleHealthImportHarness) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while harness.reader.heldSnapshotCount == 0 {
+            guard ContinuousClock.now < deadline else {
+                Issue.record("no Health read was ever held")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    private func assertCancellingDrainsAndWritesNothing(_ harness: AppleHealthImportHarness) async throws {
+        harness.service.cancelInFlightWork()
+        let drained = LockedFlag()
+        let drain = Task {
+            await harness.service.drainInFlightWork()
+            drained.set()
+        }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(!drained.isSet, "the drain waits for the read still in flight")
+
+        harness.reader.releaseSnapshots()
+        await drain.value
+        #expect(drained.isSet)
+        #expect(try harness.climbs().isEmpty, "nothing lands after the session ended")
+        #expect(harness.created.isEmpty)
+        #expect(harness.notifier.imported.isEmpty)
+    }
+
+    @Test
+    func theQuickEditAddsNothingToAClimbAlreadyHoldingThreePhotos() async throws {
+        let harness = try AppleHealthImportHarness()
+        harness.addWorkout(daysAgo: 1, steps: 3_000, minutes: 30)
+        await harness.service.syncNow()
+        let climb = try #require(try harness.climbs().first)
+        let held = (0..<3).map { index in
+            Photo(url: URL(string: "https://example.com/\(index).jpg")!)
+        }
+        climb.photos = held
+        try harness.context.save()
+
+        let viewModel = ImportedClimbQuickEditViewModel(workout: climb, applyUpdate: { _, _, _ in })
+        viewModel.selectedPhotos = [
+            SelectedPhotoItem(
+                pickerItem: PhotosPickerItem(itemIdentifier: "fourth"),
+                image: Image(systemName: "photo"),
+                localIdentifier: "fourth",
+                isVideo: false,
+                duration: nil
+            )
+        ]
+        viewModel.note = "Tower day"
+
+        #expect(await viewModel.finish(modelContext: harness.context))
+        #expect(climb.photos.map(\.id) == held.map(\.id), "a fourth would refuse every sync from here on")
+        #expect(climb.notes == "Tower day", "the rest of the edit still lands")
     }
 
     // MARK: - Never twice

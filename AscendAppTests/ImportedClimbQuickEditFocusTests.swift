@@ -57,6 +57,9 @@ struct ImportedClimbQuickEditFocusTests {
             #expect(Self.firstResponder(in: screen.window) == nil)
             try activateAccessibilityElement(labelled: "Steps", in: screen.root)
             try await screen.settle(.turns(40))
+            let tile = try #require(accessibilityElements(under: screen.root).first { $0.accessibilityLabel == "Steps" })
+            #expect(tile.accessibilityValue == "Not recorded")
+
             let field = try #require(Self.firstResponder(in: screen.window) as? UITextField, "tapping the tile must open the keyboard")
             #expect(field.keyboardType == .numberPad)
 
@@ -72,6 +75,10 @@ struct ImportedClimbQuickEditFocusTests {
             try await screen.settle(.turns(40))
             let reopened = try #require(Self.firstResponder(in: screen.window) as? UITextField, "the tile opens again after the field closes")
             #expect(reopened.text == "4200")
+            _ = reopened.resignFirstResponder()
+            try await screen.settle(.turns(40))
+            let filled = try #require(accessibilityElements(under: screen.root).first { $0.accessibilityLabel == "Steps" })
+            #expect(filled.accessibilityValue == "4,200", "VoiceOver reads the count the tile draws")
         }
     }
 }

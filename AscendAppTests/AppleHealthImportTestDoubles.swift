@@ -19,6 +19,11 @@ final class FakeHealthWorkoutReader: HealthWorkoutReading {
     private(set) var changeReads: [(anchor: Data?, earliest: Date)] = []
     private(set) var snapshotReads: [UUID] = []
     private(set) var isObserving = false
+    /// Parks every `snapshot` call until `releaseSnapshots()`, ignoring cancellation the way a
+    /// HealthKit read in flight does.
+    var holdsSnapshots = false
+    private var heldSnapshots: [CheckedContinuation<Void, Never>] = []
+    var heldSnapshotCount: Int { heldSnapshots.count }
     private var observerHandler: (@MainActor (@escaping @Sendable () -> Void) -> Void)?
 
     func changes(since anchorData: Data?, startingOnOrAfter earliest: Date) async throws -> HealthWorkoutChanges {
@@ -36,7 +41,17 @@ final class FakeHealthWorkoutReader: HealthWorkoutReading {
 
     func snapshot(for uuid: UUID) async throws -> HealthWorkoutSnapshot? {
         snapshotReads.append(uuid)
+        if holdsSnapshots {
+            await withCheckedContinuation { heldSnapshots.append($0) }
+        }
         return workouts.first { $0.uuid == uuid }
+    }
+
+    func releaseSnapshots() {
+        holdsSnapshots = false
+        let held = heldSnapshots
+        heldSnapshots = []
+        held.forEach { $0.resume() }
     }
 
     func startObserving(onChange: @escaping @MainActor (@escaping @Sendable () -> Void) -> Void) {

@@ -110,8 +110,10 @@ final class ImportedClimbQuickEditViewModel {
         let before = LeaderboardWorkoutSnapshot(workout: workout)
         var uploaded: [Photo] = []
         do {
-            if !selectedPhotos.isEmpty {
-                uploaded = try await photoService.uploadSelectedPhotos(selectedPhotos)
+            let room = max(SelectedMediaPreparationService.maximumMediaCount - workout.photos.count, 0)
+            let uploadable = Array(selectedPhotos.prefix(room))
+            if !uploadable.isEmpty {
+                uploaded = try await photoService.uploadSelectedPhotos(uploadable)
             }
 
             if stepsChanged {

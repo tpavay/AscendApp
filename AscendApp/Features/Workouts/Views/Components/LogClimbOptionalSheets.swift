@@ -148,13 +148,17 @@ struct LogClimbNoteSheet: View {
 struct LogClimbPhotoSheet: View {
     @Binding var selectedPhotos: [SelectedPhotoItem]
     @Binding var highlightedPhotoId: UUID?
+    let existingMediaCount: Int
+    let existingVideoCount: Int
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         AppSheetScaffold(title: "Add photos", layout: .picker) {
             PhotoGalleryView(
                 selectedImages: $selectedPhotos,
-                highlightedSelectedItemId: $highlightedPhotoId
+                highlightedSelectedItemId: $highlightedPhotoId,
+                existingMediaCount: existingMediaCount,
+                existingVideoCount: existingVideoCount
             )
         } footer: {
             Button {

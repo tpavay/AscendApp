@@ -94,7 +94,10 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     // MARK: Private state
 
     @ObservationIgnored private var modelContext: ModelContext?
+    /// Held until the pass ends, through cancellation too, so a drain can wait for it.
     @ObservationIgnored private var passTask: Task<Void, Never>?
+    /// Imports the climber asked for, which run outside a pass and must be drained like one.
+    @ObservationIgnored private var requestedImports: [UUID: Task<ImportBatch, Never>] = [:]
     @ObservationIgnored private var rerunRequested = false
     @ObservationIgnored private var isObserving = false
     /// The climber whose climbs the authenticated bootstrap has restored from the cloud in this
@@ -170,7 +173,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     func cancelInFlightWork() {
         cloudRestoreConfirmedUserID = nil
         passTask?.cancel()
-        passTask = nil
+        requestedImports.values.forEach { $0.cancel() }
         rerunRequested = false
         stopObserving()
         homeNotice = nil
@@ -180,6 +183,9 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
 
     func drainInFlightWork() async {
         await passTask?.value
+        for task in Array(requestedImports.values) {
+            _ = await task.value
+        }
     }
 
     // MARK: - Gates
@@ -243,7 +249,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             // The climber just asked for workouts to import themselves. What already waits is
             // theirs too, and leaving it under a switch that now says "imported for you" would be
             // the screen contradicting itself. Not announced: they are looking at it.
-            _ = await importWaiting(announcing: [])
+            _ = await trackingRequestedImport { await self.importWaiting(announcing: []) }
         }
         refreshDerivedState()
     }
@@ -264,6 +270,12 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         guard canImport else { return false }
         startObservingIfPossible()
 
+        // A cancelled pass belongs to a session that ended, so a new one waits it out and starts
+        // its own rather than joining it.
+        if let passTask, passTask.isCancelled {
+            await passTask.value
+            guard canImport else { return false }
+        }
         if let passTask {
             // Another caller's pass is already reading. Ask it to go round once more instead of
             // starting a second read the first one would race.
@@ -274,6 +286,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
 
         let task = Task { [weak self] in
             guard let self else { return }
+            defer { self.passTask = nil }
             repeat {
                 self.rerunRequested = false
                 await self.runPass(importsAutomatically: self.isAutoImportEnabled)
@@ -281,7 +294,6 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         }
         passTask = task
         await task.value
-        passTask = nil
         return true
     }
 
@@ -291,15 +303,15 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     func discoverWithoutImporting() async -> Int {
         guard canImport else { return 0 }
         startObservingIfPossible()
-        if let passTask { await passTask.value }
+        while let passTask { await passTask.value }
 
         let task = Task { [weak self] in
             guard let self else { return }
+            defer { self.passTask = nil }
             await self.runPass(importsAutomatically: false)
         }
         passTask = task
         await task.value
-        passTask = nil
         return (try? ledger()?.notImportedCount()) ?? 0
     }
 
@@ -407,9 +419,21 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         guard let modelContext else { return ImportBatch(recordUUIDs: [], workoutIDs: []) }
         let ledger = HealthWorkoutLedger(modelContext: modelContext)
         let records = uuids.compactMap { try? ledger.record(forUUID: $0) }
-        let batch = await importRecords(records, announcing: [])
+        let batch = await trackingRequestedImport { await self.importRecords(records, announcing: []) }
         refreshDerivedState()
         return batch
+    }
+
+    private func trackingRequestedImport(
+        _ work: @escaping @MainActor () async -> ImportBatch
+    ) async -> ImportBatch {
+        let id = UUID()
+        let task = Task { [weak self] in
+            defer { self?.requestedImports[id] = nil }
+            return await work()
+        }
+        requestedImports[id] = task
+        return await task.value
     }
 
     private func importWaiting(announcing announced: Set<String>) async -> ImportBatch {
@@ -431,6 +455,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         let ledger = HealthWorkoutLedger(modelContext: modelContext)
         var created: [(workout: Workout, announces: Bool)] = []
         var importedUUIDs: [String] = []
+        let owner = currentUserID()
 
         for record in records where record.state == .notImported {
             // The workout's statistics can land after the workout itself, so the numbers are read
@@ -439,6 +464,12 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             if let uuid = UUID(uuidString: record.workoutUUID),
                let fresh = try? await reader.snapshot(for: uuid) {
                 record.updateMeasurements(from: fresh)
+            }
+            // The session can end during that read. The workouts stay waiting, and nothing of this
+            // batch lands in a store that is about to be emptied or handed to the next climber.
+            guard !Task.isCancelled, currentUserID() == owner else {
+                modelContext.rollback()
+                return ImportBatch(recordUUIDs: [], workoutIDs: [])
             }
             guard record.state == .notImported else { continue }
 
@@ -497,7 +528,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             }
         }
 
-        for (workout, announces) in created where announces {
+        for (workout, announces) in created where announces && !Task.isCancelled {
             await notifier.climbImported(workoutID: workout.id, steps: workout.recordedSteps)
         }
         refreshDerivedState()
@@ -583,6 +614,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     /// Re-reads the two things Home draws from the ledger. A bounded count and single-row reads: the
     /// notice names what the climb holds now, since the record stops updating once it is imported.
     func refreshDerivedState() {
+        guard !Task.isCancelled else { return }
         guard let modelContext, let userID = currentUserID() else {
             badgeCount = 0
             homeNotice = nil

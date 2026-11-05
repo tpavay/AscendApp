@@ -103,7 +103,9 @@ struct ImportedClimbQuickEditSheet: View {
             case .photo:
                 LogClimbPhotoSheet(
                     selectedPhotos: $viewModel.selectedPhotos,
-                    highlightedPhotoId: $viewModel.highlightedPhotoId
+                    highlightedPhotoId: $viewModel.highlightedPhotoId,
+                    existingMediaCount: viewModel.workout.photos.count,
+                    existingVideoCount: viewModel.workout.photos.filter(\.isVideo).count
                 )
                 .appSheetStyle(.fitted())
             case .effort:
@@ -202,6 +204,7 @@ struct ImportedClimbQuickEditSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Steps")
+        .accessibilityValue(viewModel.enteredSteps.map { $0.formatted() } ?? "Not recorded")
         .accessibilityHint("Edits the step count")
     }
 
