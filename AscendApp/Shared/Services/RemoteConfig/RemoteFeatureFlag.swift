@@ -106,7 +106,7 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// The pre-sign-in onboarding of 1.3.0: selling screens, setup questions and the paywall before
     /// sign-in. Off, a signed-out climber gets the flow that shipped before it, whole. Display and
     /// routing only - it writes nothing, and the answers it collects stay on the device until a
-    /// later switch-gated step sends them. Unlike every other flag it ships off, because it is a
+    /// later switch-gated step sends them. Unlike a kill switch it ships off, because it is a
     /// rollout and not a path that must keep running (`docs/remote-config-kill-switches.md`).
     case onboardingV3 = "onboarding_v3_enabled"
 

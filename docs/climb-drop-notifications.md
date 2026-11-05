@@ -17,6 +17,7 @@ All five of them say the alert arrives **when** a climb opens:
 | `EmailPreferencesContentView.swift` | "Ascend emails you when a climb drops and when you hit a milestone." |
 
 So the contract is an alert at the open, delivered to everyone at once, not advance notice.
+The 1.3.0 onboarding primer, behind `onboarding_v3_enabled`, says the same: "when new climbs open" (`NotificationPrimerContent.swift`).
 
 **Advance notice is not available to promise.**
 The catalogue is a static file published by a hosting deploy and carries no unlock timestamp, so there is nothing to count back from.
@@ -24,7 +25,7 @@ Giving notice ahead of an open would take a catalogue schema change *and* a clie
 `scripts/test/climb-drop-promise-contract.test.mjs` fails any surface or document that reintroduces the 24-hour claim that used to live in the internal docs.
 
 The two email promises in that table - the onboarding toggle and the email-preferences row - are **not** honored yet: there is no `climb_drop` type in `functions/src/email/catalog.ts`, so nothing queues an email when a climb drops (the operator-sent `drop_announcement` email announces seasonal unlock drops, not new climbs).
-That is the one remaining gap between the copy and the code.
+That is the one remaining gap between the climb-drop copy and the code.
 
 ## How a drop is detected
 
@@ -237,5 +238,6 @@ Account deletion clears the pending reminders too.
 Nothing is scheduled without a target, so a climber who skipped screen 10 never gets one.
 
 **Trial ending.** `reconcileTrialEnding(trialStartedAt:)` schedules exactly 5 days after the trial began, and a nil start schedules nothing, so no trial reminder exists without a trial that started.
+Nothing calls it yet, because `PreAuthOnboardingStore` records only that a trial started and not when, so this reminder does not fire until a later 1.3.0 step stores the start and calls it.
 
 All local reminders also require the climber's stored notification answer to be on and iOS to deliver, each read fresh on every call, and `cancelAll()` clears everything the scheduler owns.
