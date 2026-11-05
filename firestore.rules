@@ -1773,8 +1773,9 @@ service cloud.firestore {
     // How many climbers each city has, for the signed-out onboarding's
     // "Claim your city" screen, which runs before there is an account to
     // check. One document per city, readable by anyone who knows the city's
-    // key and never listable, so the set of cities cannot be walked; the
-    // count and the city's own name are all it carries. The hourly
+    // key and never listable, so the set of cities cannot be walked; a city
+    // document carries its count and its own name, and the "_summary"
+    // document only says a run has happened. The hourly
     // publishCityClimberCounts function derives it from leaderboard_stats, so
     // no client may author one.
     match /public_city_climber_counts/{cityKey} {

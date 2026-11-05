@@ -60,6 +60,10 @@ struct OnboardingWeeklyTargetScreen: View {
     /// Leaves the target unset, clearing one a climber set on an earlier pass and then went back
     /// to undo.
     private func skip() {
+        Self.skip(coordinator)
+    }
+
+    static func skip(_ coordinator: OnboardingV3Coordinator) {
         coordinator.update { $0.weeklyTargetDays = nil }
         coordinator.advance()
     }

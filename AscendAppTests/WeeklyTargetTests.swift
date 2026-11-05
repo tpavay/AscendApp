@@ -172,6 +172,22 @@ struct WeeklyTargetTests {
         #expect(store.target(for: "alice")?.days == 2)
     }
 
+    @Test
+    func anAcknowledgementOfAnOlderChangeNeverClearsANewerOne() {
+        let store = store()
+        store.save(WeeklyTarget(days: 3), for: "alice")
+        let sentRevision = store.revision(for: "alice")
+        store.save(WeeklyTarget(days: 5), for: "alice")
+
+        store.markSynced(for: "alice", ifRevision: sentRevision)
+
+        #expect(store.hasUnsyncedChange(for: "alice"), "the 5 has not reached the account")
+        #expect(store.target(for: "alice")?.days == 5)
+
+        store.markSynced(for: "alice", ifRevision: store.revision(for: "alice"))
+        #expect(!store.hasUnsyncedChange(for: "alice"))
+    }
+
     // MARK: - The service
 
     private final class Remote: @unchecked Sendable {

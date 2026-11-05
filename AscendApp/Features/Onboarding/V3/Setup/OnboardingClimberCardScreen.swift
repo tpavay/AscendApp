@@ -17,7 +17,7 @@ struct OnboardingClimberCardScreen: View {
     }
 
     var body: some View {
-        OnboardingSetupLayout(step: .climberCard, onSkip: { coordinator.advance() }) {
+        OnboardingSetupLayout(step: .climberCard, onSkip: { Self.skip(coordinator) }) {
             VStack(alignment: .leading, spacing: 14) {
                 OnboardingHeadline(["Set up your"], accentLines: ["climber card."])
                     .onboardingEntrance(index: 0)
@@ -63,6 +63,12 @@ struct OnboardingClimberCardScreen: View {
         }
         .task { OnboardingMonthlyEventModel.shared.prefetch() }
         .trackOnce(screen: .onboardingClimberCard)
+    }
+
+    /// Skip leaves the card unset, clearing an earlier pass's answers.
+    static func skip(_ coordinator: OnboardingV3Coordinator) {
+        coordinator.update { ClimberCardDraft.clearAnswers(in: &$0) }
+        coordinator.advance()
     }
 
     private func sectionLabel(_ title: String) -> some View {

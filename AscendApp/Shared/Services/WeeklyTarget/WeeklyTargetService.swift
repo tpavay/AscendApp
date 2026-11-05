@@ -63,9 +63,10 @@ struct WeeklyTargetService {
     private func pushIfNeeded(for userId: String) async -> Bool {
         guard isWriteEnabled() else { return false }
 
+        let revision = store.revision(for: userId)
         do {
             try await writeRemote(userId, store.target(for: userId))
-            store.markSynced(for: userId)
+            store.markSynced(for: userId, ifRevision: revision)
             return true
         } catch {
             return false

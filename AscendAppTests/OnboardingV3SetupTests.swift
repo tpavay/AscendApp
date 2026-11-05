@@ -208,15 +208,17 @@ struct OnboardingV3SetupTests {
     private let chicago = PostAuthLocationSelection(city: "Chicago", region: "IL", countryCode: "US", countryName: "United States")
 
     @Test
-    func anEmptyCityIsAnOpenClaimAndAnOccupiedOneIsUpForGrabs() {
+    func aZeroCountSaysNothingAboutWhoHasClimbedAndANonZeroOneKeepsTheDesignsBadge() {
         let empty = OnboardingCityClaimCopy(selection: chicago, count: .climbers(0))
         #expect(empty.badgePlace == "CHICAGO")
         #expect(empty.badgePill == "OPEN")
-        #expect(empty.body == "Nobody in Chicago has climbed yet. Your first climb makes you #1, and everyone after has to beat you.")
+        #expect(empty.body == "Be among the first climbers in Chicago. Your first climb puts you on the Chicago board.")
+        #expect(!empty.body.contains("Nobody"), "a zero can be a spelling another phone stored differently")
+        #expect(!empty.body.contains("has climbed"))
 
         let some = OnboardingCityClaimCopy(selection: chicago, count: .climbers(12))
         #expect(some.body == "12 climbers in Chicago so far.")
-        #expect(some.badgePill == "TAKE IT", "a held city is not open")
+        #expect(some.badgePill == "OPEN", "no outward copy beyond the design")
         #expect(OnboardingCityClaimCopy(selection: chicago, count: .climbers(1)).body == "1 climber in Chicago so far.")
         #expect(!some.body.contains("rank"), "no estimated rank")
     }
@@ -232,6 +234,60 @@ struct OnboardingV3SetupTests {
         let before = OnboardingCityClaimCopy(selection: nil, count: nil)
         #expect(before.badgePlace == "YOUR CITY")
         #expect(!before.hasCity)
+    }
+
+    // MARK: - Skip clears what an earlier pass stored
+
+    private func coordinator(_ configure: (inout PreAuthOnboardingAnswers) -> Void) -> OnboardingV3Coordinator {
+        let suite = "onboarding-v3-skip-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        defaults.removePersistentDomain(forName: suite)
+        let coordinator = OnboardingV3Coordinator(store: PreAuthOnboardingStore(userDefaults: defaults), startingAt: .climberCard)
+        coordinator.update(configure)
+        return coordinator
+    }
+
+    @Test
+    func goingBackToTheClimberCardAndSkippingClearsItsEarlierAnswers() {
+        let coordinator = coordinator {
+            $0.gender = .woman
+            $0.birthday = PreAuthOnboardingBirthday(year: 1990, month: 6, day: 15)
+            $0.heightCm = 170
+            $0.weightKg = 70
+            $0.usualClimbSteps = 1_800
+        }
+
+        OnboardingClimberCardScreen.skip(coordinator)
+
+        #expect(coordinator.answers.gender == nil)
+        #expect(coordinator.answers.birthday == nil)
+        #expect(coordinator.answers.heightCm == nil)
+        #expect(coordinator.answers.weightKg == nil)
+        #expect(coordinator.answers.usualClimbSteps == 1_800, "other screens' answers stay")
+        #expect(coordinator.step == .claimCity)
+    }
+
+    @Test
+    func goingBackToTheCityAndSkippingClearsTheCityClaimedBefore() {
+        let coordinator = coordinator {
+            $0.city = PreAuthOnboardingCity(city: "Chicago", region: "IL", countryCode: "US", countryName: "United States")
+            $0.gender = .man
+        }
+
+        OnboardingClaimCityScreen.skip(coordinator)
+
+        #expect(coordinator.answers.city == nil)
+        #expect(coordinator.answers.gender == .man, "other screens' answers stay")
+        #expect(coordinator.step == .claimCity || coordinator.step == .weeklyTarget)
+    }
+
+    @Test
+    func skippingTheTargetStillClearsAnEarlierOne() {
+        let coordinator = coordinator { $0.weeklyTargetDays = 4 }
+
+        OnboardingWeeklyTargetScreen.skip(coordinator)
+
+        #expect(coordinator.answers.weeklyTargetDays == nil)
     }
 
     private struct FakeReader: CityClimberCountReading {

@@ -129,6 +129,9 @@ struct OnboardingV3FlowView: View {
         .environment(\.colorScheme, .dark)
         .preferredColorScheme(.dark)
         .trackOnboardingScreenView(coordinator.analyticsContext)
+        // Screen 11 reads this month's event from the hosted catalogue, and a fresh install has
+        // only the bundled copy, so the refresh starts the moment the flow opens.
+        .task { OnboardingMonthlyEventModel.shared.prefetch() }
     }
 
     @ViewBuilder

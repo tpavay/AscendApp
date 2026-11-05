@@ -159,6 +159,15 @@ struct ClimberCardDraft: Equatable, Sendable {
 
     // MARK: - Saving
 
+    /// Skip leaves the whole card unset, clearing anything an earlier pass through the screen
+    /// stored, so nothing the climber walked back from is published after sign-in.
+    static func clearAnswers(in answers: inout PreAuthOnboardingAnswers) {
+        answers.gender = nil
+        answers.birthday = nil
+        answers.heightCm = nil
+        answers.weightKg = nil
+    }
+
     /// Writes the card into the answers. The draft starts from the stored answers, so assigning
     /// each field keeps what was left alone and lets a tap on a chosen chip clear it.
     func apply(to answers: inout PreAuthOnboardingAnswers) {

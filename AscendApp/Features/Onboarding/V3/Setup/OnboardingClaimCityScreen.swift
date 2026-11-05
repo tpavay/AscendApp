@@ -37,7 +37,7 @@ struct OnboardingClaimCityScreen: View {
     private func layout(copy: OnboardingCityClaimCopy, isCompact: Bool) -> some View {
         let badgeScale: CGFloat = model.phase == .typing ? 0.5 : (isCompact ? 0.68 : 1)
 
-        return OnboardingSetupLayout(step: .claimCity, onSkip: { coordinator.advance() }) {
+        return OnboardingSetupLayout(step: .claimCity, onSkip: { Self.skip(coordinator) }) {
             VStack(alignment: .leading, spacing: 14) {
                 CityBadge(kicker: copy.badgeKicker, place: copy.badgePlace, pill: copy.badgePill)
                     .scaleEffect(badgeScale)
@@ -76,6 +76,12 @@ struct OnboardingClaimCityScreen: View {
         } footer: {
             footer
         }
+    }
+
+    /// Skip leaves the city unset, clearing one an earlier pass claimed.
+    static func skip(_ coordinator: OnboardingV3Coordinator) {
+        coordinator.update { $0.city = nil }
+        coordinator.advance()
     }
 
     // MARK: - Footer

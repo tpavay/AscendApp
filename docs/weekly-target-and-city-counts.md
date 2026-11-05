@@ -26,4 +26,7 @@ The key is `COUNTRY__region__city`, normalized, and `SharedTestVectors/city-coun
 - Rules let anyone `get` one document and nobody `list` or write.
 - A city with no climber has no document, so "no document" alone cannot tell "nobody here" from "never ran".
   The run writes `_summary` last, and the app treats a missing summary as an answer it does not have: the screen then says nothing about the city's climbers instead of a guessed zero.
+- `_summary` carries only `schemaVersion` and `updatedAt`, because it is readable by anyone and no screen needs totals.
 - Deploy the function and let it run once before the build that reads it ships.
+- A zero count says nothing about who has climbed there ("Be among the first climbers in Chicago..."), because a city's key follows the spelling its climbers' phones stored, which varies with the phone's language.
+  Follow-up: canonicalize the stored city before keying, so one city has one key whatever language the phone speaks.

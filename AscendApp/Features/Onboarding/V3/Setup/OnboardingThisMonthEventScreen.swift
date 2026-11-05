@@ -95,8 +95,10 @@ struct OnboardingThisMonthEventScreen: View {
         }
         .frame(height: height)
         .frame(maxWidth: .infinity)
-        .clipped()
+        // The zoom is clipped back to the frame before the fade is laid over it, so the art can
+        // never draw past the gradient that darkens it.
         .scaleEffect(reduceMotion || zoomed ? 1 : 1.15)
+        .clipped()
         .overlay(
             LinearGradient(
                 stops: [

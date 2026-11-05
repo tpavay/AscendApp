@@ -28,12 +28,14 @@ struct OnboardingCityClaimCopy: Equatable, Sendable {
         let city = selection.city
         switch count {
         case .climbers(0):
+            // A zero can be a city spelled another way on another phone, so the line says
+            // nothing about who has or has not climbed: it is true either way.
             badgePlace = city.uppercased()
             badgePill = "OPEN"
-            body = "Nobody in \(city) has climbed yet. Your first climb makes you #1, and everyone after has to beat you."
+            body = "Be among the first climbers in \(city). Your first climb puts you on the \(city) board."
         case .climbers(let climbers):
             badgePlace = city.uppercased()
-            badgePill = "TAKE IT"
+            badgePill = "OPEN"
             body = climbers == 1 ? "1 climber in \(city) so far." : "\(climbers.formatted()) climbers in \(city) so far."
         case .unknown, nil:
             // No count means no claim about the city: the intro line and the generic badge stand.

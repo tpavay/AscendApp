@@ -25,6 +25,13 @@ struct WeeklyTargetStore: @unchecked Sendable {
             userDefaults.removeObject(forKey: Self.daysKey(userId))
         }
         userDefaults.set(true, forKey: Self.pendingKey(userId))
+        userDefaults.set(revision(for: userId) + 1, forKey: Self.revisionKey(userId))
+    }
+
+    /// Counts the changes made on this device, so a write can tell whether the change it carried
+    /// is still the newest one when it is acknowledged.
+    func revision(for userId: String) -> Int {
+        userDefaults.integer(forKey: Self.revisionKey(userId))
     }
 
     /// Whether the last change on this device has not reached the account yet, so the device's
@@ -35,6 +42,13 @@ struct WeeklyTargetStore: @unchecked Sendable {
 
     func markSynced(for userId: String) {
         userDefaults.removeObject(forKey: Self.pendingKey(userId))
+    }
+
+    /// Marks the change synced only if nothing newer was saved since `revision`, so the
+    /// acknowledgement of an older write can never clear the flag of a newer change.
+    func markSynced(for userId: String, ifRevision revision: Int) {
+        guard self.revision(for: userId) == revision else { return }
+        markSynced(for: userId)
     }
 
     /// Takes the account's answer as this device's, when the device has nothing newer to say.
@@ -48,5 +62,6 @@ struct WeeklyTargetStore: @unchecked Sendable {
     }
 
     private static func daysKey(_ userId: String) -> String { "weeklyTarget.days.\(userId)" }
+    private static func revisionKey(_ userId: String) -> String { "weeklyTarget.revision.\(userId)" }
     private static func pendingKey(_ userId: String) -> String { "weeklyTarget.unsynced.\(userId)" }
 }

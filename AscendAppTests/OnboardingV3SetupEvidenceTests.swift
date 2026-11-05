@@ -132,7 +132,7 @@ struct OnboardingV3SetupEvidenceTests {
             size: size,
             name: "claim-city-chicago"
         ) { copy in
-            #expect(copy.contains("nobody in chicago has climbed yet."), "\(copy)")
+            #expect(copy.contains("be among the first climbers in chicago."), "\(copy)")
             if size == nil { #expect(copy.contains("we only use your city, never your exact spot."), "\(copy)") }
             #expect(copy.contains("continue"), "\(copy)")
         }

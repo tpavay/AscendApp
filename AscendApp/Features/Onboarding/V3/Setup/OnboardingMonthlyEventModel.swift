@@ -49,8 +49,8 @@ final class OnboardingMonthlyEventModel {
         return available.first { $0.id == landmarks.featuredClimbId } ?? available.first
     }
 
-    /// Starts both refreshes once. Calling it again, from every setup screen and from the flow's
-    /// first screen, costs nothing.
+    /// Starts both refreshes once. The flow calls it when it opens; calling it again, from every
+    /// setup screen, costs nothing.
     func prefetch() {
         guard prefetchTask == nil else { return }
 

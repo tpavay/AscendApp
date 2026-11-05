@@ -246,10 +246,11 @@ export function makeAdminCityCountsPort(): CityCountsPort {
     },
 
     async writeSummary(summary) {
+      // Only that a run happened: the totals stay in the run's log, because
+      // this document is readable by anyone and no screen needs them.
+      logger.info("publicCityClimberCounts.summary", summary);
       await counts.doc(PUBLIC_CITY_CLIMBER_COUNTS_SUMMARY_ID).set({
         schemaVersion: PUBLIC_CITY_CLIMBER_COUNTS_SCHEMA_VERSION,
-        cities: summary.cities,
-        climbers: summary.climbers,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     },
