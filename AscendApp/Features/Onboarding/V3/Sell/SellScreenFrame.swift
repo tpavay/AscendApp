@@ -18,8 +18,6 @@ struct SellScreenFrame<Art: View, Extras: View>: View {
     @ViewBuilder let art: () -> Art
     @ViewBuilder let extras: () -> Extras
 
-    @Environment(\.onboardingV3Coordinator) private var coordinator
-
     var body: some View {
         VStack(spacing: 0) {
             OnboardingProgressHeader(step: step)

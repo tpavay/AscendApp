@@ -50,6 +50,7 @@ struct OnboardingGetBetterScreen: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 }

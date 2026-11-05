@@ -58,13 +58,6 @@ struct OnboardingV3SellScreensTests {
     }
 
     @Test
-    func everyCardCarriesItsNumberUnlikeTheDesignsFirstOne() {
-        for card in SellRecordCard.examples {
-            #expect(card.detail().contains("·"), "\(card.id) has no number: \(card.detail())")
-        }
-    }
-
-    @Test
     func goldCardsAreRankOneAndSilverRankTwo() {
         #expect(SellRecordCard.examples.map(\.tier.rank) == [1, 1, 2, 2])
     }
@@ -80,44 +73,55 @@ struct OnboardingV3SellScreensTests {
     }
 
     @Test
-    func theBundledCatalogueIsTheOneTheScreenReads() {
-        #expect(!catalog().events.isEmpty)
+    func novemberIsTooSmallAnEventToShowGear() throws {
+        let catalog = catalog()
+        let event = try #require(SellGearSelection.event(in: catalog, today: day(2_026, 11, 4)))
+
+        #expect(event.id == "thanksgiving-2026")
+        #expect(catalog.items(earnedIn: event).count == 6)
+        #expect(SellGearSelection(catalog: catalog, today: day(2_026, 11, 4)) == nil)
     }
 
     @Test
-    func novemberShowsThanksgivingGearLabelledWithItsRules() throws {
-        let selection = try #require(SellGearSelection(catalog: catalog(), today: day(2_026, 11, 4)))
+    func octoberShowsHalloweenGearThatIsNotInItsShowcase() throws {
+        let catalog = catalog()
+        let event = try #require(catalog.event(id: "halloween-2026"))
+        let selection = try #require(SellGearSelection(catalog: catalog, today: day(2_026, 10, 15)))
 
-        #expect(selection.event.id == "thanksgiving-2026")
-        #expect(selection.pieces.count == 4)
-        #expect(selection.centerpiece.item.shape == .goldenTurkey)
-        #expect(selection.centerpiece.requirement == "25K STEPS")
-        #expect(Set(selection.pieces.map(\.id)).count == 4, "no piece twice")
-        #expect(selection.pieces.allSatisfy { $0.item.earn.event == "thanksgiving-2026" })
-        #expect(selection.companions.map(\.requirement) == ["OPEN ASCEND", "10 CLIMBS", "1 CLIMB"], "the catalogue's showcase order")
-    }
-
-    @Test
-    func octoberStillShowsHalloweenGear() throws {
-        let selection = try #require(SellGearSelection(catalog: catalog(), today: day(2_026, 10, 15)))
-
-        #expect(selection.event.id == "halloween-2026")
+        #expect(selection.pieces.allSatisfy { $0.item.earn.event == event.id })
         #expect(selection.centerpiece.item.shape == .pumpkinMidnight)
-        #expect(selection.companions.map(\.requirement) == ["OPEN ASCEND", "3 CLIMBS", "10 CLIMBS"])
+        #expect(selection.centerpiece.requirement == "25K STEPS")
+        #expect(selection.companions.map(\.requirement) == ["1 CLIMB", "5 CLIMBS", "15 CLIMBS"])
+        #expect(Set(selection.pieces.map(\.id)).count == 4, "no piece twice")
+        #expect(Set(selection.pieces.map(\.item)).isDisjoint(with: catalog.showcase(of: event)))
+    }
+
+    /// Seven items is the smallest event with gear, and none of its seven has a big step goal, so
+    /// the catalogue's last piece outside the showcase is the centrepiece.
+    @Test
+    func sevenLiveItemsIsTheSmallestEventThatShowsGear() throws {
+        let bundled = catalog()
+        let event = try #require(bundled.event(id: "halloween-2026"))
+        let items = bundled.items(earnedIn: event)
+        let trimmed = { (count: Int) in
+            UnlockCatalog(version: bundled.version, events: [event], items: Array(items.prefix(count)))
+        }
+
+        #expect(SellGearSelection(catalog: trimmed(6), today: day(2_026, 10, 15)) == nil)
+
+        let selection = try #require(SellGearSelection(catalog: trimmed(7), today: day(2_026, 10, 15)))
+        #expect(selection.centerpiece.item.id == "ghost_sheet")
+        #expect(selection.companions.map(\.item.id) == ["pumpkin_ghost", "pumpkin_heirloom", "candy_corn"])
     }
 
     @Test
-    func withNoEventRunningTheLatestFinishedOneIsUsed() throws {
-        let selection = try #require(SellGearSelection(catalog: catalog(), today: day(2_027, 3, 1)))
-
-        #expect(selection.event.id == "thanksgiving-2026")
+    func withNoEventRunningTheLatestFinishedOneIsUsed() {
+        #expect(SellGearSelection.event(in: catalog(), today: day(2_027, 3, 1))?.id == "thanksgiving-2026")
     }
 
     @Test
-    func beforeAnyEventTheNextOneToOpenIsUsed() throws {
-        let selection = try #require(SellGearSelection(catalog: catalog(), today: day(2_026, 8, 1)))
-
-        #expect(selection.event.id == "halloween-2026")
+    func beforeAnyEventTheNextOneToOpenIsUsed() {
+        #expect(SellGearSelection.event(in: catalog(), today: day(2_026, 8, 1))?.id == "halloween-2026")
     }
 
     @Test

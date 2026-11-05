@@ -16,12 +16,11 @@ enum SellScreenAssets {
 /// not the size it was offered.
 struct SellFilledImage: View {
     let name: String
-    var alignment: Alignment = .center
     var scale: CGFloat = 1
 
     var body: some View {
         Color.clear
-            .overlay(alignment: alignment) {
+            .overlay {
                 Image(name)
                     .resizable()
                     .scaledToFill()

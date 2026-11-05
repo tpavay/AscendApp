@@ -12,35 +12,23 @@ struct OnboardingWelcomeScreen: View {
     @State private var heroHasSettled = false
 
     var body: some View {
+        // Only the photo and its gradient run under the status bar and the home indicator. A view
+        // inside `ignoresSafeArea` reads zero insets, so everything is measured out here.
         GeometryReader { proxy in
-            let isCompact = proxy.size.height < 700
+            let screenHeight = proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
+            let isCompact = screenHeight < 700
 
             ZStack(alignment: .top) {
-                hero(height: proxy.size.height * 600 / 844)
-
-                LinearGradient(
-                    stops: [
-                        .init(color: .black.opacity(0.45), location: 0),
-                        .init(color: .black.opacity(0), location: 0.18),
-                        .init(color: .black.opacity(0), location: 0.40),
-                        .init(color: .black.opacity(0.92), location: 0.66),
-                        .init(color: .black, location: 0.74)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+                backdrop(heroHeight: screenHeight * 600 / 844)
+                    .ignoresSafeArea()
 
                 VStack(alignment: .leading, spacing: 0) {
                     AscendWordmark(height: 22, treatment: .onDark)
-                        .padding(.top, proxy.safeAreaInsets.top + 13)
+                        .padding(.top, 13)
                         .padding(.leading, 24)
 
-                    // The photo and the gradient run under the status bar and the home indicator, so
-                    // the content takes the insets by hand. The words sit on the bottom of the
-                    // photo; at an accessibility text size they outgrow it and scroll, while the
-                    // two actions below stay put.
+                    // The words sit on the bottom of the photo; at an accessibility text size they
+                    // outgrow it and scroll, while the two actions below stay put.
                     ScrollView {
                         message(isCompact: isCompact)
                             .padding(.horizontal, 24)
@@ -54,17 +42,36 @@ struct OnboardingWelcomeScreen: View {
                     actions
                         .padding(.horizontal, 24)
                         .padding(.top, isCompact ? 10 : 22)
-                        .padding(.bottom, max(proxy.safeAreaInsets.bottom, 16))
+                        .padding(.bottom, max(16 - proxy.safeAreaInsets.bottom, 0))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .ignoresSafeArea()
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.timingCurve(0.2, 0.6, 0.2, 1, duration: 6)) { heroHasSettled = true }
         }
         .trackOnce(screen: .onboardingWelcome)
+    }
+
+    private func backdrop(heroHeight: CGFloat) -> some View {
+        ZStack(alignment: .top) {
+            hero(height: heroHeight)
+
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.45), location: 0),
+                    .init(color: .black.opacity(0), location: 0.18),
+                    .init(color: .black.opacity(0), location: 0.40),
+                    .init(color: .black.opacity(0.92), location: 0.66),
+                    .init(color: .black, location: 0.74)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
     }
 
     private func hero(height: CGFloat) -> some View {

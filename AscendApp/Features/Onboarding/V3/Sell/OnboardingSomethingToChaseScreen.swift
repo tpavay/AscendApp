@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// 04 Always something to chase next: the month's gear, popping in and bobbing, each piece labelled
-/// with what it takes. The gear is read from the hosted unlock catalogue, so it is whatever event
-/// is on (or the last one that finished), never a season written into the build.
+/// with what it takes, over the reasons to keep climbing. The gear is read from the hosted unlock
+/// catalogue, so it is whatever event is on (or the last one that finished), never a season written
+/// into the build. With no gear to show, the reasons fill the art area instead.
 struct OnboardingSomethingToChaseScreen: View {
     let coordinator: OnboardingV3Coordinator
     /// Tests hand in a catalogue and a day; the screen reads the real catalogue and today.
@@ -26,8 +27,18 @@ struct OnboardingSomethingToChaseScreen: View {
             textDelay: 0.9,
             artMinimumHeight: 250,
             onContinue: coordinator.advance,
-            art: { gear },
-            extras: { chips }
+            art: {
+                if let selection {
+                    gear(selection)
+                } else {
+                    reasons
+                }
+            },
+            extras: {
+                if selection != nil {
+                    chips
+                }
+            }
         )
         .background(alignment: .top) {
             SellGlow(color: Color(red: 240 / 255, green: 140 / 255, blue: 40 / 255), opacity: 0.24)
@@ -67,39 +78,53 @@ struct OnboardingSomethingToChaseScreen: View {
     /// A piece's picture plus its tag, which is up to two lines of 10 to 16 pt type.
     private static func pieceHeight(size: CGFloat) -> CGFloat { size + 6 + 40 }
 
-    private var gear: some View {
+    private func gear(_ selection: SellGearSelection) -> some View {
         GeometryReader { proxy in
             let side = min(proxy.size.width, proxy.size.height * 0.9)
             ZStack {
-                if let selection {
-                    ForEach(Array(selection.pieces.enumerated()), id: \.element.id) { index, piece in
-                        let slot = Self.slots[min(index, Self.slots.count - 1)]
-                        let size = side * slot.size
-                        let height = Self.pieceHeight(size: size)
-                        let halfWidth = max(size, 110) / 2
-                        let x = min(max(proxy.size.width * slot.x, halfWidth + 4), proxy.size.width - halfWidth - 4)
-                        let y: CGFloat = switch slot.anchor {
-                        case .top: height / 2
-                        case .bottom: proxy.size.height - height / 2
-                        case .middle(let fraction): proxy.size.height * fraction
-                        }
-
-                        SellGearPieceView(
-                            piece: piece,
-                            size: size,
-                            tilt: slot.tilt,
-                            bobDelay: Double(index) * 0.4,
-                            isCenterpiece: index == 0
-                        )
-                        .onboardingEntrance(style: .pop, delay: slot.delay, duration: 0.55)
-                        .position(x: x, y: y)
+                ForEach(Array(selection.pieces.enumerated()), id: \.element.id) { index, piece in
+                    let slot = Self.slots[min(index, Self.slots.count - 1)]
+                    let size = side * slot.size
+                    let height = Self.pieceHeight(size: size)
+                    let halfWidth = max(size, 110) / 2
+                    let x = min(max(proxy.size.width * slot.x, halfWidth + 4), proxy.size.width - halfWidth - 4)
+                    let y: CGFloat = switch slot.anchor {
+                    case .top: height / 2
+                    case .bottom: proxy.size.height - height / 2
+                    case .middle(let fraction): proxy.size.height * fraction
                     }
+
+                    SellGearPieceView(
+                        piece: piece,
+                        size: size,
+                        tilt: slot.tilt,
+                        bobDelay: Double(index) * 0.4,
+                        isCenterpiece: index == 0
+                    )
+                    .onboardingEntrance(style: .pop, delay: slot.delay, duration: 0.55)
+                    .position(x: x, y: y)
                 }
             }
         }
     }
 
     // MARK: - Chips
+
+    /// The chips drawn large in the art area, for an event with no gear to show.
+    private var reasons: some View {
+        VStack(spacing: 12) {
+            ForEach(Array(SellScreenCopy.SomethingToChase.chips.enumerated()), id: \.element) { index, title in
+                SellChaseChip(
+                    title: title,
+                    isHighlighted: title == SellScreenCopy.SomethingToChase.highlightedChip,
+                    isProminent: true
+                )
+                .onboardingEntrance(style: .pop, delay: 0.15 + 0.17 * Double(index), duration: 0.55)
+            }
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     private var chips: some View {
         ShareChipFlowLayout(spacing: 6) {
@@ -117,15 +142,17 @@ struct OnboardingSomethingToChaseScreen: View {
 private struct SellChaseChip: View {
     let title: String
     let isHighlighted: Bool
+    var isProminent = false
 
     @ScaledMetric(relativeTo: .caption) private var size: CGFloat = 12
 
     var body: some View {
         Text(title)
-            .font(.custom("Montserrat-ExtraBold", fixedSize: size))
+            .font(.custom("Montserrat-ExtraBold", fixedSize: isProminent ? size * 1.5 : size))
             .foregroundStyle(isHighlighted ? OnboardingV3Palette.orange : Color.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, isProminent ? 18 : 10)
+            .padding(.vertical, isProminent ? 13 : 7)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(isHighlighted ? Color(hex: "2A1806") : OnboardingV3Palette.controlFill)

@@ -1,8 +1,11 @@
 import Foundation
 
-/// The four pieces of gear 04 shows, picked from the hosted unlock catalogue so the screen follows
-/// the month by itself: the event running today, else the latest one that finished, else the next
-/// one to open. Nothing about a season is written in code.
+/// The gear 04 shows, picked from the hosted unlock catalogue so the screen follows the month by
+/// itself: the event running today, else the latest one that finished, else the next one to open.
+/// Nothing about a season is written in code.
+///
+/// 11 shows the event's showcase, so 04 never does. An event too small to have gear left over has
+/// no selection, and 04 leads with its reasons instead.
 struct SellGearSelection: Equatable {
     struct Piece: Equatable, Identifiable {
         let item: UnlockItem
@@ -14,13 +17,16 @@ struct SellGearSelection: Equatable {
         var id: String { item.id }
     }
 
-    let event: UnlockEvent
-    /// The hardest piece to earn, drawn large in the middle.
+    /// The first step goal at or above ``centerpieceStepFloor``, else the catalogue's last piece,
+    /// drawn large in the middle.
     let centerpiece: Piece
     /// Up to three more, in the order the catalogue names them.
     let companions: [Piece]
 
     var pieces: [Piece] { [centerpiece] + companions }
+
+    /// An event with fewer live items than this shows no gear on 04.
+    private static let minimumLiveItems = 7
 
     /// Steps a centrepiece is worth chasing from: a few climbs of work, not a season of it.
     private static let centerpieceStepFloor = 20_000
@@ -28,23 +34,21 @@ struct SellGearSelection: Equatable {
     init?(catalog: UnlockCatalog, today: Date, calendar: Calendar = .current) {
         guard let event = Self.event(in: catalog, today: today, calendar: calendar) else { return nil }
         let items = catalog.items(earnedIn: event)
-        guard !items.isEmpty else { return nil }
-
-        let centre = items
-            .filter { $0.earn.metric == .steps && $0.earn.threshold >= Self.centerpieceStepFloor }
-            .min { $0.earn.threshold < $1.earn.threshold }
-            ?? items.last
-        guard let centre else { return nil }
+        guard items.count >= Self.minimumLiveItems else { return nil }
 
         let showcase = catalog.showcase(of: event)
-        let rest = items.filter { item in !showcase.contains(item) }
-        let companions = (showcase + rest)
+        let offered = items.filter { !showcase.contains($0) }
+        let centre = offered
+            .filter { $0.earn.metric == .steps && $0.earn.threshold >= Self.centerpieceStepFloor }
+            .min { $0.earn.threshold < $1.earn.threshold }
+            ?? offered.last
+        guard let centre else { return nil }
+
+        centerpiece = Self.piece(centre, in: event)
+        companions = offered
             .filter { $0 != centre }
             .prefix(3)
-
-        self.event = event
-        centerpiece = Self.piece(centre, in: event)
-        self.companions = companions.map { Self.piece($0, in: event) }
+            .map { Self.piece($0, in: event) }
     }
 
     private static func piece(_ item: UnlockItem, in event: UnlockEvent) -> Piece {

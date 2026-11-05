@@ -12,7 +12,6 @@ enum SellScreenCopy {
         static let start = "Get started"
         static let signInPrompt = "Already climbing? "
         static let signIn = "Sign in"
-        static let heroDescription = "Climbers heading up a stone staircase to a mountain summit"
     }
 
     enum GoHarder {
@@ -74,7 +73,7 @@ enum SellScreenCopy {
     static var all: [String] {
         var strings = [continueTitle]
         strings += Welcome.headlineLead + Welcome.headlineAccent
-        strings += [Welcome.body, Welcome.start, Welcome.signInPrompt, Welcome.signIn, Welcome.heroDescription]
+        strings += [Welcome.body, Welcome.start, Welcome.signInPrompt, Welcome.signIn]
         strings += GoHarder.headlineLead + GoHarder.headlineAccent
         strings += [GoHarder.body, GoHarder.screenshotDescription]
         strings += GetBetter.headlineLead + GetBetter.headlineAccent
