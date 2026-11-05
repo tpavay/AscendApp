@@ -52,9 +52,11 @@ final class PreAuthPurchaseTransfer {
 
     /// Runs after the sign-in has been identified with RevenueCat.
     func completeAfterSignIn() async -> Outcome {
+        let progress = ledger.progress()
+        let holdsCharge = progress.pendingPurchase?.hold == .unconfirmedCharge
         releaseUnconfirmedPurchase()
 
-        guard ledger.progress().purchase != nil else { return .nothingToTransfer }
+        guard progress.purchase != nil || holdsCharge else { return .nothingToTransfer }
 
         guard await accountHoldsEntitlement() else { return .notTransferred }
 

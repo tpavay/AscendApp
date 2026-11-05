@@ -104,7 +104,7 @@ final class OnboardingPaywallModel {
 
     var isAwaitingConfirmation: Bool { unconfirmedPurchase != nil }
 
-    var locksPurchase: Bool { isBusy || isAwaitingConfirmation }
+    var locksPurchase: Bool { isBusy || isAwaitingConfirmation || holdsAccess }
 
     /// Whether this install already holds the entitlement: a purchase made before a relaunch, one
     /// confirmed late, or one restored. Reads RevenueCat's state each time, so the screens can react

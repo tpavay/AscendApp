@@ -667,24 +667,90 @@ struct OnboardingPaywallModelTests {
         #expect(charge.locksPurchase)
     }
 
-    @Test
-    func aCompletedSignInReleasesAnUnconfirmedChargeInTheLedgerAndTheModel() async {
+    private func signIn(
+        after result: PurchaseResult,
+        transferring: StubTransferring
+    ) async -> (PreAuthPurchaseTransfer.Outcome, OnboardingPaywallModel, PreAuthPurchaseLedger) {
         let provider = StubPlanProvider(plans: plans())
-        provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
+        provider.purchaseResult = result
         let (model, ledger) = make(provider: provider)
         await model.load()
         _ = await model.purchaseSelectedPlan()
         let transfer = PreAuthPurchaseTransfer(
             ledger: ledger,
-            monetization: StubTransferring(),
+            monetization: transferring,
             invoker: StubInvoker([.active]),
             releaseUnconfirmedPurchase: { model.releaseUnconfirmedPurchase() }
         )
+        return (await transfer.completeAfterSignIn(), model, ledger)
+    }
 
-        #expect(await transfer.completeAfterSignIn() == .nothingToTransfer)
+    @Test
+    func aCompletedSignInMovesAnUnconfirmedChargeOntoAnAccountRevenueCatAlreadyKnew() async {
+        let transferring = StubTransferring()
+        transferring.restoredActive = true
 
+        let (outcome, model, ledger) = await signIn(
+            after: .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed),
+            transferring: transferring
+        )
+
+        #expect(outcome == .granted)
+        #expect(transferring.calls == ["refresh", "restore"])
         #expect(ledger.progress().pendingPurchase == nil)
         #expect(!model.isAwaitingConfirmation)
+    }
+
+    @Test
+    func aChargeThatNeverReachesTheAccountIsReportedAndStillReleased() async {
+        let transferring = StubTransferring()
+
+        let (outcome, model, ledger) = await signIn(
+            after: .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed),
+            transferring: transferring
+        )
+
+        #expect(outcome == .notTransferred)
+        #expect(transferring.calls == ["refresh", "restore"])
+        #expect(ledger.progress().pendingPurchase == nil)
+        #expect(!model.isAwaitingConfirmation)
+    }
+
+    @Test
+    func aCompletedSignInHasNothingToMoveForAnAskToBuy() async {
+        let transferring = StubTransferring()
+
+        let (outcome, model, ledger) = await signIn(after: .pending, transferring: transferring)
+
+        #expect(outcome == .nothingToTransfer)
+        #expect(transferring.calls.isEmpty)
+        #expect(ledger.progress().pendingPurchase == nil)
+        #expect(!model.isAwaitingConfirmation)
+    }
+
+    @Test
+    func nothingCanBeBoughtOnceAPurchaseHasCompleted() async {
+        let provider = StubPlanProvider(plans: plans())
+        let (model, _) = make(provider: provider)
+        await model.load()
+        _ = await model.purchaseSelectedPlan()
+
+        model.selectedPlanID = "lifetime"
+        #expect(model.locksPurchase)
+        #expect(await model.purchaseSelectedPlan() == .notCompleted)
+        #expect(await model.claimGift() == .notCompleted)
+
+        #expect(provider.purchasedPlanIDs == ["yearly"])
+    }
+
+    @Test
+    func nothingCanBeBoughtByAnInstallThatAlreadyHoldsAccess() async {
+        let provider = StubPlanProvider(plans: plans())
+        let (model, _) = make(provider: provider, entitlement: .active(["app_access"]))
+        await model.load()
+
+        #expect(await model.purchaseSelectedPlan() == .notCompleted)
+        #expect(provider.purchasedPlanIDs.isEmpty)
     }
 
     @Test

@@ -170,7 +170,7 @@ struct OnboardingExitGiftScreen: View {
                     }
                     .buttonStyle(.onboardingPrimary)
                     .paywallSheen()
-                    .disabled(model.isBusy)
+                    .disabled(model.locksPurchase)
                 }
 
                 Text(copy.finePrint)

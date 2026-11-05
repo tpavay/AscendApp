@@ -205,7 +205,7 @@ struct OnboardingPaywallScreen: View {
                 }
                 .buttonStyle(.onboardingPrimary)
                 .paywallSheen()
-                .disabled(model.loadState != .ready || model.isBusy)
+                .disabled(model.loadState != .ready || model.locksPurchase)
             }
 
             footer
