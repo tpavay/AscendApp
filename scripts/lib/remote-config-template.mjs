@@ -51,10 +51,12 @@ export const SETTING_PARAMETERS = Object.freeze({
  * the checked-in `false` over it would pull the feature back from every climber at once.
  *
  * `onboarding_v3_enabled` is the first: the 1.3.0 onboarding is built behind it and stays dark
- * until the captain turns it on.
+ * until the captain turns it on. `gear_drop_push_enabled` is the second: the gear push stays silent
+ * until the captain decides the consent question for climbers who opted in to climb alerts only.
  */
 export const ROLLOUT_PARAMETERS = Object.freeze({
   onboarding_v3_enabled: Object.freeze({ healthyDefault: "false" }),
+  gear_drop_push_enabled: Object.freeze({ healthyDefault: "false" }),
 });
 
 export function isRolloutParameter(key) {

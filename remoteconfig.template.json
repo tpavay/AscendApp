@@ -177,10 +177,10 @@
     },
     "gear_drop_push_enabled": {
       "defaultValue": {
-        "value": "true"
+        "value": "false"
       },
       "valueType": "BOOLEAN",
-      "description": "Kill switch. Off stops the server push that announces a new gear event; the event stays unannounced and the first sweep after it returns sends it if it is still inside its window. Read by the Cloud Function, not the app."
+      "description": "Rollout switch, ships off. On lets the server push announce a new gear event; off sends nothing and the event stays unannounced until it is on and still inside its window. Read by the Cloud Function, not the app."
     }
   },
   "parameterGroups": {},

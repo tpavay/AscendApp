@@ -10,6 +10,7 @@ import {
   runGearDropSweep,
   selectDueGearEvent,
   type GearDropDevice,
+  type GearDropCounters,
   type GearDropDispatch,
   type GearDropStore,
   type GearEvent,
@@ -139,9 +140,11 @@ test("push copy has no em dash and none of the banned words", () => {
   }
 });
 
-test("the switch is on unless the template explicitly turns it off", () => {
-  assert.equal(readGearDropSwitch({parameters: {}}), true);
-  assert.equal(readGearDropSwitch(null), true);
+test("the switch ships off: only an explicit true sends", () => {
+  assert.equal(readGearDropSwitch({parameters: {}}), false);
+  assert.equal(readGearDropSwitch(null), false);
+  assert.equal(readGearDropSwitch({parameters: {
+    gear_drop_push_enabled: {}}}), false);
   assert.equal(readGearDropSwitch({parameters: {
     gear_drop_push_enabled: {defaultValue: {value: "true"}}}}), true);
   assert.equal(readGearDropSwitch({parameters: {
@@ -157,6 +160,7 @@ test("the switch is on unless the template explicitly turns it off", () => {
  */
 class MemoryStore implements GearDropStore {
   dispatches = new Map<string, GearDropDispatch & {state: string}>();
+  recorded: GearDropCounters[] = [];
   receipts = new Map<string, Set<string>>();
   pruned: string[] = [];
   devices: GearDropDevice[];
@@ -177,7 +181,12 @@ class MemoryStore implements GearDropStore {
       return false;
     }
     this.dispatches.set(event.id, {
-      ...message, deviceCursor: null, id: event.id, state: "sending"});
+      ...message,
+      closesAt: gearDropWindow(event).closesAt,
+      deviceCursor: null,
+      id: event.id,
+      state: "sending",
+    });
     return true;
   }
 
@@ -213,7 +222,21 @@ class MemoryStore implements GearDropStore {
   }
 
   /** @inheritdoc */
-  async recordOutcomes() {}
+  async recordOutcomes(
+    _dispatchId: string,
+    _outcomes: unknown,
+    counters: GearDropCounters
+  ) {
+    this.recorded.push({...counters});
+  }
+
+  /** @inheritdoc */
+  async expireDispatch(dispatchId: string) {
+    const dispatch = this.dispatches.get(dispatchId);
+    if (dispatch) {
+      dispatch.state = "expired";
+    }
+  }
 
   /** @inheritdoc */
   async advanceDispatch(dispatchId: string, cursor: string | null) {
@@ -399,4 +422,46 @@ test("invalid tokens are pruned", async () => {
 
   assert.equal(summary.invalidTokens, 1);
   assert.deepEqual(store.pruned, ["hash-0001"]);
+});
+
+test("each page records its own counts, never the running total", async () => {
+  // 1,001 devices: three pages of 500, 500 and 1.
+  const store = new MemoryStore(makeDevices(1001));
+  const sends: string[][] = [];
+  const summary = await runGearDropSweep(deps({}, store, sends));
+
+  assert.equal(summary.sent, 1001);
+  assert.deepEqual(store.recorded.map((delta) => delta.sent), [500, 500, 1]);
+  const total = store.recorded.reduce((sum, delta) => sum + delta.sent, 0);
+  assert.equal(total, 1001, "the dispatch document's increments add up");
+  assert.equal(
+    store.recorded.reduce((sum, delta) => sum + delta.claimed, 0),
+    1001
+  );
+});
+
+test("a dispatch whose window closed is expired, never resumed", async () => {
+  const store = new MemoryStore(makeDevices(3));
+  await store.createDispatch(THANKSGIVING, buildGearDropMessage(THANKSGIVING));
+  const sends: string[][] = [];
+  // December 10: the November event's window closed on November 4.
+  const summary = await runGearDropSweep(
+    deps({now: () => at("2026-12-10T17:00:00Z")}, store, sends));
+
+  assert.deepEqual(summary.expired, ["thanksgiving-2026"]);
+  assert.equal(sends.length, 0);
+  assert.equal(store.dispatches.get("thanksgiving-2026")?.state, "expired");
+});
+
+test("a dispatch still inside its window resumes after the switch returns", async () => {
+  const store = new MemoryStore(makeDevices(2));
+  await store.createDispatch(THANKSGIVING, buildGearDropMessage(THANKSGIVING));
+  const sends: string[][] = [];
+  const held = await runGearDropSweep(
+    deps({isEnabled: async () => false}, store, sends));
+  assert.equal(held.sent, 0);
+
+  const resumed = await runGearDropSweep(deps({}, store, sends));
+  assert.equal(resumed.sent, 2);
+  assert.equal(resumed.expired.length, 0);
 });

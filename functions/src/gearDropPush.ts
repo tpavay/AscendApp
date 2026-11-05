@@ -17,17 +17,23 @@
  * missed nudge is cheaper than a second one.
  *
  * NEVER STALE. An event announces only from the first day's send hour for
- * three days, and never after it ended. A sweep that was off, or a switch
- * that was held, cannot announce last month's gear.
+ * three days, and never after it ended. The window closes a dispatch too: it
+ * is stored on the dispatch, and a dispatch still unfinished when it closes is
+ * expired rather than resumed, so a switch held off mid-send, or a run that
+ * kept failing, cannot announce last month's gear weeks later.
  *
  * WHO. The same audience as the climb-drop alert: active iOS devices whose
  * climber turned notifications on and whose registration reports an
  * authorization iOS will deliver on. The onboarding primer's TURN ON writes
  * that one preference, so there is no second one to keep in step.
  *
- * OFF SWITCH. Remote Config `gear_drop_push_enabled`, read from the template
- * on every run. A switch that cannot be read sends nothing: a push cannot be
- * recalled, so unlike a data path this one fails closed.
+ * OFF SWITCH, SHIPS OFF. Remote Config `gear_drop_push_enabled`, read from
+ * the template on every run, is a rollout: it defaults to false, and only an
+ * explicit true sends. Existing climbers opted in to climb alerts only, so no
+ * gear push reaches anyone until the captain decides the consent question
+ * (App Store guideline 4.5.4: promotional pushes need an explicit opt-in) and
+ * turns it on. A switch that cannot be read, or is absent, sends nothing: a
+ * push cannot be recalled, so unlike a data path this one fails closed.
  */
 
 import * as admin from "firebase-admin";
@@ -75,6 +81,8 @@ export interface GearDropMessage {
 export interface GearDropDispatch {
   id: string;
   body: string;
+  /** Epoch milliseconds the dispatch may no longer send after. */
+  closesAt: number | null;
   deviceCursor: string | null;
   title: string;
 }
@@ -126,6 +134,8 @@ export interface GearDropStore {
   ): Promise<void>;
   advanceDispatch(dispatchId: string, cursor: string | null): Promise<void>;
   completeDispatch(dispatchId: string): Promise<void>;
+  /** Ends a dispatch whose window closed before its audience was reached. */
+  expireDispatch(dispatchId: string): Promise<void>;
   pruneInvalidTokens(tokenHashes: string[]): Promise<void>;
 }
 
@@ -145,6 +155,7 @@ export interface GearDropCatalogSource {
 export interface GearDropSweepSummary {
   announced: string | null;
   completed: string[];
+  expired: string[];
   detectionError: string | null;
   dispatchErrors: Array<{dispatchId: string; message: string}>;
   sendingSkipped: boolean;
@@ -293,7 +304,7 @@ export function buildGearDropMessage(event: GearEvent): GearDropMessage {
 /**
  * Reads the kill switch out of a Remote Config template.
  * @param {unknown} template - The template, as the Admin SDK returns it
- * @return {boolean} False only when the switch is explicitly off
+ * @return {boolean} True only when the switch is explicitly on
  */
 export function readGearDropSwitch(template: unknown): boolean {
   const parameters = (template as {parameters?: Record<string, unknown>} | null)
@@ -302,11 +313,8 @@ export function readGearDropSwitch(template: unknown): boolean {
     defaultValue?: {value?: unknown};
   } | undefined;
   const value = parameter?.defaultValue?.value;
-  if (value === undefined) {
-    // Absent from the template: the checked-in default is on.
-    return true;
-  }
-  return String(value).toLowerCase() === "true";
+  // Absent means off: the push is a rollout, and only an explicit true sends.
+  return value !== undefined && String(value).toLowerCase() === "true";
 }
 
 // =============================================================================
@@ -336,6 +344,7 @@ export async function runGearDropSweep(
     completed: [],
     detectionError: null,
     dispatchErrors: [],
+    expired: [],
     failed: 0,
     invalidTokens: 0,
     sendingSkipped: false,
@@ -371,6 +380,19 @@ export async function runGearDropSweep(
   }
 
   for (const dispatch of await deps.store.listUnfinishedDispatches()) {
+    if (dispatch.closesAt !== null &&
+      deps.now().getTime() >= dispatch.closesAt) {
+      try {
+        await deps.store.expireDispatch(dispatch.id);
+        summary.expired.push(dispatch.id);
+      } catch (error) {
+        summary.dispatchErrors.push({
+          dispatchId: dispatch.id,
+          message: messageOf(error),
+        });
+      }
+      continue;
+    }
     const counters: GearDropCounters =
       {claimed: 0, failed: 0, invalidTokens: 0, sent: 0};
     try {
@@ -412,7 +434,6 @@ async function deliverDispatch(
 
     if (page.devices.length > 0) {
       const claimed = await deps.store.claimDevices(dispatch.id, page.devices);
-      counters.claimed += claimed.length;
 
       if (claimed.length > 0) {
         let outcomes: GearDropSendOutcome[];
@@ -437,11 +458,21 @@ async function deliverDispatch(
         const invalid = outcomes
           .filter((outcome) => outcome.invalidToken)
           .map((outcome) => outcome.tokenHash);
-        counters.sent += outcomes.filter((outcome) => outcome.ok).length;
-        counters.failed += outcomes.filter((outcome) => !outcome.ok).length;
-        counters.invalidTokens += invalid.length;
+        // This page's own counts. The dispatch document accumulates them
+        // with `increment`, so handing it the run's running total would
+        // count every earlier page again.
+        const delta: GearDropCounters = {
+          claimed: claimed.length,
+          failed: outcomes.filter((outcome) => !outcome.ok).length,
+          invalidTokens: invalid.length,
+          sent: outcomes.filter((outcome) => outcome.ok).length,
+        };
+        counters.claimed += delta.claimed;
+        counters.failed += delta.failed;
+        counters.invalidTokens += delta.invalidTokens;
+        counters.sent += delta.sent;
 
-        await deps.store.recordOutcomes(dispatch.id, outcomes, counters);
+        await deps.store.recordOutcomes(dispatch.id, outcomes, delta);
         await deps.store.pruneInvalidTokens(invalid);
       }
     }
@@ -569,6 +600,9 @@ export function makeFirestoreGearDropStore(
         await dispatches.doc(event.id).create({
           body: message.body,
           claimedCount: 0,
+          closesAt: admin.firestore.Timestamp.fromMillis(
+            gearDropWindow(event).closesAt
+          ),
           createdAt: now,
           deviceCursor: null,
           eventId: event.id,
@@ -590,6 +624,15 @@ export function makeFirestoreGearDropStore(
       }
     },
 
+    async expireDispatch(dispatchId) {
+      const now = admin.firestore.Timestamp.now();
+      await dispatches.doc(dispatchId).update({
+        expiredAt: now,
+        state: "expired",
+        updatedAt: now,
+      });
+    },
+
     async listUnfinishedDispatches() {
       // A single equality filter, so no composite index is needed; there is
       // rarely more than one unfinished dispatch and their order is moot.
@@ -597,6 +640,9 @@ export function makeFirestoreGearDropStore(
         .limit(3).get();
       return snapshot.docs.map((document) => ({
         body: String(document.get("body") ?? ""),
+        closesAt: document.get("closesAt") instanceof admin.firestore.Timestamp ?
+          (document.get("closesAt") as admin.firestore.Timestamp).toMillis() :
+          null,
         deviceCursor: typeof document.get("deviceCursor") === "string" ?
           document.get("deviceCursor") as string :
           null,

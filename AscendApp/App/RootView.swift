@@ -95,6 +95,7 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
             enrichmentService.configure(modelContext: modelContext)
+            LocalReminderCoordinator.shared.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             scheduleAuthenticatedSessionWork()
         }
