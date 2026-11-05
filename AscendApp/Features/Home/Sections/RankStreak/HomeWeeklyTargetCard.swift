@@ -8,7 +8,8 @@ struct HomeWeeklyTargetCopy: Equatable {
 
     init(progress: WeeklyTargetProgress) {
         let target = progress.target.days
-        title = "\(progress.daysClimbed) of \(target) days"
+        let ofTarget = "\(progress.daysClimbed) of \(target) \(target == 1 ? "day" : "days")"
+        title = ofTarget
 
         if progress.isMet {
             detail = "Week closed. Climb again to go past it."
@@ -17,7 +18,7 @@ struct HomeWeeklyTargetCopy: Equatable {
             detail = remaining == 1 ? "1 more day closes your week" : "\(remaining) more days close your week"
         }
 
-        accessibilityLabel = "Weekly target: \(progress.daysClimbed) of \(target) days climbed this week. \(detail)."
+        accessibilityLabel = "Weekly target: \(ofTarget) climbed this week. \(detail)."
     }
 }
 

@@ -100,6 +100,13 @@ struct WeeklyTargetTests {
         #expect(HomeWeeklyTargetCopy(progress: two).detail == "2 more days close your week")
     }
 
+    @Test(arguments: [0, 1])
+    func aOneDayTargetSaysDay(daysClimbed: Int) throws {
+        let copy = HomeWeeklyTargetCopy(progress: WeeklyTargetProgress(target: try #require(WeeklyTarget(days: 1)), daysClimbed: daysClimbed))
+        #expect(copy.title == "\(daysClimbed) of 1 day")
+        #expect(copy.accessibilityLabel.hasPrefix("Weekly target: \(daysClimbed) of 1 day climbed this week. "))
+    }
+
     // MARK: - Home
 
     @Test
