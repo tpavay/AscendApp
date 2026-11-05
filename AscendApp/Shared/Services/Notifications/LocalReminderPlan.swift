@@ -41,9 +41,10 @@ enum LocalReminderPlan {
     /// A nudge fires on the last day a week can still be saved: the day the days left, today
     /// included, equal the days still owed. Earlier than that it would nag a climber who is on
     /// pace; later, nothing could still be done about it. A week that is already met, or whose
-    /// last day has passed, gets no nudge. Next week's exists because a climber who does not open
-    /// the app again would otherwise never hear from it, and it is replaced by the real one the
-    /// next time anything reconciles.
+    /// last day has passed, gets no nudge, and neither does a day already climbed: a second climb
+    /// that day cannot count, so the week can no longer be saved. Next week's exists because a
+    /// climber who does not open the app again would otherwise never hear from it, and it is
+    /// replaced by the real one the next time anything reconciles.
     ///
     /// - Parameters:
     ///   - targetDays: The climber's days a week, 1 to 7. Nil, or out of range, schedules nothing.
@@ -62,11 +63,11 @@ enum LocalReminderPlan {
         }
 
         let minutes = quotedMinutes(usualClimbMinutes)
-        let daysDoneThisWeek = Set(
+        let daysClimbedThisWeek = Set(
             climbDates
                 .filter { thisWeek.contains($0) }
                 .map { calendar.startOfDay(for: $0) }
-        ).count
+        )
 
         var requests: [LocalReminderRequest] = []
         for weekOffset in 0...1 {
@@ -74,12 +75,13 @@ enum LocalReminderPlan {
                 continue
             }
 
-            let daysDone = weekOffset == 0 ? daysDoneThisWeek : 0
+            let daysDone = weekOffset == 0 ? daysClimbedThisWeek.count : 0
             let daysOwed = targetDays - daysDone
             guard daysOwed > 0,
                   let day = calendar.date(byAdding: .day, value: 7 - daysOwed, to: weekStart),
                   let fireDate = calendar.date(bySettingHour: weeklyReminderHour, minute: 0, second: 0, of: day),
-                  fireDate > now else {
+                  fireDate > now,
+                  !daysClimbedThisWeek.contains(calendar.startOfDay(for: day)) else {
                 continue
             }
 

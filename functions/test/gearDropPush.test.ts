@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as admin from "firebase-admin";
 import {
   GEAR_DROP_SEND_HOUR_UTC,
   buildGearDropMessage,
   dayStartMillis,
   gearDropWindow,
+  makeFirestoreGearDropStore,
   parseGearEvents,
   readGearDropSwitch,
   runGearDropSweep,
@@ -464,4 +466,58 @@ test("a dispatch still inside its window resumes after the switch returns", asyn
   const resumed = await runGearDropSweep(deps({}, store, sends));
   assert.equal(resumed.sent, 2);
   assert.equal(resumed.expired.length, 0);
+});
+
+test("a stored dispatch with no readable window expires, never sends", async () => {
+  const fields: Record<string, Record<string, unknown>> = {
+    "future-window": {
+      closesAt: admin.firestore.Timestamp.fromMillis(Date.UTC(2099, 0, 1)),
+      state: "sending",
+    },
+    "missing-window": {state: "sending"},
+    "unreadable-window": {closesAt: "2026-11-04", state: "sending"},
+  };
+  const updates: Record<string, Record<string, unknown>> = {};
+  const firestore = {
+    collection: () => ({
+      doc: (id: string) => ({
+        update: async (change: Record<string, unknown>) => {
+          updates[id] = change;
+        },
+      }),
+      where: () => ({
+        limit: () => ({
+          get: async () => ({
+            docs: Object.entries(fields).map(([id, data]) => ({
+              get: (field: string) => data[field],
+              id,
+            })),
+          }),
+        }),
+      }),
+    }),
+  } as unknown as admin.firestore.Firestore;
+  const store = makeFirestoreGearDropStore(firestore);
+
+  const listed = await store.listUnfinishedDispatches();
+  assert.deepEqual(
+    Object.fromEntries(listed.map((d) => [d.id, d.closesAt])),
+    {
+      "future-window": Date.UTC(2099, 0, 1),
+      "missing-window": 0,
+      "unreadable-window": 0,
+    }
+  );
+
+  delete fields["future-window"];
+  const sends: string[][] = [];
+  const summary = await runGearDropSweep(deps({
+    catalog: {fetch: async () => ({events: []})},
+    store,
+  }, new MemoryStore([]), sends));
+
+  assert.deepEqual(summary.expired, ["missing-window", "unreadable-window"]);
+  assert.equal(sends.length, 0);
+  assert.equal(updates["missing-window"]?.state, "expired");
+  assert.equal(updates["unreadable-window"]?.state, "expired");
 });

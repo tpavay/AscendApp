@@ -90,6 +90,26 @@ struct LocalReminderPlanTests {
     }
 
     @Test
+    func aDayAlreadyClimbedGetsNoNudgeBecauseASecondClimbCannotCount() {
+        // Target 2, first climb Sunday morning: only that same day was left for the second.
+        let sunday = weekly(target: 2, climbs: [date(8, hour: 8)], now: date(8, hour: 9))
+        #expect(sunday.map(\.identifier) == [LocalReminderPlan.nextWeekIdentifier])
+
+        // Target 3, first climb Saturday morning: two owed with only Sunday left.
+        let saturday = weekly(target: 3, climbs: [date(7, hour: 8)], now: date(7, hour: 9))
+        #expect(saturday.map(\.identifier) == [LocalReminderPlan.nextWeekIdentifier])
+    }
+
+    @Test
+    func aClimbTheDayBeforeTheLastChanceLeavesTheNudge() throws {
+        // Target 2, first climb Saturday: Sunday can still save the week.
+        let requests = weekly(target: 2, climbs: [date(7, hour: 8)], now: date(7, hour: 9))
+
+        let thisWeek = try #require(requests.first { $0.identifier == LocalReminderPlan.thisWeekIdentifier })
+        #expect(thisWeek.fireDate == date(8, hour: 18))
+    }
+
+    @Test
     func aSundayClimbBelongsToTheMondayWeekItEnds() throws {
         // Monday 2 Nov through Sunday 8 Nov is one week; a climb on Sunday 1 Nov is last week's.
         let lastSunday = calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 12))!

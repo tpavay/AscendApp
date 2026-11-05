@@ -125,4 +125,22 @@ struct LocalReminderSchedulerTests {
 
         #expect(center.removed == [LocalReminderPlan.weeklyTargetIdentifiers + [LocalReminderPlan.trialEndingIdentifier]])
     }
+
+    @Test
+    func accountDeletionsLocalSweepClearsBothReminders() throws {
+        let center = RecordingReminderCenter()
+        let suite = "local-reminder-deletion-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let cleanup = AppAccountDeletionLocalCleanup(
+            userDefaults: defaults,
+            persistentDomainName: suite,
+            settingsManager: SettingsManager(userDefaults: defaults),
+            localReminderScheduler: scheduler(center: center),
+            bootstrapCoordinator: AuthenticatedBootstrapCoordinator()
+        )
+
+        cleanup.clearUserDefaults()
+
+        #expect(center.removed == [LocalReminderPlan.weeklyTargetIdentifiers + [LocalReminderPlan.trialEndingIdentifier]])
+    }
 }

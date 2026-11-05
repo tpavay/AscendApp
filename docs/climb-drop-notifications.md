@@ -224,12 +224,16 @@ The switch ships off and fails closed: only an explicit `true` sends, and a func
 Enabling it is the captain's decision, pending the App Store 4.5.4 explicit-opt-in question: opted-in climbers agreed only to climb alerts (`docs/remote-config-kill-switches.md`).
 A held switch creates no dispatch, so the event is announced by the first sweep after it is turned on if its window is still open.
 The window is stored on the dispatch as `closesAt`, and a dispatch still unfinished when it closes is marked `expired` rather than resumed.
+A dispatch without a readable `closesAt` counts as already closed, so it expires too.
 The dispatch's counters accumulate per page, so `sentCount` is the real number of sends.
 
-**Weekly target.** `LocalReminderCoordinator` re-reads the climber's target and this week's climbs on launch, on every foreground and on every workout-store change, so the nudge follows the week as it is lived; the target comes from the answer the onboarding kept on the device until the profile carries it.
+**Weekly target.** `LocalReminderCoordinator` re-reads the climber's target and this week's climbs on launch, on every foreground, on every workout-store change and on every write of the notification answer, so the nudge follows the week as it is lived and the primer or Settings toggle takes effect at once; the target comes from the answer the onboarding kept on the device until the profile carries it.
 The nudge fires at 18:00 local on the last day the week can still be saved, which is the day the days left, today included, equal the days still owed.
+If the climber has already climbed on that day, a second climb cannot count, so no nudge is scheduled for it.
 Next week's is scheduled too, assuming nothing is climbed in between, so a climber who does not reopen the app still hears from it.
-Both are replaced by the real plan whenever anything calls `reconcileWeeklyTarget`: a target set or cleared, a climb saved, a launch or a foreground.
+Both are replaced by the real plan on each of those reconciles.
+A real sign-out forgets the target and clears what is pending, so nothing re-arms for a signed-out phone and the next account does not inherit it; the target of a climber who has not signed in yet is untouched.
+Account deletion clears the pending reminders too.
 Nothing is scheduled without a target, so a climber who skipped screen 10 never gets one.
 
 **Trial ending.** `reconcileTrialEnding(trialStartedAt:)` schedules exactly 5 days after the trial began, and a nil start schedules nothing, so no trial reminder exists without a trial that started.

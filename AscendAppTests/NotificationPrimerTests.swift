@@ -149,7 +149,6 @@ struct NotificationPrimerTests {
     private struct Calls {
         var asked = 0
         var declined = 0
-        var scheduled: [(target: Int?, minutes: Int?)] = []
         var tracked: [PreAuthOnboardingNotificationChoice] = []
     }
 
@@ -168,13 +167,12 @@ struct NotificationPrimerTests {
             loadCatalog: { catalog },
             requestAuthorization: { recorder.calls.asked += 1; return answer },
             declineNotifications: { recorder.calls.declined += 1 },
-            scheduleWeeklyReminder: { target, minutes in recorder.calls.scheduled.append((target, minutes)) },
             track: { recorder.calls.tracked.append($0) }
         )
     }
 
     @Test
-    func turnOnAsksIOSSchedulesTheReminderAndMovesOn() async throws {
+    func turnOnAsksIOSAndMovesOn() async throws {
         let coordinator = coordinator()
         let recorder = Recorder()
         let model = try viewModel(coordinator, recorder: recorder, answer: .authorized)
@@ -182,23 +180,19 @@ struct NotificationPrimerTests {
         await model.turnOn()
 
         #expect(recorder.calls.asked == 1)
-        #expect(recorder.calls.scheduled.count == 1)
-        #expect(recorder.calls.scheduled.first?.target == 3)
-        #expect(recorder.calls.scheduled.first?.minutes == 30)
         #expect(recorder.calls.tracked == [.allowed])
         #expect(coordinator.answers.notificationChoice == .allowed)
         #expect(coordinator.step == .paywall)
     }
 
     @Test
-    func aDeniedPromptRecordsTheDenialSchedulesNothingAndStillMovesOn() async throws {
+    func aDeniedPromptRecordsTheDenialAndStillMovesOn() async throws {
         let coordinator = coordinator()
         let recorder = Recorder()
         let model = try viewModel(coordinator, recorder: recorder, answer: .denied)
 
         await model.turnOn()
 
-        #expect(recorder.calls.scheduled.isEmpty)
         #expect(coordinator.answers.notificationChoice == .denied)
         #expect(coordinator.step == .paywall)
     }
@@ -212,22 +206,9 @@ struct NotificationPrimerTests {
         await model.notNow()
 
         #expect(recorder.calls.asked == 0)
-        #expect(recorder.calls.scheduled.isEmpty)
         #expect(recorder.calls.declined == 1)
         #expect(recorder.calls.tracked == [.skipped])
         #expect(coordinator.answers.notificationChoice == .skipped)
         #expect(coordinator.step == .paywall)
-    }
-
-    @Test
-    func aClimberWithNoTargetStillGetsTheCallToScheduleWhichClearsAndSchedulesNone() async throws {
-        let coordinator = coordinator(target: nil)
-        let recorder = Recorder()
-        let model = try viewModel(coordinator, recorder: recorder, answer: .authorized)
-
-        await model.turnOn()
-
-        #expect(recorder.calls.scheduled.count == 1)
-        #expect(recorder.calls.scheduled.first?.target == nil)
     }
 }

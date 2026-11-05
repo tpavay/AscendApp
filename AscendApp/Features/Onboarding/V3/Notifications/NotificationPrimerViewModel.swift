@@ -2,8 +2,9 @@ import Foundation
 import Observation
 import UserNotifications
 
-/// What the primer's two buttons do: ask iOS through the one shared notification state, remember
-/// the answer, and set up the reminders the climber just agreed to.
+/// What the primer's two buttons do: ask iOS through the one shared notification state and remember
+/// the answer. Writing that answer is what sets up the reminders: ``LocalReminderCoordinator``
+/// follows it.
 ///
 /// The prompt always goes through ``ClimbDropNotificationState``, never a second request path, so
 /// every surface that offers notifications reads one answer. Nothing here is sent anywhere: the
@@ -19,7 +20,6 @@ final class NotificationPrimerViewModel {
     @ObservationIgnored private let coordinator: OnboardingV3Coordinator
     @ObservationIgnored private let requestAuthorization: @MainActor () async -> UNAuthorizationStatus
     @ObservationIgnored private let declineNotifications: @MainActor () async -> Void
-    @ObservationIgnored private let scheduleWeeklyReminder: @MainActor (_ targetDays: Int?, _ usualMinutes: Int?) async -> Void
     @ObservationIgnored private let track: @MainActor (_ choice: PreAuthOnboardingNotificationChoice) -> Void
 
     init(
@@ -32,14 +32,6 @@ final class NotificationPrimerViewModel {
         declineNotifications: @escaping @MainActor () async -> Void = {
             await ClimbDropNotificationState.shared.disable()
         },
-        scheduleWeeklyReminder: @escaping @MainActor (_ targetDays: Int?, _ usualMinutes: Int?) async -> Void = { targetDays, usualMinutes in
-            // A climber who just set up has no climbs yet this week, so the plan starts from none.
-            await LocalReminderScheduler.shared.reconcileWeeklyTarget(
-                targetDays: targetDays,
-                climbDates: [],
-                usualClimbMinutes: usualMinutes
-            )
-        },
         track: (@MainActor (_ choice: PreAuthOnboardingNotificationChoice) -> Void)? = nil
     ) {
         self.coordinator = coordinator
@@ -51,14 +43,13 @@ final class NotificationPrimerViewModel {
         )
         self.requestAuthorization = requestAuthorization
         self.declineNotifications = declineNotifications
-        self.scheduleWeeklyReminder = scheduleWeeklyReminder
         // Telemetry reports under the flow's own analytics context unless a test replaces it.
         self.track = track ?? { [weak coordinator] choice in
             NotificationPrimerViewModel.report(choice, in: coordinator?.analyticsContext)
         }
     }
 
-    /// TURN ON: asks iOS, records what it said, schedules the reminders if it agreed, and moves on.
+    /// TURN ON: asks iOS, records what it said, and moves on.
     func turnOn() async {
         guard !isRequesting else { return }
         isRequesting = true
@@ -68,10 +59,6 @@ final class NotificationPrimerViewModel {
         let choice: PreAuthOnboardingNotificationChoice = status.allowsRemoteUserVisibleNotifications ? .allowed : .denied
 
         record(choice)
-        if choice == .allowed {
-            let answers = coordinator.answers
-            await scheduleWeeklyReminder(answers.weeklyTargetDays, answers.usualClimbMinutes)
-        }
         coordinator.advance()
     }
 

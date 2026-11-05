@@ -82,7 +82,7 @@ export interface GearDropDispatch {
   id: string;
   body: string;
   /** Epoch milliseconds the dispatch may no longer send after. */
-  closesAt: number | null;
+  closesAt: number;
   deviceCursor: string | null;
   title: string;
 }
@@ -380,8 +380,7 @@ export async function runGearDropSweep(
   }
 
   for (const dispatch of await deps.store.listUnfinishedDispatches()) {
-    if (dispatch.closesAt !== null &&
-      deps.now().getTime() >= dispatch.closesAt) {
+    if (deps.now().getTime() >= dispatch.closesAt) {
       try {
         await deps.store.expireDispatch(dispatch.id);
         summary.expired.push(dispatch.id);
@@ -638,17 +637,20 @@ export function makeFirestoreGearDropStore(
       // rarely more than one unfinished dispatch and their order is moot.
       const snapshot = await dispatches.where("state", "==", "sending")
         .limit(3).get();
-      return snapshot.docs.map((document) => ({
-        body: String(document.get("body") ?? ""),
-        closesAt: document.get("closesAt") instanceof admin.firestore.Timestamp ?
-          (document.get("closesAt") as admin.firestore.Timestamp).toMillis() :
-          null,
-        deviceCursor: typeof document.get("deviceCursor") === "string" ?
-          document.get("deviceCursor") as string :
-          null,
-        id: document.id,
-        title: String(document.get("title") ?? ""),
-      }));
+      return snapshot.docs.map((document) => {
+        const closesAt = document.get("closesAt");
+        return {
+          body: String(document.get("body") ?? ""),
+          closesAt: closesAt instanceof admin.firestore.Timestamp ?
+            closesAt.toMillis() :
+            0,
+          deviceCursor: typeof document.get("deviceCursor") === "string" ?
+            document.get("deviceCursor") as string :
+            null,
+          id: document.id,
+          title: String(document.get("title") ?? ""),
+        };
+      });
     },
 
     async loadDevicePage(afterTokenHash, limit) {

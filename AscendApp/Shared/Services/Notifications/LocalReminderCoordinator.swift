@@ -5,11 +5,11 @@ import UIKit
 
 /// Keeps the weekly-target nudge true to the week the climber is actually having.
 ///
-/// The primer schedules the nudge once, from the target and no climbs, which is right only until the
-/// first climb. This reads the climber's target and this week's climbs and hands them to
-/// ``LocalReminderScheduler`` on launch, on every foreground, and on every change to the workout
-/// store, so a climber who is back on pace stops being told they are behind and a new week starts
-/// from nothing.
+/// This is the one caller of the weekly reconcile. It reads the climber's target and this week's
+/// climbs and hands them to ``LocalReminderScheduler`` on launch, on every foreground, on every
+/// change to the workout store and on every write of the notification answer - the primer's TURN ON
+/// and Not now and the Settings toggle all land there - so a climber who is back on pace stops being
+/// told they are behind, a new week starts from nothing, and an answer takes effect when it is given.
 ///
 /// The read is bounded by the week, never by the climber's history: one fetch of the workouts
 /// whose date falls in the current Monday week.
@@ -18,25 +18,22 @@ final class LocalReminderCoordinator {
     static let shared = LocalReminderCoordinator()
 
     private let scheduler: LocalReminderScheduler
-    private let target: @MainActor () -> (days: Int?, usualMinutes: Int?)
+    private let store: PreAuthOnboardingStore
     private let now: () -> Date
     private var modelContext: ModelContext?
     private var observers: Set<AnyCancellable> = []
     private var pending: Task<Void, Never>?
 
-    /// - Parameter target: Where the climber's days-a-week target and usual climb length come
+    /// - Parameter store: Where the climber's days-a-week target and usual climb length come
     ///   from. Until the profile carries the target after sign-in, it is the answer the onboarding
     ///   flow kept on the device; the profile becomes the source when it lands.
     init(
         scheduler: LocalReminderScheduler = .shared,
-        target: @escaping @MainActor () -> (days: Int?, usualMinutes: Int?) = {
-            let answers = PreAuthOnboardingStore().answers()
-            return (answers.weeklyTargetDays, answers.usualClimbMinutes)
-        },
+        store: PreAuthOnboardingStore = PreAuthOnboardingStore(),
         now: @escaping () -> Date = { .now }
     ) {
         self.scheduler = scheduler
-        self.target = target
+        self.store = store
         self.now = now
     }
 
@@ -52,8 +49,20 @@ final class LocalReminderCoordinator {
             NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
                 .sink { [weak self] _ in self?.reconcileSoon() }
                 .store(in: &observers)
+            NotificationCenter.default.publisher(for: .climbDropNotificationPreferenceDidChange)
+                .sink { [weak self] _ in self?.reconcileSoon() }
+                .store(in: &observers)
         }
 
+        reconcileSoon()
+    }
+
+    /// A session ended: the climber who set the target has left the phone. Forgets their target, so
+    /// no later reconcile re-arms the nudge for nobody and the next account does not inherit it,
+    /// and clears what is pending. The follow-up reconcile catches a schedule already in flight.
+    func sessionEnded() {
+        store.update { $0.weeklyTargetDays = nil }
+        scheduler.cancelAll()
         reconcileSoon()
     }
 
@@ -72,7 +81,7 @@ final class LocalReminderCoordinator {
 
         let current = now()
         let calendar = WeekConfiguration.calendar()
-        let target = target()
+        let answers = store.answers()
         let climbDates = Self.climbDates(
             inWeekOf: current,
             calendar: calendar,
@@ -80,9 +89,9 @@ final class LocalReminderCoordinator {
         )
 
         await scheduler.reconcileWeeklyTarget(
-            targetDays: target.days,
+            targetDays: answers.weeklyTargetDays,
             climbDates: climbDates,
-            usualClimbMinutes: target.usualMinutes,
+            usualClimbMinutes: answers.usualClimbMinutes,
             now: current,
             calendar: calendar
         )
