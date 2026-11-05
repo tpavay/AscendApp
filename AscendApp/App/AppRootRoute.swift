@@ -12,6 +12,11 @@ enum AppRootRoute: Equatable, Sendable {
     /// Signed out with `onboarding_v3_enabled` on: the pre-sign-in flow, selling screens through the
     /// paywall and then sign-in. Replaces ``signedOut``'s landing screen while the switch is on.
     case preAuthOnboarding
+    /// Signed out with the pre-sign-in onboarding on, setup finished and nothing bought: a relaunch
+    /// opens on the paywall instead of replaying the screens before it. Draws the same flow view as
+    /// ``preAuthOnboarding`` - the coordinator already starts on the paywall - so the two never
+    /// rebuild it when the climber buys and the route flips.
+    case preAuthPaywall
     case signingIn
     case restoringSession
     case resolving
@@ -34,6 +39,8 @@ struct AppRootRouteResolver {
     ///     switch is on and the flow has not reached its end. `nil` while this launch has not
     ///     decided (``OnboardingV3RouteLatch``). Resolved outside, like every other input, so the
     ///     decision stays synchronous and pure.
+    ///   - resumesAtPreAuthPaywall: Whether this device already got as far as the paywall and the
+    ///     `preauth_paywall_enabled` switch is on. Resolved outside, like every other input.
     static func resolve(
         updatePresentation: AppUpdatePresentation?,
         authenticationState: AuthenticationState,
@@ -42,7 +49,8 @@ struct AppRootRouteResolver {
         entitlementState: MonetizationEntitlementState,
         requiredEntitlementID: String,
         allowsUnentitledAppAccess: Bool = false,
-        showsPreAuthOnboardingV3: Bool? = false
+        showsPreAuthOnboardingV3: Bool? = false,
+        resumesAtPreAuthPaywall: Bool = false
     ) -> AppRootRoute {
         // First, above authentication and above the entitlement gate. As a sheet this lost to the
         // paywall outright - Superwall presents outside `RootView`'s hierarchy, so an unentitled
@@ -58,7 +66,19 @@ struct AppRootRouteResolver {
                 return .signedOutHold
             }
 
-            return showsPreAuthOnboardingV3 ? .preAuthOnboarding : .signedOut
+            guard showsPreAuthOnboardingV3 else {
+                return .signedOut
+            }
+
+            // A purchase made as the anonymous customer is access the climber already holds, so
+            // only an install with nothing bought resumes on the paywall. An answer still in flight
+            // counts as nothing bought: the paywall steps aside by itself once it reads access.
+            if resumesAtPreAuthPaywall,
+               !entitlementState.hasActiveEntitlement(requiredEntitlementID) {
+                return .preAuthPaywall
+            }
+
+            return .preAuthOnboarding
         case .authenticatingWithApple,
              .authenticatingWithGoogle,
              .authenticatingWithInternalQA:

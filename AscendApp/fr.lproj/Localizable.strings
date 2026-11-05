@@ -1,5 +1,6 @@
 "subscription.plan.annual" = "Annuel";
 "subscription.plan.lifetime" = "À vie";
+"subscription.plan.welcome" = "Bienvenue";
 "subscription.renewal.every" = "Renouvelé tous les %@";
 "subscription.renewal.annual" = "Renouvelé chaque année";
 "subscription.renewal.monthly" = "Renouvelé chaque mois";

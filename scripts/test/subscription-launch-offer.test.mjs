@@ -41,6 +41,11 @@ test("the iOS integration names the final RevenueCat contract", async () => {
   );
   assert.doesNotMatch(configuration, /revenueCatYearlyProductID: String =/);
   assert.doesNotMatch(configuration, /revenueCatLifetimeProductID: String =/);
+  assert.match(
+    configuration,
+    /revenueCatWelcomeProductIDInfoKey = "AscendRevenueCatWelcomeProductID"/
+  );
+  assert.doesNotMatch(configuration, /revenueCatWelcomeProductID: String =/);
 });
 
 test("a one-time purchase is described as one payment and never as a trial or a renewal", async () => {

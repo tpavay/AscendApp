@@ -1,0 +1,699 @@
+import Foundation
+import enum SuperwallKit.PurchaseResult
+import Testing
+@testable import AscendApp
+
+// MARK: - The gift's numbers and words
+
+@Suite
+struct WelcomeGiftOfferTests {
+    private func plan(
+        _ id: String,
+        price: Decimal,
+        label: String,
+        trial: NativeSubscriptionPeriod? = nil
+    ) -> NativePaywallPlan {
+        NativePaywallPlan(
+            id: id,
+            title: id,
+            localizedPrice: label,
+            billingDescription: "Renews annually",
+            trialDescription: trial == nil ? nil : "free",
+            price: price,
+            freeTrialPeriod: trial
+        )
+    }
+
+    @Test(arguments: [
+        (Decimal(string: "29.99")!, Decimal(string: "9.99")!, 66),
+        (Decimal(string: "29.99")!, Decimal(string: "14.99")!, 50),
+        (Decimal(100), Decimal(0), 100)
+    ])
+    func thePercentComesFromTheTwoPricesAndRoundsDown(regular: Decimal, welcome: Decimal, expected: Int) {
+        #expect(WelcomeGiftOffer.percentOff(regular: regular, welcome: welcome) == expected)
+    }
+
+    @Test
+    func noDiscountIsNeverClaimed() {
+        #expect(WelcomeGiftOffer.percentOff(regular: 9.99, welcome: 9.99) == nil)
+        #expect(WelcomeGiftOffer.percentOff(regular: 9.99, welcome: 29.99) == nil)
+        #expect(WelcomeGiftOffer.percentOff(regular: nil, welcome: 9.99) == nil)
+        #expect(WelcomeGiftOffer.percentOff(regular: 29.99, welcome: nil) == nil)
+        #expect(WelcomeGiftOffer.percentOff(regular: 0, welcome: 0) == nil)
+    }
+
+    @Test
+    func anEligibleAppleIDGetsTheTrialLinesFromTheOfferItself() throws {
+        let offer = try #require(WelcomeGiftOffer(
+            welcome: plan("w", price: 9.99, label: "$9.99", trial: NativeSubscriptionPeriod(value: 1, unit: .week)),
+            regular: plan("y", price: 29.99, label: "$29.99")
+        ))
+        let copy = WelcomeGiftCopy(offer)
+
+        #expect(copy.trialLine == "PLUS 7 DAYS FREE")
+        #expect(copy.headlineLead == ["Your first week"])
+        #expect(copy.headlineAccent == ["is on us."])
+        #expect(copy.subline == "Then $9.99 a year, locked in.")
+        #expect(copy.finePrint == "$0 today, then $9.99/year. Cancel anytime.")
+        #expect(copy.stamp == "66%")
+    }
+
+    @Test
+    func anAppleIDThatUsedItsTrialIsNeverPromisedOne() throws {
+        let offer = try #require(WelcomeGiftOffer(
+            welcome: plan("w", price: 9.99, label: "$9.99"),
+            regular: plan("y", price: 29.99, label: "$29.99")
+        ))
+        let copy = WelcomeGiftCopy(offer)
+
+        #expect(copy.trialLine == nil)
+        #expect(copy.headlineLead == ["$9.99 a year,"])
+        #expect(copy.headlineAccent == ["locked in."])
+        #expect(copy.subline == "That's 66% off, every year you climb.")
+        #expect(copy.finePrint == "$9.99 today, then every year. Cancel anytime.")
+    }
+
+    @Test
+    func aTrialThatIsNotAWeekIsNamedByItsOwnLength() throws {
+        let offer = try #require(WelcomeGiftOffer(
+            welcome: plan("w", price: 9.99, label: "$9.99", trial: NativeSubscriptionPeriod(value: 1, unit: .month)),
+            regular: plan("y", price: 29.99, label: "$29.99")
+        ))
+        let copy = WelcomeGiftCopy(offer)
+
+        #expect(copy.trialLine == "PLUS 1 MONTH FREE")
+        #expect(copy.headlineLead == ["Your first 1 month"])
+    }
+
+    @Test
+    func aStorePriceInAnotherCurrencyKeepsItsOwnZero() throws {
+        let offer = try #require(WelcomeGiftOffer(
+            welcome: plan("w", price: 9.99, label: "9,99 €", trial: NativeSubscriptionPeriod(value: 7, unit: .day)),
+            regular: plan("y", price: 29.99, label: "29,99 €")
+        ))
+
+        #expect(WelcomeGiftCopy(offer).finePrint == "0 € today, then 9,99 €/year. Cancel anytime.")
+    }
+
+    @Test
+    func aOneTimePurchaseIsNotAGift() {
+        let lifetime = NativePaywallPlan(
+            id: "l", title: "l", localizedPrice: "$49.99", billing: .oneTime,
+            billingDescription: "", trialDescription: nil, price: 49.99
+        )
+
+        #expect(WelcomeGiftOffer(welcome: lifetime, regular: lifetime) == nil)
+    }
+
+    /// The copy rules for the whole flow, held against every string the gift can say.
+    @Test
+    func noGiftLineBreaksTheCopyRules() throws {
+        let eligible = try #require(WelcomeGiftOffer(
+            welcome: plan("w", price: 9.99, label: "$9.99", trial: NativeSubscriptionPeriod(value: 1, unit: .week)),
+            regular: plan("y", price: 29.99, label: "$29.99")
+        ))
+        let ineligible = try #require(WelcomeGiftOffer(
+            welcome: plan("w", price: 9.99, label: "$9.99"),
+            regular: plan("y", price: 29.99, label: "$29.99")
+        ))
+
+        for offer in [eligible, ineligible] {
+            let copy = WelcomeGiftCopy(offer)
+            let words = (
+                [copy.trialLine ?? ""] + copy.headlineLead + copy.headlineAccent
+                    + [copy.subline, copy.callToAction, copy.finePrint]
+                    + OnboardingPaywallModel.Notice.allMessages
+            ).joined(separator: " ").lowercased()
+
+            #expect(!words.contains("\u{2014}"))
+            #expect(!words.contains("race"))
+            #expect(!words.contains("live"))
+            #expect(!words.contains("field"))
+            #expect(!words.contains("show up again"))
+            #expect(!words.contains("one-time"))
+            #expect(!words.contains("ends in"))
+        }
+    }
+}
+
+extension OnboardingPaywallModel.Notice {
+    static var allMessages: [String] {
+        let all: [OnboardingPaywallModel.Notice] = [.plansUnavailable, .checkoutFailed, .pendingApproval, .verificationUnavailable,
+         .nothingToRestore, .restoreFailed, .accountUnavailable]
+        return all.map(\.message)
+    }
+}
+
+// MARK: - The ledger and the route
+
+@Suite
+struct PreAuthPurchaseLedgerTests {
+    private func ledger() -> PreAuthPurchaseLedger {
+        PreAuthPurchaseLedger(userDefaults: UserDefaults(suiteName: "PreAuthPurchaseLedgerTests-\(UUID().uuidString)")!)
+    }
+
+    @Test
+    func aFreshInstallStartsAtTheBeginning() {
+        #expect(ledger().resumeStep == nil)
+    }
+
+    @Test
+    func reachingThePaywallResumesThereAndABoughtPlanResumesAtSignIn() {
+        let ledger = ledger()
+        ledger.markPaywallReached()
+        #expect(ledger.resumeStep == .paywall)
+
+        ledger.recordPurchase(PreAuthPurchase(productID: "y", purchasedAt: Date(), startedTrial: true))
+        #expect(ledger.resumeStep == .auth)
+        #expect(ledger.progress().purchase?.startedTrial == true)
+    }
+
+    @Test
+    func theFirstTimeAtThePaywallIsKept() {
+        let ledger = ledger()
+        let first = Date(timeIntervalSince1970: 100)
+        ledger.markPaywallReached(at: first)
+        ledger.markPaywallReached(at: Date(timeIntervalSince1970: 900))
+
+        #expect(ledger.progress().reachedPaywallAt == first)
+    }
+
+    @Test
+    func clearingForgetsEverything() {
+        let ledger = ledger()
+        ledger.markPaywallReached()
+        ledger.recordPurchase(PreAuthPurchase(productID: "y", purchasedAt: Date(), startedTrial: false))
+        ledger.clear()
+
+        #expect(ledger.resumeStep == nil)
+        #expect(ledger.progress() == PreAuthPaywallProgress())
+    }
+}
+
+@Suite
+struct PreAuthPaywallRouteTests {
+    private func route(
+        resumes: Bool,
+        entitlement: MonetizationEntitlementState = .inactive,
+        showsV3: Bool? = true,
+        state: AuthenticationState = .unauthenticated
+    ) -> AppRootRoute {
+        AppRootRouteResolver.resolve(
+            updatePresentation: nil,
+            authenticationState: state,
+            userId: state == .authenticated ? "u1" : nil,
+            postAuthOnboardingPhase: .complete,
+            entitlementState: entitlement,
+            requiredEntitlementID: "app_access",
+            showsPreAuthOnboardingV3: showsV3,
+            resumesAtPreAuthPaywall: resumes
+        )
+    }
+
+    @Test
+    func aSignedOutInstallThatReachedThePaywallResumesOnIt() {
+        #expect(route(resumes: true) == .preAuthPaywall)
+        #expect(route(resumes: true, entitlement: .unknown) == .preAuthPaywall)
+    }
+
+    @Test
+    func aPurchaseMadeAsTheAnonymousCustomerSkipsThePaywall() {
+        #expect(route(resumes: true, entitlement: .active(["app_access"])) == .preAuthOnboarding)
+    }
+
+    @Test
+    func nothingResumesWithoutTheFlowOrTheMarker() {
+        #expect(route(resumes: false) == .preAuthOnboarding)
+        #expect(route(resumes: true, showsV3: false) == .signedOut)
+        #expect(route(resumes: true, showsV3: nil) == .signedOutHold)
+    }
+
+    @Test
+    func aSignedInClimberNeverSeesIt() {
+        #expect(route(resumes: true, state: .authenticated) == .paywall)
+    }
+
+    @Test
+    func theRouteReportsLikeItsSibling() {
+        #expect(AppRootRoute.preAuthPaywall.telemetryScreenName == nil)
+        #expect(AppLifecycleAnalyticsEvent.RootRoute(.preAuthPaywall) == .preAuthPaywall)
+        #expect(AppLifecycleAnalyticsEvent.RootRoute.preAuthPaywall.isResolved)
+    }
+}
+
+// MARK: - The model
+
+@MainActor
+private final class StubPlanProvider: PreAuthPaywallPlanProviding {
+    var plans: [NativePaywallPlan]
+    var loadError: (any Error)?
+    var purchaseResult: PurchaseResult = .purchased
+    private(set) var purchasedPlanIDs: [String] = []
+
+    init(plans: [NativePaywallPlan]) { self.plans = plans }
+
+    func loadPlans() async throws -> [NativePaywallPlan] { plans }
+
+    func loadPreAuthPlans() async throws -> [NativePaywallPlan] {
+        if let loadError { throw loadError }
+        return plans
+    }
+
+    func purchase(planID: String) async -> PurchaseResult {
+        purchasedPlanIDs.append(planID)
+        return purchaseResult
+    }
+}
+
+@MainActor
+@Suite
+struct OnboardingPaywallModelTests {
+    private static let configuration = MonetizationConfiguration(infoDictionary: [
+        MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "yearly",
+        MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "lifetime",
+        MonetizationConfiguration.revenueCatWelcomeProductIDInfoKey: "welcome"
+    ])
+
+    private func plans(trial: Bool = true) -> [NativePaywallPlan] {
+        [
+            NativePaywallPlan(
+                id: "yearly", title: "Annual", localizedPrice: "$29.99",
+                billingDescription: "Renews annually", trialDescription: nil,
+                price: 29.99, localizedPricePerMonth: "$2.49"
+            ),
+            NativePaywallPlan(
+                id: "lifetime", title: "Lifetime", localizedPrice: "$49.99", billing: .oneTime,
+                billingDescription: "Pay once. No renewal.", trialDescription: nil, price: 49.99
+            ),
+            NativePaywallPlan(
+                id: "welcome", title: "Welcome", localizedPrice: "$9.99",
+                billingDescription: "Renews annually", trialDescription: trial ? "7 days free" : nil,
+                price: 9.99, freeTrialPeriod: trial ? NativeSubscriptionPeriod(value: 1, unit: .week) : nil
+            )
+        ]
+    }
+
+    private func make(
+        provider: StubPlanProvider,
+        entitlement: MonetizationEntitlementState = .inactive,
+        ledger: PreAuthPurchaseLedger? = nil
+    ) -> (OnboardingPaywallModel, PreAuthPurchaseLedger) {
+        let ledger = ledger ?? PreAuthPurchaseLedger(
+            userDefaults: UserDefaults(suiteName: "OnboardingPaywallModelTests-\(UUID().uuidString)")!
+        )
+        let manager = MonetizationManager(
+            configuration: Self.configuration,
+            entitlementService: EntitlementServiceStub(entitlementState: entitlement),
+            paywallPresenter: NoopPresenter(),
+            appAccessReconciler: NoopReconciler(),
+            userDefaults: UserDefaults(suiteName: "OnboardingPaywallModelTests-m-\(UUID().uuidString)")!
+        )
+        let model = OnboardingPaywallModel(
+            provider: provider,
+            monetization: manager,
+            restoreService: AppAccessRestoreService(
+                entitlementID: "app_access",
+                restorer: { manager }
+            ),
+            ledger: ledger
+        )
+        return (model, ledger)
+    }
+
+    @Test
+    func loadingFillsTheThreePlansAndSelectsYearly() async {
+        let (model, _) = make(provider: StubPlanProvider(plans: plans()))
+        await model.load()
+
+        #expect(model.loadState == .ready)
+        #expect(model.yearly?.id == "yearly")
+        #expect(model.lifetime?.id == "lifetime")
+        #expect(model.welcome?.id == "welcome")
+        #expect(model.selectedPlan?.id == "yearly")
+        #expect(model.giftOffer?.percentOff == 66)
+    }
+
+    @Test
+    func aStoreWithNoYearlyPlanIsUnavailableAndHasNoGift() async {
+        let provider = StubPlanProvider(plans: [])
+        let (model, _) = make(provider: provider)
+        await model.load()
+
+        #expect(model.loadState == .unavailable)
+        #expect(model.notice == .plansUnavailable)
+        #expect(model.giftOffer == nil)
+    }
+
+    @Test
+    func aProductAppleHasNotApprovedLeavesNoGiftBehindTheCloseButton() async {
+        let (model, _) = make(provider: StubPlanProvider(plans: Array(plans().prefix(2))))
+        await model.load()
+
+        #expect(model.loadState == .ready)
+        #expect(model.giftOffer == nil)
+    }
+
+    @Test
+    func aPurchaseIsRememberedUntilSignInMovesIt() async {
+        let provider = StubPlanProvider(plans: plans())
+        let (model, ledger) = make(provider: provider)
+        await model.load()
+
+        let outcome = await model.purchaseSelectedPlan()
+
+        #expect(outcome == .purchased(startedTrial: false))
+        #expect(provider.purchasedPlanIDs == ["yearly"])
+        #expect(ledger.resumeStep == .auth)
+        #expect(ledger.progress().purchase?.productID == "yearly")
+    }
+
+    @Test
+    func claimingTheGiftBuysTheWelcomeProductAndRecordsTheTrial() async {
+        let provider = StubPlanProvider(plans: plans())
+        let (model, ledger) = make(provider: provider)
+        await model.load()
+
+        let outcome = await model.claimGift()
+
+        #expect(outcome == .purchased(startedTrial: true))
+        #expect(provider.purchasedPlanIDs == ["welcome"])
+        #expect(ledger.progress().purchase?.startedTrial == true)
+    }
+
+    @Test
+    func lifetimeIsBoughtAsItsOwnPlan() async {
+        let provider = StubPlanProvider(plans: plans())
+        let (model, _) = make(provider: provider)
+        await model.load()
+        model.selectedPlanID = "lifetime"
+
+        _ = await model.purchaseSelectedPlan()
+
+        #expect(provider.purchasedPlanIDs == ["lifetime"])
+    }
+
+    @Test
+    func aCancelledPurchaseLeavesNothingBehind() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .cancelled
+        let (model, ledger) = make(provider: provider)
+        await model.load()
+
+        #expect(await model.purchaseSelectedPlan() == .cancelled)
+        #expect(ledger.resumeStep == nil)
+        #expect(model.notice == nil)
+        #expect(model.activity == .idle)
+    }
+
+    @Test
+    func aPendingPurchaseTellsTheClimberNotToBuyAgain() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .pending
+        let (model, ledger) = make(provider: provider)
+        await model.load()
+
+        #expect(await model.purchaseSelectedPlan() == .notCompleted)
+        #expect(model.notice == .pendingApproval)
+        #expect(ledger.resumeStep == nil)
+    }
+
+    @Test
+    func aFailedPurchaseIsReportedAndRetryable() async {
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .failed(RevenueCatPurchaseControllerError.missingStoreKitProduct)
+        let (model, _) = make(provider: provider)
+        await model.load()
+
+        #expect(await model.purchaseSelectedPlan() == .notCompleted)
+        #expect(model.notice == .checkoutFailed)
+        #expect(model.activity == .idle)
+    }
+
+    @Test
+    func anInstallThatAlreadyHoldsAccessSaysSo() async {
+        let (model, _) = make(
+            provider: StubPlanProvider(plans: plans()),
+            entitlement: .active(["app_access"])
+        )
+        await model.load()
+
+        #expect(model.holdsAccess)
+    }
+}
+
+@MainActor
+private final class NoopPresenter: PaywallPresenting {
+    var isConfigured = false
+    func configure(configuration: MonetizationConfiguration) {}
+    func identify(userId: String) {}
+    func resetIdentity() {}
+    func register(
+        placement: SuperwallPlacement,
+        params: [String: Any]?,
+        onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
+    ) {}
+}
+
+@MainActor
+private final class NoopReconciler: AppAccessReconciling {
+    func reconcileAppAccess(force: Bool) async {}
+}
+
+// MARK: - The transfer after sign-in
+
+@MainActor
+private final class StubTransferring: PreAuthPurchaseTransferring {
+    var refreshedActive = false
+    var restoredActive = false
+    private(set) var calls: [String] = []
+
+    func refreshedEntitlementIsActive() async -> Bool {
+        calls.append("refresh")
+        return refreshedActive
+    }
+
+    func restoredEntitlementIsActive() async -> Bool {
+        calls.append("restore")
+        return restoredActive
+    }
+}
+
+@MainActor
+private final class StubInvoker: AppAccessReconciliationInvoking {
+    var outcomes: [AppAccessReconciliationOutcome]
+    var calls = 0
+
+    init(_ outcomes: [AppAccessReconciliationOutcome]) { self.outcomes = outcomes }
+
+    func invokeReconciliation() async throws -> AppAccessReconciliationOutcome {
+        defer { calls += 1 }
+        return outcomes[min(calls, outcomes.count - 1)]
+    }
+}
+
+@MainActor
+@Suite
+struct PreAuthPurchaseTransferTests {
+    private func make(
+        bought: Bool,
+        transferring: StubTransferring,
+        invoker: StubInvoker
+    ) -> (PreAuthPurchaseTransfer, PreAuthPurchaseLedger) {
+        let ledger = PreAuthPurchaseLedger(
+            userDefaults: UserDefaults(suiteName: "PreAuthPurchaseTransferTests-\(UUID().uuidString)")!
+        )
+        if bought {
+            ledger.recordPurchase(PreAuthPurchase(productID: "y", purchasedAt: Date(), startedTrial: false))
+        }
+        let transfer = PreAuthPurchaseTransfer(
+            ledger: ledger,
+            monetization: transferring,
+            invoker: invoker,
+            maxAttempts: 3,
+            retryDelay: .zero,
+            sleep: { _ in }
+        )
+        return (transfer, ledger)
+    }
+
+    @Test
+    func nothingBoughtMeansNothingToTransfer() async {
+        let transferring = StubTransferring()
+        let invoker = StubInvoker([.active])
+        let (transfer, _) = make(bought: false, transferring: transferring, invoker: invoker)
+
+        #expect(await transfer.completeAfterSignIn() == .nothingToTransfer)
+        #expect(transferring.calls.isEmpty)
+        #expect(invoker.calls == 0)
+    }
+
+    @Test
+    func aPurchaseThatFollowedTheLogInIsGrantedAndForgotten() async {
+        let transferring = StubTransferring()
+        transferring.refreshedActive = true
+        let invoker = StubInvoker([.active])
+        let (transfer, ledger) = make(bought: true, transferring: transferring, invoker: invoker)
+
+        #expect(await transfer.completeAfterSignIn() == .granted)
+        #expect(transferring.calls == ["refresh"])
+        #expect(ledger.progress() == PreAuthPaywallProgress())
+    }
+
+    @Test
+    func anAccountRevenueCatAlreadyKnewIsRestoredOnceToMoveThePurchase() async {
+        let transferring = StubTransferring()
+        transferring.restoredActive = true
+        let invoker = StubInvoker([.active])
+        let (transfer, _) = make(bought: true, transferring: transferring, invoker: invoker)
+
+        #expect(await transfer.completeAfterSignIn() == .granted)
+        #expect(transferring.calls == ["refresh", "restore"])
+    }
+
+    @Test
+    func aPurchaseThatNeverReachedTheAccountIsLeftToThePaywallAfterSignIn() async {
+        let transferring = StubTransferring()
+        let invoker = StubInvoker([.active])
+        let (transfer, ledger) = make(bought: true, transferring: transferring, invoker: invoker)
+
+        #expect(await transfer.completeAfterSignIn() == .notTransferred)
+        #expect(invoker.calls == 0)
+        #expect(ledger.progress().purchase != nil)
+    }
+
+    @Test
+    func theWaitRetriesAThrottledServerUntilItAnswers() async {
+        let transferring = StubTransferring()
+        transferring.refreshedActive = true
+        let invoker = StubInvoker([.throttled, .unrecognized, .active])
+        let (transfer, _) = make(bought: true, transferring: transferring, invoker: invoker)
+
+        #expect(await transfer.completeAfterSignIn() == .granted)
+        #expect(invoker.calls == 3)
+    }
+
+    @Test
+    func aServerThatNeverAnswersEndsTheWaitWithoutLosingTheAccess() async {
+        let transferring = StubTransferring()
+        transferring.refreshedActive = true
+        let invoker = StubInvoker([.throttled])
+        let (transfer, ledger) = make(bought: true, transferring: transferring, invoker: invoker)
+
+        #expect(await transfer.completeAfterSignIn() == .grantPending)
+        #expect(invoker.calls == 3)
+        #expect(ledger.progress().purchase != nil)
+    }
+}
+
+// MARK: - The welcome product and anonymous purchase
+
+struct WelcomeProductConfigurationTests {
+    @Test
+    func theWelcomeProductIsReadFromTheBuildAndSoldOnlyByTheGift() {
+        let configuration = MonetizationConfiguration(infoDictionary: [
+            MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "ascend_yearly",
+            MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey: "ascend_lifetime",
+            MonetizationConfiguration.revenueCatWelcomeProductIDInfoKey: "ascend_yearly_welcome"
+        ])
+
+        #expect(configuration.revenueCatWelcomeProductID == "ascend_yearly_welcome")
+        #expect(configuration.launchProductIDs == ["ascend_yearly", "ascend_lifetime"])
+        #expect(configuration.preAuthProductIDs == ["ascend_yearly", "ascend_lifetime", "ascend_yearly_welcome"])
+    }
+
+    @Test
+    func aMissingSubstitutionNeverBecomesARealProductID() {
+        let configuration = MonetizationConfiguration(infoDictionary: [
+            MonetizationConfiguration.revenueCatWelcomeProductIDInfoKey: "$(ASCEND_REVENUECAT_WELCOME_PRODUCT_ID)"
+        ])
+
+        #expect(configuration.revenueCatWelcomeProductID.hasPrefix("UNCONFIGURED_"))
+    }
+
+    @Test
+    func theMapperAddsTheWelcomePlanOnlyWhenAsked() {
+        let products = [
+            NativePaywallProductTerms(
+                productID: "y", localizedPrice: "$29.99",
+                renewalPeriod: NativeSubscriptionPeriod(value: 1, unit: .year), freeTrialPeriod: nil
+            ),
+            NativePaywallProductTerms(
+                productID: "w", localizedPrice: "$9.99",
+                renewalPeriod: NativeSubscriptionPeriod(value: 1, unit: .year),
+                freeTrialPeriod: NativeSubscriptionPeriod(value: 1, unit: .week),
+                price: 9.99
+            )
+        ]
+
+        let launch = NativePaywallPlanMapper.plans(
+            from: products, eligibilityByProductID: [:], yearlyProductID: "y", lifetimeProductID: "l"
+        )
+        #expect(launch.map(\.id) == ["y"])
+
+        let preAuth = NativePaywallPlanMapper.plans(
+            from: products, eligibilityByProductID: ["w": .eligible],
+            yearlyProductID: "y", lifetimeProductID: "l", welcomeProductID: "w"
+        )
+        #expect(preAuth.map(\.id) == ["y", "w"])
+        #expect(preAuth.last?.freeTrialPeriod == NativeSubscriptionPeriod(value: 1, unit: .week))
+        #expect(preAuth.last?.price == 9.99)
+
+        let used = NativePaywallPlanMapper.plans(
+            from: products, eligibilityByProductID: ["w": .ineligible],
+            yearlyProductID: "y", lifetimeProductID: "l", welcomeProductID: "w"
+        )
+        #expect(used.last?.freeTrialPeriod == nil)
+        #expect(used.last?.trialDescription == nil)
+    }
+}
+
+@MainActor
+@Suite
+struct AnonymousPurchaseTests {
+    private func executor(allowsAnonymous: Bool, identity: MonetizationIdentityTransition?) -> RevenueCatPurchaseExecutor {
+        RevenueCatPurchaseExecutor(
+            transactionContextStore: PaywallTransactionContextStore(),
+            entitlementID: "app_access",
+            allowsAnonymousPurchase: allowsAnonymous,
+            applySubscriptionStatus: { _ in },
+            refreshEntitlementState: { .refreshed(.unknown) },
+            currentIdentityGeneration: { identity },
+            adoptEntitlementState: { _, _ in true }
+        )
+    }
+
+    private let anonymous = MonetizationIdentityTransition(revision: 3, userID: nil)
+
+    @Test
+    func theSignedInGateStillRefusesAPurchaseWithNoUid() async {
+        var ran = false
+        let result = await executor(allowsAnonymous: false, identity: anonymous).executePurchase(productID: "y") {
+            ran = true
+            return .init(userCancelled: false, entitlementState: .active(["app_access"]))
+        }
+
+        #expect(!ran)
+        guard case .failed = result else { Issue.record("expected a refusal"); return }
+    }
+
+    @Test
+    func thePreSignInPaywallBuysAsTheAnonymousCustomer() async {
+        let result = await executor(allowsAnonymous: true, identity: anonymous).executePurchase(productID: "y") {
+            .init(userCancelled: false, entitlementState: .active(["app_access"]))
+        }
+
+        guard case .purchased = result else { Issue.record("expected a purchase, got \(result)"); return }
+    }
+
+    @Test
+    func noIdentityAtAllStillRefusesEvenForThePreSignInPaywall() async {
+        var ran = false
+        let result = await executor(allowsAnonymous: true, identity: nil).executePurchase(productID: "y") {
+            ran = true
+            return .init(userCancelled: false, entitlementState: .active(["app_access"]))
+        }
+
+        #expect(!ran)
+        guard case .failed = result else { Issue.record("expected a refusal"); return }
+    }
+}

@@ -19,7 +19,12 @@ struct RootView: View {
     @State private var appVersionGateState = AppVersionGateState.shared
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
-    @State private var onboardingV3Coordinator = OnboardingV3Coordinator()
+    // A relaunch before sign-in resumes on the paywall, or on sign-in once something was bought,
+    // instead of replaying the screens before it.
+    @State private var onboardingV3Coordinator = OnboardingV3Coordinator(
+        startingAt: PreAuthPurchaseLedger().resumeStep ?? .welcome
+    )
+    @State private var resumesAtPreAuthPaywall = PreAuthPurchaseLedger().progress().reachedPaywallAt != nil
     @State private var onboardingV3RouteLatch = OnboardingV3RouteLatch()
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
@@ -42,7 +47,7 @@ struct RootView: View {
                 routeContent(for: rootRoute)
             case .signedOutHold:
                 routeContent(for: rootRoute)
-            case .preAuthOnboarding:
+            case .preAuthOnboarding, .preAuthPaywall:
                 routeContent(for: rootRoute)
             case .signingIn:
                 routeContent(for: rootRoute)
@@ -295,7 +300,9 @@ struct RootView: View {
             entitlementState: monetizationManager.entitlementStateForRouting,
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
             allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting,
-            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow
+            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow,
+            resumesAtPreAuthPaywall: resumesAtPreAuthPaywall
+                && RemoteFeatureFlagStore.shared.isEnabled(.preAuthPaywall)
         )
 
         // At the very start of onboarding we do not yet know whether this account
@@ -375,7 +382,7 @@ struct RootView: View {
                 SignedOutHoldView()
             }
 
-        case .preAuthOnboarding:
+        case .preAuthOnboarding, .preAuthPaywall:
             routeScreen(route) {
                 OnboardingV3FlowView(coordinator: onboardingV3Coordinator)
             }

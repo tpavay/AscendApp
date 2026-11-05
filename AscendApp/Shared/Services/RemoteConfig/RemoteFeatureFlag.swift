@@ -127,6 +127,13 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// it is still within its window.
     case gearDropPush = "gear_drop_push_enabled"
 
+    /// The paywall before sign-in inside the 1.3.0 onboarding, and the welcome gift behind its close
+    /// button: the purchase is made as an anonymous RevenueCat customer and moved onto the account
+    /// at sign-in. Off, the flow skips both screens and ends at sign-in, and the paywall that
+    /// follows sign-in today does the selling. A kill switch like the rest: it ships on, because the
+    /// whole flow is already dark behind ``onboardingV3``.
+    case preAuthPaywall = "preauth_paywall_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -200,6 +207,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Schedules the local reminder two days before a free trial ends."
         case .gearDropPush:
             return "Lets the server push announce a new gear event. Ships off. Read by the Cloud Function, not the app."
+        case .preAuthPaywall:
+            return "Sells before sign-in: the paywall and welcome gift in the 1.3.0 onboarding. Off ends it at sign-in."
         }
     }
 }

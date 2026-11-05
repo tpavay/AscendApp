@@ -18,8 +18,12 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
     private let isPurchasesConfigured: @MainActor () -> Bool
     private var purchaseTargetsByProductID: [String: PurchaseTarget] = [:]
 
+    /// - Parameter allowsAnonymousPurchase: Whether a purchase may complete for the anonymous
+    ///   customer a signed-out install starts as. Only the pre-sign-in paywall passes it; the
+    ///   signed-in gate keeps refusing a purchase that has no uid to attribute it to.
     init(
         configuration: MonetizationConfiguration = .live,
+        allowsAnonymousPurchase: Bool = false,
         coordinator: @escaping @MainActor () -> any PaywallPurchaseCoordinating = {
             MonetizationManager.shared
         },
@@ -30,6 +34,7 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
         self.isPurchasesConfigured = isPurchasesConfigured
         executor = RevenueCatPurchaseExecutor(
             entitlementID: configuration.revenueCatEntitlementID,
+            allowsAnonymousPurchase: allowsAnonymousPurchase,
             applySubscriptionStatus: { _ in },
             refreshEntitlementState: {
                 await coordinator().refreshEntitlements(
@@ -47,10 +52,28 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
     }
 
     func loadPlans() async throws -> [NativePaywallPlan] {
+        try await loadPlans(
+            productIDs: configuration.launchProductIDs,
+            welcomeProductID: nil
+        )
+    }
+
+    /// The yearly plan, Lifetime and the welcome gift's yearly plan, for the pre-sign-in paywall.
+    func loadPreAuthPlans() async throws -> [NativePaywallPlan] {
+        try await loadPlans(
+            productIDs: configuration.preAuthProductIDs,
+            welcomeProductID: configuration.revenueCatWelcomeProductID
+        )
+    }
+
+    private func loadPlans(
+        productIDs: [String],
+        welcomeProductID: String?
+    ) async throws -> [NativePaywallPlan] {
         guard isPurchasesConfigured() else {
             throw RevenueCatNativePaywallPlanProviderError.notConfigured
         }
-        let expectedProductIDs = Set(configuration.launchProductIDs)
+        let expectedProductIDs = Set(productIDs)
         let offerings = try? await Purchases.shared.offerings()
         let offering = offerings?.all[configuration.revenueCatOfferingID]
             ?? offerings?.current
@@ -62,7 +85,7 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
                 ($0.storeProduct.productIdentifier, PurchaseTarget.package($0))
             }
         )
-        let missingProductIDs = configuration.launchProductIDs.filter { targets[$0] == nil }
+        let missingProductIDs = productIDs.filter { targets[$0] == nil }
         let directProducts = await Purchases.shared.products(missingProductIDs)
         for product in directProducts where expectedProductIDs.contains(product.productIdentifier) {
             targets[product.productIdentifier] = .product(product)
@@ -94,7 +117,8 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
             from: productTerms,
             eligibilityByProductID: eligibilityByProductID,
             yearlyProductID: configuration.revenueCatYearlyProductID,
-            lifetimeProductID: configuration.revenueCatLifetimeProductID
+            lifetimeProductID: configuration.revenueCatLifetimeProductID,
+            welcomeProductID: welcomeProductID
         )
     }
 
@@ -145,7 +169,11 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
             localizedPrice: product.localizedPriceString,
             billing: product.productCategory == .subscription ? .subscription : .oneTime,
             renewalPeriod: product.subscriptionPeriod.map(nativePeriod(from:)),
-            freeTrialPeriod: freeTrialPeriod
+            freeTrialPeriod: freeTrialPeriod,
+            price: product.price,
+            localizedPricePerMonth: product.subscriptionPeriod == nil
+                ? nil
+                : product.localizedPricePerMonth
         )
     }
 

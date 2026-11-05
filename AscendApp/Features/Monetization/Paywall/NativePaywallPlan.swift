@@ -16,6 +16,15 @@ struct NativePaywallPlan: Equatable, Identifiable, Sendable {
     let billingDescription: String
     let trialDescription: String?
     let trialActionDescription: String?
+    /// The price as a number, so a discount between two plans is computed from what the store
+    /// charges rather than typed. `nil` for a plan built without one.
+    let price: Decimal?
+    /// The store's own per-month rendering of an annual price ("$2.49"), `nil` for a one-time
+    /// purchase.
+    let localizedPricePerMonth: String?
+    /// The free period, present only when the product carries one and the Apple ID can still take
+    /// it - the same condition that fills ``trialDescription``.
+    let freeTrialPeriod: NativeSubscriptionPeriod?
 
     init(
         id: String,
@@ -24,7 +33,10 @@ struct NativePaywallPlan: Equatable, Identifiable, Sendable {
         billing: Billing = .subscription,
         billingDescription: String,
         trialDescription: String?,
-        trialActionDescription: String? = nil
+        trialActionDescription: String? = nil,
+        price: Decimal? = nil,
+        localizedPricePerMonth: String? = nil,
+        freeTrialPeriod: NativeSubscriptionPeriod? = nil
     ) {
         self.id = id
         self.title = title
@@ -33,6 +45,9 @@ struct NativePaywallPlan: Equatable, Identifiable, Sendable {
         self.billingDescription = billingDescription
         self.trialDescription = trialDescription
         self.trialActionDescription = trialActionDescription
+        self.price = price
+        self.localizedPricePerMonth = localizedPricePerMonth
+        self.freeTrialPeriod = freeTrialPeriod
     }
 
     var purchaseActionTitle: String {

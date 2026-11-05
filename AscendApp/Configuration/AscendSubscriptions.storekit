@@ -79,6 +79,36 @@
           ],
           "displayPrice" : "9.99",
           "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "7E33E763-4663-48F2-B0CB-554000000003",
+          "introductoryOffer" : {
+            "internalID" : "0F6EC9A8-A75E-43EF-9C9E-554000000002",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Full access to Ascend, at the welcome price.",
+              "displayName" : "Ascend Annual Welcome",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "ascend_staging_yearly_welcome",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Ascend Annual Welcome",
+          "subscriptionGroupID" : "B0D9B819-5540-4A52-8874-75D479355401",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "7E33E763-4663-48F2-B0CB-554000000002",
           "localizations" : [

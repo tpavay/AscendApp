@@ -92,6 +92,34 @@ Lifetime must never be on a live hosted paywall before Apple approves `ascend_li
 That is also why `scripts/validate-superwall-live-artifact.mjs` treats the build's product ids as an upper bound rather than an exact set: the archive that ships Lifetime has to pass against a paywall that may not offer it yet, and a paywall that drops Monthly without a release has to keep passing.
 What the validator still refuses is a paywall that offers nothing, or one that sells a product the build's backend does not trust.
 
+## Pre-sign-in paywall and welcome gift (1.3.0)
+
+The 1.3.0 onboarding (`onboarding_v3_enabled`) sells before sign-in, behind the kill switch `preauth_paywall_enabled`.
+Screen 13 is a native paywall with Yearly and, as the smaller card under it, Lifetime.
+Closing it (the X appears after three seconds) always opens screen 14, the welcome gift, for as long as the climber holds no entitlement.
+`AscendApp/Features/Onboarding/V3/Paywall/` owns both screens, and the native screen is the shipped design: the `onboarding_paywall` Superwall placement is kept only for purchase and restore attribution, so a campaign on it never covers the design.
+
+How the purchase works:
+
+- A signed-out install is an anonymous RevenueCat customer, and `RevenueCatNativePaywallPlanProvider(allowsAnonymousPurchase: true)` is the only purchase path that may buy as one. The signed-in gate still refuses a purchase with no uid.
+- `PreAuthPurchaseLedger` remembers on the device that the paywall was reached and what was bought. A relaunch opens on the paywall (`AppRootRoute.preAuthPaywall`) or, once bought, on sign-in.
+- After sign-in, `PreAuthPurchaseTransfer.completeAfterSignIn()` moves the purchase onto the uid: `logIn` already carries it for a uid RevenueCat has never seen, and for a known uid one restore moves it. It then calls `reconcileAppAccess` until the server answers `active`, because a client cannot read `users/{uid}/entitlements/app_access` itself.
+- Prices, the monthly equivalent and the discount percentage come from StoreKit. The percentage rounds down.
+
+The welcome product, `ascend_yearly_welcome` (`ascend_staging_yearly_welcome` in Debug and Staging, `ASCEND_REVENUECAT_WELCOME_PRODUCT_ID`):
+
+- $9.99 a year with a 7-day free introductory offer, in the same subscription group as `ascend_yearly`, so an Apple ID holds one or the other and takes one trial.
+- Attached to `app_access` in RevenueCat, and allowlisted in `REVENUECAT_SERVER_CONFIG`; the deploy preflight requires it because the build sells it.
+- It is deliberately not in `MonetizationConfiguration.launchProductIDs`: the offering audit and the signed-in gate never offer it, and a hosted paywall may not list it.
+- Eligibility decides the gift's words. Only an Apple ID StoreKit still lets take the trial reads "Plus 7 days free" and "Your first week is on us"; every other reads "$9.99 a year, locked in".
+
+Captain-gated before production, none of it done by the build:
+
+1. Create the product in App Store Connect with its 7-day offer.
+2. Remove the one-month introductory offer from `ascend_yearly`.
+3. Add the product to `app_access` in RevenueCat.
+4. Create and pin the new `REVENUECAT_SERVER_CONFIG` version (`docs/functions-secret-versions.md`).
+
 ## Verified Vendor State
 
 ### Measured on October 6, 2026
