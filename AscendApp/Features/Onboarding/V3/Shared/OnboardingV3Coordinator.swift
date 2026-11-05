@@ -66,7 +66,8 @@ final class OnboardingV3Coordinator {
     /// Follows the current screen's primary action. On the last screen it finishes the flow.
     ///
     /// Ignored while a transition runs: the outgoing screen's button still takes taps during the
-    /// fade, so a double tap would otherwise skip the screen it just opened.
+    /// fade, so a double tap would otherwise skip the screen it just opened. A move the app makes on
+    /// its own is not a tap, and uses ``go(to:)``.
     func advance() {
         if let transitionEnd, now() < transitionEnd { return }
 

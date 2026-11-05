@@ -255,9 +255,11 @@ struct OnboardingExitGiftScreen: View {
 
     /// Moves on only while this screen is still the one showing, so a purchase that completes and an
     /// entitlement that arrives a moment later cannot advance the flow twice.
+    /// `go(to:)`, not `advance()`: this also runs on arrival, inside the fade where `advance()` drops
+    /// a second tap, and nothing would ask again.
     private func advanceFromHere() {
         guard coordinator.step == .exitGift else { return }
-        coordinator.advance()
+        coordinator.go(to: .auth)
     }
 
     private func advanceHoldingAccess() {

@@ -27,7 +27,8 @@ struct OnboardingPaywallEvidenceTests {
         purchaseResult: PurchaseResult = .cancelled,
         restoredState: MonetizationEntitlementState? = nil,
         pending: PreAuthPendingPurchase? = nil,
-        storeHasPlans: Bool = true
+        storeHasPlans: Bool = true,
+        fadeNeverEnds: Bool = false
     ) async -> Fixture {
         let suite = "onboarding-paywall-evidence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -37,7 +38,12 @@ struct OnboardingPaywallEvidenceTests {
         if giftAlreadySeen {
             store.update { $0.welcomeGiftFirstShownAt = Date() }
         }
-        let coordinator = OnboardingV3Coordinator(store: store, startingAt: step)
+        let stoppedClock = ContinuousClock.now
+        let coordinator = OnboardingV3Coordinator(
+            store: store,
+            startingAt: step,
+            now: { fadeNeverEnds ? stoppedClock : .now }
+        )
 
         let configuration = MonetizationConfiguration(infoDictionary: [
             MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "yearly",
@@ -412,6 +418,47 @@ struct OnboardingPaywallEvidenceTests {
         ) { _ in
             #expect(coordinator.step == .auth)
             #expect(fixture.ledger.resumeStep == .auth)
+        }
+    }
+
+    /// The clock is stopped so the arrival is always inside the fade, where a second tap is dropped.
+    @Test(arguments: [OnboardingV3Step.paywall, .exitGift])
+    func arrivingHoldingAccessMovesOnEvenInsideTheFade(step: OnboardingV3Step) async throws {
+        let fixture = await fixture(
+            startingAt: .welcome,
+            entitlement: .active(["app_access"]),
+            fadeNeverEnds: true
+        )
+        let coordinator = fixture.coordinator
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            settle: .turns(20)
+        ) { screen in
+            coordinator.go(to: step)
+            try await screen.settle(.until { _ in coordinator.step == .auth })
+            #expect(coordinator.step == .auth)
+        }
+    }
+
+    @Test
+    func theKillSwitchSkipsThePaywallEvenInsideTheFade() async throws {
+        let shippedFlags = RemoteFeatureFlagStore.shared.snapshot
+        RemoteFeatureFlagStore.shared.apply(.resolving(remoteValues: [RemoteFeatureFlag.preAuthPaywall.key: false]))
+        defer { RemoteFeatureFlagStore.shared.apply(shippedFlags) }
+
+        let fixture = await fixture(startingAt: .welcome, fadeNeverEnds: true)
+        let coordinator = fixture.coordinator
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model),
+            settle: .turns(20)
+        ) { screen in
+            coordinator.go(to: .paywall)
+            try await screen.settle(.until { _ in coordinator.step == .auth })
+            #expect(coordinator.step == .auth)
         }
     }
 
