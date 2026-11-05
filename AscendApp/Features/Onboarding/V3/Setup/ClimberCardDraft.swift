@@ -57,8 +57,17 @@ struct ClimberCardDraft: Equatable, Sendable {
 
     // MARK: - Birthday and age
 
+    /// A stored birthday's year is Gregorian whatever calendar the phone uses, because the profile,
+    /// the rules and the server all read it that way. Only the device calendar's time zone counts.
+    private static func gregorian(from deviceCalendar: Calendar) -> Calendar {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = deviceCalendar.timeZone
+        return gregorian
+    }
+
     /// The oldest and youngest birthdays the wheel offers on `date`.
-    static func birthdayRange(on date: Date = .now, calendar: Calendar = .current) -> ClosedRange<Date> {
+    static func birthdayRange(on date: Date = .now, calendar deviceCalendar: Calendar = .current) -> ClosedRange<Date> {
+        let calendar = gregorian(from: deviceCalendar)
         let youngest = calendar.date(byAdding: .year, value: -ageRange.lowerBound, to: date) ?? date
         let oldest = calendar.date(byAdding: .year, value: -(ageRange.upperBound + 1), to: date).flatMap {
             calendar.date(byAdding: .day, value: 1, to: $0)
@@ -67,27 +76,27 @@ struct ClimberCardDraft: Equatable, Sendable {
     }
 
     /// The date the wheel shows before a birthday is chosen: about thirty years back.
-    static func wheelStart(on date: Date = .now, calendar: Calendar = .current) -> Date {
-        calendar.date(byAdding: .year, value: -30, to: date) ?? date
+    static func wheelStart(on date: Date = .now, calendar deviceCalendar: Calendar = .current) -> Date {
+        gregorian(from: deviceCalendar).date(byAdding: .year, value: -30, to: date) ?? date
     }
 
-    mutating func setBirthday(from date: Date, calendar: Calendar = .current) {
-        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+    mutating func setBirthday(from date: Date, calendar deviceCalendar: Calendar = .current) {
+        let parts = Self.gregorian(from: deviceCalendar).dateComponents([.year, .month, .day], from: date)
         guard let year = parts.year, let month = parts.month, let day = parts.day else { return }
         birthday = PreAuthOnboardingBirthday(year: year, month: month, day: day)
     }
 
-    func birthdayDate(calendar: Calendar = .current) -> Date? {
+    func birthdayDate(calendar deviceCalendar: Calendar = .current) -> Date? {
         birthday.flatMap {
-            calendar.date(from: DateComponents(year: $0.year, month: $0.month, day: $0.day, hour: 12))
+            Self.gregorian(from: deviceCalendar).date(from: DateComponents(year: $0.year, month: $0.month, day: $0.day, hour: 12))
         }
     }
 
     /// The age the birthday gives on `date`, when it is one the card accepts.
-    func age(on date: Date = .now, calendar: Calendar = .current) -> Int? {
+    func age(on date: Date = .now, calendar deviceCalendar: Calendar = .current) -> Int? {
         guard let birthday,
               let stored = ProfileBirthday(rawValue: String(format: "%04d-%02d-%02d", birthday.year, birthday.month, birthday.day)),
-              let age = stored.age(on: date, calendar: calendar),
+              let age = stored.age(on: date, calendar: Self.gregorian(from: deviceCalendar)),
               Self.ageRange.contains(age) else { return nil }
         return age
     }

@@ -83,6 +83,27 @@ struct OnboardingV3SetupTests {
         #expect(oldest.age(on: today, calendar: calendar) == 99)
     }
 
+    /// A phone in Thailand or set to the Japanese calendar still stores 1993, or the rules refuse
+    /// the write, or the age check drops a birthday the climber chose.
+    @Test(arguments: [Calendar.Identifier.buddhist, .japanese])
+    func aBirthdayIsGregorianWhateverCalendarThePhoneUses(identifier: Calendar.Identifier) throws {
+        var device = Calendar(identifier: identifier)
+        device.timeZone = utc
+        let today = date(2026, 11, 4)
+        let born = date(1993, 3, 15)
+
+        var card = draft()
+        card.setBirthday(from: born, calendar: device)
+
+        #expect(card.birthday == PreAuthOnboardingBirthday(year: 1993, month: 3, day: 15))
+        #expect(card.age(on: today, calendar: device) == 33)
+        #expect(card.birthdayDate(calendar: device) == born)
+
+        let range = ClimberCardDraft.birthdayRange(on: today, calendar: device)
+        #expect(range == ClimberCardDraft.birthdayRange(on: today, calendar: calendar))
+        #expect(ClimberCardDraft.wheelStart(on: today, calendar: device) == ClimberCardDraft.wheelStart(on: today, calendar: calendar))
+    }
+
     @Test
     func heightStepsAnInchAndStartsFromSixtySevenWhenNothingIsSet() {
         var card = draft()
