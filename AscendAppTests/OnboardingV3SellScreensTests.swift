@@ -116,7 +116,14 @@ struct OnboardingV3SellScreensTests {
 
     @Test
     func withNoEventRunningTheLatestFinishedOneIsUsed() {
-        #expect(SellGearSelection.event(in: catalog(), today: day(2_027, 3, 1))?.id == "thanksgiving-2026")
+        let bundled = catalog()
+        let twoEvents = UnlockCatalog(
+            version: bundled.version,
+            events: bundled.events.filter { ["halloween-2026", "thanksgiving-2026"].contains($0.id) },
+            items: bundled.items
+        )
+
+        #expect(SellGearSelection.event(in: twoEvents, today: day(2_027, 3, 1))?.id == "thanksgiving-2026")
     }
 
     @Test
