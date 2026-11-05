@@ -1,14 +1,13 @@
 import Foundation
 import Testing
+import UIKit
 @testable import AscendApp
 
-/// Screen 15 and what happens when the climber signs in at the end of the flow: the public weekly
-/// board, the two modes, the profile fill, and every route's hand-off.
+/// Screen 15 and what happens when the climber signs in at the end of the flow: the example board,
+/// the two modes, the profile fill, and every route's hand-off.
 @MainActor
 struct OnboardingAuthTests {
     private static let now = Date(timeIntervalSince1970: 1_793_793_600) // Wed 2026-11-04 12:00 UTC
-
-    private var weekKey: String { LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: Self.now).key }
 
     private func defaults() -> UserDefaults {
         let suite = "onboarding-auth-\(UUID().uuidString)"
@@ -17,90 +16,22 @@ struct OnboardingAuthTests {
         return defaults
     }
 
-    private func document(
-        schemaVersion: Int = 1,
-        periodKey: String? = nil,
-        rows: [[String: Any]]
-    ) -> [String: Any] {
-        ["schemaVersion": schemaVersion, "periodKey": periodKey ?? weekKey, "rows": rows]
-    }
-
-    private func row(_ rank: Int, _ name: String, _ steps: Int, photo: String = "") -> [String: Any] {
-        ["rank": rank, "displayName": name, "photoURL": photo, "totalSteps": steps]
-    }
-
-    // MARK: - The public board
+    // MARK: - The example board
 
     @Test
-    func theBoardReadsTheTopThreeInOrderWithTheirNamesAndSteps() throws {
-        let board = try #require(PublicWeeklyBoard.parse(
-            document(rows: [row(1, "Maya R.", 38_891), row(2, "Jordan T.", 12_335), row(3, "Sam K.", 9_720)]),
-            now: Self.now
-        ))
+    func theBoardIsThreeFixedExampleClimbersInOrder() {
+        let climbers = OnboardingAuthExampleClimber.weeklyTopThree
 
-        let entries = board.moderatedEntries()
-        #expect(entries.map(\.rank) == [1, 2, 3])
-        #expect(entries.map(\.identity.displayName) == ["Maya R.", "Jordan T.", "Sam K."])
-        #expect(entries.map(\.formattedValue) == [38_891, 12_335, 9_720].map { $0.formatted() })
+        #expect(climbers.map(\.rank) == [1, 2, 3])
+        #expect(climbers.map(\.name) == ["Maya D.", "Noah R.", "Ava M."])
+        #expect(climbers.map(\.steps) == ["38,891", "12,335", "9,720"])
     }
 
     @Test
-    func fewerThanThreeClimbersIsFewerRowsAndNeverAPlaceholder() throws {
-        let board = try #require(PublicWeeklyBoard.parse(
-            document(rows: [row(1, "Maya R.", 500)]), now: Self.now
-        ))
-        #expect(board.rows.count == 1)
-
-        let empty = try #require(PublicWeeklyBoard.parse(document(rows: []), now: Self.now))
-        #expect(empty.moderatedEntries().isEmpty)
-    }
-
-    @Test
-    func lastWeeksDocumentIsNeverShownUnderThisWeeksCountdown() {
-        let stale = document(periodKey: "2026-W44", rows: [row(1, "Maya R.", 38_891)])
-        #expect(PublicWeeklyBoard.parse(stale, now: Self.now) == nil)
-    }
-
-    @Test
-    func anUnknownSchemaOrAMalformedRowIsNotShown() throws {
-        #expect(PublicWeeklyBoard.parse(document(schemaVersion: 2, rows: [row(1, "A", 5)]), now: Self.now) == nil)
-
-        let board = try #require(PublicWeeklyBoard.parse(
-            document(rows: [
-                row(1, "  ", 100),
-                row(0, "Zero rank", 100),
-                row(2, "No steps", 0),
-                row(3, "Sam K.", 9_720)
-            ]),
-            now: Self.now
-        ))
-        #expect(board.rows.map(\.displayName) == ["Sam K."])
-    }
-
-    @Test
-    func atMostThreeRowsAreKept() throws {
-        let board = try #require(PublicWeeklyBoard.parse(
-            document(rows: (1...5).map { row($0, "Climber \($0)", 1_000 - $0) }),
-            now: Self.now
-        ))
-        #expect(board.rows.count == 3)
-    }
-
-    @Test
-    func aMissingOrEmptyDocumentIsAnAbsentBoardNotAnError() async {
-        let viewModel = OnboardingAuthViewModel(mode: .claimSpot, repository: .init { _ in nil }, now: { Self.now })
-        await viewModel.loadBoard()
-        #expect(viewModel.board == nil)
-        #expect(viewModel.entries.isEmpty)
-        #expect(viewModel.hasLoadedBoard)
-    }
-
-    private final class ReadCounter: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = 0
-
-        func increment() { lock.withLock { value += 1 } }
-        var count: Int { lock.withLock { value } }
+    func everyExampleClimberHasAnAvatarTheAppAlreadyShips() {
+        for climber in OnboardingAuthExampleClimber.weeklyTopThree {
+            #expect(UIImage(named: climber.avatarImageName) != nil, "\(climber.avatarImageName)")
+        }
     }
 
     // MARK: - Modes
@@ -124,20 +55,6 @@ struct OnboardingAuthTests {
 
         request.clear()
         #expect(OnboardingAuthViewModel.mode(arrivedFrom: .paywall, returningRequest: request) == .claimSpot)
-    }
-
-    @Test
-    func returningModeShowsNoBoardAndNeverReadsOne() async {
-        let reads = ReadCounter()
-        let viewModel = OnboardingAuthViewModel(
-            mode: .returning,
-            repository: .init { _ in reads.increment(); return nil },
-            now: { Self.now }
-        )
-        await viewModel.loadBoard()
-
-        #expect(!viewModel.showsBoard)
-        #expect(reads.count == 0)
     }
 
     // MARK: - Profile fill

@@ -20,44 +20,27 @@ struct OnboardingAuthEvidenceTests {
         return coordinator
     }
 
-    private func repository(rows: Int) -> PublicWeeklyBoardRepository {
-        let names = ["Maya Rivera", "Jordan Tate", "Sam Kowalski"]
-        let steps = [38_891, 12_335, 9_720]
-        return PublicWeeklyBoardRepository { now in
-            PublicWeeklyBoard(
-                periodKey: LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: now).key,
-                rows: (0..<rows).map {
-                    PublicWeeklyBoard.Row(rank: $0 + 1, displayName: names[$0], photoURL: nil, totalSteps: steps[$0])
-                }
-            )
-        }
-    }
-
-    private func screen(
-        from origin: OnboardingV3Step,
-        rows: Int = 3
-    ) -> some View {
-        OnboardingAuthScreen(coordinator: coordinator(from: origin), repository: repository(rows: rows))
+    private func screen(from origin: OnboardingV3Step) -> some View {
+        OnboardingAuthScreen(coordinator: coordinator(from: origin))
             .environment(AuthenticationViewModel())
             .background(Color.black)
             .environment(\.colorScheme, .dark)
     }
 
     @Test
-    func theClaimYourSpotScreenShowsTheRealBoardAndYourEmptyRow() async throws {
+    func theClaimYourSpotScreenShowsTheExampleBoardAndYourEmptyRow() async throws {
         try await RenderedScreen.host(screen(from: .paywall), size: Self.smallestPhone, settle: .turns(40)) { hosted in
             let copy = try await hosted.copy()
             #expect(copy.contains("claim your"), "\(copy)")
-            #expect(copy.contains("maya rivera"), "\(copy)")
-            #expect(copy.contains("jordan tate"), "\(copy)")
-            #expect(copy.contains("sam kowalski"), "\(copy)")
+            #expect(copy.contains("maya d."), "\(copy)")
+            #expect(copy.contains("noah r."), "\(copy)")
+            #expect(copy.contains("ava m."), "\(copy)")
             #expect(copy.contains("38,891"), "\(copy)")
             #expect(copy.contains("you, not ranked yet"), "\(copy)")
             #expect(copy.contains("continue with apple"), "\(copy)")
             #expect(copy.contains("continue with google"), "\(copy)")
             #expect(copy.contains("ascend"), "the wordmark: \(copy)")
             #expect(!copy.contains("your name here"), "no name prompt: \(copy)")
-            #expect(!copy.contains("maya r."), "no invented climbers: \(copy)")
             try hosted.photograph(named: "onboarding-v3-auth-claim-se")
         }
     }
@@ -75,32 +58,12 @@ struct OnboardingAuthEvidenceTests {
     }
 
     @Test
-    func fewerThanThreeClimbersDrawFewerRows() async throws {
-        try await RenderedScreen.host(screen(from: .paywall, rows: 1), size: Self.smallestPhone, settle: .turns(40)) { hosted in
-            let copy = try await hosted.copy()
-            #expect(copy.contains("maya rivera"), "\(copy)")
-            #expect(!copy.contains("jordan tate"), "\(copy)")
-            #expect(copy.contains("you, not ranked yet"), "\(copy)")
-        }
-    }
-
-    @Test
-    func anAbsentBoardStillLeavesAnHonestCard() async throws {
-        try await RenderedScreen.host(screen(from: .paywall, rows: 0), size: Self.smallestPhone, settle: .turns(40)) { hosted in
-            let copy = try await hosted.copy()
-            #expect(copy.contains("you, not ranked yet"), "\(copy)")
-            #expect(copy.contains("continue with apple"), "\(copy)")
-            try hosted.photograph(named: "onboarding-v3-auth-empty-board-se")
-        }
-    }
-
-    @Test
     func returningModeFromTheFirstScreenShowsNoBoard() async throws {
         try await RenderedScreen.host(screen(from: .welcome), size: Self.smallestPhone, settle: .turns(40)) { hosted in
             let copy = try await hosted.copy()
             #expect(copy.contains("welcome back"), "\(copy)")
             #expect(copy.contains("keep climbing"), "\(copy)")
-            #expect(!copy.contains("maya rivera"), "no board: \(copy)")
+            #expect(!copy.contains("maya d."), "no board: \(copy)")
             #expect(!copy.contains("not ranked yet"), "no climber row: \(copy)")
             #expect(copy.contains("back"), "a way back: \(copy)")
             #expect(copy.contains("continue with apple"), "\(copy)")
@@ -118,7 +81,7 @@ struct OnboardingAuthEvidenceTests {
             let copy = try await hosted.copy()
             #expect(copy.contains("continue with apple"), "\(copy)")
             #expect(copy.contains("continue with google"), "\(copy)")
-            #expect(copy.contains("maya rivera"), "\(copy)")
+            #expect(copy.contains("maya d."), "\(copy)")
             let recognized = try await hosted.recognizedText(scale: 2).lowercased()
             #expect(recognized.contains("claim"), "legible, not just in the tree: \(recognized)")
             try hosted.photograph(named: "onboarding-v3-auth-claim-se-accessibility3")

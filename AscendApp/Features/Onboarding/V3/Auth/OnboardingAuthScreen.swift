@@ -14,12 +14,11 @@ struct OnboardingAuthScreen: View {
     @State private var viewModel: OnboardingAuthViewModel
     @State private var isShowingInternalQA = false
 
-    init(coordinator: OnboardingV3Coordinator, repository: PublicWeeklyBoardRepository = .live) {
+    init(coordinator: OnboardingV3Coordinator) {
         self.coordinator = coordinator
         _viewModel = State(
             initialValue: OnboardingAuthViewModel(
-                mode: OnboardingAuthViewModel.mode(arrivedFrom: coordinator.previousStep),
-                repository: repository
+                mode: OnboardingAuthViewModel.mode(arrivedFrom: coordinator.previousStep)
             )
         )
     }
@@ -45,7 +44,6 @@ struct OnboardingAuthScreen: View {
             // sign-in that did not come through the full flow.
             OnboardingV3HandOffIntent().clear()
         }
-        .task { await viewModel.loadBoard() }
         .fullScreenCover(isPresented: $isShowingInternalQA) {
             NavigationStack { InternalQASignInView() }
         }
@@ -90,7 +88,7 @@ struct OnboardingAuthScreen: View {
                 OnboardingHeadline(["Claim your", "spot on the", "board."], size: 31)
                     .onboardingEntrance(index: 1)
 
-                OnboardingAuthBoardCard(entries: viewModel.entries)
+                OnboardingAuthBoardCard()
                     .onboardingEntrance(index: 2)
 
                 Text("Your records, streak and gear stay with you on any device.")

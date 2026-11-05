@@ -1,12 +1,32 @@
 import SwiftUI
 
-/// The board on the sign-in screen: this week's header and countdown, the real top three, and the
-/// climber's own empty row waiting under them.
+/// One of the three example climbers the sign-in board shows on top.
 ///
-/// Fewer than three rows means fewer rows. The climber's row is never a text field: it carries
-/// no caret and no prompt to type a name, because Ascend never asks for one (`SuppliedNameAdoption`).
+/// They are fixed: the board is a picture of what the weekly Steps board looks like, drawn with the
+/// same example climbers and avatars the earlier onboarding already ships. No read, no network and
+/// no real climber is involved, so there is no identity to moderate and nothing to go stale.
+struct OnboardingAuthExampleClimber: Equatable, Identifiable {
+    let rank: Int
+    let name: String
+    let steps: String
+    let avatarImageName: String
+
+    var id: Int { rank }
+
+    static let weeklyTopThree = [
+        OnboardingAuthExampleClimber(rank: 1, name: "Maya D.", steps: "38,891", avatarImageName: "OnboardingLeaderboardAvatarMaya"),
+        OnboardingAuthExampleClimber(rank: 2, name: "Noah R.", steps: "12,335", avatarImageName: "OnboardingLeaderboardAvatarNoah"),
+        OnboardingAuthExampleClimber(rank: 3, name: "Ava M.", steps: "9,720", avatarImageName: "OnboardingLeaderboardAvatarAva")
+    ]
+}
+
+/// The board on the sign-in screen: this week's header and countdown, three example climbers, and
+/// the climber's own empty row waiting under them.
+///
+/// The climber's row is never a text field: it carries no caret and no prompt to type a name,
+/// because Ascend never asks for one (`SuppliedNameAdoption`).
 struct OnboardingAuthBoardCard: View {
-    let entries: [ModeratedLeaderboardEntry]
+    var climbers = OnboardingAuthExampleClimber.weeklyTopThree
     /// Fixes the countdown's clock for evidence tests and previews.
     var now: Date?
 
@@ -15,12 +35,12 @@ struct OnboardingAuthBoardCard: View {
             header
                 .padding(.bottom, 14)
 
-            ForEach(entries) { entry in
-                OnboardingAuthBoardRow(entry: entry)
+            ForEach(climbers) { climber in
+                OnboardingAuthBoardRow(climber: climber)
             }
 
             OnboardingAuthYouRow()
-                .padding(.top, entries.isEmpty ? 0 : 6)
+                .padding(.top, 6)
         }
         .padding(14)
         .onboardingCard(cornerRadius: 24)
@@ -45,33 +65,27 @@ struct OnboardingAuthBoardCard: View {
 }
 
 private struct OnboardingAuthBoardRow: View {
-    let entry: ModeratedLeaderboardEntry
+    let climber: OnboardingAuthExampleClimber
 
     @ScaledMetric(relativeTo: .body) private var avatarSize: CGFloat = 38
     @ScaledMetric(relativeTo: .body) private var rankWidth: CGFloat = 22
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(entry.rank.formatted())
+            Text(climber.rank.formatted())
                 .font(.custom("Montserrat-ExtraBold", fixedSize: 17))
                 .foregroundStyle(medal)
                 .frame(width: rankWidth, alignment: .leading)
 
-            ClimberAvatar(
-                userId: nil,
-                photoURL: entry.identity.photoURL,
-                placeholder: .initials(
-                    for: entry.identity,
-                    fill: medal.opacity(0.22),
-                    foreground: .white
-                ),
-                size: avatarSize,
-                border: .init(color: medal, width: 2),
-                // The ring already says podium; a crown on top would say it twice.
-                showsChampionMark: false
-            )
+            Image(climber.avatarImageName)
+                .resizable()
+                .scaledToFill()
+                .frame(width: avatarSize, height: avatarSize)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(medal, lineWidth: 2))
+                .accessibilityHidden(true)
 
-            Text(entry.identity.displayName)
+            Text(climber.name)
                 .font(.custom("Montserrat-Bold", size: 17, relativeTo: .body))
                 .foregroundStyle(.white)
                 .lineLimit(2)
@@ -79,7 +93,7 @@ private struct OnboardingAuthBoardRow: View {
 
             Spacer(minLength: 8)
 
-            Text(entry.formattedValue)
+            Text(climber.steps)
                 .font(.custom("Montserrat-Bold", size: 17, relativeTo: .body))
                 .foregroundStyle(OnboardingV3Palette.body)
                 .lineLimit(1)
@@ -88,12 +102,12 @@ private struct OnboardingAuthBoardRow: View {
         .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Rank \(entry.rank), \(entry.identity.displayName), \(entry.formattedValue) steps this week"
+            "Rank \(climber.rank), \(climber.name), \(climber.steps) steps this week"
         )
     }
 
     private var medal: Color {
-        switch entry.rank {
+        switch climber.rank {
         case 1: OnboardingV3Palette.gold
         case 2: Color(hex: "C0C0C0")
         default: Color(hex: "CD7F32")
