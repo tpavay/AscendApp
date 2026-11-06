@@ -49,7 +49,8 @@ final class OnboardingV3SignInHandOff {
     /// Everything the hand-off reaches outside itself, so each step and its order are tested without
     /// the network, RevenueCat or the Health store.
     struct Seams {
-        /// Moves the anonymous purchase to the account and waits for the server grant.
+        /// Moves the anonymous purchase to the account and asks the server for the grant once it can.
+        /// A throttled answer leaves the grant to the reconciliation that runs from launch and foreground.
         var completePurchaseTransfer: @MainActor () async -> Void
         /// Forgets the purchase the signed-out device was holding.
         var clearPurchaseLedger: @MainActor () -> Void

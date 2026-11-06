@@ -1,7 +1,8 @@
 import Foundation
 
-/// Moves a purchase made before sign-in onto the account that just signed in, and waits until the
-/// server has written the grant that paid reads require.
+/// Moves a purchase made before sign-in onto the account that just signed in, then asks the server
+/// for the grant that paid reads require once it can. A throttled answer leaves the grant to the
+/// reconciliation that runs from launch and foreground.
 ///
 /// RevenueCat's `logIn` carries an anonymous customer's purchases onto a uid it has never seen. A uid
 /// it already knows - a returning climber buying again on a new phone - keeps its own history, and
