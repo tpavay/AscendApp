@@ -422,22 +422,7 @@ final class AppAccessPaywallCoordinator {
             watchdogTask?.cancel()
             phase = .hostedPresented
             statusMessage = nil
-        case .followOnPaywallOpening(let backTapped):
-            // The close the paywall chains after `back` fires the SDK's decline check whatever Ascend
-            // does first, but a legacy climber asked for the stage behind the gate. Retiring the
-            // attempt dismisses the offer on arrival (`handlePresentationBegan`).
-            if backTapped, isInLegacyOnboardingFlow {
-                monetizationManager.cancelPaywallPresentation()
-                handleHostedOutcome(
-                    .backRequested,
-                    presentationRevision: presentationRevision,
-                    presentationIdentity: presentationIdentity
-                )
-                return
-            }
-            if backTapped {
-                recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
-            }
+        case .followOnPaywallOpening:
             armOpeningWatchdog(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity
@@ -472,7 +457,7 @@ final class AppAccessPaywallCoordinator {
             watchdogTask?.cancel()
             // A flow that ends at sign-in has no stage behind the gate, and the v1 stages are ones
             // this climber never walked, so back is a plain close.
-            guard isInLegacyOnboardingFlow else {
+            if monetizationManager.onboardingFlowVersion == OnboardingAnalyticsContext.currentFlowVersion {
                 recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
                 beginNativeFallback(
                     message: "No purchase was made. Choose a plan below.",
@@ -719,10 +704,6 @@ final class AppAccessPaywallCoordinator {
         }
     }
 
-
-    private var isInLegacyOnboardingFlow: Bool {
-        monetizationManager.onboardingFlowVersion == OnboardingAnalyticsContext.legacyFlowVersion
-    }
 
     private var entitlementPresence: Bool? {
         switch monetizationManager.entitlementStateForRouting {

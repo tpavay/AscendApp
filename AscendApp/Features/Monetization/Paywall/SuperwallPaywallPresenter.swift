@@ -419,13 +419,8 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             // SuperwallKit presents a paywall its dashboard chains onto this one (a decline offer)
             // through this same state publisher, so this handler goes on to report it. The
             // registration stays, and the next `onPresent` makes that paywall this attempt's own.
-            let latchedActionName = presentedToken?.revision == revision
-                ? presentedToken?.latchedActionName
-                : nil
             presentedToken = nil
-            onOutcome(.followOnPaywallOpening(
-                backTapped: PaywallDismissIntent.resolve(latchedActionName: latchedActionName) == .back
-            ))
+            onOutcome(.followOnPaywallOpening)
             return
         }
         switch result {

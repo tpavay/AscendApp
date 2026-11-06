@@ -180,7 +180,7 @@ struct OnboardingGateHandOffTests {
     }
 
     @Test
-    func backThatOpensADeclineOfferReportsUnderTheV3PassAndReopensNothing() {
+    func aDeclineOfferOpeningDuringAV3PassCountsNoBackAndReopensNothing() {
         let f = fixture(passFlowVersion: "v3")
         var reopenCount = 0
         let coordinator = AppAccessPaywallCoordinator(
@@ -196,12 +196,11 @@ struct OnboardingGateHandOffTests {
 
         coordinator.start()
         coordinator.handleHostedOutcomeForTesting(.presented)
-        coordinator.handleHostedOutcomeForTesting(.followOnPaywallOpening(backTapped: true))
+        coordinator.handleHostedOutcomeForTesting(.followOnPaywallOpening)
 
         #expect(reopenCount == 0)
         #expect(coordinator.phase == .openingHosted)
-        let back = f.sink.records.first { $0.name == "onboarding_back_tapped" }
-        #expect(back?.parameters["flow_version"] == .string("v3"))
+        #expect(f.sink.records.contains { $0.name == "onboarding_back_tapped" } == false)
     }
 }
 

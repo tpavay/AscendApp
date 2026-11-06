@@ -4,7 +4,7 @@ enum PaywallPresentationOutcome: Equatable, Sendable {
     case presented
     /// This paywall closed so the dashboard's next one can open (a decline offer), which reports
     /// back through the same registration. Nothing has ended yet.
-    case followOnPaywallOpening(backTapped: Bool)
+    case followOnPaywallOpening
     case purchased
     case restored
     case pendingApproval

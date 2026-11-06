@@ -149,6 +149,7 @@ Captain-gated before production, none of it done by the build:
 2. Add the product to `app_access` in RevenueCat.
 3. Create and pin the new `REVENUECAT_SERVER_CONFIG` version (`docs/functions-secret-versions.md`).
 4. Build the decline offer's paywall and its `paywall_decline` campaign in Superwall, and keep the welcome product off the first paywall.
+5. Do not publish the decline campaign before the v3 launch: publish the two together, so back only leaves the old onboarding once new climbers no longer walk it.
 
 Whether to remove the one-month introductory offer from `ascend_yearly` is a separate captain decision; this change neither requires nor performs it.
 
@@ -354,11 +355,10 @@ Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an
 
 ### Paywall chrome, the back control, and DELETE ACCOUNT
 
-The paywall carries one chrome control: a back arrow in the top-left that returns the climber to the last onboarding step.
-During a v3 onboarding pass there is no step behind the paywall, so the same arrow is a plain close: a decline offer fires if the dashboard has one, and the climber otherwise lands on the native fallback, never a v1 stage.
-In a v1 pass the arrow still returns to the last onboarding step when a `paywall_decline` campaign is live.
-The close chained after `back` always reaches the SDK's decline check, and no client call stops it, so the offer can begin to appear before the gate dismisses it on arrival: `sw_paywall_open` and `sw_paywall_decline` fire for that back and the offer can be seen briefly.
-Removing that flash needs a dashboard change, because v3 depends on the same chained close.
+The paywall carries one chrome control: a back arrow in the top-left.
+While no `paywall_decline` campaign is live, it returns the climber to the last onboarding step, except during a v3 onboarding pass, which has no step behind the paywall: there the arrow is a plain close that lands on the native fallback, never a v1 stage.
+Once a `paywall_decline` campaign is live, the close chained after `back` opens the decline offer for everyone, a lapsed subscriber and a climber in a v1 pass included: Ascend neither dismisses the offer nor reopens a step, and it records no `onboarding_back_tapped` for that tap.
+A v1 climber losing the way back is accepted because the campaign is published together with the v3 launch, when the old onboarding stops being the path for new climbers.
 It carries no close or X control at all.
 Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
 

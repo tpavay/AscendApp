@@ -454,47 +454,35 @@ struct HostedPurchaseRecoveryIntegrationTests {
         }
     }
 
-    // MARK: - Back in a legacy pass with a decline campaign live
+    // MARK: - Back with a decline campaign live
 
-    @Test
-    func aV1BackWithADeclineCampaignLiveReturnsToTheStageAndDismissesTheOfferOnArrival() async {
+    @Test(arguments: [true, false])
+    func aBackThatSuperwallFollowsWithTheOfferLetsItOpen(lapsedSubscriber: Bool) async {
         var reopenCount = 0
-        let harness = makeHarness(onRequestOnboardingBack: {
-            reopenCount += 1
-            return true
-        })
+        let harness = makeHarness(
+            onRequestOnboardingBack: {
+                reopenCount += 1
+                return true
+            },
+            lapsedSubscriber: lapsedSubscriber
+        )
         harness.openHostedPresentation()
         harness.presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back.rawValue)
 
         harness.closeFirstPaywallForOffer()
+        #expect(harness.coordinator.phase == .openingHosted)
 
-        #expect(reopenCount == 1)
-        #expect(harness.coordinator.phase != .openingHosted)
-        let back = harness.sink.records.filter { $0.name == "onboarding_back_tapped" }
-        #expect(back.count == 1)
-        #expect(back.first?.parameters["flow_version"] == .string("v1"))
-
+        harness.openOffer()
         await harness.presenter.drainPresentationOperationsForTesting()
-        let dismissalsBeforeOffer = harness.dismissal.count
-        #expect(harness.presenter.handlePresentationFromHandler(
+        #expect(harness.coordinator.phase == .hostedPresented)
+        #expect(harness.dismissal.count == 0)
+
+        harness.presenter.handleDismissForTesting(
             revision: harness.presenterRevision,
-            context: harness.offerContext
-        ) == false)
-        await harness.presenter.drainPresentationOperationsForTesting()
-        #expect(harness.dismissal.count == dismissalsBeforeOffer + 1)
-        #expect(reopenCount == 1)
-    }
-
-    @Test
-    func aV1BackThatCouldNotReopenCountsNoBackAndOffersNoPlans() {
-        let harness = makeHarness(onRequestOnboardingBack: { false })
-        harness.openHostedPresentation()
-        harness.presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back.rawValue)
-
-        harness.closeFirstPaywallForOffer()
-
-        #expect(harness.coordinator.phase == .backUnavailable)
-        #expect(harness.coordinator.showsPurchaseControls == false)
+            result: .declined
+        )
+        #expect(harness.coordinator.phase == .loadingNative)
+        #expect(reopenCount == 0)
         #expect(harness.sink.records.contains { $0.name == "onboarding_back_tapped" } == false)
     }
 
@@ -697,7 +685,8 @@ struct HostedPurchaseRecoveryIntegrationTests {
         watchdogFires: Bool = false,
         onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
-        transactionIDs: [UInt64?] = []
+        transactionIDs: [UInt64?] = [],
+        lapsedSubscriber: Bool = false
     ) -> HostedHarness {
         let identity = MonetizationIdentityTransition(revision: 41, userID: "hosted-user")
         let contextStore = PaywallTransactionContextStore()
@@ -733,13 +722,24 @@ struct HostedPurchaseRecoveryIntegrationTests {
             dismissPresentation: dismissal.dismiss
         )
         router.presenter = presenter
+        let lifecycle = makeScratchOnboardingLifecycle(telemetry: telemetry)
+        if lapsedSubscriber {
+            lifecycle.recordFlowStartedIfNeeded(
+                context: OnboardingAnalyticsContext(
+                    segmentID: "onboarding_v3",
+                    flowVersion: OnboardingAnalyticsContext.currentFlowVersion,
+                    stepID: "welcome"
+                )
+            )
+            lifecycle.recordFlowCompletedIfNeeded(reason: .purchase)
+        }
         let entitlements = HostedEntitlementService(identity: identity)
         let manager = MonetizationManager(
             configuration: HostedHarness.configuration,
             entitlementService: entitlements,
             paywallPresenter: presenter,
             telemetry: telemetry,
-            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry),
+            onboardingLifecycle: lifecycle,
             userDefaults: UserDefaults(
                 suiteName: "HostedPurchaseRecoveryIntegrationTests-\(UUID().uuidString)"
             )!
