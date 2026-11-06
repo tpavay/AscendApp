@@ -228,7 +228,7 @@ The window is stored on the dispatch as `closesAt`, and a dispatch still unfinis
 A dispatch without a readable `closesAt` counts as already closed, so it expires too.
 The dispatch's counters accumulate per page, so `sentCount` is the real number of sends.
 
-**Weekly target.** `LocalReminderCoordinator` re-reads the climber's target and this week's climbs on launch, on every foreground, on every workout-store change and on every write of the notification answer, so the nudge follows the week as it is lived and the primer or Settings toggle takes effect at once; the target comes from the answer the onboarding kept on the device until the profile carries it.
+**Weekly target.** `LocalReminderCoordinator` re-reads the climber's target and this week's climbs on launch, on every foreground, on every workout-store change and on every write of the notification answer, so the nudge follows the week as it is lived and the primer or Settings toggle takes effect at once; the target comes from the answer the onboarding kept on the device, which `WeeklyTargetService` keeps true to a target set, changed or cleared in Settings.
 The nudge fires at 18:00 local on the last day the week can still be saved, which is the day the days left, today included, equal the days still owed.
 If the climber has already climbed on that day, a second climb cannot count, so no nudge is scheduled for it.
 Next week's is scheduled too, assuming nothing is climbed in between, so a climber who does not reopen the app still hears from it.

@@ -120,11 +120,13 @@ test('a look wears at most one unlocked item per slot, and only ones the app dra
   const items = [
     'pumpkin_classic', 'pumpkin_ghost', 'pumpkin_lantern', 'pumpkin_heirloom', 'pumpkin_midnight', 'pumpkin_giant',
     'pumpkin_giant_lantern', 'candy_corn', 'chocolate_bar', 'harvest_gourd', 'cornucopia', 'roast_turkey', 'pumpkin_pie', 'golden_turkey', 'turkey_giant',
+    // December and January.
+    'candy_cane', 'gift_box', 'ornament', 'giant_ornament', 'sparkler', 'fireworks_rocket', 'gold_trophy', 'giant_trophy',
   ];
   for (const carry of items) {
     await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry })));
   }
-  for (const head of ['witch_hat', 'pumpkin_head']) {
+  for (const head of ['witch_hat', 'pumpkin_head', 'winter_hat', 'party_hat']) {
     await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, head })));
   }
   await assertSucceeds(setDoc(lookRef(owner), look({ schemaVersion: 2, carry: 'pumpkin_giant', head: 'witch_hat', costume: 'ghost_sheet' })));

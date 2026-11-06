@@ -25,8 +25,8 @@ final class LocalReminderCoordinator {
     private var pending: Task<Void, Never>?
 
     /// - Parameter store: Where the climber's days-a-week target and usual climb length come
-    ///   from. Until the profile carries the target after sign-in, it is the answer the onboarding
-    ///   flow kept on the device; the profile becomes the source when it lands.
+    ///   from. The answer is the one record of the target the nudge reads: the onboarding flow
+    ///   writes it, and ``weeklyTargetChanged(to:)`` keeps it true to `WeeklyTargetService`.
     init(
         scheduler: LocalReminderScheduler = .shared,
         store: PreAuthOnboardingStore = PreAuthOnboardingStore(),
@@ -54,6 +54,13 @@ final class LocalReminderCoordinator {
                 .store(in: &observers)
         }
 
+        reconcileSoon()
+    }
+
+    /// The climber's target changed after onboarding. Keeps the answer true to it and takes effect
+    /// at once, so a cleared target stops the nudge and a new one reaches it.
+    func weeklyTargetChanged(to target: WeeklyTarget?) {
+        store.update { $0.weeklyTargetDays = target?.days }
         reconcileSoon()
     }
 

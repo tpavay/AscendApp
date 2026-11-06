@@ -27,7 +27,7 @@ struct OnboardingCountMethodsScreen: View {
 
                         VStack(spacing: 14) {
                             ForEach(Array(Self.rows.enumerated()), id: \.offset) { index, row in
-                                SellMethodRow(method: row.method, symbol: row.symbol, tile: row.tile)
+                                SellMethodRow(method: row.method, icon: row.icon, tile: row.tile)
                                     .onboardingEntrance(delay: 0.1 + 0.12 * Double(index), duration: 0.45)
                             }
                         }
@@ -52,32 +52,38 @@ struct OnboardingCountMethodsScreen: View {
 
     private struct Row {
         let method: SellScreenCopy.CountMethods.Method
-        let symbol: String
+        let icon: SellMethodIcon
         let tile: [Color]
     }
 
     private static let rows: [Row] = [
         Row(
             method: SellScreenCopy.CountMethods.methods[0],
-            symbol: "headphones",
+            icon: .symbol("headphones"),
             tile: [Color(hex: "E8FFC2"), OnboardingV3Palette.accent]
         ),
         Row(
             method: SellScreenCopy.CountMethods.methods[1],
-            symbol: "heart",
+            icon: .asset("appleHealth-icon"),
             tile: [Color(hex: "FFD6DE"), Color(hex: "FF6B85")]
         ),
         Row(
             method: SellScreenCopy.CountMethods.methods[2],
-            symbol: "keyboard",
+            icon: .symbol("pencil"),
             tile: [Color(hex: "FFE8C8"), OnboardingV3Palette.orange]
         )
     ]
 }
 
+/// A symbol is drawn on the gradient tile; an asset (the Apple Health icon) is the whole tile.
+private enum SellMethodIcon {
+    case symbol(String)
+    case asset(String)
+}
+
 private struct SellMethodRow: View {
     let method: SellScreenCopy.CountMethods.Method
-    let symbol: String
+    let icon: SellMethodIcon
     let tile: [Color]
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -100,8 +106,15 @@ private struct SellMethodRow: View {
             : AnyLayout(HStackLayout(spacing: 8))
     }
 
-    var body: some View {
-        HStack(alignment: .center, spacing: 16) {
+    @ViewBuilder
+    private var iconTile: some View {
+        switch icon {
+        case .asset(let name):
+            Image(name)
+                .resizable()
+                .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        case .symbol(let symbol):
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(LinearGradient(colors: tile, startPoint: UnitPoint(x: 0.3, y: 0), endPoint: UnitPoint(x: 0.7, y: 1)))
                 .overlay(alignment: .top) {
@@ -114,6 +127,12 @@ private struct SellMethodRow: View {
                         .font(.system(size: tileSize * 0.48, weight: .semibold))
                         .foregroundStyle(Color.black)
                 }
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            iconTile
                 .frame(width: tileSize, height: tileSize)
                 .accessibilityHidden(true)
 

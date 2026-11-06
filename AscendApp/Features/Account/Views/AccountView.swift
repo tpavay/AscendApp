@@ -165,6 +165,11 @@ struct AccountView: View {
                 destination: MeasurementSystemSelectionView()
             ),
             SettingsOption(
+                icon: .settingsWeekStart,
+                title: "Weekly target",
+                destination: WeeklyTargetSettingsView()
+            ),
+            SettingsOption(
                 icon: .settingsIntegrations,
                 title: "Integrations",
                 destination: IntegrationsView()

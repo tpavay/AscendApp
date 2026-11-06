@@ -1,0 +1,12 @@
+{
+  "comment": "The document id of public_city_climber_counts for a city. functions/src/publicCityClimberCounts.ts and CityClimberCountKey.swift both read this file, so the server that writes a count and the signed-out phone that reads it can never disagree on a key.",
+  "cases": [
+    { "city": "Chicago", "region": "IL", "countryCode": "US", "key": "US__il__chicago" },
+    { "city": "  Chicago ", "region": " il", "countryCode": "us", "key": "US__il__chicago" },
+    { "city": "Springfield", "region": "MO", "countryCode": "US", "key": "US__mo__springfield" },
+    { "city": "São Paulo", "region": "SP", "countryCode": "BR", "key": "BR__sp__sao-paulo" },
+    { "city": "Zürich", "region": null, "countryCode": "CH", "key": "CH__none__zurich" },
+    { "city": "St. John's", "region": "NL", "countryCode": "CA", "key": "CA__nl__st-john-s" },
+    { "city": "New  York", "region": "NY", "countryCode": "US", "key": "US__ny__new-york" }
+  ]
+}

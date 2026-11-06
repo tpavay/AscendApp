@@ -139,6 +139,11 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// given and the next launch with the switch on writes them; nothing is dropped.
     case onboardingAnswersProfileWrite = "onboarding_answers_profile_write_enabled"
 
+    /// Writing the climber's weekly target (`weekly_target_days`) to their private user record.
+    /// Off, a change stays on the device, marked unsynced, and goes up when the switch returns;
+    /// the target itself keeps working because the device's copy is the one Home reads.
+    case weeklyTargetWrites = "weekly_target_writes_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -216,6 +221,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
         case .onboardingAnswersProfileWrite:
             return "Writes the answers given before sign-in to the profile right after sign-in."
+        case .weeklyTargetWrites:
+            return "Writes the weekly target to the climber's user record; off keeps it on the device."
         }
     }
 }
