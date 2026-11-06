@@ -260,6 +260,27 @@ struct OnboardingAuthTests {
     }
 
     @Test
+    func theLiveHandOffRunsThePurchaseSeamsItIsGivenInOrderBeforeTheTargetIsReconciled() async {
+        let defaults = defaults()
+        let recorder = Recorder()
+        var seams = OnboardingV3SignInHandOff.liveSeams(
+            markPostSignInOnboardingComplete: {},
+            completePurchaseTransfer: { recorder.events.append("transfer") },
+            clearPurchaseLedger: { recorder.events.append("clearLedger") }
+        )
+        seams.reconcileWeeklyTarget = { _ in recorder.events.append("reconcileTarget") }
+        let handOff = OnboardingV3SignInHandOff(
+            seams: seams,
+            store: PreAuthOnboardingStore(userDefaults: defaults),
+            intent: OnboardingV3HandOffIntent(userDefaults: defaults)
+        )
+
+        await handOff.runAfterSignIn(userId: "live-\(UUID().uuidString)", email: nil)
+
+        #expect(recorder.events == ["transfer", "clearLedger", "reconcileTarget"])
+    }
+
+    @Test
     func purchaseThenSignInClosesTheFlowMovesThePurchaseWritesTheAnswersAndClearsTheLedger() async {
         var answers = fullAnswers()
         answers.completedAt = Self.now

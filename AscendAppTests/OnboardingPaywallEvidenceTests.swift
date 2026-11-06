@@ -103,7 +103,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             size: Self.smallestPhone,
             settle: .turns(100)
         ) { screen in
@@ -127,7 +128,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(100)
         ) { screen in
             let copy = try await screen.copy(until: { $0.contains("privacy") })
@@ -145,6 +147,7 @@ struct OnboardingPaywallEvidenceTests {
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
                 .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel())
                 .environment(\.dynamicTypeSize, .accessibility3),
             settle: .turns(100)
         ) { screen in
@@ -161,7 +164,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             size: Self.smallestPhone,
             settle: .turns(40)
         ) { screen in
@@ -195,6 +199,7 @@ struct OnboardingPaywallEvidenceTests {
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
                 .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel())
                 .environment(\.dynamicTypeSize, .accessibility3),
             size: size,
             settle: .turns(40)
@@ -211,7 +216,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             size: size,
             settle: .turns(40)
         ) { screen in
@@ -233,7 +239,8 @@ struct OnboardingPaywallEvidenceTests {
 
             try await RenderedScreen.host(
                 OnboardingV3FlowView(coordinator: fixture.coordinator)
-                    .environment(\.onboardingPaywallModel, fixture.model),
+                    .environment(\.onboardingPaywallModel, fixture.model)
+                    .environment(AuthenticationViewModel()),
                 size: Self.smallestPhone,
                 settle: .turns(120)
             ) { screen in
@@ -256,6 +263,7 @@ struct OnboardingPaywallEvidenceTests {
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
                 .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel())
                 .environment(\.dynamicTypeSize, .accessibility3),
             settle: .turns(120)
         ) { screen in
@@ -276,7 +284,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: paywall.coordinator)
-                .environment(\.onboardingPaywallModel, paywall.model),
+                .environment(\.onboardingPaywallModel, paywall.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(100)
         ) { screen in
             let copy = try await screen.copy(until: { $0.contains("check access") })
@@ -289,7 +298,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: gift.coordinator)
-                .environment(\.onboardingPaywallModel, gift.model),
+                .environment(\.onboardingPaywallModel, gift.model)
+                .environment(AuthenticationViewModel()),
             size: Self.smallestPhone,
             settle: .turns(120)
         ) { screen in
@@ -308,7 +318,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(100)
         ) { screen in
             let copy = try await screen.copy(until: { $0.contains("check access") })
@@ -335,11 +346,13 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(40)
         ) { screen in
             try activateAccessibilityElement(labelled: OnboardingPaywallScreen.signInExitTitle, in: screen.root)
             try await screen.settle(.until { _ in coordinator.step == .auth })
+            #expect(coordinator.returningSignInRequested)
             #expect(fixture.ledger.progress().pendingPurchase == charge)
 
             coordinator.back()
@@ -356,7 +369,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: relaunched.coordinator)
-                .environment(\.onboardingPaywallModel, relaunched.model),
+                .environment(\.onboardingPaywallModel, relaunched.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(40)
         ) { screen in
             try await expectThePaywallOffersNoPurchase(on: screen)
@@ -373,11 +387,13 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(40)
         ) { screen in
             try activateAccessibilityElement(labelled: OnboardingPaywallScreen.signInExitTitle, in: screen.root)
             try await screen.settle(.until { _ in coordinator.step == .auth })
+            #expect(coordinator.returningSignInRequested)
             #expect(fixture.ledger.progress().pendingPurchase == nil)
 
             coordinator.back()
@@ -399,7 +415,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(40)
         ) { screen in
             #expect(await fixture.model.claimGift() == .purchased(startedTrial: true))
@@ -428,7 +445,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(40)
         ) { screen in
             try activateAccessibilityElement(labelled: "Restore", in: screen.root)
@@ -446,7 +464,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             size: Self.smallestPhone,
             settle: .turns(120)
         ) { screen in
@@ -462,7 +481,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             settle: .until { _ in coordinator.step == .auth }
         ) { _ in
             #expect(coordinator.step == .auth)
@@ -482,7 +502,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(20)
         ) { screen in
             coordinator.go(to: step)
@@ -502,7 +523,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             settle: .turns(20)
         ) { screen in
             coordinator.go(to: .paywall)
@@ -524,7 +546,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             size: size,
             settle: .turns(40)
         ) { screen in
@@ -546,7 +569,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             size: size,
             settle: .turns(40)
         ) { screen in
@@ -579,6 +603,7 @@ struct OnboardingPaywallEvidenceTests {
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
                 .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel())
                 .environment(\.dynamicTypeSize, textSize),
             size: CGSize(width: width, height: 3200),
             settle: .turns(40)
@@ -605,7 +630,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             size: size,
             settle: .turns(40)
         ) { screen in
@@ -641,6 +667,7 @@ struct OnboardingPaywallEvidenceTests {
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
                 .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel())
                 .environment(\.dynamicTypeSize, .accessibility3),
             size: Self.smallestPhone,
             settle: .turns(40)
@@ -685,7 +712,8 @@ struct OnboardingPaywallEvidenceTests {
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: fixture.coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model),
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
             size: CGSize(width: 402, height: 874),
             settle: .turns(40)
         ) { screen in

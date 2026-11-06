@@ -495,6 +495,12 @@ struct RootView: View {
             markPostSignInOnboardingComplete: {
                 postAuthOnboardingCoordinator.markCurrentUserComplete()
                 onboardingV3Coordinator.finish()
+            },
+            completePurchaseTransfer: {
+                _ = await PreAuthPurchaseTransfer().completeAfterSignIn()
+            },
+            clearPurchaseLedger: {
+                PreAuthPurchaseLedger().clear()
             }
         )
         onboardingV3HandOff = handOff

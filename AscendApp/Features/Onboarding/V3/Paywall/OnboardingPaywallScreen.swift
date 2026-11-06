@@ -23,7 +23,6 @@ struct OnboardingPaywallScreen: View {
     static let signInExitTitle = OnboardingV3Step.welcome.alternateExits[0].title
 
     @State private var showsClose = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -253,7 +252,7 @@ struct OnboardingPaywallScreen: View {
             // welcome screen offers, into the same returning-mode sign-in.
             Button(Self.signInExitTitle) {
                 model.releaseAskToBuyHold()
-                coordinator.go(to: .auth)
+                coordinator.goToReturningSignIn()
             }
             .buttonStyle(.plain)
             .frame(minHeight: 36)
