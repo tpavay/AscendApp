@@ -43,6 +43,38 @@ struct PurchaseIdentityTests {
     }
 
     @Test
+    func anAccountThatChangesWhileStoreKitIsReadIsRefusedBeforeAnythingIsCharged() async {
+        var current: MonetizationIdentityTransition? = MonetizationIdentityTransition(
+            revision: 3,
+            userID: "u1"
+        )
+        var holds: [PendingPurchaseHold] = []
+        var ran = false
+        let executor = RevenueCatPurchaseExecutor(
+            transactionContextStore: PaywallTransactionContextStore(),
+            entitlementID: "app_access",
+            applySubscriptionStatus: { _ in },
+            refreshEntitlementState: { .refreshed(.unknown) },
+            currentIdentityGeneration: { current },
+            adoptEntitlementState: { _, _ in true },
+            holdPendingPurchase: { holds.append($0) },
+            latestTransactionID: { _ in
+                current = MonetizationIdentityTransition(revision: 4, userID: nil)
+                return nil
+            }
+        )
+
+        let result = await executor.executePurchase(productID: "y") {
+            ran = true
+            return .init(userCancelled: false, entitlementState: .active(["app_access"]))
+        }
+
+        #expect(!ran)
+        #expect(holds.isEmpty)
+        guard case .failed = result else { Issue.record("expected a refusal"); return }
+    }
+
+    @Test
     func noIdentityAtAllIsRefusedToo() async {
         var ran = false
         let result = await executor(identity: nil).executePurchase(productID: "y") {

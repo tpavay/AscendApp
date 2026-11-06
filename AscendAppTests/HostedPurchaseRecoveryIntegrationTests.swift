@@ -360,7 +360,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
     }
 
     @Test
-    func theRelayForwardsTheTenFunnelEventsWithOnlyTheAllowedPropertiesAndDropsTheRest() {
+    func theRelayForwardsTheEightFunnelEventsWithOnlyTheAllowedPropertiesAndDropsTheRest() {
         let expected: [SuperwallEventObjc: String] = [
             .paywallOpen: "sw_paywall_open",
             .paywallClose: "sw_paywall_close",
@@ -369,9 +369,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
             .transactionComplete: "sw_transaction_complete",
             .transactionFail: "sw_transaction_fail",
             .transactionAbandon: "sw_transaction_abandon",
-            .transactionRestore: "sw_transaction_restore",
-            .subscriptionStart: "sw_subscription_start",
-            .freeTrialStart: "sw_free_trial_start"
+            .transactionRestore: "sw_transaction_restore"
         ]
         let params: [String: Any] = [
             "paywall_name": "Decline Offer",

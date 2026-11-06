@@ -43,7 +43,7 @@ Event parameters are not scanned, which is why they are inventoried here.
 
 | Data type | Events | Properties |
 | --- | --- | --- |
-| Purchase History | `sw_paywall_open`, `sw_paywall_close`, `sw_paywall_decline`, `sw_transaction_start`, `sw_transaction_complete`, `sw_transaction_fail`, `sw_transaction_abandon`, `sw_transaction_restore`, `sw_subscription_start`, `sw_free_trial_start` | `paywall_name`, `paywall_identifier`, `placement`, `product_id`, `presentation_id` |
+| Purchase History | `sw_paywall_open`, `sw_paywall_close`, `sw_paywall_decline`, `sw_transaction_start`, `sw_transaction_complete`, `sw_transaction_fail`, `sw_transaction_abandon`, `sw_transaction_restore` | `paywall_name`, `paywall_identifier`, `placement`, `product_id`, `presentation_id` |
 
 Those five properties are an allowlist and name a paywall, a product and a presentation, never a person.
 Every other SDK param is dropped, including `app_transaction_id`.

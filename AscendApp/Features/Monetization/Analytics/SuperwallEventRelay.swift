@@ -5,8 +5,10 @@ import SuperwallKit
 ///
 /// Superwall's Mixpanel integration sends only server-side subscription and revenue events, and it
 /// needs the App Store Connect connection on the Superwall side. Which paywall a climber saw, opened
-/// and closed exists only inside the SDK, so this is where those events leave it. Properties are an
-/// allowlist because the SDK's params also carry `app_transaction_id` and error text.
+/// and closed exists only inside the SDK, so this is where those events leave it. The SDK's
+/// `subscriptionStart` and `freeTrialStart` stay out, so one purchase never reaches Mixpanel under
+/// one name from two sources. Properties are an allowlist because the SDK's params also carry
+/// `app_transaction_id` and error text.
 enum SuperwallEventRelay {
     private static let propertyNames = [
         "paywall_name": "paywall_name",
@@ -38,8 +40,6 @@ enum SuperwallEventRelay {
         case .transactionFail: "sw_transaction_fail"
         case .transactionAbandon: "sw_transaction_abandon"
         case .transactionRestore: "sw_transaction_restore"
-        case .subscriptionStart: "sw_subscription_start"
-        case .freeTrialStart: "sw_free_trial_start"
         default: nil
         }
     }

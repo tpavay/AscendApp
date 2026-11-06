@@ -101,6 +101,10 @@ final class RevenueCatPurchaseExecutor {
                 purchaseIdentity: purchaseIdentity
             )
         }
+        // A lapsed subscriber already holds a transaction for this product, so only a new id says
+        // this purchase charged. An id needs no clock, and a device clock can disagree with Apple's.
+        let transactionIDBeforePurchase = await latestTransactionID(productID)
+
         guard let purchaseIdentity,
               purchaseIdentity.userID != nil,
               currentIdentityGeneration() == purchaseIdentity else {
@@ -137,10 +141,6 @@ final class RevenueCatPurchaseExecutor {
             }
             return finish(result)
         }
-
-        // A lapsed subscriber already holds a transaction for this product, so only a new id says
-        // this purchase charged. An id needs no clock, and a device clock can disagree with Apple's.
-        let transactionIDBeforePurchase = await latestTransactionID(productID)
 
         do {
             let response = try await operation()
