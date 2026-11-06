@@ -430,10 +430,13 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             onOutcome(.restored)
         case .declined:
             // Every user-driven close arrives here identically, so the latched custom action is the
-            // only thing that separates a deliberate back tap from any other dismissal.
-            let latchedActionName = presentedToken?.revision == revision
-                ? presentedToken?.latchedActionName
-                : nil
+            // only thing that separates a deliberate back tap from any other dismissal. A paywall the
+            // dashboard chained has no step behind it, so only a registered placement can ask for one.
+            let latchedActionName = presentedToken.flatMap { token in
+                token.revision == revision && SuperwallPlacement(rawValue: token.placement) != nil
+                    ? token.latchedActionName
+                    : nil
+            }
             onOutcome(PaywallDismissIntent.resolve(latchedActionName: latchedActionName).outcome)
         }
         presentedToken = nil

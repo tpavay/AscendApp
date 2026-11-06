@@ -485,6 +485,60 @@ struct HostedPurchaseRecoveryIntegrationTests {
     }
 
     @Test
+    func aBackOnTheOfferIsAPlainCloseForEveryClimber() async {
+        let climbers: [(lapsedSubscriber: Bool, runningPass: String?)] = [
+            (true, nil),
+            (false, nil),
+            (false, OnboardingAnalyticsContext.legacyFlowVersion),
+            (false, OnboardingAnalyticsContext.currentFlowVersion)
+        ]
+        for climber in climbers {
+            var reopenCount = 0
+            let harness = makeHarness(
+                onRequestOnboardingBack: {
+                    reopenCount += 1
+                    return true
+                },
+                lapsedSubscriber: climber.lapsedSubscriber,
+                runningPass: climber.runningPass
+            )
+            harness.openHostedPresentation()
+            harness.closeFirstPaywallForOffer()
+            harness.openOffer()
+
+            harness.presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back.rawValue)
+            harness.presenter.handleDismissForTesting(
+                revision: harness.presenterRevision,
+                result: .declined
+            )
+
+            #expect(reopenCount == 0)
+            #expect(harness.coordinator.phase == .loadingNative)
+            #expect(harness.coordinator.statusMessage == "No purchase was made. Choose a plan below.")
+            #expect(harness.sink.records.contains { $0.name == "onboarding_back_tapped" } == false)
+        }
+    }
+
+    @Test
+    func aBackOnTheRegisteredPaywallStillReachesTheStageBehindTheGate() {
+        var reopenCount = 0
+        let harness = makeHarness(onRequestOnboardingBack: {
+            reopenCount += 1
+            return true
+        })
+        harness.openHostedPresentation()
+
+        harness.presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back.rawValue)
+        harness.presenter.handleDismissForTesting(
+            revision: harness.presenterRevision,
+            result: .declined
+        )
+
+        #expect(reopenCount == 1)
+        #expect(harness.sink.records.filter { $0.name == "onboarding_back_tapped" }.count == 1)
+    }
+
+    @Test
     func anAskToBuyInTheOfferLandsOnTheNonRepurchaseStateAndStaysThereAfterARelaunch() async {
         let harness = makeHarness()
         harness.openHostedPresentation()
@@ -684,7 +738,8 @@ struct HostedPurchaseRecoveryIntegrationTests {
         onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         transactionIDs: [UInt64?] = [],
-        lapsedSubscriber: Bool = false
+        lapsedSubscriber: Bool = false,
+        runningPass: String? = nil
     ) -> HostedHarness {
         let identity = MonetizationIdentityTransition(revision: 41, userID: "hosted-user")
         let contextStore = PaywallTransactionContextStore()
@@ -721,6 +776,15 @@ struct HostedPurchaseRecoveryIntegrationTests {
         )
         router.presenter = presenter
         let lifecycle = makeScratchOnboardingLifecycle(telemetry: telemetry)
+        if let runningPass {
+            lifecycle.recordFlowStartedIfNeeded(
+                context: OnboardingAnalyticsContext(
+                    segmentID: "onboarding",
+                    flowVersion: runningPass,
+                    stepID: "welcome"
+                )
+            )
+        }
         if lapsedSubscriber {
             lifecycle.recordFlowStartedIfNeeded(
                 context: OnboardingAnalyticsContext(

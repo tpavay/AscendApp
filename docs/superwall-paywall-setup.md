@@ -113,6 +113,8 @@ The decline offer is Superwall's, with no Ascend code:
 - The app only ever registers `app_access_gate`.
   The offer is a second campaign triggered by Superwall's built-in `paywall_decline` event, showing the welcome product's paywall, and it is shown to everyone who closes the first paywall, including a lapsed subscriber.
   Whether it exists, what it costs and who it targets are dashboard settings.
+- The offer has no back control: its only chrome is a close, plus a close action on `No thanks`, and no back arrow.
+  A `back` action reaching Ascend from it anyway resolves as a plain close for every climber, because only a paywall Ascend registered has a step behind it: nothing reopens and no `onboarding_back_tapped` is recorded.
 - The SDK dismisses the first paywall with `PaywallCloseReason.forNextPaywall` and presents the offer itself, through the first registration's own state publisher (`Superwall.internallyHandleImplicitTrigger` reuses `lastPresentationItems.statePublisher`).
   So the offer reports to the handler Ascend registered, and the presenter treats a `forNextPaywall` dismissal as `.followOnPaywallOpening`: nothing has ended, the registration stays, and the gate waits behind the opening watchdog rather than starting its native fallback.
   This is generic: any paywall the dashboard chains onto a registered placement is owned the same way, with no gift-specific code.
@@ -132,7 +134,7 @@ The decline offer is Superwall's, with no Ascend code:
   Access arriving or signing out ends the hold.
   A restore that finds nothing ends an Ask to Buy hold, because a declined request reads the same as an undecided one and must not stay locked; it never ends a hold on a charge.
   What this does not guarantee: signing out ends the hold, and StoreKit can only answer for this device's Apple ID, so a charge StoreKit has not yet recorded when the error arrives reads as no charge.
-- When both paywalls are closed:
+- When both paywalls are closed, by the close, `No thanks` or a stray `back`:
   the offer closes without a further offer (the SDK does not chain from `paywall_decline`), and the climber is left on the gate's native fallback - `No purchase was made. Choose a plan below.` - with the Yearly and Lifetime plans, Restore, Terms, Privacy, support, Sign out and Delete account.
   If Superwall cannot load at all, the same fallback opens after the 8-second opening deadline (`Plans took too long to open. Choose a plan below.`), and the same deadline covers an offer that never opens.
   Nobody is stranded and nobody reaches the app without `app_access`.
@@ -149,7 +151,7 @@ Captain-gated before production, none of it done by the build:
 1. Create the product in App Store Connect with its 7-day offer.
 2. Add the product to `app_access` in RevenueCat.
 3. Create and pin the new `REVENUECAT_SERVER_CONFIG` version (`docs/functions-secret-versions.md`).
-4. Build the decline offer's paywall and its `paywall_decline` campaign in Superwall, and keep the welcome product off the first paywall.
+4. Build the decline offer's paywall and its `paywall_decline` campaign in Superwall, with a close and a close action on `No thanks` and no back arrow, and keep the welcome product off the first paywall.
 5. Do not publish the decline campaign before the v3 launch: publish the two together, so back only leaves the old onboarding once new climbers no longer walk it.
 
 Whether to remove the one-month introductory offer from `ascend_yearly` is a separate captain decision; this change neither requires nor performs it.
@@ -358,7 +360,7 @@ Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an
 
 The paywall carries one chrome control: a back arrow in the top-left.
 While no `paywall_decline` campaign is live, it returns the climber to the last onboarding step, except during a v3 onboarding pass, which has no step behind the paywall: there the arrow is a plain close that lands on the native fallback, never a v1 stage.
-Once a `paywall_decline` campaign is live, the close chained after `back` opens the decline offer for everyone, a lapsed subscriber and a climber in a v1 pass included: Ascend neither dismisses the offer nor reopens a step, and it records no `onboarding_back_tapped` for that tap.
+Once a `paywall_decline` campaign is live, the arrow behaves as a plain close: the close chained after `back` opens the decline offer for everyone, a lapsed subscriber and a climber in a v1 pass included, and Ascend neither dismisses the offer nor reopens a step, and it records no `onboarding_back_tapped` for that tap.
 A v1 climber losing the way back is accepted because the campaign is published together with the v3 launch, when the old onboarding stops being the path for new climbers.
 The paywall carries no close or X control at all.
 Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
