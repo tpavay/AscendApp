@@ -77,7 +77,7 @@ class DebugToolsViewModel {
             actions: [
                 DebugAction(
                     title: ActionTitle.replayNewOnboardingFromWelcome,
-                    description: "Tests the new (v3) onboarding. Signs out, clears the v3 answers and finished mark, and forces the v3 flow on even if onboarding_v3_enabled is off, so the next screen is Welcome. The override stays on for this build.",
+                    description: "Tests the new (v3) onboarding. Signs out, clears the v3 answers and finished mark, and forces the v3 flow on even if onboarding_v3_enabled is off, so the next screen is Welcome. The override stays on until the app is deleted.",
                     icon: "sparkles",
                     iconColor: .accent
                 ),
