@@ -747,7 +747,11 @@ struct EditWorkoutView: View {
                 newlyUploadedPhotos = try await photoService.uploadSelectedPhotos(selectedImagesSnapshot)
             }
             
-            let totalsChanged = workout.steps != steps || workout.duration != totalDuration
+            // The date counts too: a climb moved to before the account existed is off the boards
+            // (`ClimbPacePolicy.startedBeforeAccount`), and one moved back in is on them.
+            let totalsChanged = workout.steps != steps
+                || workout.duration != totalDuration
+                || workout.date != workoutDate
 
             // Update the workout properties
             workout.name = workoutName.isEmpty ? Workout.generateDefaultName(for: workoutDate) : workoutName
@@ -768,9 +772,9 @@ struct EditWorkoutView: View {
             workout.steps = steps
             workout.floors = floors
             workout.stepsPerFloor = Workout.defaultStepsPerFloor
-            // The pace check runs again only when the steps or the time moved. A note, a photo or
-            // an effort rating changes nothing the pace depends on, so it can never put a climb on
-            // or take it off the leaderboards.
+            // The check runs again only when the steps, the time or the date moved. A note, a photo or
+            // an effort rating changes nothing it depends on, so it can never put a climb on or take
+            // it off the leaderboards.
             if totalsChanged {
                 workout.refreshLeaderboardStatus()
             }

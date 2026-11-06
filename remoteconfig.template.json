@@ -42,6 +42,13 @@
       "valueType": "NUMBER",
       "description": "Operator recovery epoch, NOT a kill switch. Bump it after a rules or backend fix to give every stopped workout one more automatic sync attempt without shipping a binary. Never decrease it."
     },
+    "workout_sync_app_access_hold_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops holding workout uploads back for a climber with no app access; a pass attempts them, and the rules refuse them, as they did before the hold existed."
+    },
     "workout_cloud_restore_enabled": {
       "defaultValue": {
         "value": "true"
@@ -209,6 +216,13 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops finding, importing and announcing Apple Health stair workouts, and the background wake for new ones; workouts already found and climbs already imported are untouched, and import resumes from the same anchor."
+    },
+    "apple_health_history_import_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops the one-time import of Apple Health stair workouts from before the climber joined; the workouts onboarding found stay on the device and the next run with the switch on brings them in."
     }
   },
   "parameterGroups": {},

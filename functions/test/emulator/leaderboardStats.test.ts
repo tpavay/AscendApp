@@ -41,12 +41,20 @@ before(() => {
     process.env.FIRESTORE_EMULATOR_HOST,
     "FIRESTORE_EMULATOR_HOST is unset - run this through npm run test:emulator"
   );
+  // The derivation reads the account's creation time from Auth, so the Admin
+  // adapter needs the Auth emulator for the same reason it needs Firestore's.
+  assert.ok(
+    process.env.FIREBASE_AUTH_EMULATOR_HOST,
+    "FIREBASE_AUTH_EMULATOR_HOST is unset - run this through npm run " +
+      "test:emulator"
+  );
   admin.initializeApp({projectId: "demo-ascend-leaderboard-derivation"});
   db = admin.firestore();
 });
 
 beforeEach(async () => {
   await clearFirestore();
+  await clearAuth();
 });
 
 test("a forged standing is replaced by what the climber actually climbed",
@@ -386,6 +394,69 @@ test("an implausible workout buys no standing at all", async () => {
   assert.deepEqual(outcome.written, []);
 });
 
+// Leaderboards count from the day a climber joins, and the day is Auth's, not a
+// field the climber could move. A climb nobody measured from before it is
+// history; a live climb is not asked.
+test("a climb nobody measured from before the account is not ranked",
+  async () => {
+    await seedProfile();
+    await seedAccount(new Date("2026-08-01T12:00:00.000Z"));
+    await seedWorkout({source: "apple_health"});
+
+    const outcome = await reconcileLeaderboardStats(
+      makeAdminLeaderboardStatsStore(),
+      userId,
+      NOW
+    );
+
+    assert.deepEqual(outcome.written, []);
+    assert.equal(await readStanding(weeklyDocumentId), undefined);
+  });
+
+test("a climb nobody measured from after the account is ranked", async () => {
+  await seedProfile();
+  await seedAccount(new Date("2026-08-01T00:00:00.000Z"));
+  await seedWorkout({source: "apple_health"});
+
+  await reconcileLeaderboardStats(
+    makeAdminLeaderboardStatsStore(),
+    userId,
+    NOW
+  );
+
+  const stored = await readStanding(weeklyDocumentId);
+  assert.equal(stored?.totalSteps, 3000);
+});
+
+test("an account Auth has no record of ranks no climb nobody measured",
+  async () => {
+    await seedProfile();
+    await seedWorkout({source: "manual"});
+
+    const outcome = await reconcileLeaderboardStats(
+      makeAdminLeaderboardStatsStore(),
+      userId,
+      NOW
+    );
+
+    assert.deepEqual(outcome.written, []);
+  });
+
+test("a live climb from before the account is still ranked", async () => {
+  await seedProfile();
+  await seedAccount(new Date("2026-08-01T12:00:00.000Z"));
+  await seedWorkout();
+
+  await reconcileLeaderboardStats(
+    makeAdminLeaderboardStatsStore(),
+    userId,
+    NOW
+  );
+
+  const stored = await readStanding(weeklyDocumentId);
+  assert.equal(stored?.totalSteps, 3000);
+});
+
 async function seedForgedStanding(
   overrides: Record<string, unknown> = {}
 ): Promise<void> {
@@ -449,6 +520,23 @@ async function seedProfile(): Promise<void> {
     identityPolicyVersion: 1,
     identityChangedAt: admin.firestore.Timestamp.fromDate(IDENTITY_CHANGED_AT),
   });
+}
+
+async function seedAccount(createdAt: Date): Promise<void> {
+  const result = await admin.auth().importUsers([
+    {uid: userId, metadata: {creationTime: createdAt.toUTCString()}},
+  ]);
+  assert.equal(result.failureCount, 0, "the Auth emulator refused the user");
+}
+
+async function clearAuth(): Promise<void> {
+  const host = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+  const response = await fetch(
+    `http://${host}/emulator/v1/projects/` +
+      "demo-ascend-leaderboard-derivation/accounts",
+    {method: "DELETE"}
+  );
+  assert.ok(response.ok, `auth reset failed: ${response.status}`);
 }
 
 async function seedWorkout(

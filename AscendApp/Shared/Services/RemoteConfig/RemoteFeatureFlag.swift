@@ -27,6 +27,11 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// it is separable from the upload path it feeds.
     case workoutSyncRecoveryReopen = "workout_sync_recovery_reopen_enabled"
 
+    /// Holding workout uploads back until the climber is known to hold app access, because the rules would
+    /// refuse them and enough refusals stop the series. Off, a pass attempts them as it did before
+    /// this hold existed - the way out if the device's reading of access is ever wrong.
+    case workoutSyncAppAccessHold = "workout_sync_app_access_hold_enabled"
+
     /// Decoding cloud backups back into local SwiftData on sign-in and reinstall.
     case workoutCloudRestore = "workout_cloud_restore_enabled"
 
@@ -99,8 +104,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     case headphoneSessionAutoResume = "headphone_session_auto_resume_enabled"
 
     /// Logging a climb by hand - the Log it entry and the save behind it - and re-deriving a
-    /// climb's leaderboard status from its pace when it is restored or its steps or time are
-    /// edited. Off, Log it is not offered and every stored status is left exactly as it is.
+    /// climb's leaderboard status when it is restored or its steps, time or date change. Off, Log
+    /// it is not offered and every stored status is left exactly as it is.
     case climbLogging = "climb_logging_enabled"
 
     /// The onboarding of 1.3.0: selling screens and setup questions before sign-in, then the paywall
@@ -140,6 +145,13 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// workout. Off, every workout already found stays where it is and nothing new is imported or
     /// announced; turning it back on resumes from the same anchor, so no workout is lost.
     case appleHealthImport = "apple_health_import_enabled"
+
+    /// The one-time backfill of stair workouts Apple Health held before the climber joined, which
+    /// they asked for on onboarding's "We found your climbs". Off, nothing older than the join date
+    /// is filed or imported and the workouts it found stay on the device; the next run with the
+    /// switch on brings in whatever is still waiting. It sits beside ``appleHealthImport``, which
+    /// still gates every climb it creates.
+    case appleHealthHistoryImport = "apple_health_history_import_enabled"
 
     /// Writing the answers a climber gave before signing in - birthday, gender, height, weight and
     /// city - to their profile right after sign-in, and the days-a-week target save and Health
@@ -186,6 +198,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Deletes remote workout documents and heart-rate sidecars."
         case .workoutSyncRecoveryReopen:
             return "Re-opens one sync attempt for a stopped workout after a build, epoch or sign-in."
+        case .workoutSyncAppAccessHold:
+            return "Holds workout uploads back while the climber has no app access. Off attempts them anyway."
         case .workoutCloudRestore:
             return "Restores cloud backups into local storage on sign-in and reinstall."
         case .workoutMediaUploads:
@@ -230,6 +244,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Shows the paywall and welcome gift of the 1.3.0 onboarding after sign-in. Off shows the app-access paywall instead."
         case .appleHealthImport:
             return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
+        case .appleHealthHistoryImport:
+            return "Imports the Apple Health stair workouts from before the climber joined, once, as off-board history."
         case .onboardingAnswersProfileWrite:
             return "Writes the answers given before sign-in to the profile right after sign-in."
         case .weeklyTargetWrites:

@@ -6,7 +6,32 @@ import SwiftData
 @MainActor
 @Observable
 final class WorkoutSyncCoordinator {
-    @ObservationIgnored static let shared = WorkoutSyncCoordinator()
+    @ObservationIgnored static let shared = WorkoutSyncCoordinator(
+        appAccess: {
+            AppAccess(
+                hasAppAccess: MonetizationManager.shared.hasAppAccess,
+                entitlementState: MonetizationManager.shared.entitlementStateForRouting
+            )
+        }
+    )
+
+    /// What the device can say about the climber's app access right now.
+    enum AppAccess: Equatable {
+        case held
+        /// RevenueCat has answered, and the answer is no.
+        case absent
+        /// RevenueCat has not answered yet, which every identity transition starts from - including
+        /// an ordinary launch of a climber who pays.
+        case unknown
+
+        init(hasAppAccess: Bool, entitlementState: MonetizationEntitlementState) {
+            if hasAppAccess {
+                self = .held
+            } else {
+                self = entitlementState == .unknown ? .unknown : .absent
+            }
+        }
+    }
 
     @ObservationIgnored private let remoteRepository: any WorkoutRemoteRepositoryProtocol
     @ObservationIgnored private let heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol
@@ -19,6 +44,7 @@ final class WorkoutSyncCoordinator {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let diskGuard: FirestoreDiskGuard
     @ObservationIgnored private let diagnostics: any AppDiagnosticsRecording
+    @ObservationIgnored private let appAccess: @MainActor () -> AppAccess
     @ObservationIgnored private var isProcessingPendingWorkouts = false
     @ObservationIgnored private var shouldProcessPendingWorkoutsAgain = false
     /// Whether the current run of low-disk deferrals has been recorded. Seven surfaces trigger a
@@ -88,7 +114,8 @@ final class WorkoutSyncCoordinator {
         buildIdentity: String = TelemetryBuildMetadata.current.releaseName,
         now: @escaping () -> Date = Date.init,
         diskGuard: FirestoreDiskGuard = .shared,
-        diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared
+        diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared,
+        appAccess: @escaping @MainActor () -> AppAccess = { .held }
     ) {
         self.remoteRepository = remoteRepository
         self.heartRateStorageRepository = heartRateStorageRepository
@@ -101,7 +128,11 @@ final class WorkoutSyncCoordinator {
         self.now = now
         self.diskGuard = diskGuard
         self.diagnostics = diagnostics
+        self.appAccess = appAccess
     }
+
+    /// Where a pass remembers it held this climber's uploads back for app access, per account.
+    static let appAccessHoldDefaultsKeyPrefix = "workoutSync.appAccessHold."
 
     /// Where the basis for a stopped series is remembered, so a change to it re-opens exactly once.
     static let recoveryBasisDefaultsKeyPrefix = "workoutSync.recoveryBasis."
@@ -205,6 +236,42 @@ final class WorkoutSyncCoordinator {
         )
 
         userDefaults.set(currentUserId, forKey: key)
+    }
+
+    /// Gives what refusals have slowed or stopped one more automatic attempt, once a climber whose
+    /// uploads were held back for app access holds it.
+    ///
+    /// `firestore.rules` refuses a workout from an account with no grant, so a refusal recorded
+    /// before the purchase says nothing about the climber who has now paid, and payment must not
+    /// leave them hunting for a retry control. Keyed on the persisted hold rather than on the
+    /// entitlement flipping, because the entitlement also flips from unknown to active on an
+    /// ordinary launch, and that moves nothing about a refusal. Only refusals: a malformed request
+    /// or failing credentials say nothing about whether the climber has paid.
+    private func reopenRefusedWorkoutsIfAppAccessArrived(
+        modelContext: ModelContext,
+        currentUserId: String
+    ) throws {
+        let key = Self.appAccessHoldDefaultsKeyPrefix + currentUserId
+        guard appAccess() == .held, userDefaults.bool(forKey: key) else { return }
+        // Killed: the hold is only cleared after the sweep succeeds, so this re-opens on a later
+        // pass once the flag is back on.
+        guard RemoteFeatureGate.allows(
+            .workoutSyncRecoveryReopen,
+            path: "WorkoutSyncCoordinator.reopenRefusedWorkoutsIfAppAccessArrived",
+            store: featureFlags
+        ) else {
+            return
+        }
+
+        let reopenedAt = now()
+        try reopenStoppedWorkouts(
+            ownedBy: currentUserId,
+            at: reopenedAt,
+            modelContext: modelContext,
+            isEligible: { $0.failureCategory == .refused }
+        )
+
+        userDefaults.removeObject(forKey: key)
     }
 
     /// Forgets the signed-in identity, so the next authenticated pass reads as a repair.
@@ -480,14 +547,24 @@ final class WorkoutSyncCoordinator {
             hasRecordedLowDiskDeferral = false
 
             do {
+                try reopenRefusedWorkoutsIfAppAccessArrived(
+                    modelContext: modelContext,
+                    currentUserId: currentUserId
+                )
+            } catch {
+                recordSyncFailure(error, workoutId: nil, category: .transient)
+            }
+
+            do {
                 let deletedWorkoutIds = try await processPendingDeletions(
                     modelContext: modelContext,
                     currentUserId: currentUserId
                 )
 
-                // Killed: the workouts stay flagged for upsert in SwiftData and go up on the
-                // next pass after the flag returns. Nothing is marked synced or failed.
-                let snapshots = backupsAreEnabled
+                // Killed, or the climber holds no app access: the workouts stay flagged for upsert
+                // in SwiftData and go up on a later pass. Nothing is attempted, marked or counted.
+                // Deletes above stay open either way, because the rules let an owner delete.
+                let snapshots = backupsAreEnabled && !holdsUploadsForAppAccess(currentUserId: currentUserId)
                     ? try loadPendingSnapshots(
                         modelContext: modelContext,
                         currentUserId: currentUserId,
@@ -612,6 +689,25 @@ private extension WorkoutSyncCoordinator {
             path: "WorkoutSyncCoordinator.processPendingWorkouts",
             store: featureFlags
         )
+    }
+
+    /// Whether this pass holds uploads back because the climber may have no app access, which the
+    /// rules would refuse. A known no is remembered for the account, so the first pass with access
+    /// can re-open whatever a refusal already slowed or stopped. An unknown answer is only waited
+    /// out: remembering it would re-open a paying climber's refusals on an ordinary launch.
+    func holdsUploadsForAppAccess(currentUserId: String) -> Bool {
+        let access = appAccess()
+        guard access != .held, RemoteFeatureGate.allows(
+            .workoutSyncAppAccessHold,
+            path: "WorkoutSyncCoordinator.holdsUploadsForAppAccess",
+            store: featureFlags
+        ) else {
+            return false
+        }
+        if access == .absent {
+            userDefaults.set(true, forKey: Self.appAccessHoldDefaultsKeyPrefix + currentUserId)
+        }
+        return true
     }
 
     func processPendingDeletions(

@@ -236,6 +236,13 @@ export interface LeaderboardStatsSnapshot {
   workouts: {id: string; data: Record<string, unknown>}[];
   publicProfile: Record<string, unknown> | undefined;
   user: Record<string, unknown> | undefined;
+  /**
+   * When the account was created, from Firebase Auth, or null when Auth has
+   * no such account. Never read from the user document, which the climber
+   * writes: the only record a climb's start can be compared to is the one the
+   * climber cannot edit.
+   */
+  accountCreatedAtMillis: number | null;
   existingRows: ExistingLeaderboardRow[];
 }
 
@@ -332,6 +339,25 @@ export interface ReconcileOutcome {
 }
 
 /**
+ * Whether a climb nobody measured began before its climber's account did.
+ *
+ * An account Auth cannot find is treated as unknown, and an unknown account
+ * date counts every unmeasured climb as before it: a number the server awards
+ * from is a number the server must derive, and a missing date is no evidence
+ * a climb is recent. The next derivation, once Auth answers, restores it.
+ * @param {number} startedAtMillis When the workout began.
+ * @param {number | null} accountCreatedAtMillis When the account was created.
+ * @return {boolean} True when the climb is history, not a ranked climb.
+ */
+export function startedBeforeAccount(
+  startedAtMillis: number,
+  accountCreatedAtMillis: number | null
+): boolean {
+  return accountCreatedAtMillis === null ||
+    startedAtMillis < accountCreatedAtMillis;
+}
+
+/**
  * Reduces a raw workout document to the fields a standing counts, or null when
  * the workout is not competition-eligible.
  *
@@ -340,11 +366,14 @@ export interface ReconcileOutcome {
  * what the device concluded, never an instruction this function obeys.
  * @param {string} workoutId The workout document id.
  * @param {Record<string, unknown> | undefined} data Raw workout data.
+ * @param {number | null} accountCreatedAtMillis When the account was created,
+ *   or null when it is not known. See `startedBeforeAccount`.
  * @return {EligibleWorkout | null} The eligible workout, or null.
  */
 export function parseEligibleWorkout(
   workoutId: string,
-  data: Record<string, unknown> | undefined
+  data: Record<string, unknown> | undefined,
+  accountCreatedAtMillis: number | null
 ): EligibleWorkout | null {
   if (!data) {
     return null;
@@ -376,6 +405,18 @@ export function parseEligibleWorkout(
 
   const ceiling = maxAverageStepsPerMinute(data.source);
   if (steps / (durationSeconds / 60) > ceiling) {
+    return null;
+  }
+
+  // Only climbs after a climber signed up count on leaderboards, so it is
+  // fair for everyone: a climb nobody measured that started before the
+  // account existed is history - it fills the climber's own records and
+  // streak, and never a board. A live session cannot predate the account, so
+  // it is not asked.
+  if (
+    data.source !== LIVE_SENSOR_SOURCE &&
+    startedBeforeAccount(startedAtMillis, accountCreatedAtMillis)
+  ) {
     return null;
   }
 
@@ -735,7 +776,11 @@ export async function reconcileLeaderboardStats(
     const snapshot = await transaction.read(userId);
     const eligible: EligibleWorkout[] = [];
     for (const workout of snapshot.workouts) {
-      const parsed = parseEligibleWorkout(workout.id, workout.data);
+      const parsed = parseEligibleWorkout(
+        workout.id,
+        workout.data,
+        snapshot.accountCreatedAtMillis
+      );
       if (parsed) {
         eligible.push(parsed);
       }
@@ -1047,6 +1092,29 @@ export function demographicsChanged(
 }
 
 /**
+ * When Firebase Auth says an account was created.
+ *
+ * Only an account Auth has no record of reads as null. Any other failure
+ * throws, so the derivation is retried instead of quietly ranking nothing.
+ * @param {string} userId Firebase Auth uid.
+ * @return {Promise<number | null>} The creation time, or null.
+ */
+async function readAccountCreatedAtMillis(
+  userId: string
+): Promise<number | null> {
+  try {
+    const record = await admin.auth().getUser(userId);
+    const created = Date.parse(record.metadata.creationTime);
+    return Number.isFinite(created) ? created : null;
+  } catch (error) {
+    if ((error as {code?: unknown}).code === "auth/user-not-found") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
  * The production store, backed by the Admin SDK.
  * @return {LeaderboardStatsStore} Admin-backed store.
  */
@@ -1065,7 +1133,7 @@ export function makeAdminLeaderboardStatsStore(): LeaderboardStatsStore {
             return operation({
               async read(userId) {
                 const userRef = db.collection(USERS_COLLECTION).doc(userId);
-                const [workouts, publicProfile, user, existing] =
+                const [workouts, publicProfile, user, existing, createdAt] =
                   await Promise.all([
                     // Project to the derivation's fields: a workout carries
                     // its heart-rate series inline, so reading whole documents
@@ -1097,6 +1165,7 @@ export function makeAdminLeaderboardStatsStore(): LeaderboardStatsStore {
                           "periodStartAt"
                         )
                     ),
+                    readAccountCreatedAtMillis(userId),
                   ]);
 
                 return {
@@ -1110,6 +1179,7 @@ export function makeAdminLeaderboardStatsStore(): LeaderboardStatsStore {
                   user: user.exists ?
                     user.data() as Record<string, unknown> :
                     undefined,
+                  accountCreatedAtMillis: createdAt,
                   existingRows: existing.docs.map((document) => ({
                     documentId: document.id,
                     isSynthetic: document.get("isSynthetic") === true,

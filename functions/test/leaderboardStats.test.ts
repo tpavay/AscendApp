@@ -8,6 +8,7 @@ import {
   LeaderboardStatsStore,
   leaderboardStatsTestHooks,
   maxAverageStepsPerMinute,
+  startedBeforeAccount,
 } from "../src/leaderboardStats.js";
 import {
   LEADERBOARD_TIME_FRAMES,
@@ -27,11 +28,23 @@ const {
   leaderboardIdentityFields,
   openPeriods,
   ownedPeriods,
-  parseEligibleWorkout,
+  parseEligibleWorkout: parseWithAccountDate,
   resolvedPeriodForRow,
   periodBudgetSeconds,
   reconcileLeaderboardStats,
 } = leaderboardStatsTestHooks;
+
+// Before every workout a fixture dates, so the pre-join rule stays out of the
+// way of tests about something else. The rule's own tests pass their own date.
+const ACCOUNT_CREATED_AT = new Date("2026-01-01T00:00:00.000Z").getTime();
+
+function parseEligibleWorkout(
+  workoutId: string,
+  data: Record<string, unknown> | undefined,
+  accountCreatedAtMillis: number | null = ACCOUNT_CREATED_AT
+) {
+  return parseWithAccountDate(workoutId, data, accountCreatedAtMillis);
+}
 
 /** The UTC day before the one containing `date`. */
 function previousDailyPeriod(date: Date): LeaderboardPeriod {
@@ -218,6 +231,88 @@ test("the server applies the shared pace vector to every origin", () => {
 // Editing the steps or the time rewrites the workout document, and the standing
 // is re-derived from what it now says - so an edit flips a climb on or off the
 // board with no device verdict in the loop.
+// Leaderboards count from the day a climber joins. A climb nobody measured that
+// started before the account existed is history: it fills the climber's own
+// records and never a board, and the server decides from Auth's creation time,
+// never from anything the climber wrote.
+interface PreJoinVectorCase {
+  name: string;
+  source: string;
+  startedAt: string;
+  steps: number;
+  durationSeconds: number;
+  serverCountsOnLeaderboards: boolean;
+}
+
+const preJoinVector = JSON.parse(readFileSync(
+  join(
+    __dirname,
+    "../../../SharedTestVectors/pre-join-unmeasured-climb-vector.json"
+  ),
+  "utf8"
+)) as {accountCreatedAt: string; cases: PreJoinVectorCase[]};
+
+test("the server applies the shared join-date vector", () => {
+  const created = Date.parse(preJoinVector.accountCreatedAt);
+  assert.ok(preJoinVector.cases.length > 0);
+
+  for (const testCase of preJoinVector.cases) {
+    const parsed = parseEligibleWorkout("w1", makeWorkout({
+      source: testCase.source,
+      startedAt: new Date(testCase.startedAt),
+      steps: testCase.steps,
+      durationSeconds: testCase.durationSeconds,
+    }), created);
+    assert.equal(
+      parsed !== null,
+      testCase.serverCountsOnLeaderboards,
+      testCase.name
+    );
+  }
+});
+
+test("an account Auth cannot date ranks no climb nobody measured", () => {
+  const typed = makeWorkout({source: "manual"});
+  const imported = makeWorkout({source: "apple_health"});
+  const live = makeWorkout({source: "headphone_motion"});
+
+  assert.equal(parseEligibleWorkout("w1", typed, null), null);
+  assert.equal(parseEligibleWorkout("w2", imported, null), null);
+  assert.ok(parseEligibleWorkout("w3", live, null));
+});
+
+test("a climb is not before an account that is exactly as old", () => {
+  const startedAt = new Date("2026-08-01T06:00:00.000Z");
+  const startedAtMillis = startedAt.getTime();
+
+  assert.equal(startedBeforeAccount(startedAtMillis, startedAtMillis), false);
+  assert.equal(
+    startedBeforeAccount(startedAtMillis, startedAtMillis + 1),
+    true
+  );
+});
+
+test("the pre-join rule drops history from every board it would have fed",
+  () => {
+    const store = makeStore({
+      accountCreatedAtMillis: new Date("2026-08-01T12:00:00.000Z").getTime(),
+      workouts: [
+        {
+          id: "history",
+          data: makeWorkout({
+            source: "apple_health",
+            startedAt: new Date("2026-08-01T06:00:00.000Z"),
+          }),
+        },
+      ],
+      existingRows: [],
+    });
+
+    return reconcileLeaderboardStats(store, userId, NOW).then((outcome) => {
+      assert.deepEqual(outcome.written, []);
+    });
+  });
+
 test("editing a typed climb across the ceiling moves it on and off the board",
   () => {
     const typed = (steps: number) => makeWorkout({
@@ -1244,6 +1339,7 @@ function makeStore(options: {
   }[];
   publicProfile?: Record<string, unknown>;
   user?: Record<string, unknown>;
+  accountCreatedAtMillis?: number | null;
 }): RecordingStore {
   const writes = new Map<string, Record<string, unknown>>();
   const deletes: string[] = [];
@@ -1252,6 +1348,9 @@ function makeStore(options: {
     workouts: options.workouts,
     publicProfile: options.publicProfile,
     user: options.user,
+    accountCreatedAtMillis: options.accountCreatedAtMillis === undefined ?
+      ACCOUNT_CREATED_AT :
+      options.accountCreatedAtMillis,
     existingRows: options.existingRows.map((row) => ({
       timeFrame: null,
       periodStartAtMillis: null,

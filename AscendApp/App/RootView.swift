@@ -187,6 +187,7 @@ struct RootView: View {
             onboardingV3Coordinator.paywallStageEnded()
             Task {
                 await monetizationManager.reconcileServerAppAccess()
+                await uploadWorkoutsHeldForAppAccess()
             }
         }
         // The lockout suppresses the session bootstrap, and the fetch that releases it lands after
@@ -501,6 +502,21 @@ struct RootView: View {
         }
     }
 
+    /// Runs the sync pass that lets climbs saved before a purchase go up, behind the same guards as
+    /// the session work, once the backend has had its chance to hear about the purchase.
+    @MainActor
+    private func uploadWorkoutsHeldForAppAccess() async {
+        guard !appVersionGateState.isUpdateRequired,
+              !authenticatedBootstrapCoordinator.isSuspended,
+              let userId = authVM.user?.uid else {
+            return
+        }
+        await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: userId
+        )
+    }
+
     /// What the onboarding v3 hand-off needs, built once. A no-op until a climber signs in at the end
     /// of the flow: with the switch off nothing sets the intent or leaves answers, and a target set
     /// in Settings is the service's to deliver, not the hand-off's.
@@ -520,6 +536,9 @@ struct RootView: View {
                         showsPaywall: RemoteFeatureFlagStore.shared.isEnabled(.onboardingPaywall)
                     )
                 }
+            },
+            importHealthHistory: { answers in
+                await OnboardingHealthHistoryImport.run(answers)
             }
         )
         onboardingV3HandOff = handOff
@@ -644,6 +663,8 @@ struct RootView: View {
             // Import rides the same chain for the same reason: it writes climbs through
             // `WorkoutMutationHandler`, so it must not run under a lockout or a deletion.
             AppleHealthImportService.shared.resume(modelContext: modelContext)
+            await onboardingV3HandOffService().retryPendingAnswers(userId: currentUserId, email: user.email)
+            guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
                 modelContext: modelContext,

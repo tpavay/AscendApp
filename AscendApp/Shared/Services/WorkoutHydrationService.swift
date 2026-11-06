@@ -222,9 +222,10 @@ enum WorkoutHydrationService {
         to workout: Workout,
         modelContext: ModelContext
     ) throws {
-        let totalsOrSourceChanged = workout.duration != document.durationSeconds
+        let leaderboardEvidenceChanged = workout.duration != document.durationSeconds
             || workout.steps != document.steps
             || workout.sourceRawValue != document.source
+            || workout.date != document.startedAt
         workout.id = workoutId
         workout.name = document.name
         workout.date = document.startedAt
@@ -261,7 +262,7 @@ enum WorkoutHydrationService {
         workout.photos = photos(from: document.media)
         workout.highlightedPhotoId = document.highlightedMediaId.flatMap(UUID.init(uuidString:)) ?? workout.photos.first?.id
         workout.weightConfiguration = weightConfiguration(from: document.weightConfiguration)
-        if totalsOrSourceChanged {
+        if leaderboardEvidenceChanged {
             workout.refreshLeaderboardStatus()
         }
 

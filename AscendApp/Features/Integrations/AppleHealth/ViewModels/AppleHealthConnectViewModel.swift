@@ -56,14 +56,36 @@ final class AppleHealthConnectViewModel {
         errorMessage = nil
         defer { isWorking = false }
 
-        guard await authorization.requestAuthorization() else {
-            errorMessage = authorization.lastPermissionErrorMessage
-                ?? "Apple Health did not connect. Try again."
-            return
-        }
+        guard await requestAuthorization() else { return }
 
         foundCount = await importService.discoverWithoutImporting()
         step = .choose
+    }
+
+    /// Onboarding's ask: the iOS sheet and nothing after it. Reports whether the request went
+    /// through, and on a refusal leaves the message to show.
+    ///
+    /// Nothing is discovered, filed or saved, because the climber has no account yet and the import
+    /// service has no store to put a workout in: onboarding reads Health on its own, read-only
+    /// (`HealthHistorySummary`), and the import runs after sign-in through the service's own
+    /// bootstrap. The same `HealthKitAuthorizationClient` request, so there is one place the
+    /// read set is asked for.
+    func requestAccessOnly() async -> Bool {
+        guard !isWorking else { return false }
+        isWorking = true
+        errorMessage = nil
+        defer { isWorking = false }
+
+        return await requestAuthorization()
+    }
+
+    private func requestAuthorization() async -> Bool {
+        guard await authorization.requestAuthorization() else {
+            errorMessage = authorization.lastPermissionErrorMessage
+                ?? "Apple Health did not connect. Try again."
+            return false
+        }
+        return true
     }
 
     /// "Continue": saves the choice, brings in what was found if the climber chose automatic, and

@@ -37,12 +37,15 @@ struct HealthFlowCloseControl: View {
 }
 
 extension View {
-    /// Draws the flow's close X in its one place.
-    func healthFlowCloseControl(action: @escaping () -> Void) -> some View {
+    /// Draws the flow's close X in its one place. Onboarding's copy of the Connect screen draws
+    /// its progress header there instead and passes `isShown: false`.
+    func healthFlowCloseControl(action: @escaping () -> Void, isShown: Bool = true) -> some View {
         overlay(alignment: .topLeading) {
-            HealthFlowCloseControl(action: action)
-                .padding(.leading, HealthFlowChrome.leadingInset)
-                .padding(.top, HealthFlowChrome.topInset)
+            if isShown {
+                HealthFlowCloseControl(action: action)
+                    .padding(.leading, HealthFlowChrome.leadingInset)
+                    .padding(.top, HealthFlowChrome.topInset)
+            }
         }
     }
 }
@@ -53,6 +56,8 @@ struct HealthFlowBottomBar: View {
     let primaryTitle: String
     let primaryHeight: CGFloat
     var caption: String?
+    /// A line under the secondary action, for the screen that says where the skipped step lives.
+    var footnote: String?
     var secondaryTitle: String?
     var isDisabled = false
     let onPrimary: () -> Void
@@ -83,6 +88,14 @@ struct HealthFlowBottomBar: View {
                 }
             }
             .frame(height: HealthFlowChrome.secondarySlotHeight)
+
+            if let footnote {
+                Text(footnote)
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

@@ -177,6 +177,76 @@ struct ClimbPacePolicyTests {
     }
 
     @Test
+    func aClimbFromBeforeTheAccountIsNeverPromisedARankingWhateverItsPace() {
+        let joined = Date(timeIntervalSince1970: 1_800_000_000)
+        let overPace = Workout(
+            name: "Stair Stepper",
+            date: joined.addingTimeInterval(-86_400),
+            duration: 1_800,
+            steps: 7_500,
+            floors: Workout.stepsToFloors(7_500),
+            source: .manual
+        )
+        let withinPace = Workout(
+            name: "Stair Stepper",
+            date: joined.addingTimeInterval(-86_400),
+            duration: 1_800,
+            steps: 3_000,
+            floors: Workout.stepsToFloors(3_000),
+            source: .appleHealth
+        )
+
+        let noSteps = Workout(
+            name: "Stair Stepper",
+            date: joined.addingTimeInterval(-86_400),
+            duration: 1_800,
+            steps: 0,
+            floors: 0,
+            source: .appleHealth
+        )
+
+        #expect(LoggedClimbCopy.savedNote(for: overPace, accountCreatedAt: joined) == LoggedClimbCopy.savedBeforeJoiningHistoryOnlyNote)
+        #expect(LoggedClimbCopy.savedNote(for: noSteps, accountCreatedAt: joined) == LoggedClimbCopy.savedBeforeJoiningHistoryOnlyNote)
+        #expect(LoggedClimbCopy.savedNote(for: withinPace, accountCreatedAt: joined) == LoggedClimbCopy.savedBeforeJoiningNote)
+    }
+
+    @Test
+    func aClimbFromAfterTheAccountSaysOnlyWhatItsPaceEarned() {
+        let joined = Date(timeIntervalSince1970: 1_800_000_000)
+        let overPace = Workout(
+            name: "Stair Stepper",
+            date: joined.addingTimeInterval(86_400),
+            duration: 1_800,
+            steps: 7_500,
+            floors: Workout.stepsToFloors(7_500),
+            source: .manual
+        )
+        let withinPace = Workout(
+            name: "Stair Stepper",
+            date: joined.addingTimeInterval(86_400),
+            duration: 1_800,
+            steps: 3_000,
+            floors: Workout.stepsToFloors(3_000),
+            source: .manual
+        )
+        let live = Workout(
+            name: "Stair Stepper",
+            date: joined.addingTimeInterval(-86_400),
+            duration: 1_800,
+            steps: 7_500,
+            floors: Workout.stepsToFloors(7_500),
+            source: .headphoneMotion
+        )
+
+        #expect(
+            LoggedClimbCopy.savedNote(for: overPace, accountCreatedAt: joined)
+                == LoggedClimbCopy.savedOffTheBoardsNote(stepsPerMinute: 250)
+        )
+        #expect(LoggedClimbCopy.savedNote(for: withinPace, accountCreatedAt: joined) == nil)
+        #expect(LoggedClimbCopy.savedNote(for: live, accountCreatedAt: joined) == nil, "a live climb needs no explaining")
+    }
+
+    @Test
     func aStoredClimbFlipsOnAndOffTheBoardsWhenItsStepsAreEdited() {
         let workout = Workout(
             name: "Stair Stepper",
