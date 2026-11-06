@@ -39,23 +39,44 @@ struct OnboardingAuthTests {
 
     @Test
     func theSignInOpensInReturningModeFromTheFirstScreenAndTheClaimSpotModeFromThePaywall() {
-        let request = OnboardingAuthReturningRequest(userDefaults: defaults())
+        #expect(OnboardingAuthMode(arrivedFrom: .welcome, returningRequested: false) == .returning)
+        #expect(OnboardingAuthMode(arrivedFrom: .paywall, returningRequested: false) == .claimSpot)
+        #expect(OnboardingAuthMode(arrivedFrom: .exitGift, returningRequested: false) == .claimSpot)
+        #expect(OnboardingAuthMode(arrivedFrom: nil, returningRequested: false) == .claimSpot)
+    }
 
-        #expect(OnboardingAuthMode(arrivedFrom: .welcome, returningRequest: request) == .returning)
-        #expect(OnboardingAuthMode(arrivedFrom: .paywall, returningRequest: request) == .claimSpot)
-        #expect(OnboardingAuthMode(arrivedFrom: .exitGift, returningRequest: request) == .claimSpot)
-        #expect(OnboardingAuthMode(arrivedFrom: nil, returningRequest: request) == .claimSpot)
+    private func mode(of coordinator: OnboardingV3Coordinator) -> OnboardingAuthMode {
+        OnboardingAuthMode(
+            arrivedFrom: coordinator.previousStep,
+            returningRequested: coordinator.returningSignInRequested
+        )
     }
 
     @Test
-    func aReturningRequestFromThePaywallWinsOverTheStepItCameFrom() {
-        let request = OnboardingAuthReturningRequest(userDefaults: defaults())
-        request.set()
+    func aReturningRequestFromThePaywallWinsOverTheStepItCameFromUntilTheClimberBacksOut() {
+        let store = PreAuthOnboardingStore(userDefaults: defaults())
+        let coordinator = OnboardingV3Coordinator(store: store, startingAt: .paywall)
 
-        #expect(OnboardingAuthMode(arrivedFrom: .paywall, returningRequest: request) == .returning)
+        coordinator.goToReturningSignIn()
+        #expect(coordinator.step == .auth)
+        #expect(mode(of: coordinator) == .returning)
 
-        request.clear()
-        #expect(OnboardingAuthMode(arrivedFrom: .paywall, returningRequest: request) == .claimSpot)
+        coordinator.back()
+        #expect(coordinator.step == .paywall)
+        coordinator.go(to: .auth)
+        #expect(mode(of: coordinator) == .claimSpot)
+    }
+
+    @Test
+    func aRelaunchForgetsAReturningRequestSoWalkingTheFlowEndsInClaimSpot() {
+        let store = PreAuthOnboardingStore(userDefaults: defaults())
+        let beforeTheKill = OnboardingV3Coordinator(store: store, startingAt: .paywall)
+        beforeTheKill.goToReturningSignIn()
+
+        let relaunched = OnboardingV3Coordinator(store: store, startingAt: .paywall)
+        relaunched.go(to: .auth)
+
+        #expect(mode(of: relaunched) == .claimSpot)
     }
 
     // MARK: - Profile fill
@@ -178,8 +199,11 @@ struct OnboardingAuthTests {
         var importedAnswers: [PreAuthOnboardingAnswers] = []
         /// The target the account holds, which `readWeeklyTarget` answers with.
         var accountTarget: Int?
+        /// The account's copy on this device, which `deviceWeeklyTarget` answers with.
+        var deviceTarget: Int?
         var reconciledReminders: [Int?] = []
         var savedTargets: [Int] = []
+        var healthImportLands = true
 
         struct Refused: Error {}
 
@@ -202,20 +226,19 @@ struct OnboardingAuthTests {
                 importHealthHistory: { [self] answers in
                     events.append("health")
                     importedAnswers.append(answers)
+                    return healthImportLands
                 },
                 markPostSignInOnboardingComplete: { [self] in events.append("markComplete") },
+                deviceWeeklyTarget: { [self] _ in deviceTarget },
                 saveWeeklyTarget: { [self] _, days in
                     events.append("saveTarget")
                     savedTargets.append(days)
                     accountTarget = days
+                    deviceTarget = days
                 },
-                readWeeklyTarget: { [self] _ in
-                    events.append("readTarget")
-                    return accountTarget
-                },
-                reconcileWeeklyReminder: { [self] days in
-                    events.append("reminder")
-                    reconciledReminders.append(days)
+                reconcileWeeklyTarget: { [self] _ in
+                    events.append("reconcileTarget")
+                    reconciledReminders.append(accountTarget)
                 }
             )
         }
@@ -248,7 +271,7 @@ struct OnboardingAuthTests {
         #expect(outcome == .complete)
         // The flow closes first, so the route never shows the old questions while the purchase moves.
         #expect(harness.recorder.events == [
-            "markComplete", "transfer", "clearLedger", "read", "write", "health", "readTarget", "reminder"
+            "markComplete", "transfer", "clearLedger", "read", "write", "health", "reconcileTarget"
         ])
         #expect(harness.recorder.writtenFills.count == 1)
         #expect(!harness.store.answers().carriesHandOffWork)
@@ -277,7 +300,7 @@ struct OnboardingAuthTests {
         let outcome = await harness.handOff.runAfterSignIn(userId: "u1", email: nil)
 
         #expect(outcome == .complete)
-        #expect(harness.recorder.events == ["transfer", "clearLedger", "readTarget", "reminder"])
+        #expect(harness.recorder.events == ["transfer", "clearLedger", "reconcileTarget"])
     }
 
     @Test
@@ -403,8 +426,26 @@ struct OnboardingAuthTests {
         let harness = Harness(defaults: defaults(), answers: answers)
 
         #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .complete)
-        #expect(harness.recorder.events == ["read", "health"])
+        #expect(harness.recorder.events == ["health"])
         #expect(harness.recorder.importedAnswers.first?.foundHealthWorkoutIDs == ["w1", "w2"])
+        #expect(harness.store.answers().foundHealthWorkoutIDs.isEmpty)
+    }
+
+    @Test
+    func healthWorkoutsNoImportLandedStayOnTheDeviceWhileTheOtherAnswersLeave() async {
+        var answers = fullAnswers()
+        answers.foundHealthWorkoutIDs = ["w1", "w2"]
+        let harness = Harness(defaults: defaults(), answers: answers)
+        harness.recorder.healthImportLands = false
+
+        #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .complete)
+        #expect(harness.store.answers().foundHealthWorkoutIDs == ["w1", "w2"])
+        #expect(!harness.store.answers().carriesProfileAnswers)
+
+        harness.recorder.events.removeAll()
+        harness.recorder.healthImportLands = true
+        #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .complete)
+        #expect(harness.recorder.events == ["health"], "holding the workouts costs no profile read")
         #expect(harness.store.answers().foundHealthWorkoutIDs.isEmpty)
     }
 
@@ -444,21 +485,116 @@ struct OnboardingAuthTests {
         #expect(harness.recorder.savedTargets == [4])
         #expect(harness.recorder.reconciledReminders == [4])
         #expect(!harness.store.answers().carriesHandOffWork)
+        #expect(harness.store.answers().weeklyTargetDays == 4, "the nudge reads it here")
         let events = harness.recorder.events
-        #expect(events.firstIndex(of: "saveTarget")! < events.firstIndex(of: "readTarget")!, "the reminder reads what was just saved")
+        #expect(events.firstIndex(of: "saveTarget")! < events.firstIndex(of: "reconcileTarget")!, "the reminder reads what was just saved")
+    }
+
+    @Test
+    func aDeliveredTargetIsNeverDeliveredAgain() async {
+        var answers = PreAuthOnboardingAnswers()
+        answers.weeklyTargetDays = 4
+        let harness = Harness(defaults: defaults(), answers: answers)
+
+        await harness.handOff.runAfterSignIn(userId: "u1", email: nil)
+        harness.recorder.events.removeAll()
+
+        #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .complete)
+        #expect(harness.recorder.events.isEmpty)
+    }
+
+    @Test
+    func aTargetTheAccountAlreadyHoldsWinsOverTheAnswer() async {
+        var answers = PreAuthOnboardingAnswers()
+        answers.weeklyTargetDays = 4
+        let harness = Harness(defaults: defaults(), answers: answers)
+        harness.recorder.profile = UserDisplayNameData(["weekly_target_days": 2])
+        harness.recorder.accountTarget = 2
+
+        await harness.handOff.runAfterSignIn(userId: "u1", email: nil)
+
+        #expect(harness.recorder.savedTargets.isEmpty)
+        #expect(harness.recorder.reconciledReminders == [2])
+    }
+
+    @Test
+    func anUnreadableProfileHoldsAnUndeliveredTarget() async {
+        var answers = PreAuthOnboardingAnswers()
+        answers.weeklyTargetDays = 4
+        let harness = Harness(defaults: defaults(), answers: answers)
+        harness.recorder.readFails = true
+
+        #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .deferred)
+        #expect(harness.recorder.savedTargets.isEmpty)
+        #expect(harness.store.answers().weeklyTargetDays == 4)
+    }
+
+    @Test
+    func aTargetWithADeviceCopyIsTheServicesToDeliverAndCostsNoRead() async {
+        var answers = PreAuthOnboardingAnswers()
+        answers.weeklyTargetDays = 3
+        let harness = Harness(defaults: defaults(), answers: answers)
+        harness.recorder.deviceTarget = 3
+
+        #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .complete)
+        #expect(harness.recorder.events.isEmpty)
+        #expect(harness.store.answers().weeklyTargetDays == 3)
+    }
+
+    // MARK: - Signing out
+
+    @Test
+    func theNextAccountOnThePhoneNeverReceivesAnotherClimbersDeferredAnswers() async {
+        var answers = fullAnswers()
+        answers.weeklyTargetDays = 4
+        answers.foundHealthWorkoutIDs = ["w1"]
+        answers.usualClimbSteps = 1_800
+        answers.completedAt = Self.now
+        let harness = Harness(defaults: defaults(), answers: answers)
+        let flow = OnboardingV3Coordinator(store: harness.store, startingAt: .welcome)
+        harness.recorder.profileWriteEnabled = false
+
+        #expect(await harness.handOff.runAfterSignIn(userId: "a", email: nil) == .deferred)
+
+        flow.sessionEnded()
+        harness.recorder.profileWriteEnabled = true
+        harness.recorder.events.removeAll()
+
+        #expect(await harness.handOff.runAfterSignIn(userId: "b", email: nil) == .complete)
+        #expect(harness.recorder.writtenFills.isEmpty)
+        #expect(harness.recorder.savedTargets.isEmpty)
+        #expect(harness.recorder.importedAnswers.isEmpty)
+        #expect(harness.recorder.events == ["transfer", "clearLedger", "reconcileTarget"])
+        #expect(flow.answers.gender == nil, "no setup screen prefills the last climber's answers")
+        #expect(flow.answers.foundHealthWorkoutIDs.isEmpty)
+        #expect(flow.isFinished, "signing out does not restart the flow")
+    }
+
+    @Test
+    func signingOutForgetsAReturningRequest() {
+        let flow = OnboardingV3Coordinator(
+            store: PreAuthOnboardingStore(userDefaults: defaults()),
+            startingAt: .paywall
+        )
+        flow.goToReturningSignIn()
+
+        flow.sessionEnded()
+
+        #expect(!flow.returningSignInRequested)
     }
 
     @Test
     func signingOutAndBackInRestoresTheReminderFromTheAccount() async {
-        // The first sign-in saves the target. Sign-out then erases the device's copy and the
-        // answers; the second sign-in has nothing to write and must still bring the reminder back.
+        // The first sign-in saves the target. Sign-out then erases the answer the nudge reads; the
+        // second sign-in has nothing to write and must still bring the reminder back.
         var answers = PreAuthOnboardingAnswers()
         answers.weeklyTargetDays = 3
         let harness = Harness(defaults: defaults(), answers: answers)
         await harness.handOff.runAfterSignIn(userId: "u1", email: nil)
         #expect(harness.recorder.reconciledReminders == [3])
 
-        // Sign-out: reminders cleared, answers long gone. The account still holds 3.
+        // Sign-out: reminders cleared, answers gone. The account still holds 3.
+        harness.store.update { $0 = $0.droppingSessionAnswers }
         harness.recorder.reconciledReminders.removeAll()
         harness.recorder.events.removeAll()
 
@@ -495,16 +631,6 @@ struct OnboardingAuthTests {
     }
 
     @Test
-    func anAccountWithNoTargetClearsTheReminderRatherThanLeavingAStaleOne() async {
-        let harness = Harness(defaults: defaults(), answers: PreAuthOnboardingAnswers())
-
-        await harness.handOff.runAfterSignIn(userId: "u1", email: nil)
-
-        #expect(harness.recorder.reconciledReminders.count == 1)
-        #expect(harness.recorder.reconciledReminders.first! == nil)
-    }
-
-    @Test
     func theFlagIsAKillSwitchThatShipsOn() {
         #expect(RemoteFeatureFlag.onboardingAnswersProfileWrite.shippedDefault)
         #expect(RemoteFeatureFlag.onboardingAnswersProfileWrite.key == "onboarding_answers_profile_write_enabled")
@@ -522,6 +648,6 @@ struct OnboardingAuthTests {
 
         coordinator.go(to: .auth)
         #expect(coordinator.previousStep == .welcome)
-        #expect(OnboardingAuthMode(arrivedFrom: coordinator.previousStep) == .returning)
+        #expect(mode(of: coordinator) == .returning)
     }
 }

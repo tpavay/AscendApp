@@ -87,29 +87,41 @@ struct OnboardingProfileFill: Equatable, Sendable {
 }
 
 extension PreAuthOnboardingAnswers {
-    /// Whether the climber gave an answer the hand-off still has to deliver: one that belongs on a
-    /// profile, the Health workouts found for the history import, the days-a-week target, or the
-    /// usual climb, which only has to leave the device. The flow's own bookkeeping - when it ended,
-    /// whether a trial started - is not one.
+    /// Whether the climber gave an answer that belongs on a profile.
+    var carriesProfileAnswers: Bool {
+        birthday != nil || gender != nil || heightCm != nil || weightKg != nil || city != nil
+    }
+
+    /// Whether the answers themselves show work for the hand-off: one that belongs on a profile, the
+    /// Health workouts found for the history import, or the usual climb, which only has to leave
+    /// the device. The flow's own bookkeeping - when it ended, whether a trial started - is not
+    /// one, and neither is the days-a-week target, which the hand-off judges against the
+    /// weekly-target service's copy.
     var carriesHandOffWork: Bool {
-        birthday != nil || gender != nil || heightCm != nil || weightKg != nil || city != nil ||
-            !foundHealthWorkoutIDs.isEmpty || weeklyTargetDays != nil ||
+        carriesProfileAnswers || !foundHealthWorkoutIDs.isEmpty ||
             usualClimbSteps != nil || usualClimbMinutes != nil
     }
 
-    /// The same answers with everything personal dropped and the flow's bookkeeping kept, which is
-    /// what is left on the device once the profile has them and the history has been imported.
+    /// What is left on the device once the profile has the answers. The days-a-week target stays
+    /// because the weekly nudge reads it, and the Health workouts stay until the import lands them.
     var droppingHandedOffAnswers: PreAuthOnboardingAnswers {
         var kept = self
         kept.usualClimbSteps = nil
         kept.usualClimbMinutes = nil
-        kept.foundHealthWorkoutIDs = []
-        kept.weeklyTargetDays = nil
         kept.gender = nil
         kept.birthday = nil
         kept.heightCm = nil
         kept.weightKg = nil
         kept.city = nil
+        return kept
+    }
+
+    /// What is left on the device when the climber signs out: the flow's bookkeeping and nothing of
+    /// theirs, so the next account on this phone cannot receive it.
+    var droppingSessionAnswers: PreAuthOnboardingAnswers {
+        var kept = droppingHandedOffAnswers
+        kept.foundHealthWorkoutIDs = []
+        kept.weeklyTargetDays = nil
         return kept
     }
 }

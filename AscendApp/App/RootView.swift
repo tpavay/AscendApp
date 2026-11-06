@@ -146,6 +146,7 @@ struct RootView: View {
         .onChange(of: authVM.user?.uid) { previousUid, currentUid in
             if previousUid != nil, currentUid == nil {
                 LocalReminderCoordinator.shared.sessionEnded()
+                onboardingV3Coordinator.sessionEnded()
             }
             // The sheet belongs to the session that opened it, or it re-presents itself unprompted
             // over the next climber's gate. But deletion ends the session at the auth step, several
@@ -478,15 +479,18 @@ struct RootView: View {
     }
 
     /// What the onboarding v3 hand-off needs, built once. A no-op until a climber signs in at the end
-    /// of the flow: with the switch off nothing sets the intent, holds a purchase or leaves answers.
+    /// of the flow: with the switch off nothing sets the intent, holds a purchase or leaves answers,
+    /// and a target set in Settings is the service's to deliver, not the hand-off's.
     @MainActor
     private func onboardingV3HandOffService() -> OnboardingV3SignInHandOff {
         if let onboardingV3HandOff { return onboardingV3HandOff }
 
         let postAuthOnboardingCoordinator = postAuthOnboardingCoordinator
+        let onboardingV3Coordinator = onboardingV3Coordinator
         let handOff = OnboardingV3SignInHandOff.live(
             markPostSignInOnboardingComplete: {
                 postAuthOnboardingCoordinator.markCurrentUserComplete()
+                onboardingV3Coordinator.finish()
             }
         )
         onboardingV3HandOff = handOff

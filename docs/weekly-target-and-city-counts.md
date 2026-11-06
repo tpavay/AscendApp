@@ -18,7 +18,8 @@ Everyone has the week streak (`WeeklyStreak`, a week with any climb) whether or 
 - A new phone adopts the account's target once a launch, unless the device holds a change the account has not seen.
 - One account's reads and writes run one at a time (`WeeklyTargetSyncQueue`), so an older write can never land after a newer one.
 - Onboarding keeps the answer on the device in `PreAuthOnboardingAnswers.weeklyTargetDays`.
-  No hand-off after sign-in is built yet, so nothing carries that answer to the account or to Home's ring; the hand-off has to write through `WeeklyTargetService.save`.
+  The sign-in hand-off (`OnboardingV3SignInHandOff`) writes it through `WeeklyTargetService.save` when the account has no target and the device has no copy for that account, and it stays in the answer afterwards because the nudge reads it there.
+  A target an account already holds wins over the answer, and sign-out clears the answer.
 
 ## City climber counts
 

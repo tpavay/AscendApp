@@ -16,7 +16,10 @@ struct OnboardingAuthScreen: View {
 
     init(coordinator: OnboardingV3Coordinator) {
         self.coordinator = coordinator
-        _mode = State(initialValue: OnboardingAuthMode(arrivedFrom: coordinator.previousStep))
+        _mode = State(initialValue: OnboardingAuthMode(
+            arrivedFrom: coordinator.previousStep,
+            returningRequested: coordinator.returningSignInRequested
+        ))
     }
 
     private var isDisabled: Bool { authVM.authenticationState.isAuthenticating }
@@ -40,7 +43,7 @@ struct OnboardingAuthScreen: View {
             // sign-in that did not come through the full flow.
             OnboardingV3HandOffIntent().clear()
         }
-        .fullScreenCover(isPresented: $isShowingInternalQA) {
+        .fullScreenCover(isPresented: $isShowingInternalQA, onDismiss: internalQADismissed) {
             NavigationStack { InternalQASignInView() }
         }
         .trackOnce(screen: .onboardingAuth)
@@ -52,7 +55,6 @@ struct OnboardingAuthScreen: View {
     private var topBar: some View {
         if mode == .returning {
             OnboardingAuthBackButton {
-                OnboardingAuthReturningRequest().clear()
                 coordinator.back()
             }
             .padding(.top, 9)
@@ -69,6 +71,7 @@ struct OnboardingAuthScreen: View {
                 guard InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID) else {
                     return
                 }
+                if mode == .claimSpot { OnboardingV3HandOffIntent().set() }
                 isShowingInternalQA = true
             }
     }
@@ -154,29 +157,32 @@ struct OnboardingAuthScreen: View {
 
     // MARK: - Sign in
 
-    /// Runs a provider's sign-in and, when it lands, closes the flow.
+    /// Runs a provider's sign-in, leaving the mark that lets the root close the flow when the
+    /// account appears.
     ///
     /// The flow is finished only after the account exists: finishing first would send a climber
     /// whose sign-in failed to the old landing screen instead of back here. The root swaps this
     /// screen for its signing-in route the moment the attempt starts, so the work is an unstructured
-    /// task that holds the coordinator and the auth model itself rather than anything the view owns.
+    /// task that holds the auth model itself rather than anything the view owns.
     private func signIn(_ attempt: @escaping @MainActor () async -> Void) {
         authVM.errorMessage = nil
-        let coordinator = coordinator
         let authVM = authVM
-        let completesFlow = mode == .claimSpot
         let intent = OnboardingV3HandOffIntent()
-        if completesFlow { intent.set() }
+        if mode == .claimSpot { intent.set() }
 
         Task { @MainActor in
             await attempt()
-            guard authVM.authenticationState == .authenticated else {
+            if authVM.authenticationState != .authenticated {
                 intent.clear()
-                return
             }
-            OnboardingAuthReturningRequest().clear()
-            if completesFlow { coordinator.finish() }
         }
+    }
+
+    /// A QA sign-in closed without an account leaves no mark behind. One still running keeps it,
+    /// and if that one fails this screen returns and clears it on appearing.
+    private func internalQADismissed() {
+        guard !isDisabled, authVM.authenticationState != .authenticated else { return }
+        OnboardingV3HandOffIntent().clear()
     }
 }
 

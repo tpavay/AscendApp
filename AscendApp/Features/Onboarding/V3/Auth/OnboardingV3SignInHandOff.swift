@@ -31,16 +31,19 @@ struct OnboardingV3HandOffIntent: @unchecked Sendable {
 /// 2. An anonymous purchase moves onto the account, whatever route led here - bought then signed in,
 ///    restored, the gift, or "Already climbing? Sign in" - and the purchase ledger is cleared
 ///    afterwards, because a signed-in climber has nothing left to resume.
-/// 3. The answers the climber gave are written to the profile, filling blanks only, then the
-///    days-a-week target is saved, the Health history the climber asked for is imported, and the
-///    answers are dropped from the device. Health authorization and the history read happened
-///    before sign-in; the import itself needs an account, so it waits for this step. The ongoing
-///    import (`syncNow()`) is the authenticated bootstrap's own work and is not started here.
-/// 4. The weekly reminder is put back from the target the account holds.
+/// 3. The answers the climber gave are written to the profile, filling blanks only, then a
+///    days-a-week target the account does not have yet is saved, the Health history the climber
+///    asked for is imported, and the delivered answers are dropped from the device. Health
+///    authorization and the history read happened before sign-in; the import itself needs an
+///    account, so it waits for this step. The ongoing import (`syncNow()`) is the authenticated
+///    bootstrap's own work and is not started here.
+/// 4. The device and the account agree on the target, which is what puts the weekly reminder back.
 ///
 /// Step 3 is the only one that writes a profile, and it sits behind
 /// `onboarding_answers_profile_write_enabled`: switched off, the answers stay on the device exactly
-/// as they were and the next run writes them.
+/// as they were and the next run writes them. They leave the device early only when the climber
+/// signs out, because the next account on this phone must not receive them
+/// (`OnboardingV3Coordinator.sessionEnded()`).
 @MainActor
 final class OnboardingV3SignInHandOff {
     /// Everything the hand-off reaches outside itself, so each step and its order are tested without
@@ -56,20 +59,21 @@ final class OnboardingV3SignInHandOff {
         /// Reports a profile read or write that failed for a reason time will not clear.
         var recordProfileStepFailure: @MainActor (_ error: any Error) -> Void
         /// Brings in the Health history the climber asked for on 07a. Runs only after the profile
-        /// has the answers, and only when there were answers to carry.
-        var importHealthHistory: @MainActor (_ answers: PreAuthOnboardingAnswers) async -> Void
-        /// Marks post-sign-in onboarding complete for the signed-in climber.
+        /// has the answers, and only when there were answers to carry. Returns whether the history
+        /// landed; the workouts it found stay on the device until it does.
+        var importHealthHistory: @MainActor (_ answers: PreAuthOnboardingAnswers) async -> Bool
+        /// Marks post-sign-in onboarding complete for the signed-in climber and ends the flow.
         var markPostSignInOnboardingComplete: @MainActor () -> Void
+        /// The signed-in climber's target in the weekly-target service's device copy, in days. A
+        /// copy here means the service already owns delivering it to the account.
+        var deviceWeeklyTarget: @MainActor (_ userId: String) -> Int?
         /// Saves the days-a-week target the climber chose on 10 to their account, through the
         /// weekly-target service, which keeps the device's copy and owns its own kill switch.
         var saveWeeklyTarget: @MainActor (_ userId: String, _ days: Int) async -> Void
-        /// The target the account holds, in days, or `nil` when it has none. Reads the profile,
-        /// never the device-only copy: sign-out erases that copy, and the account is what carries
-        /// a target back onto this phone.
-        var readWeeklyTarget: @MainActor (_ userId: String) async -> Int?
-        /// Hands the target to the local reminder scheduler, which replaces the weekly-target
-        /// reminders to match it and this week's climbs; `nil` clears them.
-        var reconcileWeeklyReminder: @MainActor (_ targetDays: Int?) async -> Void
+        /// Brings the device and the account together through the weekly-target service, which
+        /// tells the reminder coordinator the target that results. Sign-out clears what the nudge
+        /// reads, and the account is what carries a target back onto this phone.
+        var reconcileWeeklyTarget: @MainActor (_ userId: String) async -> Void
     }
 
     enum Outcome: Equatable {
@@ -114,46 +118,48 @@ final class OnboardingV3SignInHandOff {
         seams.clearPurchaseLedger()
 
         let outcome = await writeAnswersIfAny(userId: userId, email: email)
-        await restoreWeeklyReminder(userId: userId)
+        await seams.reconcileWeeklyTarget(userId)
         return outcome
-    }
-
-    /// Puts the weekly reminder back from the account's target. Sign-out erases the device-only
-    /// copy of the target, so without this a climber who signs out and back in, or signs in on a
-    /// new phone, stops being reminded: the reminder would wait for a target nothing restores.
-    /// Runs on every sign-in, returning mode included, because it reads the account rather than
-    /// the answers.
-    private func restoreWeeklyReminder(userId: String) async {
-        let days = await seams.readWeeklyTarget(userId)
-        await seams.reconcileWeeklyReminder(days)
     }
 
     /// Runs on launch and foreground for a climber who is already signed in, to land answers a
     /// failed or switched-off write left behind. Moves no purchase.
     @discardableResult
     func retryPendingAnswers(userId: String, email: String?) async -> Outcome {
-        let hadTarget = store.answers().weeklyTargetDays != nil
+        let hadUndeliveredTarget = undeliveredWeeklyTarget(in: store.answers(), userId: userId) != nil
         let outcome = await writeAnswersIfAny(userId: userId, email: email)
         // A target that only now reached the account is a reminder that only now can be set.
-        if hadTarget, outcome == .complete {
-            await restoreWeeklyReminder(userId: userId)
+        if hadUndeliveredTarget, outcome == .complete {
+            await seams.reconcileWeeklyTarget(userId)
         }
         return outcome
     }
 
+    /// The target chosen before sign-in that nothing has delivered yet. The answer alone cannot say:
+    /// it is also the record the weekly nudge reads, which Settings and Home keep true to the
+    /// service's copy, so a value with a copy behind it is a live target, not hand-off work.
+    private func undeliveredWeeklyTarget(in answers: PreAuthOnboardingAnswers, userId: String) -> Int? {
+        seams.deviceWeeklyTarget(userId) == nil ? answers.weeklyTargetDays : nil
+    }
+
     private func writeAnswersIfAny(userId: String, email: String?) async -> Outcome {
         let answers = store.answers()
-        guard answers.carriesHandOffWork else { return .complete }
+        let target = undeliveredWeeklyTarget(in: answers, userId: userId)
+        guard answers.carriesHandOffWork || target != nil else { return .complete }
         guard seams.isProfileWriteEnabled(), !isRunningProfileStep else { return .deferred }
 
         isRunningProfileStep = true
         defer { isRunningProfileStep = false }
 
+        var accountHasTarget = false
         do {
-            let existing = try await seams.readProfile(userId)
-            let fill = OnboardingProfileFill.plan(answers: answers, existing: existing)
-            if !fill.isEmpty {
-                try await seams.writeProfile(userId, email, fill)
+            if answers.carriesProfileAnswers || target != nil {
+                let existing = try await seams.readProfile(userId)
+                let fill = OnboardingProfileFill.plan(answers: answers, existing: existing)
+                if !fill.isEmpty {
+                    try await seams.writeProfile(userId, email, fill)
+                }
+                accountHasTarget = existing?.weeklyTarget != nil
             }
         } catch {
             if Self.isWorthReporting(error) {
@@ -164,12 +170,15 @@ final class OnboardingV3SignInHandOff {
 
         // The service keeps a target it could not send and sends it later, so a refusal here is
         // not a reason to hold the other answers.
-        if let days = answers.weeklyTargetDays {
-            await seams.saveWeeklyTarget(userId, days)
+        if let target, !accountHasTarget {
+            await seams.saveWeeklyTarget(userId, target)
         }
 
-        await seams.importHealthHistory(answers)
-        store.update { $0 = $0.droppingHandedOffAnswers }
+        let imported = await seams.importHealthHistory(answers)
+        store.update {
+            $0 = $0.droppingHandedOffAnswers
+            if imported { $0.foundHealthWorkoutIDs = [] }
+        }
         return .complete
     }
 
@@ -186,21 +195,17 @@ final class OnboardingV3SignInHandOff {
 extension OnboardingV3SignInHandOff {
     /// The hand-off against the real services.
     ///
-    /// The purchase, Health and weekly-target seams are left empty here on purpose: the purchase
-    /// transfer (`PreAuthPurchaseTransfer.completeAfterSignIn()`) and its ledger belong to the
-    /// paywall chunk and `WeeklyTargetService` and the profile's `weekly_target_days` to the setup
-    /// chunk, neither of which has reached this branch. The reminder seam waits with them: until
-    /// the account holds a target there is nothing to hand
-    /// `LocalReminderScheduler.reconcileWeeklyTarget`. Chunk H wires them in these closures when
-    /// the chunks meet; `OnboardingAuthTests` pins that every route calls them, in order.
+    /// The purchase and Health seams are left empty here on purpose: the purchase transfer
+    /// (`PreAuthPurchaseTransfer.completeAfterSignIn()`) and its ledger belong to the paywall chunk
+    /// and the history import to the Health chunk, neither of which has reached this branch. Until
+    /// the import exists it reports that nothing landed, so the workouts it found stay on the
+    /// device. Chunk H wires them in these closures when the chunks meet; `OnboardingAuthTests`
+    /// pins that every route calls them, in order.
     static func live(
         markPostSignInOnboardingComplete: @escaping @MainActor () -> Void,
         completePurchaseTransfer: @escaping @MainActor () async -> Void = {},
         clearPurchaseLedger: @escaping @MainActor () -> Void = {},
-        importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Void = { _ in },
-        saveWeeklyTarget: @escaping @MainActor (String, Int) async -> Void = { _, _ in },
-        readWeeklyTarget: @escaping @MainActor (String) async -> Int? = { _ in nil },
-        reconcileWeeklyReminder: @escaping @MainActor (Int?) async -> Void = { _ in }
+        importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool = { _ in false }
     ) -> OnboardingV3SignInHandOff {
         OnboardingV3SignInHandOff(
             seams: Seams(
@@ -234,9 +239,16 @@ extension OnboardingV3SignInHandOff {
                 },
                 importHealthHistory: importHealthHistory,
                 markPostSignInOnboardingComplete: markPostSignInOnboardingComplete,
-                saveWeeklyTarget: saveWeeklyTarget,
-                readWeeklyTarget: readWeeklyTarget,
-                reconcileWeeklyReminder: reconcileWeeklyReminder
+                deviceWeeklyTarget: { userId in
+                    WeeklyTargetService().localTarget(for: userId)?.days
+                },
+                saveWeeklyTarget: { userId, days in
+                    guard let target = WeeklyTarget(days: days) else { return }
+                    await WeeklyTargetService().save(target, for: userId)
+                },
+                reconcileWeeklyTarget: { userId in
+                    await WeeklyTargetService().reconcile(for: userId)
+                }
             )
         )
     }
