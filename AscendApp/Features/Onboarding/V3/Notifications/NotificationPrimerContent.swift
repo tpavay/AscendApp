@@ -25,7 +25,8 @@ struct NotificationPrimerExample: Equatable, Identifiable, Sendable {
 /// The primer promises only what Ascend sends. The weekly-target nudge exists only for a climber
 /// who set a target, so without one its example and its clause leave the screen. The design's
 /// "That's it." is gone because it is untrue next to the climb-drop and champion pushes, and the
-/// design's trial example is replaced by the climb-drop one because the paywall shows no trial.
+/// design's trial example is replaced by the climb-drop one because whether a paywall offers a
+/// trial is a Superwall setting.
 struct NotificationPrimerContent: Equatable, Sendable {
     static let headlineLead = ["We'll keep you"]
     static let headlineAccent = ["on track."]

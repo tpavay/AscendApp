@@ -43,7 +43,7 @@ The deploy guard reads every `ASCEND_REVENUECAT_*_PRODUCT_ID` to decide which pr
 Monthly is still on sale, so it stays in both sets.
 
 There is no weekly launch product, and the only discounted plan is the welcome product, sold by the Superwall decline offer described below.
-Do not add either to a Superwall campaign, Hosting content, or release checklist.
+Do not add a weekly product to a Superwall campaign, Hosting content, or release checklist, and do not sell the welcome product anywhere but the decline offer.
 
 ## Lifetime
 

@@ -26,8 +26,8 @@ enum LocalReminderPlan {
     /// before the evening is spent.
     static let weeklyReminderHour = 18
 
-    /// The day of the gift's seven free days the trial reminder lands on, which is two days of the
-    /// trial still to run.
+    /// The day of a seven-day free trial the reminder lands on, which is two days of the trial
+    /// still to run.
     static let trialReminderDay = 5
 
     /// The climb length quoted when the climber has not told Ascend a usual one.

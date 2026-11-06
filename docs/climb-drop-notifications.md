@@ -238,6 +238,6 @@ Account deletion clears the pending reminders too.
 Nothing is scheduled without a target, so a climber who skipped screen 10 never gets one.
 
 **Trial ending.** `reconcileTrialEnding(trialStartedAt:)` schedules exactly 5 days after the trial began, and a nil start schedules nothing, so no trial reminder exists without a trial that started.
-Nothing calls it yet, because `PreAuthOnboardingStore` records only that a trial started and not when, so this reminder does not fire until a later 1.3.0 step stores the start and calls it.
+Nothing calls it yet, because nothing records when a trial started: the onboarding ends at sign-in and a trial now starts inside a Superwall paywall, so this reminder does not fire until a purchase path stores the start and calls it.
 
 All local reminders also require the climber's stored notification answer to be on and iOS to deliver, each read fresh on every call, and `cancelAll()` clears everything the scheduler owns.
