@@ -113,6 +113,8 @@ How the purchase works:
 - After sign-in, `PreAuthPurchaseTransfer.completeAfterSignIn()` moves the purchase onto the uid: `logIn` already carries it for a uid RevenueCat has never seen, and for a known uid one restore moves it.
   It covers an unconfirmed charge the same way, then calls `reconcileAppAccess` up to six times until the server answers `active`, because a client cannot read `users/{uid}/entitlements/app_access` itself.
   A grant still pending after that is left to the reconciliation that runs from launch and foreground.
+  A purchase that did not reach the account, or a grant still pending, is reported as `onboarding_purchase_transfer_incomplete`, and the hand-off clears the ledger either way.
+  Follow-up for the sign-in chunk: keep the ledger on `.notTransferred` and retry on the next launch's hand-off.
 - Prices, the monthly equivalent and the discount percentage come from StoreKit.
   The percentage rounds down.
 

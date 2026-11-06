@@ -154,6 +154,20 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     case authFailed(provider: String, reason: String)
     case paywallReached(placement: String, source: String?)
     case flowCompleted(context: OnboardingAnalyticsContext, completionReason: OnboardingFlowCompletionReason)
+    case purchaseTransferIncomplete(outcome: String)
+
+    /// The event for a pre-sign-in purchase that did not finish moving to the account, or nil when
+    /// nothing is left unfinished.
+    static func forPurchaseTransfer(_ outcome: PreAuthPurchaseTransfer.Outcome) -> Self? {
+        switch outcome {
+        case .nothingToTransfer, .granted:
+            nil
+        case .notTransferred:
+            .purchaseTransferIncomplete(outcome: "not_transferred")
+        case .grantPending:
+            .purchaseTransferIncomplete(outcome: "grant_pending")
+        }
+    }
 
     var record: TelemetryRecord {
         switch self {
@@ -304,6 +318,12 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                     "provider": .string(provider),
                     "reason": .string(reason)
                 ]
+            )
+        case .purchaseTransferIncomplete(let outcome):
+            return makeRecord(
+                name: "onboarding_purchase_transfer_incomplete",
+                context: Self.paywallContext,
+                parameters: ["outcome": .string(outcome)]
             )
         case .paywallReached(let placement, let source):
             var parameters: [String: TelemetryValue] = [

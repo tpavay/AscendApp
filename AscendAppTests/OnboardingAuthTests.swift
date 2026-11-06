@@ -259,25 +259,96 @@ struct OnboardingAuthTests {
         }
     }
 
-    @Test
-    func theLiveHandOffRunsThePurchaseSeamsItIsGivenInOrderBeforeTheTargetIsReconciled() async {
+    /// The live hand-off with a purchase on the ledger, faking only what reaches past the device:
+    /// RevenueCat, the reconcile callable, the weekly-target read and the analytics sinks.
+    private func runLiveHandOff(
+        monetization: LiveTransferMonetization,
+        invoker: LiveTransferInvoker
+    ) async -> [String] {
         let defaults = defaults()
+        let ledger = PreAuthPurchaseLedger(userDefaults: defaults)
+        ledger.recordPurchase(PreAuthPurchase(productID: "y", purchasedAt: Date(), startedTrial: false))
         let recorder = Recorder()
-        var seams = OnboardingV3SignInHandOff.liveSeams(
-            markPostSignInOnboardingComplete: {},
-            completePurchaseTransfer: { recorder.events.append("transfer") },
-            clearPurchaseLedger: { recorder.events.append("clearLedger") }
+        monetization.onCall = { recorder.events.append($0) }
+
+        let sink = LedgerObservingSink { name, parameters in
+            let outcome = parameters["outcome"].map { "\($0)" } ?? "none"
+            let held = ledger.progress().purchase != nil
+            MainActor.assumeIsolated {
+                recorder.events.append("\(name) \(outcome) ledgerHeld=\(held)")
+            }
+        }
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: NoopCrashlyticsReporter(),
+            collectionEnabledOverride: true,
+            identityStore: makeTestIdentityStore()
         )
-        seams.reconcileWeeklyTarget = { _ in recorder.events.append("reconcileTarget") }
-        let handOff = OnboardingV3SignInHandOff(
-            seams: seams,
+        telemetry.configure()
+
+        let handOff = OnboardingV3SignInHandOff.live(
+            markPostSignInOnboardingComplete: {},
+            makePurchaseTransfer: {
+                PreAuthPurchaseTransfer(
+                    ledger: ledger,
+                    monetization: monetization,
+                    invoker: invoker,
+                    maxAttempts: 2,
+                    retryDelay: .zero,
+                    sleep: { _ in },
+                    releaseUnconfirmedPurchase: {}
+                )
+            },
+            purchaseLedger: ledger,
+            telemetry: telemetry,
+            reconcileWeeklyTarget: { _ in
+                recorder.events.append("reconcile ledgerHeld=\(ledger.progress().purchase != nil)")
+            },
             store: PreAuthOnboardingStore(userDefaults: defaults),
             intent: OnboardingV3HandOffIntent(userDefaults: defaults)
         )
 
         await handOff.runAfterSignIn(userId: "live-\(UUID().uuidString)", email: nil)
+        return recorder.events
+    }
 
-        #expect(recorder.events == ["transfer", "clearLedger", "reconcileTarget"])
+    @Test
+    func theLiveHandOffReportsAPurchaseThatNeverArrivedThenClearsTheLedger() async {
+        let events = await runLiveHandOff(
+            monetization: LiveTransferMonetization(refreshedActive: false),
+            invoker: LiveTransferInvoker(outcome: .active)
+        )
+
+        #expect(events == [
+            "refresh",
+            "restore",
+            "onboarding_purchase_transfer_incomplete \(TelemetryValue.string("not_transferred")) ledgerHeld=true",
+            "reconcile ledgerHeld=false"
+        ])
+    }
+
+    @Test
+    func theLiveHandOffReportsAGrantTheServerHasNotWrittenThenClearsTheLedger() async {
+        let events = await runLiveHandOff(
+            monetization: LiveTransferMonetization(refreshedActive: true),
+            invoker: LiveTransferInvoker(outcome: .throttled)
+        )
+
+        #expect(events == [
+            "refresh",
+            "onboarding_purchase_transfer_incomplete \(TelemetryValue.string("grant_pending")) ledgerHeld=true",
+            "reconcile ledgerHeld=false"
+        ])
+    }
+
+    @Test
+    func theLiveHandOffReportsNothingWhenThePurchaseArrives() async {
+        let events = await runLiveHandOff(
+            monetization: LiveTransferMonetization(refreshedActive: true),
+            invoker: LiveTransferInvoker(outcome: .active)
+        )
+
+        #expect(events == ["refresh", "reconcile ledgerHeld=false"])
     }
 
     @Test
@@ -681,4 +752,45 @@ struct OnboardingAuthTests {
         #expect(coordinator.previousStep == .welcome)
         #expect(mode(of: coordinator) == .returning)
     }
+}
+
+@MainActor
+private final class LiveTransferMonetization: PreAuthPurchaseTransferring {
+    private let refreshedActive: Bool
+    var onCall: (String) -> Void = { _ in }
+
+    init(refreshedActive: Bool) { self.refreshedActive = refreshedActive }
+
+    func refreshedEntitlementIsActive() async -> Bool {
+        onCall("refresh")
+        return refreshedActive
+    }
+
+    func restoredEntitlementIsActive() async -> Bool {
+        onCall("restore")
+        return false
+    }
+}
+
+@MainActor
+private final class LiveTransferInvoker: AppAccessReconciliationInvoking {
+    private let outcome: AppAccessReconciliationOutcome
+
+    init(outcome: AppAccessReconciliationOutcome) { self.outcome = outcome }
+
+    func invokeReconciliation() async throws -> AppAccessReconciliationOutcome { outcome }
+}
+
+private final class LedgerObservingSink: TelemetrySink, @unchecked Sendable {
+    let supportedDestinations: Set<TelemetryDestination> = [.analytics]
+    private let onRecord: @Sendable (String, [String: TelemetryValue]) -> Void
+
+    init(onRecord: @escaping @Sendable (String, [String: TelemetryValue]) -> Void) {
+        self.onRecord = onRecord
+    }
+
+    func setCollectionEnabled(_ enabled: Bool) {}
+    func setUserID(_ userID: String?) {}
+    func record(_ record: EnvelopedTelemetryRecord) { onRecord(record.name, record.parameters) }
+    func record(screen: EnvelopedTelemetryScreen) {}
 }

@@ -115,6 +115,7 @@ final class OnboardingV3SignInHandOff {
         closeFlowIfIntended()
 
         await seams.completePurchaseTransfer()
+        // Cleared after `.notTransferred` too; keeping it and retrying is the sign-in chunk's follow-up.
         seams.clearPurchaseLedger()
 
         let outcome = await writeAnswersIfAny(userId: userId, email: email)
@@ -193,75 +194,74 @@ final class OnboardingV3SignInHandOff {
 // MARK: - Live wiring
 
 extension OnboardingV3SignInHandOff {
-    /// The hand-off against the real services.
+    /// The hand-off against the real services, the purchase transfer and its ledger included.
     ///
-    /// The root passes the purchase seams. The Health seam is left empty here on purpose: the
-    /// history import belongs to the Health chunk, and until it is wired it reports that nothing
-    /// landed, so the workouts it found stay on the device. Chunk H wires it in this closure when
-    /// the chunks meet; `OnboardingAuthTests` pins that every route calls these seams, in order.
+    /// The Health seam is left empty here on purpose: the history import belongs to the Health
+    /// chunk, and until it is wired it reports that nothing landed, so the workouts it found stay on
+    /// the device. Chunk H wires it in this closure when the chunks meet; `OnboardingAuthTests` pins
+    /// that every route calls these seams, in order.
     static func live(
         markPostSignInOnboardingComplete: @escaping @MainActor () -> Void,
-        completePurchaseTransfer: @escaping @MainActor () async -> Void = {},
-        clearPurchaseLedger: @escaping @MainActor () -> Void = {},
-        importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool = { _ in false }
+        importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool = { _ in false },
+        makePurchaseTransfer: @escaping @MainActor () -> PreAuthPurchaseTransfer = { PreAuthPurchaseTransfer() },
+        purchaseLedger: PreAuthPurchaseLedger = PreAuthPurchaseLedger(),
+        telemetry: TelemetryManager = .shared,
+        reconcileWeeklyTarget: @escaping @MainActor (_ userId: String) async -> Void = { userId in
+            await WeeklyTargetService().reconcile(for: userId)
+        },
+        store: PreAuthOnboardingStore = PreAuthOnboardingStore(),
+        intent: OnboardingV3HandOffIntent = OnboardingV3HandOffIntent()
     ) -> OnboardingV3SignInHandOff {
         OnboardingV3SignInHandOff(
-            seams: liveSeams(
+            seams: Seams(
+                completePurchaseTransfer: {
+                    let outcome = await makePurchaseTransfer().completeAfterSignIn()
+                    if let event = OnboardingAnalyticsEvent.forPurchaseTransfer(outcome) {
+                        telemetry.track(event)
+                    }
+                },
+                clearPurchaseLedger: {
+                    purchaseLedger.clear()
+                },
+                isProfileWriteEnabled: {
+                    RemoteFeatureFlagStore.shared.isEnabled(.onboardingAnswersProfileWrite)
+                },
+                readProfile: { userId in
+                    try await UserDataRepository.shared.getUserFromFirestore(userId: userId)
+                },
+                writeProfile: { userId, email, fill in
+                    try await UserDataRepository.shared.updateOnboardingDemographics(
+                        userId: userId,
+                        email: email,
+                        birthday: fill.birthday,
+                        gender: fill.gender,
+                        weightKg: fill.weightKg,
+                        heightCm: fill.heightCm,
+                        locationCity: fill.city?.city,
+                        locationCountry: fill.city?.countryCode,
+                        locationRegion: fill.city?.region
+                    )
+                },
+                recordProfileStepFailure: { error in
+                    TelemetryManager.shared.recordError(
+                        error,
+                        context: .firestore,
+                        code: "onboarding_answers_profile_step_failed"
+                    )
+                },
+                importHealthHistory: importHealthHistory,
                 markPostSignInOnboardingComplete: markPostSignInOnboardingComplete,
-                completePurchaseTransfer: completePurchaseTransfer,
-                clearPurchaseLedger: clearPurchaseLedger,
-                importHealthHistory: importHealthHistory
-            )
-        )
-    }
-
-    static func liveSeams(
-        markPostSignInOnboardingComplete: @escaping @MainActor () -> Void,
-        completePurchaseTransfer: @escaping @MainActor () async -> Void = {},
-        clearPurchaseLedger: @escaping @MainActor () -> Void = {},
-        importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool = { _ in false }
-    ) -> Seams {
-        Seams(
-            completePurchaseTransfer: completePurchaseTransfer,
-            clearPurchaseLedger: clearPurchaseLedger,
-            isProfileWriteEnabled: {
-                RemoteFeatureFlagStore.shared.isEnabled(.onboardingAnswersProfileWrite)
-            },
-            readProfile: { userId in
-                try await UserDataRepository.shared.getUserFromFirestore(userId: userId)
-            },
-            writeProfile: { userId, email, fill in
-                try await UserDataRepository.shared.updateOnboardingDemographics(
-                    userId: userId,
-                    email: email,
-                    birthday: fill.birthday,
-                    gender: fill.gender,
-                    weightKg: fill.weightKg,
-                    heightCm: fill.heightCm,
-                    locationCity: fill.city?.city,
-                    locationCountry: fill.city?.countryCode,
-                    locationRegion: fill.city?.region
-                )
-            },
-            recordProfileStepFailure: { error in
-                TelemetryManager.shared.recordError(
-                    error,
-                    context: .firestore,
-                    code: "onboarding_answers_profile_step_failed"
-                )
-            },
-            importHealthHistory: importHealthHistory,
-            markPostSignInOnboardingComplete: markPostSignInOnboardingComplete,
-            deviceWeeklyTarget: { userId in
-                WeeklyTargetService().localTarget(for: userId)?.days
-            },
-            saveWeeklyTarget: { userId, days in
-                guard let target = WeeklyTarget(days: days) else { return }
-                await WeeklyTargetService().save(target, for: userId)
-            },
-            reconcileWeeklyTarget: { userId in
-                await WeeklyTargetService().reconcile(for: userId)
-            }
+                deviceWeeklyTarget: { userId in
+                    WeeklyTargetService().localTarget(for: userId)?.days
+                },
+                saveWeeklyTarget: { userId, days in
+                    guard let target = WeeklyTarget(days: days) else { return }
+                    await WeeklyTargetService().save(target, for: userId)
+                },
+                reconcileWeeklyTarget: reconcileWeeklyTarget
+            ),
+            store: store,
+            intent: intent
         )
     }
 }
