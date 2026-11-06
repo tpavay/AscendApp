@@ -136,6 +136,12 @@ scripts_dir="$(cd "$(dirname "$0")" && pwd)"
 # watchdog fires before the per-test allowance below does.
 silence_limit_seconds="${ASCEND_TEST_PASS_SILENCE_SECONDS:-300}"
 
+# Before a pass's first test event the host is still launching, and pass 1 has
+# gone 308 s (then passed) and 343 s (then killed) without a line of output on
+# a binary that launched in 84 s for the next pass. Twice the worst seen, so a
+# slow launch is not reported as a wedge and a launch that never ends still is.
+launch_silence_limit_seconds=600
+
 # What counts as progress: a test or suite starting or finishing. A wedged
 # host keeps emitting network and WebKit noise, so bytes are not liveness.
 progress_pattern='[◇✔✘⚠] (Test|Suite) '
@@ -282,6 +288,7 @@ node '$scripts_dir/unfinished-tests.mjs' '$log' '$pass_first_line'"
     # existing one, and the upload step takes the whole directory anyway.
     if "$scripts_dir/run-with-silence-watchdog.sh" \
         --silence "$silence_limit_seconds" \
+        --launch-silence "$launch_silence_limit_seconds" \
         --log "$log" \
         --on-stall "$on_stall" \
         --progress-pattern "$progress_pattern" \
