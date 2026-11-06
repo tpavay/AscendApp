@@ -132,6 +132,9 @@ struct OnboardingExitGiftScreen: View {
                 .textCase(.uppercase)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)
+                // Without a line limit the text wraps mid-word instead of shrinking. Three lines is
+                // "OPEN YOUR / WELCOME / GIFT.", the most it can take with every word whole.
+                .lineLimit(3)
                 .minimumScaleFactor(0.5)
                 .accessibilityAddTraits(.isHeader)
                 .onboardingEntrance(index: 1)

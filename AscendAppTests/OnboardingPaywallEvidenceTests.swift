@@ -622,6 +622,85 @@ struct OnboardingPaywallEvidenceTests {
         }
     }
 
+    /// Rendered glyphs for the same reason as the paywall: 'WELCOM / E GIFT.' reads whole in the tree.
+    @Test(arguments: [CGFloat(375), 402], [DynamicTypeSize.accessibility3, .accessibility5])
+    func noWordBreaksOnTheClosedGiftAtAnAccessibilityTextSize(width: CGFloat, textSize: DynamicTypeSize) async throws {
+        let fixture = await fixture(startingAt: .exitGift)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel())
+                .environment(\.dynamicTypeSize, textSize),
+            size: CGSize(width: width, height: 2400),
+            settle: .turns(40)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("tap to open") })
+            try await Task.sleep(for: .seconds(1.2))
+
+            let drawn = try await screen.recognizedText(scale: 2)
+            for word in ["before", "open", "your", "welcome", "gift", "better", "price", "tap"] {
+                #expect(drawn.contains(word), "\(word) did not draw whole: \(drawn)")
+            }
+            try screen.photograph(named: "onboarding-v3-gift-closed-words-\(Int(width))-\(textSize)")
+        }
+    }
+
+    @Test(arguments: [CGFloat(375), 402], [DynamicTypeSize.accessibility3, .accessibility5])
+    func noWordBreaksOnTheOpenGiftAtAnAccessibilityTextSize(width: CGFloat, textSize: DynamicTypeSize) async throws {
+        let fixture = await fixture(startingAt: .exitGift, giftAlreadySeen: true)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel())
+                .environment(\.dynamicTypeSize, textSize),
+            size: CGSize(width: width, height: 3200),
+            settle: .turns(120)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("no thanks") })
+            try await Task.sleep(for: .seconds(1.5))
+
+            let drawn = try await screen.recognizedText(scale: 2)
+            for word in ["welcome", "offer", "$9.99", "$29.99", "first", "week", "claim", "gift", "thanks"] {
+                #expect(drawn.contains(word), "\(word) did not draw whole: \(drawn)")
+            }
+            try screen.photograph(named: "onboarding-v3-gift-open-words-\(Int(width))-\(textSize)")
+        }
+    }
+
+    /// The stamp hangs over the voucher's top-right corner, and a label that just fits on one line ran
+    /// under it. The tree still holds the whole label, so this reads pixels: the strip beside the stamp,
+    /// on the rows the label starts on, carries no ink. The stamp's own shadow there is far from black.
+    @Test(arguments: [CGFloat(375), 402], [DynamicTypeSize.xxxLarge, .accessibility1, .accessibility2, .accessibility3, .accessibility4, .accessibility5])
+    func theStampStaysClearOfTheWelcomeOfferLabel(width: CGFloat, textSize: DynamicTypeSize) async throws {
+        let offer = try #require(await fixture(startingAt: .exitGift).model.giftOffer)
+
+        try await RenderedScreen.host(
+            ZStack(alignment: .top) {
+                Color.black
+                WelcomeGiftVoucher(offer: offer, copy: WelcomeGiftCopy(offer))
+                    .padding(.horizontal, 26)
+                    .padding(.top, 44)
+            }
+            .environment(\.dynamicTypeSize, textSize),
+            size: CGSize(width: width, height: 874)
+        ) { screen in
+            _ = try #require(try await screen.frame(ofElementLabelled: "Welcome offer"))
+            // From the layout above, because the element's frame also spans the stamp and the notches.
+            let voucherTop = screen.root.safeAreaInsets.top + 44
+            let voucherRight = width - 26
+            let beside = CGRect(x: voucherRight - 78, y: voucherTop + 24, width: 12, height: 24)
+            let voucher = CGRect(x: 26, y: voucherTop, width: voucherRight - 26, height: 0)
+
+            let ink = try screen.withPixels(scale: 2) { pixels in
+                pixels.count(in: beside) { $0.isNearBlack }
+            }
+            #expect(ink == 0, "the label reaches the stamp in \(beside) of \(voucher): \(ink) dark pixels")
+            try screen.photograph(named: "onboarding-v3-voucher-\(Int(width))-\(textSize)")
+        }
+    }
+
     /// Scrolled to its end, the page has to stop below the close button rather than pass under it
     /// and on into the status bar.
     @Test(arguments: [CGSize(width: 402, height: 874), CGSize(width: 375, height: 667)])

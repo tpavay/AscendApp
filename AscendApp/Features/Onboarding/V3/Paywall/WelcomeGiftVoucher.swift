@@ -41,6 +41,11 @@ struct WelcomeGiftVoucher: View {
             Text("Welcome offer")
                 .paywallText(.black, size: 12, tracking: 0.2, relativeTo: .caption)
                 .textCase(.uppercase)
+                .lineLimit(2)
+                .minimumScaleFactor(0.5)
+                // The stamp reaches 44 points into this column, and a label running under it loses
+                // its last letters. 12 more keeps it clear at every text size.
+                .padding(.trailing, copy.stamp == nil ? 0 : 56)
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(offer.price)
