@@ -571,15 +571,25 @@ struct OnboardingAuthTests {
     }
 
     @Test
-    func signingOutForgetsAReturningRequest() {
-        let flow = OnboardingV3Coordinator(
-            store: PreAuthOnboardingStore(userDefaults: defaults()),
-            startingAt: .paywall
-        )
+    func aReturningClimberWhoSignsOutComesBackToReturningModeAndABrandNewAccountIsNotClosedOut() async {
+        let harness = Harness(defaults: defaults(), answers: PreAuthOnboardingAnswers())
+        let flow = OnboardingV3Coordinator(store: harness.store, startingAt: .paywall)
         flow.goToReturningSignIn()
 
+        await harness.handOff.runAfterSignIn(userId: "a", email: nil)
         flow.sessionEnded()
 
+        #expect(flow.step == .auth)
+        #expect(mode(of: flow) == .returning)
+        #expect(!flow.isFinished)
+        #expect(!harness.intent.isSet)
+
+        harness.recorder.events.removeAll()
+        await harness.handOff.runAfterSignIn(userId: "b", email: nil)
+        #expect(!harness.recorder.events.contains("markComplete"))
+
+        flow.back()
+        #expect(flow.step == .paywall)
         #expect(!flow.returningSignInRequested)
     }
 

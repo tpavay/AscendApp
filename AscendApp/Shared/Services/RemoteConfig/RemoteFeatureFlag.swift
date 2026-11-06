@@ -135,8 +135,10 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     case appleHealthImport = "apple_health_import_enabled"
 
     /// Writing the answers a climber gave before signing in - birthday, gender, height, weight and
-    /// city - to their profile right after sign-in. Off, the answers stay on the device exactly as
-    /// given and the next launch with the switch on writes them; nothing is dropped.
+    /// city - to their profile right after sign-in, and the days-a-week target save and Health
+    /// history import that follow that write. Off, the answers stay on the device exactly as given
+    /// and the next hand-off with the switch on writes them. Nothing is dropped unless the climber
+    /// signs out, which drops them so the next account on the phone cannot receive them.
     case onboardingAnswersProfileWrite = "onboarding_answers_profile_write_enabled"
 
     /// Writing the climber's weekly target (`weekly_target_days`) to their private user record.

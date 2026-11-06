@@ -23,6 +23,8 @@ final class OnboardingV3Coordinator {
     /// Whether the climber asked for the sign-in step as someone who already has an account. Held
     /// in memory because the flow itself is: every launch starts over at the first screen, where a
     /// remembered request could only put a climber who then walks the whole flow in the wrong mode.
+    /// Within a launch it lasts until they back out of the sign-in step, so signing out returns them
+    /// to the mode they chose.
     private(set) var returningSignInRequested = false
 
     /// The bar value the screen just left was showing, which the next bar animates from.
@@ -123,7 +125,6 @@ final class OnboardingV3Coordinator {
     /// The climber signed out. Their answers leave the device and this copy, so neither the next
     /// account nor a prefilled setup screen receives them. The flow stays finished if it was.
     func sessionEnded() {
-        returningSignInRequested = false
         answers = store.update { $0 = $0.droppingSessionAnswers }
     }
 
