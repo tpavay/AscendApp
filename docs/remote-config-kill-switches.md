@@ -75,6 +75,7 @@ A flip of `onboarding_v3_enabled` takes effect on the next launch, never on a ru
 `OnboardingV3RouteLatch` decides once per launch.
 A device whose persisted activation already carries the flag decides on it immediately.
 A device the backend has never answered about it holds on the wordmark until the first fetch ends, for at most 1.5 seconds, and a fetch that fails or runs out the clock leaves it on the shipped `false` for that launch.
+The one exception is the dev build's Debug Tools -> `Replay New Onboarding From Welcome`, which opens the flow at once whatever the switch says and keeps that override on the device until the app is deleted (`OnboardingV3DebugReplay`), so a device that has used it cannot be used to check the switch.
 
 ### Settings, which are not switches
 

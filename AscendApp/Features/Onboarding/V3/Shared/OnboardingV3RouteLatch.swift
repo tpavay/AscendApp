@@ -31,10 +31,22 @@ final class OnboardingV3RouteLatch {
         self.firstFetch = firstFetch
         self.holdLimit = holdLimit
 
+        #if DEBUG || STAGING
+        if OnboardingV3DebugReplay().forcesFlow {
+            showsFlow = true
+            return
+        }
+        #endif
+
         if store.snapshot.source(of: .onboardingV3) == .remote {
             showsFlow = store.isEnabled(.onboardingV3)
         }
     }
+
+    #if DEBUG || STAGING
+    /// Debug Tools' replay: the flow shows for this launch whatever the switch says.
+    func forceFlow() { showsFlow = true }
+    #endif
 
     /// Starts the clock. Two independent tasks rather than a task group, because a group could not
     /// return at the cap: awaiting the fetch's task does not end when the waiter is cancelled.

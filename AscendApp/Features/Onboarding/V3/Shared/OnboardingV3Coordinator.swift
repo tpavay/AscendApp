@@ -129,6 +129,20 @@ final class OnboardingV3Coordinator {
         paywallStageUserID = nil
     }
 
+    #if DEBUG || STAGING
+    /// Debug Tools' replay: back to the first screen with nothing answered, in this launch's
+    /// coordinator, after the store was cleared.
+    func restartFromWelcome() {
+        store.clear()
+        answers = store.answers()
+        paywallStageUserID = nil
+        trail = []
+        lastShownProgress = nil
+        transitionEnd = nil
+        step = .welcome
+    }
+    #endif
+
     /// The climber signed in at the end of the flow. The signed-out screens are done for good, and
     /// when `showsPaywall` is set the paywall opens for them if they turn out to hold no access -
     /// the root decides that from the entitlement, so a climber who already pays never sees it.
