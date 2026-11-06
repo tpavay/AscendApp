@@ -166,13 +166,13 @@ struct OnboardingV3SetupEvidenceTests {
     // MARK: - 10
 
     @Test(arguments: [nil, Self.accessibilitySize])
-    func theTargetScreenStartsUnchosenAndSkippable(size: DynamicTypeSize?) async throws {
+    func theTargetScreenStartsUnchosenWithNoTopRightSkip(size: DynamicTypeSize?) async throws {
         let coordinator = coordinator(at: .weeklyTarget)
         try await host(OnboardingV3FlowView(coordinator: coordinator), size: size, name: "weekly-target") { copy in
             #expect(copy.contains("how many days a week?"), "\(copy)")
             #expect(copy.contains("set a target if you want one. hit your days and close your week."), "\(copy)")
             #expect(copy.contains("no target for now"), "\(copy)")
-            #expect(copy.contains("skip"), "\(copy)")
+            #expect(!copy.contains("skip"), "no top-right Skip on this screen: \(copy)")
             #expect(copy.contains("?"), "the number reads ? until a bar is tapped: \(copy)")
             #expect(!copy.contains("consistency beats intensity"), "\(copy)")
         }
