@@ -1,8 +1,8 @@
 import FirebaseCore
 import SwiftUI
 
-/// Screen 15: sign in. The last step of the flow, after the purchase, and also where "Already
-/// climbing? Sign in" lands.
+/// Screen 13: sign in. The step after setup and before the paywall, so every purchase is made by an
+/// account, and also where "Already have an account? Sign in" lands.
 ///
 /// Apple and Google are the only two ways in, and nothing on this screen takes typed input: the
 /// climber's row on the board is a picture of where they will stand, never a field. The name comes
@@ -16,10 +16,7 @@ struct OnboardingAuthScreen: View {
 
     init(coordinator: OnboardingV3Coordinator) {
         self.coordinator = coordinator
-        _mode = State(initialValue: OnboardingAuthMode(
-            arrivedFrom: coordinator.previousStep,
-            returningRequested: coordinator.returningSignInRequested
-        ))
+        _mode = State(initialValue: OnboardingAuthMode(arrivedFrom: coordinator.previousStep))
     }
 
     private var isDisabled: Bool { authVM.authenticationState.isAuthenticating }
@@ -53,7 +50,7 @@ struct OnboardingAuthScreen: View {
 
     @ViewBuilder
     private var topBar: some View {
-        if mode == .returning {
+        if coordinator.canGoBack {
             OnboardingAuthBackButton {
                 coordinator.back()
             }
@@ -62,7 +59,7 @@ struct OnboardingAuthScreen: View {
         }
 
         AscendWordmark(height: 22, treatment: .onDark)
-            .padding(.top, mode == .returning ? 14 : 13)
+            .padding(.top, coordinator.canGoBack ? 14 : 13)
             .padding(.leading, 24)
             .contentShape(Rectangle())
             // Five taps open the QA sign-in on dev and staging builds only, the same hatch the
@@ -80,7 +77,7 @@ struct OnboardingAuthScreen: View {
         VStack(alignment: .leading, spacing: 12) {
             switch mode {
             case .claimSpot:
-                Text("Last step")
+                Text("Almost there")
                     .onboardingKicker()
                     .onboardingEntrance(index: 0)
 

@@ -32,8 +32,7 @@ struct AppAccessRestoreAnalyticsContext: Equatable, Sendable {
         )
     }
 
-    /// The pre-sign-in paywall's Restore. Nobody is signed in, so the identity is the anonymous
-    /// customer's and nothing is reported against a uid.
+    /// The onboarding paywall's Restore, run by a signed-in climber like every other restore.
     static func onboardingPaywall(identity: MonetizationIdentityTransition?) -> Self {
         Self(
             restoreAttemptID: makeAttemptID(),

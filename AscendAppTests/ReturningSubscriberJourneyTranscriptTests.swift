@@ -107,6 +107,67 @@ struct ReturningSubscriberJourneyTranscriptTests {
         )
     }
 
+    /// The onboarding walks a signed-out climber through the setup screens, then sign-in, then the
+    /// paywall. Which climbers see that paywall is decided by what RevenueCat says about the account
+    /// that just signed in, never by the order of the screens.
+    private func routesWalkingTheOnboarding(
+        accountHolds identityResolution: MonetizationEntitlementState
+    ) async throws -> [AppRootRoute] {
+        let entitlementService = EntitlementServiceStub(initialState: .inactive)
+        let monetization = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy()
+        )
+        let authentication = AuthenticationViewModel(
+            monetizationIdentityManager: monetization,
+            observesFirebaseAuth: false
+        )
+
+        func route(userId: String?, showsPaywall: Bool) -> AppRootRoute {
+            AppRootRouteResolver.resolve(
+                updatePresentation: nil,
+                authenticationState: authentication.authenticationState,
+                userId: userId,
+                postAuthOnboardingPhase: .complete,
+                entitlementState: monetization.entitlementStateForRouting,
+                requiredEntitlementID: "app_access",
+                showsPreAuthOnboardingV3: true,
+                showsOnboardingPaywallV3: showsPaywall
+            )
+        }
+
+        var routes: [AppRootRoute] = []
+        authentication.authenticationState = .unauthenticated
+        routes.append(route(userId: nil, showsPaywall: false))
+
+        // Sign-in closes the flow and asks for the paywall; the answer is still outstanding.
+        entitlementService.identityResolution = identityResolution
+        authentication.beginAuthenticatedSession(
+            customer: .climber("walker"),
+            initialState: .authenticated
+        )
+        routes.append(route(userId: "walker", showsPaywall: true))
+
+        await Task.yield()
+        try await waitForEntitlementResolution(of: monetization)
+        routes.append(route(userId: "walker", showsPaywall: true))
+        return routes
+    }
+
+    @Test
+    func anExistingSubscriberWhoWalksTheOnboardingSkipsThePaywallAndTheGift() async throws {
+        let routes = try await routesWalkingTheOnboarding(accountHolds: .active(["app_access"]))
+
+        #expect(routes == [.preAuthOnboarding, .resolving, .mainApp])
+    }
+
+    @Test
+    func aLapsedSubscriberWhoWalksTheOnboardingSeesThePaywallOnceTheAnswerIsIn() async throws {
+        let routes = try await routesWalkingTheOnboarding(accountHolds: .inactive)
+
+        #expect(routes == [.preAuthOnboarding, .resolving, .onboardingPaywall])
+    }
+
     /// Waits on the identity `Task` that `beginAuthenticatedSession` starts. This is polling for a
     /// completion the production code owns, not a delay that hides a race: the assertions above
     /// already pinned the pre-resolution route, and a resolution that never lands fails the test
@@ -132,6 +193,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         case .restoringSession: "restoringSession"
         case .resolving: "resolving (neutral Checking your access surface)"
         case .onboarding(let stage): "onboarding(\(stage))"
+        case .onboardingPaywall: "onboardingPaywall (v3 paywall and gift, signed in, this session only)"
         case .paywall: "paywall (app-access gate)"
         case .mainApp: "mainApp"
         }

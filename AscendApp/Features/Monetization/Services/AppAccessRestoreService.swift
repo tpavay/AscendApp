@@ -27,7 +27,7 @@ enum AppAccessRestoreError: LocalizedError {
 }
 
 /// The one restore every surface runs - the Superwall paywall's Restore button, the account
-/// settings row, the app-access gate, and the pre-sign-in onboarding paywall.
+/// settings row, the app-access gate, and the onboarding paywall.
 ///
 /// Provider work is single-flight for one exact identity generation.
 /// Each caller is still one observable attempt with one start and one terminal, because a caller
@@ -91,8 +91,7 @@ final class AppAccessRestoreService {
         let identity = context.identity ?? currentIdentity
         track(
             PaywallAnalyticsEvent.revenueCatRestoreStarted(context: context),
-            for: identity,
-            allowingAnonymous: context.source == .onboardingPaywall
+            for: identity
         )
         guard restorer.isRevenueCatConfigured else {
             let outcome = AppAccessRestoreOutcome.failed(
@@ -313,8 +312,7 @@ final class AppAccessRestoreService {
                     context: context,
                     identityMatches: identityMatches
                 ),
-                for: identity,
-                allowingAnonymous: context.source == .onboardingPaywall
+                for: identity
             )
         case .notFound:
             track(
@@ -323,8 +321,7 @@ final class AppAccessRestoreService {
                     context: context,
                     identityMatches: identityMatches
                 ),
-                for: identity,
-                allowingAnonymous: context.source == .onboardingPaywall
+                for: identity
             )
         case .failed(let error):
             let errorType = explicitErrorType ?? Self.analyticsErrorType(for: error)
@@ -335,25 +332,17 @@ final class AppAccessRestoreService {
                     context: context,
                     identityMatches: identityMatches
                 ),
-                for: identity,
-                allowingAnonymous: context.source == .onboardingPaywall
+                for: identity
             )
         }
     }
 
-    /// - Parameter allowingAnonymous: Set only for the pre-sign-in paywall's restore, whose identity
-    ///   is the anonymous customer's. It is reported on the device's own analytics identity, which
-    ///   sign-in merges, the same way an anonymous purchase is.
     private func track(
         _ event: PaywallAnalyticsEvent,
-        for identity: MonetizationIdentityTransition?,
-        allowingAnonymous: Bool = false
+        for identity: MonetizationIdentityTransition?
     ) {
-        if let userID = identity?.userID {
-            telemetry.track(event, ifIdentifiedAs: userID)
-        } else if allowingAnonymous, identity != nil {
-            telemetry.track(event)
-        }
+        guard let userID = identity?.userID else { return }
+        telemetry.track(event, ifIdentifiedAs: userID)
     }
 
     private static func analyticsErrorType(for error: any Error) -> RevenueCatAnalyticsErrorType {

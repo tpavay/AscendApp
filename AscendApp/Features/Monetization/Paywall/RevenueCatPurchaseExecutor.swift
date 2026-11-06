@@ -32,7 +32,6 @@ final class RevenueCatPurchaseExecutor {
     private let telemetry: TelemetryManager
     private let transactionContextStore: PaywallTransactionContextStore
     private let entitlementID: String
-    private let allowsAnonymousPurchase: Bool
     private let applySubscriptionStatus: @MainActor (Set<String>) -> Void
     private let refreshEntitlementState: @MainActor () async -> MonetizationEntitlementRefresh
     private let currentIdentityGeneration: @MainActor () -> MonetizationIdentityTransition?
@@ -45,7 +44,6 @@ final class RevenueCatPurchaseExecutor {
         telemetry: TelemetryManager = .shared,
         transactionContextStore: PaywallTransactionContextStore = .shared,
         entitlementID: String = MonetizationConfiguration.live.revenueCatEntitlementID,
-        allowsAnonymousPurchase: Bool = false,
         applySubscriptionStatus: @escaping @MainActor (Set<String>) -> Void,
         refreshEntitlementState: @escaping @MainActor () async -> MonetizationEntitlementRefresh,
         currentIdentityGeneration: @escaping @MainActor () -> MonetizationIdentityTransition? = {
@@ -59,7 +57,6 @@ final class RevenueCatPurchaseExecutor {
         self.telemetry = telemetry
         self.transactionContextStore = transactionContextStore
         self.entitlementID = entitlementID
-        self.allowsAnonymousPurchase = allowsAnonymousPurchase
         self.applySubscriptionStatus = applySubscriptionStatus
         self.refreshEntitlementState = refreshEntitlementState
         self.currentIdentityGeneration = currentIdentityGeneration
@@ -90,10 +87,10 @@ final class RevenueCatPurchaseExecutor {
                 purchaseIdentity: purchaseIdentity
             )
         }
-        // A signed-out climber is an anonymous RevenueCat customer, and only the pre-sign-in
-        // paywall may buy as one: signing in later moves the purchase onto the uid.
+        // A purchase belongs to an account. An anonymous RevenueCat customer has no uid to attribute
+        // it to, and a charge nobody can attach to a climber is the one thing this refuses.
         guard let purchaseIdentity,
-              purchaseIdentity.userID != nil || allowsAnonymousPurchase,
+              purchaseIdentity.userID != nil,
               currentIdentityGeneration() == purchaseIdentity else {
             return finish(failVerifiedPurchase(
                 productID: productID,
@@ -348,10 +345,6 @@ final class RevenueCatPurchaseExecutor {
     ) {
         if let userID = identity?.userID {
             telemetry.track(event, ifIdentifiedAs: userID)
-        } else if allowsAnonymousPurchase, identity != nil {
-            // Nobody is signed in yet, so there is no uid to check the event against. It is
-            // reported on the device's own analytics identity, which sign-in merges.
-            telemetry.track(event)
         }
     }
 }

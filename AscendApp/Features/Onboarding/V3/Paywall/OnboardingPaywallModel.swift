@@ -7,9 +7,8 @@ import SuperwallKit
 /// One instance serves both screens, because the gift is the paywall's own yearly plan at another
 /// price and the two share one purchase in flight. It never imports SwiftUI; the screens render it.
 ///
-/// The purchase is made as the anonymous RevenueCat customer a signed-out install starts as.
-/// Signing in moves it onto the account (``PreAuthPurchaseTransfer``), so nothing here is written to
-/// Firestore and nothing needs a uid.
+/// The climber is signed in by the time these screens show, so every purchase and restore is made
+/// by an account. Nothing here is written to Firestore.
 @MainActor
 @Observable
 final class OnboardingPaywallModel {
@@ -62,34 +61,30 @@ final class OnboardingPaywallModel {
     private(set) var completedPurchase = false
     var selectedPlanID: String?
 
-    @ObservationIgnored private let provider: any PreAuthPaywallPlanProviding
+    @ObservationIgnored private let provider: any OnboardingPaywallPlanProviding
     @ObservationIgnored private let monetization: MonetizationManager
     @ObservationIgnored private let restoreService: AppAccessRestoreService
-    @ObservationIgnored private let ledger: PreAuthPurchaseLedger
+    @ObservationIgnored private let holdStore: PendingPurchaseHoldStore
     @ObservationIgnored private let configuration: MonetizationConfiguration
-    @ObservationIgnored private let now: () -> Date
     /// What Apple is still deciding on: Ask to Buy, or a charge RevenueCat has not confirmed. Nothing
     /// else can be bought meanwhile, because another product would be a second real charge.
     ///
     /// `startedTrial` is what this session bought. It is `nil` for a marker restored after a relaunch.
-    private var unconfirmedPurchase: (pending: PreAuthPendingPurchase, startedTrial: Bool?)?
+    private var unconfirmedPurchase: (hold: PendingPurchaseHold, startedTrial: Bool?)?
 
     init(
-        provider: (any PreAuthPaywallPlanProviding)? = nil,
+        provider: (any OnboardingPaywallPlanProviding)? = nil,
         monetization: MonetizationManager = .shared,
         restoreService: AppAccessRestoreService = .shared,
-        ledger: PreAuthPurchaseLedger = PreAuthPurchaseLedger(),
-        now: @escaping () -> Date = Date.init
+        holdStore: PendingPurchaseHoldStore = PendingPurchaseHoldStore()
     ) {
         self.monetization = monetization
         self.restoreService = restoreService
-        self.ledger = ledger
-        self.now = now
+        self.holdStore = holdStore
         configuration = monetization.configuration
-        unconfirmedPurchase = ledger.progress().pendingPurchase.map { ($0, nil) }
+        unconfirmedPurchase = holdStore.hold().map { ($0, nil) }
         self.provider = provider ?? RevenueCatNativePaywallPlanProvider(
             configuration: monetization.configuration,
-            allowsAnonymousPurchase: true,
             coordinator: { monetization }
         )
     }
@@ -106,9 +101,9 @@ final class OnboardingPaywallModel {
 
     var locksPurchase: Bool { isBusy || isAwaitingConfirmation || holdsAccess }
 
-    /// Whether this install already holds the entitlement: a purchase made before a relaunch, one
-    /// confirmed late, or one restored. Reads RevenueCat's state each time, so the screens can react
-    /// to it arriving while they are up.
+    /// Whether the account already holds the entitlement: a purchase just made, one confirmed late,
+    /// or one restored. Reads RevenueCat's state each time, so the screens can react to it arriving
+    /// while they are up. The root routes to the app on the same fact.
     var holdsAccess: Bool {
         completedPurchase || monetization.entitlementState.hasActiveEntitlement(
             configuration.revenueCatEntitlementID
@@ -130,7 +125,7 @@ final class OnboardingPaywallModel {
         resetNotice()
 
         do {
-            let plans = try await provider.loadPreAuthPlans()
+            let plans = try await provider.loadOnboardingPlans()
             yearly = plans.first { $0.id == configuration.revenueCatYearlyProductID }
             lifetime = plans.first { $0.id == configuration.revenueCatLifetimeProductID }
             welcome = plans.first { $0.id == configuration.revenueCatWelcomeProductID }
@@ -191,18 +186,17 @@ final class OnboardingPaywallModel {
 
         switch result {
         case .purchased:
-            recordPurchase(productID: plan.id, startedTrial: plan.freeTrialPeriod != nil)
             completedPurchase = true
             return .purchased(startedTrial: plan.freeTrialPeriod != nil)
         case .cancelled:
             return .cancelled
         case .pending:
-            holdUnconfirmed(plan, hold: .askToBuy)
+            holdUnconfirmed(plan, kind: .askToBuy)
             return .notCompleted
         case .failed(let error):
             if let controllerError = error as? RevenueCatPurchaseControllerError,
                case .entitlementUnconfirmed = controllerError {
-                holdUnconfirmed(plan, hold: .unconfirmedCharge)
+                holdUnconfirmed(plan, kind: .unconfirmedCharge)
             } else {
                 notice = .checkoutFailed
             }
@@ -228,13 +222,13 @@ final class OnboardingPaywallModel {
         switch outcome {
         case .restored:
             completedPurchase = true
-            recordHeldAccess()
+            releaseUnconfirmedPurchase()
             return .restored
         case .notFound:
             // RevenueCat found no access, which a charge it has not attached looks like too, so that
             // lock stays. Ask to Buy is released, undecided or declined: the two read the same, and
             // a declined one must not stay locked.
-            if unconfirmedPurchase?.pending.hold == .unconfirmedCharge {
+            if unconfirmedPurchase?.hold.kind == .unconfirmedCharge {
                 resetNotice()
             } else {
                 releaseUnconfirmedPurchase()
@@ -249,8 +243,9 @@ final class OnboardingPaywallModel {
 
     // MARK: - Checking
 
-    /// Asks again whether the unconfirmed purchase has landed. Access arriving moves the screens on
-    /// through ``holdsAccess``; anything else leaves the lock and its warning in place.
+    /// Asks again whether the unconfirmed purchase has landed. Access arriving takes the climber into
+    /// the app, because the root routes on the entitlement; anything else leaves the lock and its
+    /// warning in place.
     func checkAccess() async {
         guard activity == .idle, isAwaitingConfirmation else { return }
 
@@ -266,80 +261,26 @@ final class OnboardingPaywallModel {
 
     /// Drops whatever the last screen was told, keeping only the warning not to purchase again.
     func resetNotice() {
-        notice = unconfirmedPurchase?.pending.hold.notice
+        notice = unconfirmedPurchase?.hold.kind.notice
     }
 
-    func markPaywallReached() {
-        ledger.markPaywallReached(at: now())
-    }
-
-    /// Writes down access no purchase call reported - an Ask to Buy approval, a charge confirmed late,
-    /// an Apple ID that already held it - so a relaunch resumes at sign-in and the transfer has
-    /// something to move. The screens call it before moving on.
-    ///
-    /// - Returns: Whether the recorded purchase started a free trial.
-    @discardableResult
-    func recordHeldAccess() -> Bool {
-        guard holdsAccess else { return false }
-
-        if ledger.progress().purchase == nil {
-            if let unconfirmedPurchase {
-                let productID = unconfirmedPurchase.pending.productID
-                let plan = [yearly, lifetime, welcome].compactMap { $0 }.first { $0.id == productID }
-                recordPurchase(
-                    productID: productID,
-                    startedTrial: unconfirmedPurchase.startedTrial ?? (plan?.freeTrialPeriod != nil)
-                )
-            } else {
-                ledger.recordPurchase(
-                    PreAuthPurchase(
-                        source: .restore,
-                        productID: "restored",
-                        purchasedAt: now(),
-                        startedTrial: false
-                    )
-                )
-            }
-        }
-        releaseUnconfirmedPurchase()
-        notice = nil
-
-        return ledger.progress().purchase?.startedTrial ?? false
-    }
-
-    private func holdUnconfirmed(_ plan: NativePaywallPlan, hold: PreAuthPendingPurchase.Hold) {
-        let pending = PreAuthPendingPurchase(productID: plan.id, hold: hold)
-        ledger.markPurchasePending(pending)
-        unconfirmedPurchase = (pending, plan.freeTrialPeriod != nil)
+    private func holdUnconfirmed(_ plan: NativePaywallPlan, kind: PendingPurchaseHold.Kind) {
+        let hold = PendingPurchaseHold(productID: plan.id, kind: kind)
+        holdStore.mark(hold)
+        unconfirmedPurchase = (hold, plan.freeTrialPeriod != nil)
         resetNotice()
     }
 
-    /// The sign-in exit lets go of an Ask to Buy, which has charged nothing. A charge stays held, so
-    /// leaving sign-in without signing in cannot reopen the buy button.
-    func releaseAskToBuyHold() {
-        guard unconfirmedPurchase?.pending.hold == .askToBuy else { return }
-        releaseUnconfirmedPurchase()
-    }
-
-    /// Ends the hold, in the ledger and here. Sign-in completing calls it, so a marker cannot lock the
-    /// paywall after a later sign-out.
+    /// Ends the hold, on disk and here. The root calls it when access arrives and the coordinator
+    /// when the climber signs out, so a marker cannot lock the paywall once there is nothing left to
+    /// wait for.
     func releaseUnconfirmedPurchase() {
-        ledger.clearPendingPurchase()
+        holdStore.clear()
         unconfirmedPurchase = nil
-    }
-
-    private func recordPurchase(productID: String, startedTrial: Bool) {
-        ledger.recordPurchase(
-            PreAuthPurchase(
-                productID: productID,
-                purchasedAt: now(),
-                startedTrial: startedTrial
-            )
-        )
     }
 }
 
-private extension PreAuthPendingPurchase.Hold {
+private extension PendingPurchaseHold.Kind {
     var notice: OnboardingPaywallModel.Notice {
         switch self {
         case .askToBuy: .pendingApproval

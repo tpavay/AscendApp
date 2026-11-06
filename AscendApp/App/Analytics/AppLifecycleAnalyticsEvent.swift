@@ -52,6 +52,7 @@ extension AppLifecycleAnalyticsEvent {
         case restoringSession = "restoring_session"
         case resolving
         case onboarding
+        case onboardingPaywall = "onboarding_paywall"
         case paywall
         case mainApp = "main_app"
         case unresolved
@@ -60,7 +61,7 @@ extension AppLifecycleAnalyticsEvent {
         /// own, so a launch that is sitting on one has not chosen a destination yet.
         var isResolved: Bool {
             switch self {
-            case .updateRequired, .signedOut, .preAuthOnboarding, .onboarding, .paywall, .mainApp:
+            case .updateRequired, .signedOut, .preAuthOnboarding, .onboarding, .onboardingPaywall, .paywall, .mainApp:
                 true
             case .signedOutHold, .signingIn, .restoringSession, .resolving, .unresolved:
                 false
@@ -85,6 +86,8 @@ extension AppLifecycleAnalyticsEvent {
                 self = .resolving
             case .onboarding:
                 self = .onboarding
+            case .onboardingPaywall:
+                self = .onboardingPaywall
             case .paywall:
                 self = .paywall
             case .mainApp:

@@ -48,7 +48,7 @@ struct NativePaywallProductTerms: Equatable, Sendable {
 }
 
 enum NativePaywallPlanMapper {
-    /// - Parameter welcomeProductID: The gift's yearly product. Only the pre-sign-in paywall passes
+    /// - Parameter welcomeProductID: The gift's yearly product. Only the onboarding paywall passes
     ///   it, so the signed-in gate's plan list - which sells the two launch plans and nothing else -
     ///   is unchanged. It maps as an Annual subscription after the launch plans.
     static func plans(

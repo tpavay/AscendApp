@@ -28,9 +28,6 @@ struct OnboardingExitGiftScreen: View {
         }
         .background(Color.black.ignoresSafeArea())
         .task { await start() }
-        .onChange(of: model.holdsAccess) { _, holdsAccess in
-            if holdsAccess { advanceHoldingAccess() }
-        }
         .trackOnce(screen: .onboardingExitGift)
     }
 
@@ -238,16 +235,6 @@ struct OnboardingExitGiftScreen: View {
     // MARK: - Behaviour
 
     private func start() async {
-        guard RemoteFeatureFlagStore.shared.isEnabled(.preAuthPaywall) else {
-            advanceFromHere()
-            return
-        }
-
-        if model.holdsAccess {
-            advanceHoldingAccess()
-            return
-        }
-
         model.resetNotice()
 
         let hasSeenGift = coordinator.answers.welcomeGiftFirstShownAt != nil
@@ -275,27 +262,11 @@ struct OnboardingExitGiftScreen: View {
         }
     }
 
-    /// Moves on only while this screen is still the one showing, so a purchase that completes and an
-    /// entitlement that arrives a moment later cannot advance the flow twice.
-    /// `go(to:)`, not `advance()`: this also runs on arrival, inside the fade where `advance()` drops
-    /// a second tap, and nothing would ask again.
-    private func advanceFromHere() {
-        guard coordinator.step == .exitGift else { return }
-        coordinator.go(to: .auth)
-    }
-
-    private func advanceHoldingAccess() {
-        let startedTrial = model.recordHeldAccess()
-        coordinator.update { $0.trialStarted = startedTrial }
-        advanceFromHere()
-    }
-
     private func claim() async {
         switch await model.claimGift() {
         case .purchased(let startedTrial):
             HapticsManager.shared.trigger(.success)
             coordinator.update { $0.trialStarted = startedTrial }
-            advanceFromHere()
         case .cancelled, .notCompleted:
             break
         }

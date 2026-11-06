@@ -3,7 +3,7 @@ import Foundation
 struct OnboardingAnalyticsContext: Sendable, Hashable {
     static let flowID = "onboarding"
 
-    /// The pre-sign-in flow of 1.3.0: selling screens, setup, paywall, then sign-in last.
+    /// The onboarding of 1.3.0: selling screens and setup before sign-in, then the paywall and the welcome gift.
     static let currentFlowVersion = "v3"
     /// The flow that ships while `onboarding_v3_enabled` is off. Every context the old screens
     /// build defaults to it, so switching the new flow on never relabels the old funnel.
@@ -32,9 +32,9 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "weekly_target",
         "this_month_event",
         "notification_primer",
+        "auth",
         "paywall",
-        "exit_gift",
-        "auth"
+        "exit_gift"
     ]
 
     /// The v1 funnel's order, kept only while the old flow still ships behind the v3 switch.
@@ -154,20 +154,6 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     case authFailed(provider: String, reason: String)
     case paywallReached(placement: String, source: String?)
     case flowCompleted(context: OnboardingAnalyticsContext, completionReason: OnboardingFlowCompletionReason)
-    case purchaseTransferIncomplete(outcome: String)
-
-    /// The event for a pre-sign-in purchase known not to have finished moving to the account, or nil
-    /// when nothing is left unfinished or the server's answer says nothing either way.
-    static func forPurchaseTransfer(_ outcome: PreAuthPurchaseTransfer.Outcome) -> Self? {
-        switch outcome {
-        case .nothingToTransfer, .granted, .grantUnconfirmed:
-            nil
-        case .notTransferred:
-            .purchaseTransferIncomplete(outcome: "not_transferred")
-        case .grantPending:
-            .purchaseTransferIncomplete(outcome: "grant_pending")
-        }
-    }
 
     var record: TelemetryRecord {
         switch self {
@@ -318,12 +304,6 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                     "provider": .string(provider),
                     "reason": .string(reason)
                 ]
-            )
-        case .purchaseTransferIncomplete(let outcome):
-            return makeRecord(
-                name: "onboarding_purchase_transfer_incomplete",
-                context: Self.paywallContext,
-                parameters: ["outcome": .string(outcome)]
             )
         case .paywallReached(let placement, let source):
             var parameters: [String: TelemetryValue] = [

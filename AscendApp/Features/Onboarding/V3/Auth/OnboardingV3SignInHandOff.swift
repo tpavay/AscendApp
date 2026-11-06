@@ -1,6 +1,6 @@
 import Foundation
 
-/// A mark left on the device the moment a climber taps a sign-in provider at the end of the flow,
+/// A mark left on the device the moment a climber taps a sign-in provider after the setup screens,
 /// so the root can tell, the instant the account appears, that this sign-in closes the flow.
 ///
 /// It exists because the account appears before the sign-in call returns, and the root routes on
@@ -22,24 +22,25 @@ struct OnboardingV3HandOffIntent: @unchecked Sendable {
     func clear() { userDefaults.removeObject(forKey: Self.storageKey) }
 }
 
-/// Everything that happens when a climber signs in at the end of the v3 flow, and the few things
+/// Everything that happens when a climber signs in after the v3 setup screens, and the few things
 /// that happen on any sign-in.
 ///
 /// In order:
 /// 1. If the flow was walked to its end, post-sign-in onboarding is marked complete. The flow
 ///    already asked those questions, and until this is marked the route would show the old ones.
-/// 2. An anonymous purchase moves onto the account, whatever route led here - bought then signed in,
-///    restored, the gift, or "Already climbing? Sign in" - and the purchase ledger is cleared
-///    afterwards, because a signed-in climber has nothing left to resume.
-/// 3. The answers the climber gave are written to the profile, filling blanks only, then a
+/// 2. The answers the climber gave are written to the profile, filling blanks only, then a
 ///    days-a-week target the account does not have yet is saved, the Health history the climber
 ///    asked for is imported, and the delivered answers are dropped from the device. Health
 ///    authorization and the history read happened before sign-in; the import itself needs an
 ///    account, so it waits for this step. The ongoing import (`syncNow()`) is the authenticated
 ///    bootstrap's own work and is not started here.
-/// 4. The device and the account agree on the target, which is what puts the weekly reminder back.
+/// 3. The device and the account agree on the target, which is what puts the weekly reminder back.
 ///
-/// Step 3 is the only one that writes a profile, and it sits behind
+/// Nothing here touches a purchase. Sign-in comes before the paywall, so every purchase is made by
+/// the account that signed in, and a climber who already pays is recognised by the entitlement the
+/// root reads and goes straight to the app.
+///
+/// Step 2 is the only one that writes a profile, and it sits behind
 /// `onboarding_answers_profile_write_enabled`: switched off, the answers stay on the device exactly
 /// as they were and the next run writes them. They leave the device early only when the climber
 /// signs out, because the next account on this phone must not receive them
@@ -49,11 +50,6 @@ final class OnboardingV3SignInHandOff {
     /// Everything the hand-off reaches outside itself, so each step and its order are tested without
     /// the network, RevenueCat or the Health store.
     struct Seams {
-        /// Moves the anonymous purchase to the account and asks the server for the grant once it can.
-        /// A throttled answer leaves the grant to the reconciliation that runs from launch and foreground.
-        var completePurchaseTransfer: @MainActor () async -> Void
-        /// Forgets the purchase the signed-out device was holding.
-        var clearPurchaseLedger: @MainActor () -> Void
         var isProfileWriteEnabled: @MainActor () -> Bool
         var readProfile: @MainActor (_ userId: String) async throws -> UserDisplayNameData?
         var writeProfile: @MainActor (_ userId: String, _ email: String?, _ fill: OnboardingProfileFill) async throws -> Void
@@ -115,17 +111,13 @@ final class OnboardingV3SignInHandOff {
     func runAfterSignIn(userId: String, email: String?) async -> Outcome {
         closeFlowIfIntended()
 
-        await seams.completePurchaseTransfer()
-        // Cleared after `.notTransferred` too; keeping it and retrying is the sign-in chunk's follow-up.
-        seams.clearPurchaseLedger()
-
         let outcome = await writeAnswersIfAny(userId: userId, email: email)
         await seams.reconcileWeeklyTarget(userId)
         return outcome
     }
 
     /// Runs on launch and foreground for a climber who is already signed in, to land answers a
-    /// failed or switched-off write left behind. Moves no purchase.
+    /// failed or switched-off write left behind.
     @discardableResult
     func retryPendingAnswers(userId: String, email: String?) async -> Outcome {
         let hadUndeliveredTarget = undeliveredWeeklyTarget(in: store.answers(), userId: userId) != nil
@@ -195,7 +187,7 @@ final class OnboardingV3SignInHandOff {
 // MARK: - Live wiring
 
 extension OnboardingV3SignInHandOff {
-    /// The hand-off against the real services, the purchase transfer and its ledger included.
+    /// The hand-off against the real services.
     ///
     /// The Health seam is left empty here on purpose: the history import belongs to the Health
     /// chunk, and until it is wired it reports that nothing landed, so the workouts it found stay on
@@ -204,9 +196,6 @@ extension OnboardingV3SignInHandOff {
     static func live(
         markPostSignInOnboardingComplete: @escaping @MainActor () -> Void,
         importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool = { _ in false },
-        makePurchaseTransfer: @escaping @MainActor () -> PreAuthPurchaseTransfer = { PreAuthPurchaseTransfer() },
-        purchaseLedger: PreAuthPurchaseLedger = PreAuthPurchaseLedger(),
-        telemetry: TelemetryManager = .shared,
         reconcileWeeklyTarget: @escaping @MainActor (_ userId: String) async -> Void = { userId in
             await WeeklyTargetService().reconcile(for: userId)
         },
@@ -215,15 +204,6 @@ extension OnboardingV3SignInHandOff {
     ) -> OnboardingV3SignInHandOff {
         OnboardingV3SignInHandOff(
             seams: Seams(
-                completePurchaseTransfer: {
-                    let outcome = await makePurchaseTransfer().completeAfterSignIn()
-                    if let event = OnboardingAnalyticsEvent.forPurchaseTransfer(outcome) {
-                        telemetry.track(event)
-                    }
-                },
-                clearPurchaseLedger: {
-                    purchaseLedger.clear()
-                },
                 isProfileWriteEnabled: {
                     RemoteFeatureFlagStore.shared.isEnabled(.onboardingAnswersProfileWrite)
                 },

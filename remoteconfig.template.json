@@ -196,12 +196,12 @@
       "valueType": "BOOLEAN",
       "description": "Rollout switch, ships off. On lets the server push announce a new gear event; off sends nothing and the event stays unannounced until it is on and still inside its window. Read by the Cloud Function, not the app."
     },
-    "preauth_paywall_enabled": {
+    "onboarding_paywall_enabled": {
       "defaultValue": {
         "value": "true"
       },
       "valueType": "BOOLEAN",
-      "description": "Kill switch. Off skips the paywall and welcome gift in the 1.3.0 onboarding, which then ends at sign-in; the paywall after sign-in sells instead. Nothing is bought or stored before sign-in while off."
+      "description": "Kill switch. Off skips the paywall and welcome gift of the 1.3.0 onboarding; the app-access paywall sells after sign-in instead."
     },
     "apple_health_import_enabled": {
       "defaultValue": {

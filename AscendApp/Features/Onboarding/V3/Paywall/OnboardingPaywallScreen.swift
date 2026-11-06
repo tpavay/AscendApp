@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Screen 13: the hard paywall before sign-in. Yearly, with Lifetime as the smaller card under it.
+/// Screen 13: the hard paywall, shown to a signed-in climber who holds no entitlement. Yearly, with
+/// Lifetime as the smaller card under it.
 ///
 /// The close button fades in after three seconds and opens the welcome gift, every time. It is not
 /// drawn while the store has no gift to open, because a close button with nothing behind it would
@@ -19,9 +20,6 @@ struct OnboardingPaywallScreen: View {
     /// The page stops here, so nothing scrolls under the close button or into the status bar.
     private static let pageTopInset = closeTopPadding + closeSize
     private static let pageFadeHeight: CGFloat = 16
-    /// The welcome screen's exit, so the two can never read differently.
-    static let signInExitTitle = OnboardingV3Step.welcome.alternateExits[0].title
-
     @State private var showsClose = false
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -75,11 +73,6 @@ struct OnboardingPaywallScreen: View {
         .background(Color.black.ignoresSafeArea())
         .task { await start() }
         .task(id: model.giftOffer != nil) { await revealClose() }
-        // Access can arrive while this screen is up: a purchase still confirming, an Ask to Buy
-        // approved on another device, a restore. Whatever the route, a climber who holds it moves on.
-        .onChange(of: model.holdsAccess) { _, holdsAccess in
-            if holdsAccess { advanceHoldingAccess() }
-        }
         .trackOnce(screen: .onboardingPaywall)
     }
 
@@ -247,16 +240,6 @@ struct OnboardingPaywallScreen: View {
                 HStack(spacing: 18) { footerItems }
                 VStack(spacing: 0) { footerItems }
             }
-
-            // A climber with an account never has to pay to reach sign-in: the same exit the
-            // welcome screen offers, into the same returning-mode sign-in.
-            Button(Self.signInExitTitle) {
-                model.releaseAskToBuyHold()
-                coordinator.goToReturningSignIn()
-            }
-            .buttonStyle(.plain)
-            .frame(minHeight: 36)
-            .disabled(model.isBusy)
         }
         .multilineTextAlignment(.center)
         .paywallText(.semiBold, size: 12, relativeTo: .caption)
@@ -316,34 +299,10 @@ struct OnboardingPaywallScreen: View {
         model.selectedPlanID = plan.id
     }
 
+    /// Access arriving - a purchase, a restore, an Ask to Buy approved elsewhere - needs no handling
+    /// here: the root routes on the entitlement and takes the climber into the app.
     private func start() async {
-        // Off, the flow skips the paywall and the sign-in that follows hands the climber to the
-        // paywall that sells after it.
-        guard RemoteFeatureFlagStore.shared.isEnabled(.preAuthPaywall) else {
-            advanceFromHere()
-            return
-        }
-
-        model.markPaywallReached()
         await model.load()
-        // Bought before a relaunch, or restored: nothing is left to sell.
-        if model.holdsAccess { advanceHoldingAccess() }
-    }
-
-    /// Moves on only while this screen is still the one showing, so a purchase that completes and an
-    /// entitlement that arrives a moment later cannot advance the flow twice - the second advance
-    /// from sign-in would end it.
-    /// `go(to:)`, not `advance()`: this also runs on arrival, inside the fade where `advance()` drops
-    /// a second tap, and nothing would ask again.
-    private func advanceFromHere() {
-        guard coordinator.step == .paywall else { return }
-        coordinator.go(to: .auth)
-    }
-
-    private func advanceHoldingAccess() {
-        let startedTrial = model.recordHeldAccess()
-        coordinator.update { $0.trialStarted = startedTrial }
-        advanceFromHere()
     }
 
     private func revealClose() async {
@@ -361,7 +320,6 @@ struct OnboardingPaywallScreen: View {
         case .purchased(let startedTrial):
             HapticsManager.shared.trigger(.success)
             coordinator.update { $0.trialStarted = startedTrial }
-            advanceFromHere()
         case .cancelled, .notCompleted:
             break
         }
@@ -370,7 +328,6 @@ struct OnboardingPaywallScreen: View {
     private func restore() async {
         if await model.restore() == .restored {
             HapticsManager.shared.trigger(.success)
-            advanceHoldingAccess()
         }
     }
 }

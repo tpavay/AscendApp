@@ -7,11 +7,11 @@ protocol NativePaywallPlanProviding: AnyObject {
     func purchase(planID: String) async -> PurchaseResult
 }
 
-/// What the pre-sign-in paywall needs beyond the signed-in gate's two launch plans: the welcome
-/// gift's yearly plan, loaded beside them.
+/// What the onboarding paywall needs beyond the gate's two launch plans: the welcome gift's yearly
+/// plan, loaded beside them.
 @MainActor
-protocol PreAuthPaywallPlanProviding: NativePaywallPlanProviding {
-    func loadPreAuthPlans() async throws -> [NativePaywallPlan]
+protocol OnboardingPaywallPlanProviding: NativePaywallPlanProviding {
+    func loadOnboardingPlans() async throws -> [NativePaywallPlan]
 }
 
-extension RevenueCatNativePaywallPlanProvider: PreAuthPaywallPlanProviding { }
+extension RevenueCatNativePaywallPlanProvider: OnboardingPaywallPlanProviding { }

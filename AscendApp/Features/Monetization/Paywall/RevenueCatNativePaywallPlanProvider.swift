@@ -18,12 +18,8 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
     private let isPurchasesConfigured: @MainActor () -> Bool
     private var purchaseTargetsByProductID: [String: PurchaseTarget] = [:]
 
-    /// - Parameter allowsAnonymousPurchase: Whether a purchase may complete for the anonymous
-    ///   customer a signed-out install starts as. Only the pre-sign-in paywall passes it; the
-    ///   signed-in gate keeps refusing a purchase that has no uid to attribute it to.
     init(
         configuration: MonetizationConfiguration = .live,
-        allowsAnonymousPurchase: Bool = false,
         coordinator: @escaping @MainActor () -> any PaywallPurchaseCoordinating = {
             MonetizationManager.shared
         },
@@ -34,7 +30,6 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
         self.isPurchasesConfigured = isPurchasesConfigured
         executor = RevenueCatPurchaseExecutor(
             entitlementID: configuration.revenueCatEntitlementID,
-            allowsAnonymousPurchase: allowsAnonymousPurchase,
             applySubscriptionStatus: { _ in },
             refreshEntitlementState: {
                 await coordinator().refreshEntitlements(
@@ -58,10 +53,10 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
         )
     }
 
-    /// The yearly plan, Lifetime and the welcome gift's yearly plan, for the pre-sign-in paywall.
-    func loadPreAuthPlans() async throws -> [NativePaywallPlan] {
+    /// The yearly plan, Lifetime and the welcome gift's yearly plan, for the onboarding paywall.
+    func loadOnboardingPlans() async throws -> [NativePaywallPlan] {
         try await loadPlans(
-            productIDs: configuration.preAuthProductIDs,
+            productIDs: configuration.onboardingProductIDs,
             welcomeProductID: configuration.revenueCatWelcomeProductID
         )
     }

@@ -19,11 +19,7 @@ struct RootView: View {
     @State private var appVersionGateState = AppVersionGateState.shared
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
-    // A relaunch before sign-in resumes on the paywall, or on sign-in once something was bought,
-    // instead of replaying the screens before it.
-    @State private var onboardingV3Coordinator = OnboardingV3Coordinator(
-        startingAt: PreAuthPurchaseLedger().resumeStep ?? .welcome
-    )
+    @State private var onboardingV3Coordinator = OnboardingV3Coordinator()
     @State private var onboardingV3RouteLatch = OnboardingV3RouteLatch()
     @State private var onboardingV3HandOff: OnboardingV3SignInHandOff?
     @State private var tabRouter = TabRouter()
@@ -57,6 +53,8 @@ struct RootView: View {
                 authenticatedContent(for: .resolving)
             case .onboarding:
                 authenticatedContent(for: rootRoute)
+            case .onboardingPaywall:
+                authenticatedContent(for: .onboardingPaywall)
             case .paywall:
                 authenticatedContent(for: .paywall)
             case .mainApp:
@@ -151,6 +149,7 @@ struct RootView: View {
             if previousUid != nil, currentUid == nil {
                 LocalReminderCoordinator.shared.sessionEnded()
                 onboardingV3Coordinator.sessionEnded()
+                OnboardingPaywallModel.live.releaseUnconfirmedPurchase()
             }
             // The sheet belongs to the session that opened it, or it re-presents itself unprompted
             // over the next climber's gate. But deletion ends the session at the auth step, several
@@ -177,6 +176,9 @@ struct RootView: View {
         // the purchase yet.
         .onChange(of: monetizationManager.hasAppAccess) { _, hasAccess in
             guard hasAccess else { return }
+            // Whatever the onboarding paywall was waiting on has landed, and it has nothing left to sell.
+            OnboardingPaywallModel.live.releaseUnconfirmedPurchase()
+            onboardingV3Coordinator.paywallStageEnded()
             Task {
                 await monetizationManager.reconcileServerAppAccess()
             }
@@ -302,7 +304,8 @@ struct RootView: View {
             entitlementState: monetizationManager.entitlementStateForRouting,
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
             allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting,
-            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow
+            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow,
+            showsOnboardingPaywallV3: onboardingV3Coordinator.presentsPaywall
         )
 
         // At the very start of onboarding we do not yet know whether this account
@@ -413,6 +416,11 @@ struct RootView: View {
                 )
             }
 
+        case .onboardingPaywall:
+            routeScreen(route) {
+                OnboardingV3FlowView(coordinator: onboardingV3Coordinator)
+            }
+
         case .paywall:
             routeScreen(route) {
                 AppAccessPaywallPlaceholderView(
@@ -494,7 +502,9 @@ struct RootView: View {
         let handOff = OnboardingV3SignInHandOff.live(
             markPostSignInOnboardingComplete: {
                 postAuthOnboardingCoordinator.markCurrentUserComplete()
-                onboardingV3Coordinator.finish()
+                onboardingV3Coordinator.completeSignIn(
+                    showsPaywall: RemoteFeatureFlagStore.shared.isEnabled(.onboardingPaywall)
+                )
             }
         )
         onboardingV3HandOff = handOff

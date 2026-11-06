@@ -54,7 +54,7 @@ enum PreAuthOnboardingNotificationChoice: String, Codable, Equatable, Sendable {
 /// Everything the pre-sign-in flow collects. All optional: every screen can be skipped, and a
 /// field nobody answered is simply absent.
 ///
-/// Nothing here reaches Firestore. There is no uid until the last step, so these answers wait on
+/// Nothing here reaches Firestore. There is no uid until the sign-in step, so these answers wait on
 /// the device and are written to the profile right after sign-in, never before.
 struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
     /// Steps and minutes of the climb the climber calls usual: typed in on `usual_climb`, or the

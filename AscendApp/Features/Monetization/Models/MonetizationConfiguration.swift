@@ -47,7 +47,7 @@ struct MonetizationConfiguration: Equatable {
     let revenueCatYearlyProductID: String
     let revenueCatLifetimeProductID: String
     /// The yearly plan at the welcome price, offered only by the gift that follows a closed
-    /// pre-sign-in paywall. It lives in the yearly subscription's group, so a climber holds one or
+    /// onboarding paywall. It lives in the yearly subscription's group, so a climber holds one or
     /// the other, and it unlocks the same entitlement.
     let revenueCatWelcomeProductID: String
     let isRevenueCatTestStoreEnabled: Bool
@@ -75,10 +75,10 @@ struct MonetizationConfiguration: Equatable {
         [revenueCatYearlyProductID, revenueCatLifetimeProductID]
     }
 
-    /// Every plan the pre-sign-in paywall and its gift can sell. The welcome product is not part of
+    /// Every plan the onboarding paywall and its gift can sell. The welcome product is not part of
     /// ``launchProductIDs``: the offering audit and the signed-in gate sell the two launch plans
     /// only, and a gift is not something the gate may offer.
-    var preAuthProductIDs: [String] {
+    var onboardingProductIDs: [String] {
         launchProductIDs + [revenueCatWelcomeProductID]
     }
 

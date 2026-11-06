@@ -16,7 +16,7 @@ struct OnboardingPaywallEvidenceTests {
     private struct Fixture {
         let model: OnboardingPaywallModel
         let coordinator: OnboardingV3Coordinator
-        let ledger: PreAuthPurchaseLedger
+        let holdStore: PendingPurchaseHoldStore
     }
 
     private func fixture(
@@ -26,7 +26,7 @@ struct OnboardingPaywallEvidenceTests {
         entitlement: MonetizationEntitlementState = .inactive,
         purchaseResult: PurchaseResult = .cancelled,
         restoredState: MonetizationEntitlementState? = nil,
-        pending: PreAuthPendingPurchase? = nil,
+        pending: PendingPurchaseHold? = nil,
         storeHasPlans: Bool = true,
         fadeNeverEnds: Bool = false
     ) async -> Fixture {
@@ -64,16 +64,16 @@ struct OnboardingPaywallEvidenceTests {
             purchaseResult: purchaseResult,
             storeHasPlans: storeHasPlans
         )
-        let ledger = PreAuthPurchaseLedger(userDefaults: defaults)
-        if let pending { ledger.markPurchasePending(pending) }
+        let holdStore = PendingPurchaseHoldStore(userDefaults: defaults)
+        if let pending { holdStore.mark(pending) }
         let model = OnboardingPaywallModel(
             provider: provider,
             monetization: manager,
             restoreService: AppAccessRestoreService(entitlementID: "app_access", restorer: { manager }),
-            ledger: ledger
+            holdStore: holdStore
         )
         await model.load()
-        return Fixture(model: model, coordinator: coordinator, ledger: ledger)
+        return Fixture(model: model, coordinator: coordinator, holdStore: holdStore)
     }
 
     private let paywallCopy = [
@@ -112,8 +112,7 @@ struct OnboardingPaywallEvidenceTests {
             for line in [
                 "never climb a boring minute again", "someone to chase", "yearly",
                 "$29.99 billed once a year", "$2.49", "per month", "lifetime", "$49.99 once",
-                "start climbing", "cancel anytime", "restore", "terms", "privacy", "close",
-                OnboardingPaywallScreen.signInExitTitle.lowercased()
+                "start climbing", "cancel anytime", "restore", "terms", "privacy", "close"
             ] {
                 #expect(copy.contains(line), "missing \(line): \(copy)")
             }
@@ -313,7 +312,7 @@ struct OnboardingPaywallEvidenceTests {
     func aRelaunchWhilePendingReopensThePaywallWithNoWayToBuy() async throws {
         let fixture = await fixture(
             startingAt: .paywall,
-            pending: PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+            pending: PendingPurchaseHold(productID: "yearly", kind: .unconfirmedCharge)
         )
 
         try await RenderedScreen.host(
@@ -339,33 +338,21 @@ struct OnboardingPaywallEvidenceTests {
     }
 
     @Test
-    func anUnconfirmedChargeStaysLockedAfterTheSignInExitBackAndARelaunch() async throws {
-        let charge = PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+    func anUnconfirmedChargeStaysLockedAfterARelaunch() async throws {
+        let charge = PendingPurchaseHold(productID: "yearly", kind: .unconfirmedCharge)
         let fixture = await fixture(startingAt: .paywall, pending: charge)
-        let coordinator = fixture.coordinator
 
         try await RenderedScreen.host(
-            OnboardingV3FlowView(coordinator: coordinator)
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
                 .environment(\.onboardingPaywallModel, fixture.model)
                 .environment(AuthenticationViewModel()),
             settle: .turns(40)
         ) { screen in
-            try activateAccessibilityElement(labelled: OnboardingPaywallScreen.signInExitTitle, in: screen.root)
-            try await screen.settle(.until { _ in coordinator.step == .auth })
-            #expect(coordinator.returningSignInRequested)
-            #expect(fixture.ledger.progress().pendingPurchase == charge)
-
-            coordinator.back()
-            try await screen.settle(.until { _ in coordinator.step == .paywall })
-            try await screen.settle(.turns(20))
             try await expectThePaywallOffersNoPurchase(on: screen)
         }
 
-        #expect(fixture.ledger.resumeStep == .paywall)
-        let relaunched = await self.fixture(
-            startingAt: .paywall,
-            pending: fixture.ledger.progress().pendingPurchase
-        )
+        #expect(fixture.holdStore.hold() == charge)
+        let relaunched = await self.fixture(startingAt: .paywall, pending: fixture.holdStore.hold())
 
         try await RenderedScreen.host(
             OnboardingV3FlowView(coordinator: relaunched.coordinator)
@@ -378,63 +365,22 @@ struct OnboardingPaywallEvidenceTests {
     }
 
     @Test
-    func theSignInExitLetsGoOfAnAskToBuy() async throws {
-        let fixture = await fixture(
-            startingAt: .paywall,
-            pending: PreAuthPendingPurchase(productID: "yearly", hold: .askToBuy)
-        )
-        let coordinator = fixture.coordinator
+    func thePaywallHasNoSignInExitBecauseTheClimberIsSignedIn() async throws {
+        let fixture = await fixture(startingAt: .paywall)
 
         try await RenderedScreen.host(
-            OnboardingV3FlowView(coordinator: coordinator)
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
                 .environment(\.onboardingPaywallModel, fixture.model)
                 .environment(AuthenticationViewModel()),
-            settle: .turns(40)
+            settle: .turns(100)
         ) { screen in
-            try activateAccessibilityElement(labelled: OnboardingPaywallScreen.signInExitTitle, in: screen.root)
-            try await screen.settle(.until { _ in coordinator.step == .auth })
-            #expect(coordinator.returningSignInRequested)
-            #expect(fixture.ledger.progress().pendingPurchase == nil)
-
-            coordinator.back()
-            try await screen.settle(.until { _ in coordinator.step == .paywall })
-            let copy = try await screen.copy(until: { $0.contains("start climbing") })
-            #expect(!copy.contains("check access"), "\(copy)")
+            let copy = try await screen.copy(until: { $0.contains("privacy") })
+            #expect(!copy.contains("sign in"), "\(copy)")
         }
     }
 
     @Test
-    func goingBackToTheGiftWhileHoldingAccessOffersNoSale() async throws {
-        let fixture = await fixture(
-            startingAt: .paywall,
-            giftAlreadySeen: true,
-            purchaseResult: .purchased
-        )
-        let coordinator = fixture.coordinator
-        coordinator.go(to: .exitGift)
-
-        try await RenderedScreen.host(
-            OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model)
-                .environment(AuthenticationViewModel()),
-            settle: .turns(40)
-        ) { screen in
-            #expect(await fixture.model.claimGift() == .purchased(startedTrial: true))
-            try await screen.settle(.until { _ in coordinator.step == .auth })
-
-            // Back while the gift is still fading out, which is the arrival that once revived it.
-            coordinator.back()
-            #expect(coordinator.step == .exitGift)
-            try await screen.settle(.until { _ in coordinator.step == .auth })
-            try await screen.settle(.turns(20))
-
-            let copy = try await screen.copy()
-            #expect(!copy.contains("claim my gift"), "\(copy)")
-        }
-    }
-
-    @Test
-    func restoringAnUnconfirmedTrialCarriesTheTrialIntoTheAnswers() async throws {
+    func aPurchaseOrARestoreNeedsNoNavigationBecauseTheRootRoutesOnTheEntitlement() async throws {
         let fixture = await fixture(
             startingAt: .paywall,
             purchaseResult: .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed),
@@ -450,9 +396,10 @@ struct OnboardingPaywallEvidenceTests {
             settle: .turns(40)
         ) { screen in
             try activateAccessibilityElement(labelled: "Restore", in: screen.root)
-            try await screen.settle(.until { _ in coordinator.step == .auth })
-            #expect(coordinator.answers.trialStarted)
-            #expect(fixture.ledger.progress().purchase?.startedTrial == true)
+            try await screen.settle(.until { _ in !fixture.model.isAwaitingConfirmation })
+            #expect(fixture.model.holdsAccess)
+            #expect(fixture.holdStore.hold() == nil)
+            #expect(coordinator.step == .paywall, "the screen stays put; the root is what moves on")
         }
     }
 
@@ -471,65 +418,6 @@ struct OnboardingPaywallEvidenceTests {
         ) { screen in
             let copy = try await screen.copy(until: { $0.contains("no thanks") })
             #expect(!copy.contains("no active ascend purchase"), "\(copy)")
-        }
-    }
-
-    @Test
-    func aClimberWhoAlreadyHoldsAccessIsRememberedAsThePaywallMovesThemOn() async throws {
-        let fixture = await fixture(startingAt: .paywall, entitlement: .active(["app_access"]))
-        let coordinator = fixture.coordinator
-
-        try await RenderedScreen.host(
-            OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model)
-                .environment(AuthenticationViewModel()),
-            settle: .until { _ in coordinator.step == .auth }
-        ) { _ in
-            #expect(coordinator.step == .auth)
-            #expect(fixture.ledger.resumeStep == .auth)
-        }
-    }
-
-    /// The clock is stopped so the arrival is always inside the fade, where a second tap is dropped.
-    @Test(arguments: [OnboardingV3Step.paywall, .exitGift])
-    func arrivingHoldingAccessMovesOnEvenInsideTheFade(step: OnboardingV3Step) async throws {
-        let fixture = await fixture(
-            startingAt: .welcome,
-            entitlement: .active(["app_access"]),
-            fadeNeverEnds: true
-        )
-        let coordinator = fixture.coordinator
-
-        try await RenderedScreen.host(
-            OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model)
-                .environment(AuthenticationViewModel()),
-            settle: .turns(20)
-        ) { screen in
-            coordinator.go(to: step)
-            try await screen.settle(.until { _ in coordinator.step == .auth })
-            #expect(coordinator.step == .auth)
-        }
-    }
-
-    @Test
-    func theKillSwitchSkipsThePaywallEvenInsideTheFade() async throws {
-        let shippedFlags = RemoteFeatureFlagStore.shared.snapshot
-        RemoteFeatureFlagStore.shared.apply(.resolving(remoteValues: [RemoteFeatureFlag.preAuthPaywall.key: false]))
-        defer { RemoteFeatureFlagStore.shared.apply(shippedFlags) }
-
-        let fixture = await fixture(startingAt: .welcome, fadeNeverEnds: true)
-        let coordinator = fixture.coordinator
-
-        try await RenderedScreen.host(
-            OnboardingV3FlowView(coordinator: coordinator)
-                .environment(\.onboardingPaywallModel, fixture.model)
-                .environment(AuthenticationViewModel()),
-            settle: .turns(20)
-        ) { screen in
-            coordinator.go(to: .paywall)
-            try await screen.settle(.until { _ in coordinator.step == .auth })
-            #expect(coordinator.step == .auth)
         }
     }
 
@@ -564,7 +452,7 @@ struct OnboardingPaywallEvidenceTests {
     func aLockedPaywallKeepsThePerksFromShowingThroughThePlanCards(size: CGSize) async throws {
         let fixture = await fixture(
             startingAt: .paywall,
-            pending: PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+            pending: PendingPurchaseHold(productID: "yearly", kind: .unconfirmedCharge)
         )
 
         try await RenderedScreen.host(
@@ -833,7 +721,7 @@ struct OnboardingPaywallEvidenceTests {
     func aLockedPlanCardScrolledOverThePhotographStaysReadable() async throws {
         let fixture = await fixture(
             startingAt: .paywall,
-            pending: PreAuthPendingPurchase(productID: "yearly", hold: .unconfirmedCharge)
+            pending: PendingPurchaseHold(productID: "yearly", kind: .unconfirmedCharge)
         )
 
         try await RenderedScreen.host(
@@ -951,7 +839,7 @@ private struct GiftBoxHarness: View {
 }
 
 @MainActor
-private final class EvidenceProvider: PreAuthPaywallPlanProviding {
+private final class EvidenceProvider: OnboardingPaywallPlanProviding {
     let trialEligible: Bool
     let purchaseResult: PurchaseResult
     let storeHasPlans: Bool
@@ -962,9 +850,9 @@ private final class EvidenceProvider: PreAuthPaywallPlanProviding {
         self.storeHasPlans = storeHasPlans
     }
 
-    func loadPlans() async throws -> [NativePaywallPlan] { try await loadPreAuthPlans() }
+    func loadPlans() async throws -> [NativePaywallPlan] { try await loadOnboardingPlans() }
 
-    func loadPreAuthPlans() async throws -> [NativePaywallPlan] {
+    func loadOnboardingPlans() async throws -> [NativePaywallPlan] {
         guard storeHasPlans else { return [] }
         return [
             NativePaywallPlan(
