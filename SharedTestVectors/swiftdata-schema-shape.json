@@ -1,12 +1,12 @@
 {
-  "currentSchema": "AscendSchemaV6",
+  "currentSchema": "AscendSchemaV7",
   "versionIdentifier": [
-    6,
+    7,
     0,
     0
   ],
   "customStageCount": 1,
-  "lightweightStageCount": 4,
+  "lightweightStageCount": 5,
   "models": {
     "ActiveHeadphoneWorkoutDraft": {
       "checkpointDiagnosticsData": {
@@ -341,6 +341,78 @@
         "hasDefault": true
       },
       "statusRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      }
+    },
+    "HealthWorkoutRecord": {
+      "activeEnergyKilocalories": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "averageHeartRate": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "discoveredAt": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "durationSeconds": {
+        "type": "Double",
+        "optional": false,
+        "hasDefault": true
+      },
+      "endDate": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "homeNoticePending": {
+        "type": "Bool",
+        "optional": false,
+        "hasDefault": true
+      },
+      "importedWorkoutID": {
+        "type": "UUID?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "maxHeartRate": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "resolvedAt": {
+        "type": "Date?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "sourceName": {
+        "type": "String?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "startDate": {
+        "type": "Date",
+        "optional": false,
+        "hasDefault": true
+      },
+      "stateRawValue": {
+        "type": "String",
+        "optional": false,
+        "hasDefault": true
+      },
+      "steps": {
+        "type": "Int?",
+        "optional": true,
+        "hasDefault": false
+      },
+      "workoutUUID": {
         "type": "String",
         "optional": false,
         "hasDefault": true

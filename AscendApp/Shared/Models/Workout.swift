@@ -21,11 +21,11 @@ enum WorkoutSource: String, CaseIterable, Codable {
     case hevy = "hevy"               // Legacy import source retained for old synced workouts
     case headphoneMotion = "headphone_motion" // Live tracking from compatible headphones
 
-    /// Only sources Ascend can still produce. The other cases stay readable so stored rows from
-    /// before Apple Health import was removed keep rendering everywhere, but offering them as
-    /// filters advertises features that are gone. A climber can log a climb by hand again.
+    /// Only sources Ascend can produce: the headphones, Apple Health import, and typing a climb
+    /// in. The provider placeholders nothing ever set stay readable but are not offered as filters,
+    /// because that would advertise integrations that were never built.
     static var filterOptions: [WorkoutSource] {
-        [.headphoneMotion, .manual]
+        [.headphoneMotion, .appleHealth, .manual]
     }
 
     var displayName: String {
@@ -439,12 +439,20 @@ class Workout {
     /// hand-logged climb cannot be saved without steps, and an import with none is stored as zero
     /// and prompts for them. A live climb with zero steps is a real, finished measurement.
     var isMissingSteps: Bool {
-        steps == 0 && origin != .live
+        origin.isMissingSteps(steps: steps)
     }
 
     /// The steps to show, or nil where the climber has not given any.
     var recordedSteps: Int? {
         isMissingSteps ? nil : steps
+    }
+
+    /// Whether this climb may hold a personal record. A climb the pace check kept off the
+    /// leaderboards holds none, and neither does one with no step count: it is unfinished until the
+    /// steps are in. Only these two: a climb excluded for another reason - history from before the
+    /// climber joined - still fills the records it is allowed to.
+    var canHoldRecords: Bool {
+        !exceedsPaceCeiling && !isMissingSteps
     }
 
     /// Whether the pace check kept this climb off the leaderboards and the records that feed them.

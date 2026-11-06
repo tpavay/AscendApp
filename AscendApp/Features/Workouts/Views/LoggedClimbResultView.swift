@@ -45,10 +45,6 @@ struct LoggedClimbResultView: View {
                     standingSection
                     statsGrid
                     bestEffortCard
-                    Text("Logged by hand")
-                        .font(.montserratMedium(size: 12))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .padding(.top, 4)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
@@ -219,10 +215,6 @@ struct LoggedClimbResultView: View {
                 }
 
                 Spacer(minLength: 0)
-
-                if effort.origin != .live {
-                    ClimbOriginMark(origin: effort.origin, pointSize: 12)
-                }
             }
             .padding(16)
             .frame(maxWidth: .infinity)

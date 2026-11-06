@@ -1,6 +1,9 @@
 import Foundation
 
-/// How a climb came to exist, in the three words a climber and a leaderboard row use for it.
+/// How a climb came to exist.
+///
+/// Shown to a climber in two places only: the Imports list, which is Apple Health's own, and the
+/// footnote at the foot of a climb's detail. No row, board, record or history list draws it.
 ///
 /// A reading of `WorkoutSource`, not a second column: that raw value is already stored, filterable
 /// and synced under exactly these distinctions, and a parallel one would only be a second place to
@@ -14,13 +17,19 @@ enum ClimbOrigin: String, CaseIterable, Sendable {
     /// Typed in by hand.
     case manual
 
-    /// What a climb's source icon says, spoken.
-    var accessibilityLabel: String {
+    /// Whether a step count from this origin is an entry the climber has yet to make. A live
+    /// climb's zero is a finished measurement; any other zero is the absence of a number.
+    func isMissingSteps(steps: Int) -> Bool {
+        steps == 0 && self != .live
+    }
+
+    /// The footnote on a climb's detail, or nil for a live climb, which says nothing.
+    var detailFootnote: String? {
         switch self {
         case .live:
-            return "Recorded live"
+            return nil
         case .healthImport:
-            return "Imported"
+            return "Imported from Apple Health"
         case .manual:
             return "Logged by hand"
         }

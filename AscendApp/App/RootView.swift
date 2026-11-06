@@ -520,6 +520,9 @@ struct RootView: View {
                 debugLog("Workout hydration failed: \(error)")
             }
             guard isCurrentAuthenticatedSession(currentUserId) else { return }
+            if WorkoutHydrationService.hasRestoredWorkouts(for: currentUserId) {
+                AppleHealthImportService.shared.confirmCloudClimbsRestored(for: currentUserId)
+            }
 
             // Restoring routines is independent of workouts, so a failure on
             // either side must not take the other down with it.
@@ -559,6 +562,9 @@ struct RootView: View {
             // before the leaderboard rebuild because enrichment only ever adds metrics that
             // rebuild already reads.
             AppleHealthEnrichmentService.shared.resumeTracking(modelContext: modelContext)
+            // Import rides the same chain for the same reason: it writes climbs through
+            // `WorkoutMutationHandler`, so it must not run under a lockout or a deletion.
+            AppleHealthImportService.shared.resume(modelContext: modelContext)
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
                 modelContext: modelContext,

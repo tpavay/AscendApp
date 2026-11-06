@@ -113,12 +113,12 @@ final class ProfileScreenViewModel {
             // back to them let anyone show other climbers a CHAMPION count they never earned;
             // no records read back is a measured zero.
             let achievements = ProfileAchievementLadder(records: bundle.achievements)
-            let fallbackStats = fallbackStatsSnapshot(
+            let fallbackStats = Self.fallbackStatsSnapshot(
                 summaries: bundle.workoutSummaries,
                 firstAscentCount: firstAscents.held.count,
                 achievementCounts: achievements.counts
             )
-            let stats = mergedStats(remote: bundle.stats, fallback: fallbackStats)
+            let stats = Self.mergedStats(remote: bundle.stats, fallback: fallbackStats)
             otherUserIdentity = (bundle.identity ?? seedIdentity)?
                 .applyingPresentationFallback(
                     displayName: fallbackDisplayName,
@@ -301,7 +301,7 @@ final class ProfileScreenViewModel {
         )
     }
 
-    private func fallbackStatsSnapshot(
+    static func fallbackStatsSnapshot(
         summaries: [ProfileWorkoutSummary],
         firstAscentCount: Int,
         achievementCounts: ProfileAchievementCounts
@@ -309,6 +309,8 @@ final class ProfileScreenViewModel {
         let lifetimeTotalSteps = summaries.reduce(0) { $0 + $1.steps }
         let lifetimeDurationSeconds = Int(summaries.reduce(0.0) { $0 + $1.durationSeconds }.rounded())
         let completedClimbIds = Set(summaries.filter(\.isCompletedClimb).compactMap(\.climbId))
+        let measured = summaries.filter { !$0.isMissingSteps }
+        let measuredSeconds = Int(measured.reduce(0.0) { $0 + $1.durationSeconds }.rounded())
 
         return ProfileStatsSnapshot(
             totalClimbsCompleted: completedClimbIds.count,
@@ -318,18 +320,18 @@ final class ProfileScreenViewModel {
             currentStreakWeeks: 0,
             bestStreakWeeks: 0,
             prMostSteps: summaries.map(\.steps).max() ?? 0,
-            prLongestClimbSeconds: Int((summaries.map(\.durationSeconds).max() ?? 0).rounded()),
+            prLongestClimbSeconds: Int((measured.map(\.durationSeconds).max() ?? 0).rounded()),
             prHighestSPM: bestSPM(from: summaries),
             lifetimeTotalSteps: lifetimeTotalSteps,
             lifetimeDurationSeconds: lifetimeDurationSeconds,
             totalClimbs: summaries.count,
-            averageStepsPerMinute: lifetimeDurationSeconds > 0
-                ? Double(lifetimeTotalSteps) / (Double(lifetimeDurationSeconds) / 60.0)
+            averageStepsPerMinute: measuredSeconds > 0
+                ? Double(lifetimeTotalSteps) / (Double(measuredSeconds) / 60.0)
                 : 0
         )
     }
 
-    private func mergedStats(
+    static func mergedStats(
         remote: ProfileStatsSnapshot?,
         fallback: ProfileStatsSnapshot
     ) -> ProfileStatsSnapshot {
@@ -363,7 +365,7 @@ final class ProfileScreenViewModel {
         return remote
     }
 
-    private func bestSPM(from summaries: [ProfileWorkoutSummary]) -> Double {
+    private static func bestSPM(from summaries: [ProfileWorkoutSummary]) -> Double {
         summaries
             .filter { $0.durationSeconds > 0 }
             .map { Double($0.steps) / ($0.durationSeconds / 60.0) }

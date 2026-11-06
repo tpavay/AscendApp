@@ -98,6 +98,9 @@ export const LIVE_SENSOR_SOURCE = "headphone_motion";
 /** Typed in by hand. The one origin a climber can author without a sensor. */
 export const MANUAL_SOURCE = "manual";
 
+/** Imported from Apple Health: not measured by Ascend, and marked so. */
+export const APPLE_HEALTH_SOURCE = "apple_health";
+
 /**
  * The physical envelope a single session must fall inside to be counted.
  * `MAX_AVERAGE_STEPS_PER_MINUTE` mirrors
@@ -160,6 +163,13 @@ export interface LeaderboardAggregate {
    * workouts the totals are, so the two cannot disagree.
    */
   typedWorkouts: number;
+  /**
+   * How many of `totalWorkouts` were imported from Apple Health. Read with
+   * `typedWorkouts` for the row's source icon: a row with a typed climb reads
+   * typed, then one with an imported climb reads Health, and one with neither
+   * carries the live mark.
+   */
+  importedWorkouts: number;
 }
 
 /** One derived row, keyed by the document it belongs in. */
@@ -403,6 +413,7 @@ export function aggregateForPeriod(
   let totalWorkouts = 0;
   let totalDuration = 0;
   let typedWorkouts = 0;
+  let importedWorkouts = 0;
 
   for (const workout of workouts) {
     totalSteps += workout.steps;
@@ -411,6 +422,8 @@ export function aggregateForPeriod(
     totalDuration += workout.durationSeconds;
     if (workout.source === MANUAL_SOURCE) {
       typedWorkouts += 1;
+    } else if (workout.source === APPLE_HEALTH_SOURCE) {
+      importedWorkouts += 1;
     }
   }
 
@@ -422,6 +435,7 @@ export function aggregateForPeriod(
     totalDuration,
     stepsPerMinute: minutes > 0 ? totalSteps / minutes : 0,
     typedWorkouts,
+    importedWorkouts,
   };
 }
 
@@ -892,6 +906,7 @@ export function leaderboardDocumentData(
     totalDuration: row.aggregate.totalDuration,
     stepsPerMinute: row.aggregate.stepsPerMinute,
     typedWorkouts: row.aggregate.typedWorkouts,
+    importedWorkouts: row.aggregate.importedWorkouts,
     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
   };
 

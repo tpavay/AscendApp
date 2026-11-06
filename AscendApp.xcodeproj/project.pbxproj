@@ -602,8 +602,8 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Ascend - STG";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend counts steps from compatible headphones in Live Climbs, Just Climb sessions, and routines, and uses your phone's steps to fill a gap.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend uses photos from your library as backgrounds for the climbs you share.";
@@ -787,8 +787,8 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Ascend - DEV";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend counts steps from compatible headphones in Live Climbs, Just Climb sessions, and routines, and uses your phone's steps to fill a gap.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend uses photos from your library as backgrounds for the climbs you share.";
@@ -846,8 +846,8 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Ascend;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend counts steps from compatible headphones in Live Climbs, Just Climb sessions, and routines, and uses your phone's steps to fill a gap.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend uses photos from your library as backgrounds for the climbs you share.";

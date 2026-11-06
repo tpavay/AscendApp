@@ -99,6 +99,9 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
     /// the totals, and a row written before it did reads as live. `nil` when the totals are the
     /// device's own overlay and nothing says which climbs are behind them.
     let typedWorkouts: Int?
+    /// How many of `totalWorkouts` were imported from Apple Health. Read with `typedWorkouts`, and
+    /// `nil` on the same terms.
+    let importedWorkouts: Int?
     let lastUpdated: Date
     let age: Int?
     let weightKg: Double?
@@ -122,6 +125,7 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         totalDuration: Double,
         stepsPerMinute: Double,
         typedWorkouts: Int? = 0,
+        importedWorkouts: Int? = 0,
         lastUpdated: Date,
         age: Int? = nil,
         weightKg: Double? = nil,
@@ -146,6 +150,7 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         self.totalDuration = totalDuration
         self.stepsPerMinute = stepsPerMinute
         self.typedWorkouts = typedWorkouts
+        self.importedWorkouts = importedWorkouts
         self.lastUpdated = lastUpdated
         self.age = age
         self.weightKg = weightKg
@@ -169,6 +174,7 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         totalDuration: Double,
         stepsPerMinute: Double,
         typedWorkouts: Int? = 0,
+        importedWorkouts: Int? = 0,
         lastUpdated: Date,
         age: Int? = nil,
         weightKg: Double? = nil,
@@ -190,6 +196,7 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
         self.totalDuration = totalDuration
         self.stepsPerMinute = stepsPerMinute
         self.typedWorkouts = typedWorkouts
+        self.importedWorkouts = importedWorkouts
         self.lastUpdated = lastUpdated
         self.age = age
         self.weightKg = weightKg
@@ -199,16 +206,23 @@ struct FirestoreLeaderboardStats: Equatable, Sendable {
     }
 
     /// What a row's source icon reads: one typed climb in the period makes the row typed, because
-    /// a row is only as measured as its least measured climb. No icon when the climbs are unknown.
+    /// a row is only as measured as its least measured climb, and one imported climb makes it a
+    /// Health row. No icon when the climbs are unknown.
     var origin: ClimbOrigin? {
         guard let typedWorkouts else { return nil }
-        return typedWorkouts > 0 ? .manual : .live
+        if typedWorkouts > 0 { return .manual }
+        return (importedWorkouts ?? 0) > 0 ? .healthImport : .live
     }
 
     /// The published typed count, while it still describes these totals. Once the device's own
     /// totals have moved past the published row, which climbs are behind them is not known.
     func publishedTypedWorkouts(describingSteps steps: Int, workouts: Int) -> Int? {
         steps == totalSteps && workouts == totalWorkouts ? typedWorkouts : nil
+    }
+
+    /// The published imported count, on the same terms as `publishedTypedWorkouts`.
+    func publishedImportedWorkouts(describingSteps steps: Int, workouts: Int) -> Int? {
+        steps == totalSteps && workouts == totalWorkouts ? importedWorkouts : nil
     }
 
     func identityApplyingOverrides(

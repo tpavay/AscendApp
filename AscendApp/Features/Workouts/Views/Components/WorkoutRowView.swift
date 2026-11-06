@@ -39,8 +39,10 @@ struct WorkoutRowView: View {
         }
     }
 
-    private var compactStepsValue: String {
-        let value = workout.steps
+    /// What the row's headline reads where the climb carries no step count: not `0 steps`, which
+    /// claims a climb of nothing beside a real duration, but the prompt that finishes the climb.
+    private var compactStepsValue: String? {
+        guard let value = workout.recordedSteps else { return nil }
         if value >= 100_000 {
             let rounded = (Double(value) / 100).rounded() * 100
             let inK = rounded / 1000
@@ -78,11 +80,20 @@ struct WorkoutRowView: View {
 
             // Main stats row
             HStack(spacing: 6) {
-                Text("\(compactStepsValue) steps")
-                    .font(.montserratBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                if let compactStepsValue {
+                    Text("\(compactStepsValue) steps")
+                        .font(.montserratBold(size: 18))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                } else {
+                    Label("Add steps", systemImage: "plus")
+                        .font(.montserratBold(size: 15))
+                        .foregroundStyle(Color.accent)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .accessibilityLabel("Steps not recorded. Add steps")
+                }
 
                 Text("\u{2022}")
                     .font(.system(size: 10))

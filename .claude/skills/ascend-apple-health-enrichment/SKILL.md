@@ -1,17 +1,35 @@
 ---
 name: ascend-apple-health-enrichment
-description: Use when working on Ascend's Apple Health integration - connecting Health, the enrichment service and its bounded retry ledger, what any heart-rate surface may say, or the requested HealthKit read set - and when writing any screen `.task` or service `configure` that touches the workout store, which fires from Home and other feature code far outside the Integrations folder. Covers why Ascend reads Health over a climb's own time window and never touches a foreign workout record, why a pass that cannot run must not re-arm, and the bounded-query rules that keep the entry path off the main thread's critical section.
+description: Use when working on Ascend's Apple Health integration - connecting Health, the stair workout import (ledger, anchor, observer, auto-import), the enrichment service and its bounded retry ledger, what any heart-rate surface may say, or the requested HealthKit read set - and when writing any screen `.task` or service `configure` that touches the workout store, which fires from Home and other feature code far outside the Integrations folder. Covers why enrichment reads Health over a climb's own time window and never touches a foreign workout record, why import is a separate service with its own ledger, why a pass that cannot run must not re-arm, and the bounded-query rules that keep the entry path off the main thread's critical section.
 ---
 
-# Apple Health enrichment
+# Apple Health: import and enrichment
 
 Ascend ranks stair stepper workouts, it does not track them.
-It does not import workouts: **a `Workout` is created by an in-app sensor flow** (Live Climbs and routines captured via headphone motion) **or typed in on the Log a climb screen** (`WorkoutSource.manual`, 1.3.0), and Health enriches only the first kind - `isInAppSensorWorkout` is what gates it.
-Apple Health does exactly one job - it fills in the heart rate and calories a phone cannot measure, for a climb Ascend already recorded.
+Apple Health does two separate jobs here, and they never share a code path.
 
-Apple Health workout import was removed on 2026-08-08 (#437), together with manual logging; logging by hand came back in 1.3.0 as its own screen.
-Do not reintroduce import behind a flag, a debug toggle, or a "just in case" path.
-`WorkoutSource.appleHealth` survives only because older stored rows carry that raw value; nothing writes it.
+- **Enrichment** fills in the heart rate and calories a phone cannot measure, for a climb Ascend already recorded.
+  It is the original integration and the rest of this skill unless a heading says otherwise.
+- **Import** (1.3.0) brings a stair stepper workout a watch or another app saved to Health in as a climb.
+  Apple Health workout import was removed on 2026-08-08 (#437) under the racing-not-tracker positioning and returned as its own reviewed piece.
+  Its design, ledger states, announce rules and the overlap hook are in `docs/apple-health-import.md`, owned by `AppleHealthImportService`.
+
+A `Workout` is created by an in-app sensor flow, typed in on the Log a climb screen (`WorkoutSource.manual`, `LoggedClimbService`), or imported (`WorkoutSource.appleHealth`, `AppleHealthImportService`), and nowhere else.
+`isInAppSensorWorkout` is what gates enrichment: an imported climb already carries the heart rate and energy of its own workout and is never enriched.
+Do not add a second import path behind a flag, a debug toggle, or a "just in case" branch.
+
+## Import in one screen
+
+- Only `stairClimbing` and `stairs` workouts, only on or after the climber's join date, one `HealthWorkoutRecord` per HealthKit workout UUID.
+- Steps are the exact number on the workout's own statistics, never a tilde and never a second query over a time window.
+  A workout with none imports with zero steps and the Add steps prompt.
+- A pass reads from a persisted anchor (`HKAnchoredObjectQueryDescriptor`), files what is new, and imports it when auto-import is on.
+  A workout deleted in Health keeps its climb.
+- `HKObserverQuery` with immediate background delivery wakes the app for a new workout.
+  The completion handler is called on every path and is time-bounded, because HealthKit stops delivering until it is.
+- Kill switch `apple_health_import_enabled`.
+  Nothing a blocked pass leaves behind is lost: the anchor does not advance while it is off.
+- Imported climbs rank only through `ClimbPacePolicy` (see `ascend-workout-model`).
 
 ## The boundary that defines this integration
 
@@ -28,9 +46,12 @@ Do not reintroduce import behind a flag, a debug toggle, or a "just in case" pat
 
 ## The requested read set
 
-`HealthKitAuthorizationClient.readTypes` is exactly `heartRate` and `activeEnergyBurned`, and that list must stay derivable from what enrichment writes onto a climb.
-A type Ascend requests but never uses is a permission the climber cannot meaningfully refuse; `workoutType()`, `stepCount` and `basalEnergyBurned` were all requested-and-unused before #437/#353.
-Adding a read is a privacy-manifest tripwire - see `ascend-privacy-manifest`.
+`HealthKitAuthorizationClient.readTypes` is exactly four types, read only, with `toShare: []`: `workoutType()`, `stepCount`, `heartRate` and `activeEnergyBurned`.
+`enrichmentReadTypes` is the `heartRate` and `activeEnergyBurned` pair on its own, and it is a separate set on purpose.
+Enrichment's `connectionState` is judged against that pair, so a climber who connected before import returned is not turned into `revoked` and keeps getting heart rate; `importConnectionState` is the wider check, and answers `neverConnected` until the climber has been shown the sheet for the workout types.
+A type Ascend requests but never uses is a permission the climber cannot meaningfully refuse (#353), which is why `flightsClimbed` was dropped from the request: nothing reads it, so a type joins the set only with the code that reads it, the usage string and the disclosures in the same change.
+`basalEnergyBurned` stays out.
+Adding a read is a privacy-manifest tripwire - see `ascend-privacy-manifest`, and `NSHealthShareUsageDescription` must name every type here (`AppleHealthSurfacesEvidenceTests`).
 
 ## One service, one schedule, one ledger
 
@@ -60,9 +81,9 @@ The Live Climb completion summary and Workout Detail render the chart when a sto
 Workout Detail may still show its remote-series restore state, because that means data exists and is arriving, not that the climb has no heart rate.
 Regression coverage: `AscendAppTests/WorkoutDetailHeartRateVisibilityTests.swift`, `AscendAppTests/LiveClimbCompletionSummaryHealthPromptEvidenceTests.swift`.
 
-**Settings -> Integrations is the only Apple Health surface.**
-It is the only place that offers the connection, the only place that explains revoked or unavailable permissions, and the only place a check can be asked for by hand.
-Do not grow a second one, and do not re-introduce a per-climb status enum for a view to render - the previous narration API (`Phase`, `phase(for:)`, `offersConnectionPrompt`, `FetchResult`, `fetchNow`, `connectAndFetch`) was deleted once every surface that consumed it was.
+**The connection has two doors and one flow.**
+Settings -> Integrations and the Climb sheet's Connect Health button both open `AppleHealthConnectFlowView` (connect, which opens the iOS sheet at once - there is no permission-guide screen between them, because every extra tap costs a climber - then the Import automatically or Let me choose screen; both screens end in `HealthFlowChrome`'s bottom bar, so the primary button never moves, and only the connect screen draws the close X); Integrations is still the only place that explains revoked or unavailable permissions and the only place a heart-rate check can be asked for by hand.
+Do not grow a third door, and do not re-introduce a per-climb status enum for a view to render - the previous narration API (`Phase`, `phase(for:)`, `offersConnectionPrompt`, `FetchResult`, `fetchNow`, `connectAndFetch`) was deleted once every surface that consumed it was.
 The card reads `appleHealthConnectionState` and drives `requestAppleHealthAuthorizationIfNeeded` then `refreshPendingEnrichment(isUserInitiated:)`.
 
 Failure copy names nothing the climber owns and never carries an `error.localizedDescription`; the underlying error goes to `AppDiagnosticsRecorder` instead.
@@ -98,13 +119,15 @@ See `docs/remote-config-kill-switches.md`.
   Dropping it left the service unable to resume for any owner that adopted it once and does not re-configure, which is how a resolved deletion killed enrichment permanently.
 - A view must not cancel the schedule.
   It is account-scoped, not screen-scoped: Home cancelling on `onDisappear` disarmed the whole retry curve on an ordinary tab switch.
-- There are no HealthKit observers and no background delivery.
-  `HKObserverQuery` plus background delivery was rejected deliberately: heart rate's minimum background frequency is hourly and it would wake the app for every heart-rate sample the phone records.
-  If one is ever added, every completion handler must be time-bounded - HealthKit does not guarantee they fire, and an unbounded continuation is permanent, not slow.
+- Enrichment has no HealthKit observer and no background delivery, and must not grow one.
+  `HKObserverQuery` on heart rate was rejected deliberately: its minimum background frequency is hourly and it would wake the app for every heart-rate sample the phone records.
+  The one observer in the app is import's, on the workout type, which fires once per saved workout.
+  Every completion handler must be time-bounded - HealthKit does not guarantee they fire, and an unbounded continuation is permanent, not slow.
 
 ## Related
 
-- Enrichment writes columns; it never changes the store's shape. A new stored property is a schema migration - see `ascend-data-migration`.
+- `AppleHealthImportService` is also an `AuthenticatedSessionWorker` in `AutonomousSessionWorkers.all`, for the same reason: it writes climbs on its own schedule and stops its observer on sign-out and deletion.
+- Enrichment writes columns; it never changes the store's shape. Import adds one model, `HealthWorkoutRecord` (schema V7). A new stored property is a schema migration - see `ascend-data-migration`.
 - Load the `healthkit` skill for Apple Health API work.
 - The canonical workout contract, plausibility gate and source-vs-participation split live in `ascend-workout-model`.
 - What the climb surfaces - completion summary, workout detail - do with heart rate belongs to `ascend-live-climbs`.
