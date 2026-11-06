@@ -153,10 +153,7 @@ struct AppleHealthHistoryImportTests {
     func onlyTheWorkoutsTheClimberWasShownAreBroughtIn() async throws {
         let (harness, old, _) = try harnessWithHistory()
 
-        await harness.service.importHistory(
-            before: harness.referenceJoinDate,
-            matching: [old[0].uuid.uuidString]
-        )
+        await harness.service.importHistory(matching: [old[0].uuid.uuidString])
 
         let climbs = try harness.climbs()
         #expect(climbs.count == 1)
@@ -225,6 +222,18 @@ struct AppleHealthHistoryImportTests {
     }
 
     @Test
+    func itAsksHealthForItsAnswerBeforeDecidingHealthIsNotConnected() async throws {
+        let (harness, old, _) = try harnessWithHistory()
+        harness.authorization.importConnectionState = .neverConnected
+        harness.authorization.importConnectionStateAfterRefresh = .connected
+
+        let landed = await harness.importHistory()
+
+        #expect(landed, "a relaunch that has not heard Health yet reads as not connected")
+        #expect(try harness.climbs().count == old.count)
+    }
+
+    @Test
     func itDefersWhenNobodyIsSignedIn() async throws {
         let (harness, _, _) = try harnessWithHistory()
         harness.userID = nil
@@ -277,7 +286,6 @@ extension AppleHealthImportHarness {
     @discardableResult
     func importHistory(using service: AppleHealthImportService? = nil) async -> Bool {
         await (service ?? self.service).importHistory(
-            before: referenceJoinDate,
             matching: Set(reader.workouts.map { $0.uuid.uuidString })
         )
     }

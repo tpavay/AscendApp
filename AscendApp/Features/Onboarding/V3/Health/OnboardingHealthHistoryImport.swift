@@ -12,16 +12,10 @@ enum OnboardingHealthHistoryImport {
     ///   may drop the identifiers. False keeps them for the next run.
     static func run(
         _ answers: PreAuthOnboardingAnswers,
-        service: AppleHealthImportService = .shared,
-        joinDate: Date? = AccountJoinDate.current()
+        service: AppleHealthImportService = .shared
     ) async -> Bool {
         guard !answers.foundHealthWorkoutIDs.isEmpty else { return true }
-        // No account date is no account: the import has nothing to be before.
-        guard let joinDate else { return false }
 
-        return await service.importHistory(
-            before: joinDate,
-            matching: Set(answers.foundHealthWorkoutIDs)
-        )
+        return await service.importHistory(matching: Set(answers.foundHealthWorkoutIDs))
     }
 }

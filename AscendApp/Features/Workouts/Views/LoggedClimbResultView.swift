@@ -141,11 +141,7 @@ struct LoggedClimbResultView: View {
                 .tracking(1)
                 .foregroundStyle(Color.ascendCaution)
 
-            Text(
-                workout.exceedsPaceCeiling
-                    ? LoggedClimbCopy.savedOffTheBoardsNote(stepsPerMinute: workout.stepsPerMinute ?? 0)
-                    : LoggedClimbCopy.savedBeforeJoiningNote
-            )
+            Text(LoggedClimbCopy.savedNote(for: workout) ?? LoggedClimbCopy.savedBeforeJoiningNote)
             .font(.montserratMedium(size: 13))
             .foregroundStyle(.white.opacity(0.78))
             .fixedSize(horizontal: false, vertical: true)

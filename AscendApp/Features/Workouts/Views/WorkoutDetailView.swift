@@ -425,14 +425,14 @@ struct WorkoutDetailView: View {
         }
     }
 
-    /// How this climb came to exist, and - for one the pace check kept off the leaderboards - why
-    /// it is not on them. A live climb says nothing: it needs no explaining.
+    /// How this climb came to exist, and - for one kept off the leaderboards - why it is not on
+    /// them. A live climb says nothing: it needs no explaining.
     @ViewBuilder
     private var provenanceFooter: some View {
         if let footnote = workout.origin.detailFootnote {
             VStack(spacing: 10) {
-                if workout.exceedsPaceCeiling {
-                    Text(LoggedClimbCopy.savedOffTheBoardsNote(stepsPerMinute: workout.stepsPerMinute ?? 0))
+                if let note = LoggedClimbCopy.savedNote(for: workout) {
+                    Text(note)
                         .font(.montserratMedium(size: 12))
                         .foregroundStyle(Color.ascendCaution)
                         .multilineTextAlignment(.center)

@@ -47,6 +47,49 @@ struct WorkoutHydrationServiceLiveClimbRestoreTests {
         #expect(restoredAttempt.accumulatedSteps == backup.localAttemptSteps)
     }
 
+    @Test
+    func aDateEditFromAnotherDeviceRefreshesTheLeaderboardVerdict() async throws {
+        let userId = "hydration-date-edit-user"
+        let original = Date(timeIntervalSince1970: 1_775_217_600)
+        let context = try makeModelContext()
+
+        func climb(on date: Date) -> Workout {
+            Workout(
+                name: "Stair Stepper",
+                date: date,
+                duration: 1_800,
+                steps: 3_000,
+                floors: Workout.stepsToFloors(3_000),
+                source: .manual
+            )
+        }
+
+        let local = climb(on: original)
+        local.ownerUserId = userId
+        local.remoteSyncStatus = .synced
+        local.lastModifiedAt = original
+        local.leaderboardStatus = .excluded
+        context.insert(local)
+        try context.save()
+
+        let remote = climb(on: original.addingTimeInterval(86_400))
+        remote.id = local.id
+        remote.markPendingRemoteUpsert(ownerUserId: userId)
+        remote.lastModifiedAt = original.addingTimeInterval(172_800)
+        let snapshot = try WorkoutRemoteSyncMapper.snapshot(from: remote)
+
+        _ = try await WorkoutHydrationService.hydrateIfNeeded(
+            modelContext: context,
+            currentUserId: userId,
+            remoteRepository: StubWorkoutRemoteRepository(
+                records: [RemoteWorkoutRecord(workoutId: snapshot.workoutId, document: snapshot.document)]
+            )
+        )
+
+        #expect(local.date == remote.date)
+        #expect(local.leaderboardStatus == .eligible, "the verdict was made against the old date")
+    }
+
     /// A backup written by a build that predates save-time stop reason normalization: the stored
     /// reason still says the user stopped even though the session passed the target.
     @Test

@@ -4,7 +4,7 @@ import Foundation
 /// "We found your climbs".
 ///
 /// Read-only and filed nowhere: this is a look, and the import itself waits for sign-in
-/// (`AppleHealthImportService.importHistory(before:)`). Unlike the pass it has no join-date floor,
+/// (`AppleHealthImportService.importHistory(matching:)`). Unlike the pass it has no join-date floor,
 /// because the screen is about the history the pass would never reach.
 ///
 /// Steps are the ones an import would keep (`AppleHealthImportPolicy.importableSteps`), so the
@@ -165,18 +165,21 @@ struct HealthHistoryComparison: Equatable, Sendable {
         )
     }
 
-    /// The words that make a name a thing you say "the" before: a building, a tower, a centre.
-    /// A name without one - Taipei 101, Merdeka 118, Monserrate, Burj Khalifa - is a proper name
-    /// on its own, and "the" in front of it reads wrong on a screen a new climber sees first.
+    /// The words that make a name a thing you say "the" before: a building, a tower, a centre. They
+    /// can sit anywhere in it - the Leaning Tower of Pisa, the Statue of Liberty. A name without one
+    /// (Taipei 101, Merdeka 118, Monserrate, Burj Khalifa) is a proper name on its own, and "the" in
+    /// front of it reads wrong on a screen a new climber sees first.
     private static let articleNouns: Set<String> = [
-        "Building", "Tower", "Towers", "Centre", "Center", "Needle", "Castle", "Monument",
-        "Plaza", "Square", "Stair", "Liberty"
+        "Building", "Tower", "Towers", "Centre", "Center", "Needle", "Monument",
+        "Plaza", "Square", "Stair", "Statue"
     ]
 
-    /// Whether `name` is said with "the": its last word is a generic noun, or it names a statue.
-    static func carriesArticle(_ name: String) -> Bool {
-        guard let last = name.split(separator: " ").last else { return false }
-        return articleNouns.contains(String(last))
+    /// Names that hold one of those words and are still said bare.
+    private static let bareNames: Set<String> = ["One World Trade Center"]
+
+    private static func carriesArticle(_ name: String) -> Bool {
+        guard !bareNames.contains(name) else { return false }
+        return name.split(separator: " ").contains { articleNouns.contains(String($0)) }
     }
 
     /// The card's kicker.

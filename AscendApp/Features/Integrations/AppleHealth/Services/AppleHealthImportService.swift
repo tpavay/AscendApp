@@ -481,7 +481,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     ///   gate the pass shares, a failed read or save - and nothing was lost: running it again
     ///   files and imports whatever is still waiting.
     @discardableResult
-    func importHistory(before joinDate: Date, matching workoutIDs: Set<String>) async -> Bool {
+    func importHistory(matching workoutIDs: Set<String>) async -> Bool {
         guard RemoteFeatureGate.allows(
             .appleHealthHistoryImport,
             path: "AppleHealthImportService.importHistory",
@@ -489,9 +489,11 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         ) else {
             return false
         }
+        // A launch that has not heard Health's answer yet reads as not connected. Ask first.
+        await authorization.refreshAuthorizationRequestStatus()
         // The same gates as a pass, and the same wait for the cloud restore: a climb restored from
         // the account is the only thing that stops its own workout importing a second time.
-        guard canImport, let modelContext, let userID = currentUserID(),
+        guard canImport, let modelContext, let userID = currentUserID(), let joinedAt = joinDate(),
               cloudRestoreConfirmedUserID == userID else {
             return false
         }
@@ -512,7 +514,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         let ledger = HealthWorkoutLedger(modelContext: modelContext)
         var waiting: [HealthWorkoutRecord] = []
         do {
-            for snapshot in found.added where snapshot.startDate < joinDate {
+            for snapshot in found.added where snapshot.startDate < joinedAt {
                 guard AppleHealthImportPolicy.isImportableDuration(snapshot.duration),
                       workoutIDs.contains(snapshot.uuid.uuidString) else {
                     continue

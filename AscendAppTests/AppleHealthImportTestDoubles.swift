@@ -102,10 +102,16 @@ final class FakeImportAuthorization: HealthKitAuthorizationControlling {
     var lastPermissionErrorMessage: String?
     var connectionState: AppleHealthConnectionState = .connected
     var importConnectionState: AppleHealthConnectionState = .connected
+    /// What Health answers when asked, for a launch that has not heard yet.
+    var importConnectionStateAfterRefresh: AppleHealthConnectionState?
     var grantsAuthorization = true
     private(set) var authorizationRequests = 0
 
-    func refreshAuthorizationRequestStatus() async {}
+    func refreshAuthorizationRequestStatus() async {
+        if let importConnectionStateAfterRefresh {
+            importConnectionState = importConnectionStateAfterRefresh
+        }
+    }
 
     func requestAuthorization() async -> Bool {
         authorizationRequests += 1

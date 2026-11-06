@@ -32,8 +32,9 @@ struct OnboardingV3HandOffIntent: @unchecked Sendable {
 ///    days-a-week target the account does not have yet is saved, the Health history the climber
 ///    asked for is imported, and the delivered answers are dropped from the device. Health
 ///    authorization and the history read happened before sign-in; the import itself needs an
-///    account, so it waits for this step. The ongoing import (`syncNow()`) is the authenticated
-///    bootstrap's own work and is not started here.
+///    account and its cloud restore, so it waits for this step and, when the restore has not
+///    confirmed yet, for the authenticated bootstrap to run this again once it has. The ongoing
+///    import (`syncNow()`) is the authenticated bootstrap's own work and is not started here.
 /// 3. The device and the account agree on the target, which is what puts the weekly reminder back.
 ///
 /// Nothing here touches a purchase. Sign-in comes before the paywall, so every purchase is made by

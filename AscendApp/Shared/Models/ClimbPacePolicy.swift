@@ -6,7 +6,7 @@ import Foundation
 /// (`WorkoutPlausibilityPolicy`, 220 steps/min). A climb the climber typed in has no sensor behind
 /// it, so its pace is the only evidence there is, and this is the whole of the check. There is no
 /// report button, no review queue and no hold on a top placing - the number decides, and it runs
-/// at exactly two moments: when the climb is saved, and when its steps or time are edited.
+/// at exactly two moments: when the climb is saved, and when its steps, time or date change.
 ///
 /// Pace is average steps per minute. Two thresholds cut it into three outcomes:
 ///

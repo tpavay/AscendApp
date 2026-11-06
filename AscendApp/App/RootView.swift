@@ -641,6 +641,8 @@ struct RootView: View {
             // Import rides the same chain for the same reason: it writes climbs through
             // `WorkoutMutationHandler`, so it must not run under a lockout or a deletion.
             AppleHealthImportService.shared.resume(modelContext: modelContext)
+            await onboardingV3HandOffService().retryPendingAnswers(userId: currentUserId, email: user.email)
+            guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
                 modelContext: modelContext,

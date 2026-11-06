@@ -216,7 +216,8 @@ struct HealthHistorySummaryTests {
         ("Petronas Towers", "That's the Petronas Towers"),
         ("Space Needle", "That's the Space Needle"),
         ("Statue of Liberty", "That's the Statue of Liberty"),
-        ("One World Trade Center", "That's the One World Trade Center"),
+        ("Leaning Tower of Pisa", "That's the Leaning Tower of Pisa"),
+        ("One World Trade Center", "That's One World Trade Center"),
         ("Taipei 101", "That's Taipei 101"),
         ("Merdeka 118", "That's Merdeka 118"),
         ("Monserrate", "That's Monserrate"),
@@ -229,20 +230,44 @@ struct HealthHistorySummaryTests {
         #expect(comparison.kicker == kicker)
     }
 
+    /// Every available catalogue name as a reader says it, written out by hand so the rule has
+    /// something other than itself to answer to. A climb added later is not listed and fails nothing.
+    private static let saidWithThe: Set<String> = [
+        "Statue of Liberty", "Space Needle", "Empire State Building", "Willis Tower", "CN Tower",
+        "Reunion Tower", "Eiffel Tower", "Elizabeth Tower", "Berlin TV Tower", "Leaning Tower of Pisa",
+        "Petronas Towers", "Tokyo Tower", "Shanghai Tower", "Canton Tower", "Oriental Pearl Tower",
+        "Lotte World Tower", "Sky Tower", "Eureka Tower", "Q1 Tower", "Sydney Tower",
+        "Ping An Finance Centre", "Guangzhou CTF Finance Centre", "Shanghai World Financial Center",
+        "Sommerbergbahn Stair", "Central Plaza", "DC Tower 1", "R&F Yingkai Square",
+        "TK Elevator Test Tower", "Varso Tower", "Tianjin TV Tower", "Macau Tower", "Frasers Tower",
+        "Sky Tower Wroclaw", "Tallinn TV Tower", "Post Tower", "Sky Tower Bucharest", "AZ Tower",
+        "Hyatt Regency Barcelona Tower", "UFO Tower Bratislava"
+    ]
+
+    private static let saidBare: Set<String> = [
+        "One World Trade Center", "Torre Latinoamericana", "Monserrate", "El Penon de Guatape",
+        "Farol Santander", "St. Peter's Basilica", "Sacre-Coeur", "Burj Khalifa", "Taipei 101",
+        "Merdeka 118", "Charminar", "875 North Michigan Avenue", "Torre Reforma", "Messeturm Frankfurt",
+        "Gran Hotel Bali", "Rondo 1", "KölnTurm", "Torre Glòries", "Messeturm Basel", "Pyramidenkogel"
+    ]
+
     @Test
-    func noCatalogueClimbEverReadsThatsTheTaipei101() throws {
+    func everyAvailableCatalogueNameReadsTheWayItIsSaid() throws {
         let url = try #require(Bundle.main.url(forResource: "climbs", withExtension: "json"))
         let climbs = try JSONDecoder().decode([Climb].self, from: Data(contentsOf: url)).filter(\.isAvailable)
-        #expect(climbs.count > 40)
+        let available = Set(climbs.map(\.name))
 
-        for climb in climbs {
-            let kicker = HealthHistoryComparison(name: climb.name, isEverest: false, timesOver: 1).kicker
-            let hasNoun = HealthHistoryComparison.carriesArticle(climb.name)
-            #expect(kicker == (hasNoun ? "That's the \(climb.name)" : "That's \(climb.name)"), "\(climb.name)")
-            // A name that starts with a digit or is a bare proper name never takes the article.
-            if climb.name.first?.isNumber == true || !climb.name.contains(" ") {
-                #expect(!kicker.contains("the"), "\(climb.name): \(kicker)")
-            }
+        #expect(available.isSuperset(of: Self.saidWithThe), "a listed climb left the catalogue")
+        #expect(available.isSuperset(of: Self.saidBare), "a listed climb left the catalogue")
+
+        func kicker(_ name: String) -> String {
+            HealthHistoryComparison(name: name, isEverest: false, timesOver: 1).kicker
+        }
+        for name in Self.saidWithThe {
+            #expect(kicker(name) == "That's the \(name)")
+        }
+        for name in Self.saidBare {
+            #expect(kicker(name) == "That's \(name)")
         }
     }
 

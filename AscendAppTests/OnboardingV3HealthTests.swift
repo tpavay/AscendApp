@@ -267,8 +267,7 @@ struct OnboardingV3HealthTests {
 
         let landed = await OnboardingHealthHistoryImport.run(
             answers,
-            service: harness.service,
-            joinDate: harness.referenceJoinDate
+            service: harness.service
         )
 
         #expect(landed)
@@ -282,8 +281,7 @@ struct OnboardingV3HealthTests {
 
         let landed = await OnboardingHealthHistoryImport.run(
             PreAuthOnboardingAnswers(),
-            service: harness.service,
-            joinDate: harness.referenceJoinDate
+            service: harness.service
         )
 
         #expect(landed, "nothing to bring in is nothing outstanding")
@@ -301,14 +299,47 @@ struct OnboardingV3HealthTests {
 
         let signedOut = await OnboardingHealthHistoryImport.run(
             answers,
-            service: harness.service,
-            joinDate: harness.referenceJoinDate
+            service: harness.service
         )
-        let undated = await OnboardingHealthHistoryImport.run(answers, service: harness.service, joinDate: nil)
 
         #expect(!signedOut)
-        #expect(!undated)
         #expect(try harness.climbs().isEmpty)
+    }
+
+    @Test
+    func aHistoryImportDeferredAtSignInLandsWhenTheCloudRestoreConfirms() async throws {
+        let harness = try AppleHealthImportHarness()
+        let shown = harness.addWorkout(daysAgo: 100, steps: 3_000)
+        let service = harness.relaunchedServiceWithoutCloudRestore()
+        let store = makeStore()
+        store.update { $0.foundHealthWorkoutIDs = [shown.uuid.uuidString] }
+        let suite = "onboarding-v3-health-intent-\(UUID().uuidString)"
+        let handOff = OnboardingV3SignInHandOff(
+            seams: .init(
+                isProfileWriteEnabled: { true },
+                readProfile: { _ in nil },
+                writeProfile: { _, _, _ in },
+                recordProfileStepFailure: { _ in },
+                importHealthHistory: { await OnboardingHealthHistoryImport.run($0, service: service) },
+                markPostSignInOnboardingComplete: {},
+                deviceWeeklyTarget: { _ in nil },
+                saveWeeklyTarget: { _, _ in },
+                reconcileWeeklyTarget: { _ in }
+            ),
+            store: store,
+            intent: OnboardingV3HandOffIntent(userDefaults: UserDefaults(suiteName: suite)!)
+        )
+
+        await handOff.runAfterSignIn(userId: AppleHealthImportHarness.userID, email: nil)
+
+        #expect(try harness.climbs().isEmpty, "the sign-in arrives before the restore")
+        #expect(store.answers().foundHealthWorkoutIDs == [shown.uuid.uuidString])
+
+        service.confirmCloudClimbsRestored(for: AppleHealthImportHarness.userID)
+        await handOff.retryPendingAnswers(userId: AppleHealthImportHarness.userID, email: nil)
+
+        #expect(try harness.climbs().map(\.healthKitUUID) == [shown.uuid.uuidString])
+        #expect(store.answers().foundHealthWorkoutIDs.isEmpty)
     }
 
     // MARK: - Progress

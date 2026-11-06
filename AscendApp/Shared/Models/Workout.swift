@@ -469,8 +469,8 @@ class Workout {
 
     /// Re-derives `leaderboardStatus` from the climb's own totals.
     ///
-    /// Called when a climb is saved and when its steps or time are edited, and nowhere else: a note,
-    /// a photo or an effort rating changes nothing the pace depends on, and nothing re-runs this on
+    /// Called when a climb is saved and when its steps, time or date change, and nowhere else: a note,
+    /// a photo or an effort rating changes nothing the verdict depends on, and nothing re-runs this on
     /// a schedule. Returns whether the status changed, so the caller can refresh what reads it.
     /// `climb_logging_enabled` off leaves the stored status exactly as it is. A climb from before
     /// the account stays off the boards through every edit (`ClimbPacePolicy.startedBeforeAccount`).
