@@ -40,7 +40,7 @@ final class OnboardingPaywallModel {
     }
 
     enum PurchaseOutcome: Equatable, Sendable {
-        case purchased(startedTrial: Bool)
+        case purchased
         case cancelled
         case notCompleted
     }
@@ -69,8 +69,7 @@ final class OnboardingPaywallModel {
     /// What Apple is still deciding on: Ask to Buy, or a charge RevenueCat has not confirmed. Nothing
     /// else can be bought meanwhile, because another product would be a second real charge.
     ///
-    /// `startedTrial` is what this session bought. It is `nil` for a marker restored after a relaunch.
-    private var unconfirmedPurchase: (hold: PendingPurchaseHold, startedTrial: Bool?)?
+    private var unconfirmedPurchase: PendingPurchaseHold?
 
     init(
         provider: (any OnboardingPaywallPlanProviding)? = nil,
@@ -82,7 +81,7 @@ final class OnboardingPaywallModel {
         self.restoreService = restoreService
         self.holdStore = holdStore
         configuration = monetization.configuration
-        unconfirmedPurchase = holdStore.hold().map { ($0, nil) }
+        unconfirmedPurchase = holdStore.hold()
         self.provider = provider ?? RevenueCatNativePaywallPlanProvider(
             configuration: monetization.configuration,
             coordinator: { monetization }
@@ -187,16 +186,16 @@ final class OnboardingPaywallModel {
         switch result {
         case .purchased:
             completedPurchase = true
-            return .purchased(startedTrial: plan.freeTrialPeriod != nil)
+            return .purchased
         case .cancelled:
             return .cancelled
         case .pending:
-            holdUnconfirmed(plan, kind: .askToBuy)
+            holdUnconfirmed(.askToBuy)
             return .notCompleted
         case .failed(let error):
             if let controllerError = error as? RevenueCatPurchaseControllerError,
                case .entitlementUnconfirmed = controllerError {
-                holdUnconfirmed(plan, kind: .unconfirmedCharge)
+                holdUnconfirmed(.unconfirmedCharge)
             } else {
                 notice = .checkoutFailed
             }
@@ -228,7 +227,7 @@ final class OnboardingPaywallModel {
             // RevenueCat found no access, which a charge it has not attached looks like too, so that
             // lock stays. Ask to Buy is released, undecided or declined: the two read the same, and
             // a declined one must not stay locked.
-            if unconfirmedPurchase?.hold.kind == .unconfirmedCharge {
+            if unconfirmedPurchase == .unconfirmedCharge {
                 resetNotice()
             } else {
                 releaseUnconfirmedPurchase()
@@ -261,13 +260,12 @@ final class OnboardingPaywallModel {
 
     /// Drops whatever the last screen was told, keeping only the warning not to purchase again.
     func resetNotice() {
-        notice = unconfirmedPurchase?.hold.kind.notice
+        notice = unconfirmedPurchase?.notice
     }
 
-    private func holdUnconfirmed(_ plan: NativePaywallPlan, kind: PendingPurchaseHold.Kind) {
-        let hold = PendingPurchaseHold(productID: plan.id, kind: kind)
+    private func holdUnconfirmed(_ hold: PendingPurchaseHold) {
         holdStore.mark(hold)
-        unconfirmedPurchase = (hold, plan.freeTrialPeriod != nil)
+        unconfirmedPurchase = hold
         resetNotice()
     }
 
@@ -280,7 +278,7 @@ final class OnboardingPaywallModel {
     }
 }
 
-private extension PendingPurchaseHold.Kind {
+private extension PendingPurchaseHold {
     var notice: OnboardingPaywallModel.Notice {
         switch self {
         case .askToBuy: .pendingApproval
@@ -297,9 +295,9 @@ extension OnboardingPaywallModel.Notice {
         case .checkoutFailed:
             "Checkout could not finish. Check your connection and try again."
         case .pendingApproval:
-            "Apple is waiting for approval. Do not purchase again."
+            "Apple is still confirming your purchase: Ask to Buy is waiting for approval. Do not purchase again."
         case .verificationUnavailable:
-            "Payment may still be processing. Do not purchase again."
+            "Apple is still confirming your purchase: the charge is not confirmed yet. Do not purchase again."
         case .nothingToRestore:
             "No active Ascend purchase was found for this Apple ID."
         case .restoreFailed:

@@ -109,8 +109,9 @@ Who sees them is decided by the entitlement, never by the order of the screens (
   The route waits on `resolving` until RevenueCat answers for the account, so an active subscriber never sees the paywall or the gift.
 - A climber who signs in and holds nothing - a new account, or a lapsed subscriber - sees the paywall once the answer is in.
   A purchase or a restore flips the entitlement and the root takes them into the app; the screens never navigate themselves.
-- The route lives for that session only (`OnboardingV3Coordinator.presentsPaywall` is held in memory).
-  A relaunch from the paywall meets the app-access gate, which carries the account-deletion and sign-out routes the native screens do not (Guideline 5.1.1(v)).
+- The route lasts until access arrives, across relaunches: the account that signed in is stored in the onboarding answers (`PreAuthOnboardingAnswers.paywallStageUserID`), cleared when access arrives and on sign-out, and no other account matches it.
+  A relaunch before buying therefore returns to the paywall and still offers the gift.
+- The paywall carries the app-access gate's `Sign out` and `Delete account` routes (Guideline 5.1.1(v)), wired to the root's one account-deletion sheet; `LockedOutSubscriberRecoveryContractTests` holds them.
 - With the kill switch off, the same climber meets the app-access gate straight after sign-in.
 - "Already have an account? Sign in" on the first screen opens the same sign-in in returning mode.
   It never closes post-sign-in onboarding, and a lapsed subscriber who signs in that way meets the app-access gate.
@@ -120,6 +121,7 @@ How the purchase works:
 - Purchase and restore run through the same `RevenueCatNativePaywallPlanProvider`, `RevenueCatPurchaseExecutor` and `AppAccessRestoreService` as the signed-in gate, and the executor refuses a purchase with no uid.
 - `PendingPurchaseHoldStore` remembers what Apple has not settled - an Ask to Buy, or a charge RevenueCat has not confirmed - and nothing can be bought while it does, because another product would be a second charge.
   Access arriving (`MonetizationManager.hasAppAccess`) and signing out both release it.
+  While a hold exists the gift is not offered at all - a second offer is a second purchase - and the screen shows the waiting state with `Check my purchase`.
 - Entitlement-to-server-grant timing is the same as for every purchase: reconciliation runs after the entitlement flips (`docs/revenuecat-server-entitlement-enforcement.md`).
 - Prices, the monthly equivalent and the discount percentage come from StoreKit.
   The percentage rounds down.
@@ -217,7 +219,7 @@ Both shippable configurations carry real publishable client keys, so no placehol
 `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is `YES` in Debug for local convenience and `NO` in Staging and Release.
 Changing Staging back to bypassed access requires no app code edit - see Tester-lockout recovery below for the two configuration steps it does require.
 Debug and Staging use `ascend_staging_yearly`, `ascend_staging_lifetime` and `ascend_staging_monthly`; Release uses `ascend_yearly`, `ascend_lifetime` and `ascend_monthly`.
-Each configuration also sets the welcome gift's product (see "Pre-sign-in paywall and welcome gift").
+Each configuration also sets the welcome gift's product (see "Onboarding paywall and welcome gift (1.3.0)").
 `scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key, the per-configuration access and launch-product values, and proves the preflight rejects a placeholder key, a reopened Release paywall, and either vendor test surface against a synthetic project; keep all of it aligned with any future setting move.
 Never commit the real keys to documentation or test fixtures.
 These publishable client keys are currently committed in `AscendApp.xcodeproj`.

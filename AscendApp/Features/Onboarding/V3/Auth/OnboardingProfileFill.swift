@@ -122,6 +122,7 @@ extension PreAuthOnboardingAnswers {
         var kept = droppingHandedOffAnswers
         kept.foundHealthWorkoutIDs = []
         kept.weeklyTargetDays = nil
+        kept.paywallStageUserID = nil
         return kept
     }
 }

@@ -184,7 +184,7 @@ struct PendingPurchaseHoldStoreTests {
     @Test
     func aHoldIsKeptUntilItIsCleared() {
         let store = store()
-        let hold = PendingPurchaseHold(productID: "yearly", kind: .askToBuy)
+        let hold = PendingPurchaseHold.askToBuy
         store.mark(hold)
         #expect(store.hold() == hold)
 
@@ -196,7 +196,7 @@ struct PendingPurchaseHoldStoreTests {
     func aValueNothingCanDecodeReadsAsNoHold() {
         let suite = "PendingPurchaseHoldStoreTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
-        defaults.set(Data("not json".utf8), forKey: PendingPurchaseHoldStore.storageKey)
+        defaults.set("not a hold", forKey: PendingPurchaseHoldStore.storageKey)
 
         #expect(PendingPurchaseHoldStore(userDefaults: defaults).hold() == nil)
     }
@@ -323,7 +323,7 @@ struct OnboardingPaywallModelTests {
 
         let outcome = await model.purchaseSelectedPlan()
 
-        #expect(outcome == .purchased(startedTrial: false))
+        #expect(outcome == .purchased)
         #expect(provider.purchasedPlanIDs == ["yearly"])
         #expect(model.holdsAccess)
         #expect(store.hold() == nil)
@@ -337,7 +337,7 @@ struct OnboardingPaywallModelTests {
 
         let outcome = await model.claimGift()
 
-        #expect(outcome == .purchased(startedTrial: true))
+        #expect(outcome == .purchased)
         #expect(provider.purchasedPlanIDs == ["welcome"])
     }
 
@@ -375,7 +375,7 @@ struct OnboardingPaywallModelTests {
 
         #expect(await model.purchaseSelectedPlan() == .notCompleted)
         #expect(model.notice == .pendingApproval)
-        #expect(store.hold() == PendingPurchaseHold(productID: "yearly", kind: .askToBuy))
+        #expect(store.hold() == PendingPurchaseHold.askToBuy)
     }
 
     @Test
@@ -484,7 +484,7 @@ struct OnboardingPaywallModelTests {
         #expect(!model.locksPurchase)
         #expect(store.hold() == nil)
         provider.purchaseResult = .purchased
-        #expect(await model.purchaseSelectedPlan() == .purchased(startedTrial: false))
+        #expect(await model.purchaseSelectedPlan() == .purchased)
     }
 
     @Test
@@ -499,7 +499,7 @@ struct OnboardingPaywallModelTests {
 
         #expect(model.notice == .verificationUnavailable)
         #expect(model.locksPurchase)
-        #expect(store.hold()?.productID == "yearly")
+        #expect(store.hold() == .unconfirmedCharge)
         model.selectedPlanID = "lifetime"
         #expect(await model.purchaseSelectedPlan() == .notCompleted)
         #expect(provider.purchasedPlanIDs == ["yearly"])
@@ -544,7 +544,7 @@ struct OnboardingPaywallModelTests {
             provider: provider
         )
 
-        #expect(store.hold() == PendingPurchaseHold(productID: "welcome", kind: .unconfirmedCharge))
+        #expect(store.hold() == PendingPurchaseHold.unconfirmedCharge)
         #expect(model.notice == .verificationUnavailable)
         #expect(await model.purchaseSelectedPlan() == .notCompleted)
         #expect(await model.claimGift() == .notCompleted)
@@ -561,7 +561,7 @@ struct OnboardingPaywallModelTests {
         let provider = StubPlanProvider(plans: plans())
         let (model, store) = await relaunched(after: .pending, provider: provider)
 
-        #expect(store.hold() == PendingPurchaseHold(productID: "welcome", kind: .askToBuy))
+        #expect(store.hold() == PendingPurchaseHold.askToBuy)
         #expect(model.notice == .pendingApproval)
         #expect(await model.purchaseSelectedPlan() == .notCompleted)
         #expect(provider.purchasedPlanIDs.isEmpty)
@@ -571,7 +571,7 @@ struct OnboardingPaywallModelTests {
         #expect(model.notice == .nothingToRestore)
         #expect(!model.locksPurchase)
         #expect(store.hold() == nil)
-        #expect(await model.purchaseSelectedPlan() == .purchased(startedTrial: false))
+        #expect(await model.purchaseSelectedPlan() == .purchased)
     }
 
     @Test
@@ -605,7 +605,7 @@ struct OnboardingPaywallModelTests {
         let store = PendingPurchaseHoldStore(
             userDefaults: UserDefaults(suiteName: "OnboardingPaywallModelTests-\(UUID().uuidString)")!
         )
-        store.mark(PendingPurchaseHold(productID: "yearly", kind: .unconfirmedCharge))
+        store.mark(PendingPurchaseHold.unconfirmedCharge)
         let (model, _) = make(provider: provider, holdStore: store)
         await model.load()
 

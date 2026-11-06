@@ -24,11 +24,10 @@ final class OnboardingV3Coordinator {
     private(set) var arrival = 0
     private(set) var answers: PreAuthOnboardingAnswers
 
-    /// Whether the climber signed in at the end of the flow and is now being shown the paywall and
-    /// the gift. Held in memory on purpose: a relaunch from the paywall meets the app-access gate,
-    /// which carries the account-deletion and sign-out routes this flow's screens do not, so the
-    /// native paywall never outlives the session that opened it.
-    private(set) var presentsPaywall = false
+    /// The account that signed in at the end of the flow and has not yet reached access. Persisted
+    /// in the answers, so a relaunch before buying returns to the paywall and the gift rather than
+    /// to the app-access gate. The paywall carries the gate's delete-account and sign-out routes.
+    private(set) var paywallStageUserID: String?
 
     /// The bar value the screen just left was showing, which the next bar animates from.
     private var lastShownProgress: Double?
@@ -45,8 +44,17 @@ final class OnboardingV3Coordinator {
     ) {
         self.store = store
         self.now = now
-        self.step = step
-        answers = store.answers()
+        let answers = store.answers()
+        self.answers = answers
+        paywallStageUserID = answers.paywallStageUserID
+        self.step = answers.paywallStageUserID == nil ? step : .paywall
+    }
+
+    /// Whether `userID` is the account the paywall stage belongs to.
+    func presentsPaywall(for userID: String?) -> Bool {
+        guard let userID else { return false }
+
+        return paywallStageUserID == userID
     }
 
     /// Whether the climber has signed in at the end of the flow, after which the signed-out screens
@@ -122,25 +130,31 @@ final class OnboardingV3Coordinator {
     /// account nor a prefilled setup screen receives them. The flow stays finished if it was.
     func sessionEnded() {
         answers = store.update { $0 = $0.droppingSessionAnswers }
-        presentsPaywall = false
+        paywallStageUserID = nil
     }
 
     /// The climber signed in at the end of the flow. The signed-out screens are done for good, and
     /// when `showsPaywall` is set the paywall opens for them if they turn out to hold no access -
     /// the root decides that from the entitlement, so a climber who already pays never sees it.
-    func completeSignIn(showsPaywall: Bool) {
-        if !isFinished { update { $0.completedAt = Date() } }
+    func completeSignIn(userID: String, showsPaywall: Bool) {
+        update {
+            if $0.completedAt == nil { $0.completedAt = Date() }
+            if showsPaywall { $0.paywallStageUserID = userID }
+        }
 
         guard showsPaywall else { return }
         trail = []
-        presentsPaywall = true
+        paywallStageUserID = userID
         show(.paywall, from: step)
     }
 
-    /// The climber holds access, so the paywall has nothing left to sell. A lapse later in the same
-    /// launch meets the app-access gate, not this flow.
+    /// The climber holds access, so the paywall has nothing left to sell. A lapse later meets the
+    /// app-access gate, not this flow.
     func paywallStageEnded() {
-        presentsPaywall = false
+        guard paywallStageUserID != nil else { return }
+
+        paywallStageUserID = nil
+        update { $0.paywallStageUserID = nil }
     }
 }
 

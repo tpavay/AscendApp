@@ -305,7 +305,8 @@ struct RootView: View {
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
             allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting,
             showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow,
-            showsOnboardingPaywallV3: onboardingV3Coordinator.presentsPaywall
+            showsOnboardingPaywallV3: onboardingV3Coordinator.presentsPaywall(for: authVM.user?.uid)
+                && RemoteFeatureFlagStore.shared.isEnabled(.onboardingPaywall)
         )
 
         // At the very start of onboarding we do not yet know whether this account
@@ -419,6 +420,10 @@ struct RootView: View {
         case .onboardingPaywall:
             routeScreen(route) {
                 OnboardingV3FlowView(coordinator: onboardingV3Coordinator)
+                    .environment(\.onboardingPaywallAccountActions, OnboardingPaywallAccountActions(
+                        onDeleteAccount: { presentGateAccountDeletion() },
+                        onSignOut: authVM.signOut
+                    ))
             }
 
         case .paywall:
@@ -491,20 +496,24 @@ struct RootView: View {
     }
 
     /// What the onboarding v3 hand-off needs, built once. A no-op until a climber signs in at the end
-    /// of the flow: with the switch off nothing sets the intent, holds a purchase or leaves answers,
-    /// and a target set in Settings is the service's to deliver, not the hand-off's.
+    /// of the flow: with the switch off nothing sets the intent or leaves answers, and a target set
+    /// in Settings is the service's to deliver, not the hand-off's.
     @MainActor
     private func onboardingV3HandOffService() -> OnboardingV3SignInHandOff {
         if let onboardingV3HandOff { return onboardingV3HandOff }
 
         let postAuthOnboardingCoordinator = postAuthOnboardingCoordinator
         let onboardingV3Coordinator = onboardingV3Coordinator
+        let authVM = authVM
         let handOff = OnboardingV3SignInHandOff.live(
             markPostSignInOnboardingComplete: {
                 postAuthOnboardingCoordinator.markCurrentUserComplete()
-                onboardingV3Coordinator.completeSignIn(
-                    showsPaywall: RemoteFeatureFlagStore.shared.isEnabled(.onboardingPaywall)
-                )
+                if let userID = authVM.user?.uid {
+                    onboardingV3Coordinator.completeSignIn(
+                        userID: userID,
+                        showsPaywall: RemoteFeatureFlagStore.shared.isEnabled(.onboardingPaywall)
+                    )
+                }
             }
         )
         onboardingV3HandOff = handOff

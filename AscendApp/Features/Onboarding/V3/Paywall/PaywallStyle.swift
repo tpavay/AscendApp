@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Type and motion helpers the paywall (13) and the gift (14) share, so the two screens read as one
+/// Type and motion helpers the paywall (14) and the gift (15) share, so the two screens read as one
 /// piece and neither restates a font name.
 enum PaywallFontWeight: String {
     case medium = "Montserrat-Medium"

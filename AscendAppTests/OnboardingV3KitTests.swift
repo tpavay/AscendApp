@@ -209,41 +209,57 @@ struct OnboardingV3KitTests {
         let store = makeStore()
         let coordinator = OnboardingV3Coordinator(store: store, startingAt: .auth)
 
-        coordinator.completeSignIn(showsPaywall: true)
+        coordinator.completeSignIn(userID: "u1", showsPaywall: true)
         let finishedAt = coordinator.answers.completedAt
-        coordinator.completeSignIn(showsPaywall: true)
+        coordinator.completeSignIn(userID: "u1", showsPaywall: true)
 
         #expect(finishedAt != nil)
         #expect(coordinator.answers.completedAt == finishedAt)
         #expect(coordinator.step == .paywall)
-        #expect(coordinator.presentsPaywall)
+        #expect(coordinator.presentsPaywall(for: "u1"))
+        #expect(!coordinator.presentsPaywall(for: "someone-else"), "another account never matches")
+        #expect(!coordinator.presentsPaywall(for: nil))
         #expect(!coordinator.canGoBack, "nothing before the paywall is behind a signed-in climber")
-        #expect(OnboardingV3Coordinator(store: store).isFinished)
-        #expect(!OnboardingV3Coordinator(store: store).presentsPaywall, "a relaunch meets the gate instead")
+    }
+
+    @Test
+    func aRelaunchBeforeBuyingReturnsToThePaywallForTheSameAccountOnly() {
+        let store = makeStore()
+        OnboardingV3Coordinator(store: store, startingAt: .auth).completeSignIn(userID: "u1", showsPaywall: true)
+
+        let relaunched = OnboardingV3Coordinator(store: store)
+
+        #expect(relaunched.isFinished)
+        #expect(relaunched.step == .paywall, "not the welcome screen")
+        #expect(relaunched.presentsPaywall(for: "u1"))
+        #expect(!relaunched.presentsPaywall(for: "u2"))
     }
 
     @Test
     func theSwitchOffFinishesTheFlowButNeverOpensThePaywall() {
         let coordinator = OnboardingV3Coordinator(store: makeStore(), startingAt: .auth)
 
-        coordinator.completeSignIn(showsPaywall: false)
+        coordinator.completeSignIn(userID: "u1", showsPaywall: false)
 
         #expect(coordinator.isFinished)
         #expect(coordinator.step == .auth)
-        #expect(!coordinator.presentsPaywall)
+        #expect(!coordinator.presentsPaywall(for: "u1"))
     }
 
     @Test
-    func accessEndsThePaywallStageAndSigningOutEndsItToo() {
-        let coordinator = OnboardingV3Coordinator(store: makeStore(), startingAt: .auth)
-        coordinator.completeSignIn(showsPaywall: true)
+    func accessEndsThePaywallStageOnDiskAndSigningOutEndsItToo() {
+        let store = makeStore()
+        let coordinator = OnboardingV3Coordinator(store: store, startingAt: .auth)
+        coordinator.completeSignIn(userID: "u1", showsPaywall: true)
 
         coordinator.paywallStageEnded()
-        #expect(!coordinator.presentsPaywall)
+        #expect(!coordinator.presentsPaywall(for: "u1"))
+        #expect(store.answers().paywallStageUserID == nil, "a relaunch no longer returns to the paywall")
 
-        coordinator.completeSignIn(showsPaywall: true)
+        coordinator.completeSignIn(userID: "u1", showsPaywall: true)
         coordinator.sessionEnded()
-        #expect(!coordinator.presentsPaywall)
+        #expect(!coordinator.presentsPaywall(for: "u1"))
+        #expect(store.answers().paywallStageUserID == nil)
         #expect(coordinator.isFinished, "signing out does not restart the flow")
     }
 
@@ -265,7 +281,7 @@ struct OnboardingV3KitTests {
             notificationChoice: .allowed,
             foundHealthWorkoutIDs: ["a", "b"],
             welcomeGiftFirstShownAt: date,
-            trialStarted: true,
+            paywallStageUserID: "u1",
             completedAt: date
         )
 

@@ -1,28 +1,22 @@
 import Foundation
 
 /// What Apple is still deciding on: an Ask to Buy waiting for a parent, or a charge RevenueCat has
-/// not confirmed. While it is here nothing else can be bought, so a relaunch cannot turn one
-/// purchase into two.
-///
-/// Local only: nothing here reaches Firestore, and it holds no identity - a product id and a kind.
-struct PendingPurchaseHold: Codable, Equatable, Sendable {
-    enum Kind: String, Codable, Sendable {
-        case askToBuy
-        case unconfirmedCharge
-    }
-
-    var productID: String
-    var kind: Kind
+/// not confirmed. While one is held nothing else can be bought on the onboarding paywall, so a
+/// relaunch cannot turn one purchase into two.
+enum PendingPurchaseHold: String, Codable, Sendable {
+    case askToBuy
+    case unconfirmedCharge
 }
 
-/// One JSON value under one key: an undecodable value reads as "nothing is pending" rather than
-/// failing the paywall.
+/// One raw value under one key: an unreadable value reads as "nothing is pending" rather than
+/// failing the paywall. Local only; it holds no identity.
 ///
 /// The hold belongs to the session that bought, so sign-out clears it
-/// (``OnboardingV3Coordinator/sessionEnded()``): a marker left behind would lock the next account's
-/// paywall on a purchase it never made.
+/// (`RootView`): a marker left behind would lock the next account's paywall on a purchase it never
+/// made. The paywall stage persists across relaunch (`PreAuthOnboardingAnswers.paywallStageUserID`),
+/// so the screen that reads this hold is the one a relaunch returns to.
 struct PendingPurchaseHoldStore: @unchecked Sendable {
-    static let storageKey = "onboardingPaywall.v2.pendingPurchase"
+    static let storageKey = "onboardingPaywall.v3.pendingPurchase"
 
     private let userDefaults: UserDefaults
 
@@ -31,13 +25,11 @@ struct PendingPurchaseHoldStore: @unchecked Sendable {
     }
 
     func hold() -> PendingPurchaseHold? {
-        guard let data = userDefaults.data(forKey: Self.storageKey) else { return nil }
-        return try? JSONDecoder().decode(PendingPurchaseHold.self, from: data)
+        userDefaults.string(forKey: Self.storageKey).flatMap(PendingPurchaseHold.init(rawValue:))
     }
 
     func mark(_ hold: PendingPurchaseHold) {
-        guard let data = try? JSONEncoder().encode(hold) else { return }
-        userDefaults.set(data, forKey: Self.storageKey)
+        userDefaults.set(hold.rawValue, forKey: Self.storageKey)
     }
 
     func clear() {

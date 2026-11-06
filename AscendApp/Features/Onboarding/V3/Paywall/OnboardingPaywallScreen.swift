@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Screen 13: the hard paywall, shown to a signed-in climber who holds no entitlement. Yearly, with
+/// Screen 14: the hard paywall, shown to a signed-in climber who holds no entitlement. Yearly, with
 /// Lifetime as the smaller card under it.
 ///
 /// The close button fades in after three seconds and opens the welcome gift, every time. It is not
@@ -9,6 +9,7 @@ import SwiftUI
 struct OnboardingPaywallScreen: View {
     let coordinator: OnboardingV3Coordinator
     @Environment(\.onboardingPaywallModel) private var injectedModel
+    @Environment(\.onboardingPaywallAccountActions) private var accountActions
 
     private var model: OnboardingPaywallModel { injectedModel ?? .live }
 
@@ -240,10 +241,31 @@ struct OnboardingPaywallScreen: View {
                 HStack(spacing: 18) { footerItems }
                 VStack(spacing: 0) { footerItems }
             }
+
+            if let accountActions {
+                // The way out the app-access gate carries, quieter than the offer above it.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 18) { accountItems(accountActions) }
+                    VStack(spacing: 0) { accountItems(accountActions) }
+                }
+            }
         }
         .multilineTextAlignment(.center)
         .paywallText(.semiBold, size: 12, relativeTo: .caption)
         .foregroundStyle(Color(hex: "8E8E8E"))
+    }
+
+    @ViewBuilder
+    private func accountItems(_ actions: OnboardingPaywallAccountActions) -> some View {
+        Button("Sign out", action: actions.onSignOut)
+            .frame(minHeight: 44)
+            .disabled(model.isBusy)
+            .accessibilityIdentifier("onboardingPaywallSignOut")
+
+        Button("Delete account", action: actions.onDeleteAccount)
+            .frame(minHeight: 44)
+            .disabled(model.isBusy)
+            .accessibilityIdentifier("onboardingPaywallDeleteAccount")
     }
 
     @ViewBuilder
@@ -302,6 +324,7 @@ struct OnboardingPaywallScreen: View {
     /// Access arriving - a purchase, a restore, an Ask to Buy approved elsewhere - needs no handling
     /// here: the root routes on the entitlement and takes the climber into the app.
     private func start() async {
+        MonetizationManager.shared.recordNativePaywallReached(.onboardingPaywall)
         await model.load()
     }
 
@@ -317,9 +340,8 @@ struct OnboardingPaywallScreen: View {
 
     private func purchase() async {
         switch await model.purchaseSelectedPlan() {
-        case .purchased(let startedTrial):
+        case .purchased:
             HapticsManager.shared.trigger(.success)
-            coordinator.update { $0.trialStarted = startedTrial }
         case .cancelled, .notCompleted:
             break
         }
@@ -346,7 +368,7 @@ struct PaywallCheckAccessButton: View {
             if model.activity == .checkingAccess {
                 ProgressView().tint(.black)
             } else {
-                Text("Check access")
+                Text("Check my purchase")
             }
         }
         .buttonStyle(.onboardingPrimary)

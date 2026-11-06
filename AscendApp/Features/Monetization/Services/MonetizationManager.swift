@@ -27,6 +27,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private var preparedIdentityTransition: MonetizationIdentityTransition?
     @ObservationIgnored
     private var paywallAttemptRevision: UInt = 0
+    /// The identity a native surface already reported reaching the paywall for.
+    private var nativePaywallReachedIdentity: MonetizationIdentityTransition?
     @ObservationIgnored
     private var activePaywallAttempt: (
         revision: UInt,
@@ -421,10 +423,28 @@ final class MonetizationManager: MonetizationIdentityManaging {
     }
     #endif
 
+    /// Records that a surface Ascend draws itself - the onboarding paywall - reached a climber, which
+    /// the hosted paywall's `presentPaywall` does for itself. Once per identity, because the gift
+    /// sends the climber back to the paywall and a second arrival is the same paywall. Its screen
+    /// view is the onboarding flow's own step view, so the v1 paywall screen view is not recorded.
+    func recordNativePaywallReached(_ placement: SuperwallPlacement) {
+        guard let identity = identityGeneration,
+              identity.userID != nil,
+              nativePaywallReachedIdentity != identity else { return }
+
+        nativePaywallReachedIdentity = identity
+        LifecycleEventRecorder.shared.recordPaywallReached(
+            placement: placement.rawValue,
+            expectedUserID: identity.userID
+        )
+        trackPaywallReached(placement, params: nil, identity: identity, recordsScreenView: false)
+    }
+
     private func trackPaywallReached(
         _ placement: SuperwallPlacement,
         params: [String: Any]?,
-        identity: MonetizationIdentityTransition
+        identity: MonetizationIdentityTransition,
+        recordsScreenView: Bool = true
     ) {
         guard let userID = identity.userID else { return }
         let source = params?["source"] as? String
@@ -453,6 +473,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
             ),
             ifIdentifiedAs: userID
         )
+        guard recordsScreenView else { return }
+
         OnboardingScreenViewRecorder(lifecycle: onboardingLifecycle).recordIfNeeded(
             OnboardingAnalyticsEvent.paywallContext,
             telemetry: telemetry,

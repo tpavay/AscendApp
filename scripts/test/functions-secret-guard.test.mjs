@@ -77,7 +77,7 @@ const V3 = revenueCatConfig([
   "ascend_yearly_welcome",
 ]);
 // Stands in for the healthy version: everything the Release build sells, including the welcome
-// product the pre-sign-in gift offers, and the promo id every comp carries.
+// product the onboarding gift offers, and the promo id every comp carries.
 const V4 = revenueCatConfig([
   "ascend_lifetime",
   "ascend_monthly",

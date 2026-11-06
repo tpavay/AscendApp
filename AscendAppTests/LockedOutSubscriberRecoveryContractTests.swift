@@ -94,6 +94,28 @@ struct LockedOutSubscriberRecoveryContractTests {
         #expect(action.contains("presentGateAccountDeletion()"))
     }
 
+    /// The onboarding paywall replaces the gate for the climber who just signed in, so it inherits
+    /// the gate's duty: deletion and sign-out leave from it, through the same one deletion sheet.
+    @Test
+    func theOnboardingPaywallRoutesToAccountDeletionAndSignOut() throws {
+        let paywall = try source(at: "AscendApp/Features/Onboarding/V3/Paywall/OnboardingPaywallScreen.swift")
+
+        #expect(paywall.contains("Button(\"Sign out\", action: actions.onSignOut)"))
+        #expect(paywall.contains("Button(\"Delete account\", action: actions.onDeleteAccount)"))
+        #expect(paywall.contains(".accessibilityIdentifier(\"onboardingPaywallSignOut\")"))
+        #expect(paywall.contains(".accessibilityIdentifier(\"onboardingPaywallDeleteAccount\")"))
+        #expect(paywall.contains(".frame(minHeight: 44)"))
+
+        let root = try source(at: "AscendApp/App/RootView.swift")
+        let route = try #require(
+            root
+                .range(of: "case .onboardingPaywall:\n            routeScreen(route) {")
+                .map { String(root[$0.lowerBound...].prefix(500)) }
+        )
+        #expect(route.contains("onDeleteAccount: { presentGateAccountDeletion() }"))
+        #expect(route.contains("onSignOut: authVM.signOut"))
+    }
+
     @Test
     func theRootRouteWiresTheGateToTheRealDeletionSheet() throws {
         let root = try source(at: "AscendApp/App/RootView.swift")

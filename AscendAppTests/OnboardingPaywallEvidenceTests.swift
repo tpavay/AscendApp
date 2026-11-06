@@ -4,7 +4,7 @@ import SwiftUI
 import Testing
 @testable import AscendApp
 
-/// Screens 13 and 14 on screen: the paywall and the welcome gift at the smallest phone Ascend
+/// Screens 14 and 15 on screen: the paywall and the welcome gift at the smallest phone Ascend
 /// supports and at an accessibility text size. Photographs are written only when
 /// `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
@@ -287,7 +287,7 @@ struct OnboardingPaywallEvidenceTests {
                 .environment(AuthenticationViewModel()),
             settle: .turns(100)
         ) { screen in
-            let copy = try await screen.copy(until: { $0.contains("check access") })
+            let copy = try await screen.copy(until: { $0.contains("check my purchase") })
             #expect(copy.contains("do not purchase again"), "\(copy)")
             #expect(!copy.contains("start climbing"), "\(copy)")
         }
@@ -302,7 +302,7 @@ struct OnboardingPaywallEvidenceTests {
             size: Self.smallestPhone,
             settle: .turns(120)
         ) { screen in
-            let copy = try await screen.copy(until: { $0.contains("check access") })
+            let copy = try await screen.copy(until: { $0.contains("check my purchase") })
             #expect(copy.contains("do not purchase again"), "\(copy)")
             #expect(!copy.contains("claim my gift"), "\(copy)")
         }
@@ -312,7 +312,7 @@ struct OnboardingPaywallEvidenceTests {
     func aRelaunchWhilePendingReopensThePaywallWithNoWayToBuy() async throws {
         let fixture = await fixture(
             startingAt: .paywall,
-            pending: PendingPurchaseHold(productID: "yearly", kind: .unconfirmedCharge)
+            pending: PendingPurchaseHold.unconfirmedCharge
         )
 
         try await RenderedScreen.host(
@@ -321,14 +321,14 @@ struct OnboardingPaywallEvidenceTests {
                 .environment(AuthenticationViewModel()),
             settle: .turns(100)
         ) { screen in
-            let copy = try await screen.copy(until: { $0.contains("check access") })
+            let copy = try await screen.copy(until: { $0.contains("check my purchase") })
             #expect(copy.contains("do not purchase again"), "\(copy)")
             #expect(!copy.contains("start climbing"), "\(copy)")
         }
     }
 
     private func expectThePaywallOffersNoPurchase(on screen: HostedScreen) async throws {
-        let copy = try await screen.copy(until: { $0.contains("check access") })
+        let copy = try await screen.copy(until: { $0.contains("check my purchase") })
         #expect(copy.contains("do not purchase again"), "\(copy)")
         #expect(!copy.contains("start climbing"), "\(copy)")
 
@@ -339,7 +339,7 @@ struct OnboardingPaywallEvidenceTests {
 
     @Test
     func anUnconfirmedChargeStaysLockedAfterARelaunch() async throws {
-        let charge = PendingPurchaseHold(productID: "yearly", kind: .unconfirmedCharge)
+        let charge = PendingPurchaseHold.unconfirmedCharge
         let fixture = await fixture(startingAt: .paywall, pending: charge)
 
         try await RenderedScreen.host(
@@ -376,6 +376,93 @@ struct OnboardingPaywallEvidenceTests {
         ) { screen in
             let copy = try await screen.copy(until: { $0.contains("privacy") })
             #expect(!copy.contains("sign in"), "\(copy)")
+        }
+    }
+
+    @Test
+    func thePaywallCarriesTheGatesDeleteAccountAndSignOutRoutes() async throws {
+        let fixture = await fixture(startingAt: .paywall)
+        var deleted = 0
+        var signedOut = 0
+        let actions = OnboardingPaywallAccountActions(
+            onDeleteAccount: { deleted += 1 },
+            onSignOut: { signedOut += 1 }
+        )
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(\.onboardingPaywallAccountActions, actions)
+                .environment(AuthenticationViewModel()),
+            size: Self.smallestPhone,
+            settle: .turns(100)
+        ) { screen in
+            let copy = try await screen.copy(until: { $0.contains("delete account") })
+            #expect(copy.contains("sign out"), "\(copy)")
+            #expect(copy.contains("start climbing"), "the offer stays on the first screen: \(copy)")
+
+            try activateAccessibilityElement(labelled: "Sign out", in: screen.root)
+            try activateAccessibilityElement(labelled: "Delete account", in: screen.root)
+            #expect(signedOut == 1)
+            #expect(deleted == 1)
+            try screen.photograph(named: "onboarding-v3-paywall-account-routes-se")
+        }
+    }
+
+    @Test
+    func aClimberWhoOnlyClosedThePaywallSeesTheNormalGiftWithNoWaitingState() async throws {
+        let fixture = await fixture(startingAt: .exitGift, giftAlreadySeen: true)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
+            size: Self.smallestPhone,
+            settle: .turns(120)
+        ) { screen in
+            let copy = try await screen.copy(until: { $0.contains("no thanks") })
+            #expect(copy.contains("welcome offer"), "\(copy)")
+            #expect(!copy.contains("check my purchase"), "\(copy)")
+            #expect(!copy.contains("still confirming"), "\(copy)")
+        }
+    }
+
+    @Test(arguments: [PendingPurchaseHold.askToBuy, .unconfirmedCharge])
+    func aPurchaseHoldReplacesTheGiftWithTheWaitingState(hold: PendingPurchaseHold) async throws {
+        let fixture = await fixture(startingAt: .exitGift, giftAlreadySeen: true, pending: hold)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
+            size: Self.smallestPhone,
+            settle: .turns(120)
+        ) { screen in
+            let copy = try await screen.copy(until: { $0.contains("check my purchase") })
+            #expect(copy.contains("apple is still confirming your purchase"), "\(copy)")
+            #expect(copy.contains("do not purchase again"), "\(copy)")
+            #expect(copy.contains(hold == .askToBuy ? "ask to buy is waiting" : "not confirmed yet"), "\(copy)")
+            #expect(!copy.contains("welcome offer"), "no second offer: \(copy)")
+            #expect(!copy.contains("claim my gift"), "no second offer: \(copy)")
+            #expect(!copy.contains("tap to open"), "no gift box: \(copy)")
+            #expect(!copy.contains("check access"), "\(copy)")
+            try screen.photograph(named: "onboarding-v3-gift-waiting-\(hold.rawValue)")
+        }
+    }
+
+    @Test
+    func aPurchaseHoldAlsoShowsTheNewButtonWordingOnThePaywall() async throws {
+        let fixture = await fixture(startingAt: .paywall, pending: .askToBuy)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
+            settle: .turns(100)
+        ) { screen in
+            let copy = try await screen.copy(until: { $0.contains("check my purchase") })
+            #expect(copy.contains("apple is still confirming your purchase"), "\(copy)")
+            #expect(!copy.contains("check access"), "\(copy)")
         }
     }
 
@@ -439,7 +526,7 @@ struct OnboardingPaywallEvidenceTests {
             size: size,
             settle: .turns(40)
         ) { screen in
-            _ = try await screen.copy(until: { $0.contains("check access") })
+            _ = try await screen.copy(until: { $0.contains("check my purchase") })
             try await Task.sleep(for: .seconds(2))
             let drawn = try await screen.recognizedText(scale: 2)
             #expect(drawn.contains("do not purchase again"), "\(drawn)")
@@ -452,7 +539,7 @@ struct OnboardingPaywallEvidenceTests {
     func aLockedPaywallKeepsThePerksFromShowingThroughThePlanCards(size: CGSize) async throws {
         let fixture = await fixture(
             startingAt: .paywall,
-            pending: PendingPurchaseHold(productID: "yearly", kind: .unconfirmedCharge)
+            pending: PendingPurchaseHold.unconfirmedCharge
         )
 
         try await RenderedScreen.host(
@@ -462,14 +549,21 @@ struct OnboardingPaywallEvidenceTests {
             size: size,
             settle: .turns(40)
         ) { screen in
-            _ = try await screen.copy(until: { $0.contains("check access") })
+            _ = try await screen.copy(until: { $0.contains("check my purchase") })
             try await Task.sleep(for: .seconds(1.2))
 
             let card = try #require(try await screen.frame(ofElementLabelled: "Yearly, best value"))
+            // The row the card covers most, not the first whose frame touches it: a row's frame
+            // reaches past what is drawn, and a longer warning line lifts the cards over more rows.
             var covered: PaywallPerk?
-            for perk in PaywallPerk.all where covered == nil {
-                if let row = try await screen.frame(ofElementLabelled: perk.title), row.intersects(card) {
+            var coveredArea: CGFloat = 0
+            for perk in PaywallPerk.all {
+                guard let row = try await screen.frame(ofElementLabelled: perk.title) else { continue }
+                let overlap = row.intersection(card)
+                let area = overlap.isNull ? 0 : overlap.width * overlap.height
+                if area > coveredArea {
                     covered = perk
+                    coveredArea = area
                 }
             }
             let perk = try #require(covered, "no perk scrolls behind the yearly card at this size")
@@ -721,7 +815,7 @@ struct OnboardingPaywallEvidenceTests {
     func aLockedPlanCardScrolledOverThePhotographStaysReadable() async throws {
         let fixture = await fixture(
             startingAt: .paywall,
-            pending: PendingPurchaseHold(productID: "yearly", kind: .unconfirmedCharge)
+            pending: PendingPurchaseHold.unconfirmedCharge
         )
 
         try await RenderedScreen.host(

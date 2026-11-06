@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Screen 14: the welcome gift. It shows every time the paywall is closed, for as long as the climber
+/// Screen 15: the welcome gift. It shows every time the paywall is closed, for as long as the climber
 /// holds no entitlement, so the deal is always one tap away.
 ///
 /// The first visit asks for a tap on the box. Any later visit has already seen it, so the box opens
@@ -19,7 +19,12 @@ struct OnboardingExitGiftScreen: View {
         ZStack {
             background
 
-            if let offer = model.giftOffer {
+            if model.isAwaitingConfirmation {
+                // The gift is a second offer, and a second purchase while Apple is still deciding on
+                // the first is a double charge. Only the waiting state shows; a climber who merely
+                // closed the paywall holds nothing and sees the gift.
+                waitingState
+            } else if let offer = model.giftOffer {
                 content(offer: offer)
             } else {
                 // The gift never opens without a product to open: back to the paywall, which sells.
@@ -128,6 +133,43 @@ struct OnboardingExitGiftScreen: View {
         .animation(reduceMotion ? .easeInOut(duration: 0.3) : nil, value: isOpen)
     }
 
+    private var waitingState: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                Text("Apple is still\nconfirming.")
+                    .paywallText(.black, size: 32, tracking: -0.02, relativeTo: .largeTitle)
+                    .textCase(.uppercase)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.5)
+                    .accessibilityAddTraits(.isHeader)
+
+                if let message = model.notice?.message {
+                    Text(message)
+                        .onboardingSecondary()
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+
+                PaywallCheckAccessButton(model: model)
+
+                Button("Back") { coordinator.go(to: .paywall) }
+                    .buttonStyle(.plain)
+                    .paywallText(.bold, size: 13, relativeTo: .footnote)
+                    .foregroundStyle(Color(hex: "8E8E8E"))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .disabled(model.isBusy)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 80)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollIndicators(.hidden)
+    }
+
     private var closedHeader: some View {
         VStack(spacing: 10) {
             Text("Before you go")
@@ -175,22 +217,18 @@ struct OnboardingExitGiftScreen: View {
             }
 
             VStack(spacing: 6) {
-                if model.isAwaitingConfirmation {
-                    PaywallCheckAccessButton(model: model)
-                } else {
-                    Button {
-                        Task { await claim() }
-                    } label: {
-                        if model.activity == .purchasing {
-                            ProgressView().tint(.black)
-                        } else {
-                            Text(copy.callToAction)
-                        }
+                Button {
+                    Task { await claim() }
+                } label: {
+                    if model.activity == .purchasing {
+                        ProgressView().tint(.black)
+                    } else {
+                        Text(copy.callToAction)
                     }
-                    .buttonStyle(.onboardingPrimary)
-                    .paywallSheen()
-                    .disabled(model.locksPurchase)
                 }
+                .buttonStyle(.onboardingPrimary)
+                .paywallSheen()
+                .disabled(model.locksPurchase)
 
                 Text(copy.finePrint)
                     .paywallText(.medium, size: 12, relativeTo: .caption)
@@ -264,9 +302,8 @@ struct OnboardingExitGiftScreen: View {
 
     private func claim() async {
         switch await model.claimGift() {
-        case .purchased(let startedTrial):
+        case .purchased:
             HapticsManager.shared.trigger(.success)
-            coordinator.update { $0.trialStarted = startedTrial }
         case .cancelled, .notCompleted:
             break
         }
