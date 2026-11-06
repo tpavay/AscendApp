@@ -111,9 +111,11 @@ How the purchase works:
 - The ledger also holds what Apple has not settled, and nothing can be bought while it does, because another product would be a second charge.
   The sign-in exit releases an Ask to Buy, which has charged nothing; an unconfirmed charge stays held until sign-in completes.
 - After sign-in, `PreAuthPurchaseTransfer.completeAfterSignIn()` moves the purchase onto the uid: `logIn` already carries it for a uid RevenueCat has never seen, and for a known uid one restore moves it.
-  It covers an unconfirmed charge the same way, then calls `reconcileAppAccess` up to six times until the server answers `active`, because a client cannot read `users/{uid}/entitlements/app_access` itself.
-  A grant still pending after that is left to the reconciliation that runs from launch and foreground.
-  A purchase that did not reach the account, or a grant still pending, is reported as `onboarding_purchase_transfer_incomplete`, and the hand-off clears the ledger either way.
+  It covers an unconfirmed charge the same way, then calls `reconcileAppAccess` until the server answers `active`, because a client cannot read `users/{uid}/entitlements/app_access` itself.
+  The wait stops at the first `throttled` answer, because the server's 60-second cooldown cannot lift inside it, and otherwise makes at most six attempts.
+  A grant the wait could not confirm is left to the reconciliation that runs from launch and foreground.
+  A purchase that did not reach the account is reported as `onboarding_purchase_transfer_incomplete` with `not_transferred`, and with `grant_pending` when the server answered `inactive` or every attempt failed.
+  A throttled answer with no `inactive` before it reports nothing, and the hand-off clears the ledger in every case.
   Follow-up for the sign-in chunk: keep the ledger on `.notTransferred` and retry on the next launch's hand-off.
 - Prices, the monthly equivalent and the discount percentage come from StoreKit.
   The percentage rounds down.

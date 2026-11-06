@@ -331,7 +331,7 @@ struct OnboardingAuthTests {
     func theLiveHandOffReportsAGrantTheServerHasNotWrittenThenClearsTheLedger() async {
         let events = await runLiveHandOff(
             monetization: LiveTransferMonetization(refreshedActive: true),
-            invoker: LiveTransferInvoker(outcome: .throttled)
+            invoker: LiveTransferInvoker(outcome: .inactive)
         )
 
         #expect(events == [
@@ -339,6 +339,16 @@ struct OnboardingAuthTests {
             "onboarding_purchase_transfer_incomplete \(TelemetryValue.string("grant_pending")) ledgerHeld=true",
             "reconcile ledgerHeld=false"
         ])
+    }
+
+    @Test
+    func theLiveHandOffReportsNothingWhenTheServerOnlyThrottles() async {
+        let events = await runLiveHandOff(
+            monetization: LiveTransferMonetization(refreshedActive: true),
+            invoker: LiveTransferInvoker(outcome: .throttled)
+        )
+
+        #expect(events == ["refresh", "reconcile ledgerHeld=false"])
     }
 
     @Test

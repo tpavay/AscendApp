@@ -15,9 +15,13 @@ final class PreAuthPurchaseTransfer {
         case nothingToTransfer
         /// The account holds the entitlement and the server has written its grant.
         case granted
-        /// The account holds the entitlement but the server has not answered in time. Access is not
-        /// lost: reconciliation keeps running from launch, foreground and refused reads.
+        /// The account holds the entitlement but the server answered inactive, or every attempt
+        /// failed. Access is not lost: reconciliation keeps running from launch, foreground and
+        /// refused reads.
         case grantPending
+        /// The account holds the entitlement and another caller holds the server's reconcile slot, so
+        /// the wait learned nothing about the grant. Asking again inside the cooldown cannot answer.
+        case grantUnconfirmed
         /// The purchase did not reach the account. The paywall after sign-in sells.
         case notTransferred
     }
@@ -60,15 +64,29 @@ final class PreAuthPurchaseTransfer {
 
         guard await accountHoldsEntitlement() else { return .notTransferred }
 
+        // The server's cooldown follows every answer, so an inactive answer is always followed by a
+        // throttled one and has to be remembered across it.
+        var serverAnsweredInactive = false
+
         for attempt in 0..<maxAttempts {
             if attempt > 0 {
-                do { try await sleep(retryDelay) } catch { return .grantPending }
+                do {
+                    try await sleep(retryDelay)
+                } catch {
+                    return serverAnsweredInactive ? .grantPending : .grantUnconfirmed
+                }
             }
 
-            // A throttled or failed answer is a refusal, not a verdict, so the loop asks again.
-            if let outcome = try? await invoker.invokeReconciliation(), outcome == .active {
+            switch try? await invoker.invokeReconciliation() {
+            case .active:
                 ledger.clear()
                 return .granted
+            case .throttled:
+                return serverAnsweredInactive ? .grantPending : .grantUnconfirmed
+            case .inactive:
+                serverAnsweredInactive = true
+            case .unrecognized, nil:
+                break
             }
         }
 

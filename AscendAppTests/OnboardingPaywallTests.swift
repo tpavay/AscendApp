@@ -993,21 +993,43 @@ struct PreAuthPurchaseTransferTests {
     }
 
     @Test
-    func theWaitRetriesAThrottledServerUntilItAnswers() async {
+    func theWaitStopsAtAThrottledServerAndClaimsNothingAboutTheGrant() async {
         let transferring = StubTransferring()
         transferring.refreshedActive = true
-        let invoker = StubInvoker([.throttled, .unrecognized, .active])
+        let invoker = StubInvoker([.throttled, .active])
+        let (transfer, _) = make(bought: true, transferring: transferring, invoker: invoker)
+
+        #expect(await transfer.completeAfterSignIn() == .grantUnconfirmed)
+        #expect(invoker.calls == 1)
+    }
+
+    @Test
+    func theWaitRemembersAnInactiveAnswerAcrossTheThrottleThatFollowsIt() async {
+        let transferring = StubTransferring()
+        transferring.refreshedActive = true
+        let invoker = StubInvoker([.inactive, .throttled])
+        let (transfer, _) = make(bought: true, transferring: transferring, invoker: invoker)
+
+        #expect(await transfer.completeAfterSignIn() == .grantPending)
+        #expect(invoker.calls == 2)
+    }
+
+    @Test
+    func theWaitAsksAgainAfterAnAnswerItCouldNotRead() async {
+        let transferring = StubTransferring()
+        transferring.refreshedActive = true
+        let invoker = StubInvoker([.unrecognized, .active])
         let (transfer, _) = make(bought: true, transferring: transferring, invoker: invoker)
 
         #expect(await transfer.completeAfterSignIn() == .granted)
-        #expect(invoker.calls == 3)
+        #expect(invoker.calls == 2)
     }
 
     @Test
     func aServerThatNeverAnswersEndsTheWaitWithoutLosingTheAccess() async {
         let transferring = StubTransferring()
         transferring.refreshedActive = true
-        let invoker = StubInvoker([.throttled])
+        let invoker = StubInvoker([.unrecognized])
         let (transfer, ledger) = make(bought: true, transferring: transferring, invoker: invoker)
 
         #expect(await transfer.completeAfterSignIn() == .grantPending)

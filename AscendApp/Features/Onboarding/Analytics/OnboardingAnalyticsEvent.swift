@@ -156,11 +156,11 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     case flowCompleted(context: OnboardingAnalyticsContext, completionReason: OnboardingFlowCompletionReason)
     case purchaseTransferIncomplete(outcome: String)
 
-    /// The event for a pre-sign-in purchase that did not finish moving to the account, or nil when
-    /// nothing is left unfinished.
+    /// The event for a pre-sign-in purchase known not to have finished moving to the account, or nil
+    /// when nothing is left unfinished or the server's answer says nothing either way.
     static func forPurchaseTransfer(_ outcome: PreAuthPurchaseTransfer.Outcome) -> Self? {
         switch outcome {
-        case .nothingToTransfer, .granted:
+        case .nothingToTransfer, .granted, .grantUnconfirmed:
             nil
         case .notTransferred:
             .purchaseTransferIncomplete(outcome: "not_transferred")
