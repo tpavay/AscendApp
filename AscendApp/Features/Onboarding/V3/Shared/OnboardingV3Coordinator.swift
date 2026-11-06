@@ -20,6 +20,13 @@ final class OnboardingV3Coordinator {
     private(set) var step: OnboardingV3Step
     private(set) var answers: PreAuthOnboardingAnswers
 
+    /// Whether the climber asked for the sign-in step as someone who already has an account. Held
+    /// in memory because the flow itself is: every launch starts over at the first screen, where a
+    /// remembered request could only put a climber who then walks the whole flow in the wrong mode.
+    /// Within a launch it lasts until they back out of the sign-in step, so signing out returns them
+    /// to the mode they chose.
+    private(set) var returningSignInRequested = false
+
     /// The bar value the screen just left was showing, which the next bar animates from.
     private var lastShownProgress: Double?
     private var trail: [OnboardingV3Step] = []
@@ -43,6 +50,10 @@ final class OnboardingV3Coordinator {
     var isFinished: Bool { answers.completedAt != nil }
 
     var canGoBack: Bool { !trail.isEmpty }
+
+    /// The screen back would return to. The sign-in screen reads it to tell a climber who walked
+    /// the whole flow from one who tapped "Already climbing? Sign in" on the first screen.
+    var previousStep: OnboardingV3Step? { trail.last }
 
     var analyticsContext: OnboardingAnalyticsContext {
         OnboardingAnalyticsContext(
@@ -83,9 +94,17 @@ final class OnboardingV3Coordinator {
         show(destination, from: step)
     }
 
+    /// Opens the sign-in step for a climber who already has an account - the paywall's "Already
+    /// climbing? Sign in" - which the step it came from cannot show on its own.
+    func goToReturningSignIn() {
+        returningSignInRequested = true
+        go(to: .auth)
+    }
+
     /// Returns to the screen the climber came from. Does nothing on the first screen.
     func back() {
         guard let previous = trail.popLast() else { return }
+        if step == .auth { returningSignInRequested = false }
         show(previous, from: step)
     }
 
@@ -101,6 +120,12 @@ final class OnboardingV3Coordinator {
     /// ``PreAuthOnboardingAnswers``.
     func update(_ change: (inout PreAuthOnboardingAnswers) -> Void) {
         answers = store.update(change)
+    }
+
+    /// The climber signed out. Their answers leave the device and this copy, so neither the next
+    /// account nor a prefilled setup screen receives them. The flow stays finished if it was.
+    func sessionEnded() {
+        answers = store.update { $0 = $0.droppingSessionAnswers }
     }
 
     /// Ends the flow. The app resolves its route from ``isFinished`` after this.
