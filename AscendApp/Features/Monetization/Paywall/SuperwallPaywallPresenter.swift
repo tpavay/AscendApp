@@ -142,6 +142,11 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         )
     }
 
+    func setUserAttributes(_ attributes: [String: Any?]) {
+        guard isConfigured else { return }
+        Superwall.shared.setUserAttributes(attributes)
+    }
+
     func identify(userId: String) {
         guard isConfigured else { return }
         Superwall.shared.identify(userId: userId)

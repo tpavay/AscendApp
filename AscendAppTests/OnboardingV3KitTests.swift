@@ -25,13 +25,31 @@ struct OnboardingV3KitTests {
     }
 
     @Test
-    func theV3FunnelListsTheSeventeenStepsTheSpecNames() {
+    func theV3FunnelListsTheFifteenStepsAndEndsAtSignIn() {
         #expect(OnboardingAnalyticsContext.orderedStepIDs == [
             "welcome", "go_harder", "get_better", "something_to_chase", "count_methods",
             "health_connect", "health_permission", "health_history", "usual_climb",
             "climber_card", "claim_city", "weekly_target", "this_month_event",
-            "notification_primer", "auth", "paywall", "exit_gift"
+            "notification_primer", "auth"
         ])
+        #expect(!OnboardingAnalyticsContext.orderedStepIDs.contains("paywall"))
+        #expect(!OnboardingAnalyticsContext.orderedStepIDs.contains("exit_gift"))
+    }
+
+    /// The paywall is not a v3 step, but it still reports under the v3 pass that led to it, one
+    /// position past the last step, so a funnel on `flow_version=v3` reads it as the hand-off.
+    @Test
+    func theV3PaywallReportsAsTheHandOffPastTheLastStep() {
+        let v3 = OnboardingAnalyticsContext.paywallHandOff(flowVersion: "v3")
+
+        #expect(v3.flowVersion == "v3")
+        #expect(v3.stepID == "paywall")
+        #expect(v3.stepCount == 15)
+        #expect(v3.stepIndex == 15)
+
+        let v1 = OnboardingAnalyticsContext.paywallHandOff(flowVersion: "v1")
+        #expect(v1 == OnboardingAnalyticsEvent.paywallContext)
+        #expect(v1.stepIndex == OnboardingAnalyticsContext.legacyOrderedStepIDs.count - 1)
     }
 
     /// The old flow still ships behind the switch, so its contexts keep their own version, order
@@ -55,17 +73,15 @@ struct OnboardingV3KitTests {
         #expect(context.flowVersion == "v3")
         #expect(context.stepID == "health_history")
         #expect(context.stepIndex == 7)
-        #expect(context.stepCount == 17)
+        #expect(context.stepCount == 15)
     }
 
     // MARK: - Step graph
 
-    /// The paywall is entered by the root once the account exists (`completeSignIn`), not by a tap,
-    /// so the walk starts from both ends of the sign-in.
     @Test
-    func everyStepIsReachableFromTheWelcomeScreenOrThePaywallTheRootOpens() {
-        var reached: Set<OnboardingV3Step> = [.welcome, .paywall]
-        var frontier: [OnboardingV3Step] = [.welcome, .paywall]
+    func everyStepIsReachableFromTheWelcomeScreen() {
+        var reached: Set<OnboardingV3Step> = [.welcome]
+        var frontier: [OnboardingV3Step] = [.welcome]
 
         while let step = frontier.popLast() {
             let next = [step.primaryDestination].compactMap { $0 } + step.alternateExits.map(\.destination)
@@ -85,21 +101,11 @@ struct OnboardingV3KitTests {
     }
 
     @Test
-    func thePaywallCloseOpensTheGiftAndNoThanksReturnsToThePaywall() {
-        #expect(OnboardingV3Step.paywall.alternateExits.map(\.destination) == [.exitGift])
-        #expect(OnboardingV3Step.exitGift.alternateExits.map(\.destination) == [.paywall])
-        #expect(OnboardingV3Step.exitGift.primaryDestination == nil)
-    }
-
-    @Test
-    func signInComesBeforeThePaywallAndNoTapOnItsScreenLeavesIt() {
+    func signInIsTheLastStepAndNoTapOnItsScreenLeavesIt() {
         #expect(OnboardingV3Step.notificationPrimer.primaryDestination == .auth)
         #expect(OnboardingV3Step.auth.primaryDestination == nil)
-        #expect(OnboardingV3Step.paywall.primaryDestination == nil)
         #expect(OnboardingV3Step.welcome.alternateExits.map(\.destination) == [.auth])
-        #expect(
-            OnboardingV3Step.allCases.firstIndex(of: .auth)! < OnboardingV3Step.allCases.firstIndex(of: .paywall)!
-        )
+        #expect(OnboardingV3Step.allCases.last == .auth)
     }
 
     // MARK: - Progress table
@@ -110,7 +116,7 @@ struct OnboardingV3KitTests {
             .welcome: nil, .goHarder: 38, .getBetter: 55, .somethingToChase: 67, .countMethods: 75,
             .healthConnect: 81, .healthPermission: 81, .healthHistory: 86, .usualClimb: 86,
             .climberCard: 90, .claimCity: 93, .weeklyTarget: 95, .thisMonthEvent: 97,
-            .notificationPrimer: 98, .auth: nil, .paywall: nil, .exitGift: nil
+            .notificationPrimer: 98, .auth: nil
         ]
 
         for step in OnboardingV3Step.allCases {
@@ -205,61 +211,26 @@ struct OnboardingV3KitTests {
     }
 
     @Test
-    func signingInEndsTheSignedOutFlowForGoodAndOpensThePaywallOnRequest() {
-        let store = makeStore()
-        let coordinator = OnboardingV3Coordinator(store: store, startingAt: .auth)
-
-        coordinator.completeSignIn(userID: "u1", showsPaywall: true)
-        let finishedAt = coordinator.answers.completedAt
-        coordinator.completeSignIn(userID: "u1", showsPaywall: true)
-
-        #expect(finishedAt != nil)
-        #expect(coordinator.answers.completedAt == finishedAt)
-        #expect(coordinator.step == .paywall)
-        #expect(coordinator.presentsPaywall(for: "u1"))
-        #expect(!coordinator.presentsPaywall(for: "someone-else"), "another account never matches")
-        #expect(!coordinator.presentsPaywall(for: nil))
-        #expect(!coordinator.canGoBack, "nothing before the paywall is behind a signed-in climber")
-    }
-
-    @Test
-    func aRelaunchBeforeBuyingReturnsToThePaywallForTheSameAccountOnly() {
-        let store = makeStore()
-        OnboardingV3Coordinator(store: store, startingAt: .auth).completeSignIn(userID: "u1", showsPaywall: true)
-
-        let relaunched = OnboardingV3Coordinator(store: store)
-
-        #expect(relaunched.isFinished)
-        #expect(relaunched.step == .paywall, "not the welcome screen")
-        #expect(relaunched.presentsPaywall(for: "u1"))
-        #expect(!relaunched.presentsPaywall(for: "u2"))
-    }
-
-    @Test
-    func theSwitchOffFinishesTheFlowButNeverOpensThePaywall() {
+    func signingInEndsTheSignedOutFlowForGood() {
         let coordinator = OnboardingV3Coordinator(store: makeStore(), startingAt: .auth)
 
-        coordinator.completeSignIn(userID: "u1", showsPaywall: false)
+        coordinator.finish()
+        let finishedAt = coordinator.answers.completedAt
+        coordinator.finish()
 
+        #expect(finishedAt != nil)
+        #expect(coordinator.answers.completedAt == finishedAt, "a second finish keeps the first time")
         #expect(coordinator.isFinished)
         #expect(coordinator.step == .auth)
-        #expect(!coordinator.presentsPaywall(for: "u1"))
     }
 
     @Test
-    func accessEndsThePaywallStageOnDiskAndSigningOutEndsItToo() {
-        let store = makeStore()
-        let coordinator = OnboardingV3Coordinator(store: store, startingAt: .auth)
-        coordinator.completeSignIn(userID: "u1", showsPaywall: true)
+    func signingOutDoesNotRestartTheFlow() {
+        let coordinator = OnboardingV3Coordinator(store: makeStore(), startingAt: .auth)
+        coordinator.finish()
 
-        coordinator.paywallStageEnded()
-        #expect(!coordinator.presentsPaywall(for: "u1"))
-        #expect(store.answers().paywallStageUserID == nil, "a relaunch no longer returns to the paywall")
-
-        coordinator.completeSignIn(userID: "u1", showsPaywall: true)
         coordinator.sessionEnded()
-        #expect(!coordinator.presentsPaywall(for: "u1"))
-        #expect(store.answers().paywallStageUserID == nil)
+
         #expect(coordinator.isFinished, "signing out does not restart the flow")
     }
 
@@ -280,8 +251,6 @@ struct OnboardingV3KitTests {
             weeklyTargetDays: 3,
             notificationChoice: .allowed,
             foundHealthWorkoutIDs: ["a", "b"],
-            welcomeGiftFirstShownAt: date,
-            paywallStageUserID: "u1",
             completedAt: date
         )
 
@@ -329,8 +298,7 @@ struct OnboardingV3KitTests {
         userId: String? = nil,
         showsV3: Bool?,
         updatePresentation: AppUpdatePresentation? = nil,
-        entitlementState: MonetizationEntitlementState = .inactive,
-        showsOnboardingPaywall: Bool = false
+        entitlementState: MonetizationEntitlementState = .inactive
     ) -> AppRootRoute {
         AppRootRouteResolver.resolve(
             updatePresentation: updatePresentation,
@@ -339,54 +307,36 @@ struct OnboardingV3KitTests {
             postAuthOnboardingPhase: .complete,
             entitlementState: entitlementState,
             requiredEntitlementID: "app_access",
-            showsPreAuthOnboardingV3: showsV3,
-            showsOnboardingPaywallV3: showsOnboardingPaywall
+            showsPreAuthOnboardingV3: showsV3
         )
     }
 
+    /// The flow ends at sign-in, and what a climber without access meets next is the app-access
+    /// gate: the Superwall paywall (placement `app_access_gate`), with the native plan list as its
+    /// fallback. There is no second route for the new onboarding.
     @Test
-    func aSignedInClimberWithoutAccessGetsTheOnboardingPaywallOnlyWhileTheFlowAsksForIt() {
-        let withoutAccess = route(
-            state: .authenticated, userId: "u1", showsV3: false, showsOnboardingPaywall: true
-        )
-        #expect(withoutAccess == .onboardingPaywall)
-
-        let notAsked = route(state: .authenticated, userId: "u1", showsV3: false, showsOnboardingPaywall: false)
-        #expect(notAsked == .paywall, "the gate owns every case the flow's paywall stage does not")
+    func aSignedInClimberWithoutAccessGoesToTheAppAccessGate() {
+        #expect(route(state: .authenticated, userId: "u1", showsV3: false) == .paywall)
     }
 
     @Test
-    func aSignedInClimberWhoAlreadyPaysGoesStraightToTheAppWhateverTheFlowAsks() {
+    func aSignedInClimberWhoAlreadyPaysGoesStraightToTheApp() {
         let paying = route(
             state: .authenticated, userId: "u1", showsV3: false,
-            entitlementState: .active(["app_access"]), showsOnboardingPaywall: true
+            entitlementState: .active(["app_access"])
         )
 
         #expect(paying == .mainApp)
     }
 
     @Test
-    func theOnboardingPaywallWaitsForTheEntitlementInsteadOfGuessing() {
+    func theGateWaitsForTheEntitlementInsteadOfGuessing() {
         let unknown = route(
             state: .authenticated, userId: "u1", showsV3: false,
-            entitlementState: .unknown, showsOnboardingPaywall: true
+            entitlementState: .unknown
         )
 
         #expect(unknown == .resolving)
-    }
-
-    @Test
-    func theOnboardingPaywallNeverShowsToAClimberWhoIsNotSignedIn() {
-        #expect(route(state: .unauthenticated, showsV3: true, showsOnboardingPaywall: true) == .preAuthOnboarding)
-        #expect(route(state: .unauthenticated, showsV3: false, showsOnboardingPaywall: true) == .signedOut)
-        #expect(route(state: .authenticatingWithApple, showsV3: true, showsOnboardingPaywall: true) == .signingIn)
-    }
-
-    @Test
-    func theOnboardingPaywallIsAContainerThatReportsItsOwnScreens() {
-        #expect(AppRootRoute.onboardingPaywall.telemetryScreenName == nil)
-        #expect(AppLifecycleAnalyticsEvent.RootRoute(.onboardingPaywall) == .onboardingPaywall)
-        #expect(AppLifecycleAnalyticsEvent.RootRoute.onboardingPaywall.isResolved)
     }
 
     @Test

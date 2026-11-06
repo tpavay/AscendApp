@@ -2,8 +2,9 @@ import Observation
 import SwiftUI
 
 /// Drives the onboarding flow: which step is showing, where back goes, and the answers collected so
-/// far. The selling and setup screens and sign-in run before an account exists; the paywall and the
-/// welcome gift run after it, for a climber who signed in at the end of the flow and holds no access.
+/// far. The selling and setup screens and sign-in run before an account exists. The flow ends at
+/// sign-in: a climber who then holds no access meets the app-access paywall, which the root routes
+/// to like any other signed-in climber without access.
 ///
 /// Screens never decide the next step themselves. A primary action calls ``advance()``, an
 /// alternate exit calls ``go(to:)``, and the coordinator keeps the trail so back returns to the
@@ -21,11 +22,6 @@ final class OnboardingV3Coordinator {
     private(set) var step: OnboardingV3Step
     private(set) var answers: PreAuthOnboardingAnswers
 
-    /// The account that signed in at the end of the flow and has not yet reached access. Persisted
-    /// in the answers, so a relaunch before buying returns to the paywall and the gift rather than
-    /// to the app-access gate. The paywall carries the gate's delete-account and sign-out routes.
-    private(set) var paywallStageUserID: String?
-
     /// The bar value the screen just left was showing, which the next bar animates from.
     private var lastShownProgress: Double?
     private var trail: [OnboardingV3Step] = []
@@ -41,17 +37,8 @@ final class OnboardingV3Coordinator {
     ) {
         self.store = store
         self.now = now
-        let answers = store.answers()
-        self.answers = answers
-        paywallStageUserID = answers.paywallStageUserID
-        self.step = answers.paywallStageUserID == nil ? step : .paywall
-    }
-
-    /// Whether `userID` is the account the paywall stage belongs to.
-    func presentsPaywall(for userID: String?) -> Bool {
-        guard let userID else { return false }
-
-        return paywallStageUserID == userID
+        self.step = step
+        answers = store.answers()
     }
 
     /// Whether the climber has signed in at the end of the flow, after which the signed-out screens
@@ -80,8 +67,8 @@ final class OnboardingV3Coordinator {
         lastShownProgress ?? OnboardingProgressTable.value(for: step)
     }
 
-    /// Follows the current screen's primary action. A step with no destination - sign-in, the paywall
-    /// and the gift, which the root moves past - does nothing.
+    /// Follows the current screen's primary action. Sign-in has no destination: the root moves past
+    /// it when the account appears, so no tap on the screen is the way out.
     ///
     /// Ignored while a transition runs: the outgoing screen's button still takes taps during the
     /// fade, so a double tap would otherwise skip the screen it just opened. A move the app makes on
@@ -126,7 +113,6 @@ final class OnboardingV3Coordinator {
     /// account nor a prefilled setup screen receives them. The flow stays finished if it was.
     func sessionEnded() {
         answers = store.update { $0 = $0.droppingSessionAnswers }
-        paywallStageUserID = nil
     }
 
     #if DEBUG || STAGING
@@ -135,7 +121,6 @@ final class OnboardingV3Coordinator {
     func restartFromWelcome() {
         store.clear()
         answers = store.answers()
-        paywallStageUserID = nil
         trail = []
         lastShownProgress = nil
         transitionEnd = nil
@@ -143,28 +128,11 @@ final class OnboardingV3Coordinator {
     }
     #endif
 
-    /// The climber signed in at the end of the flow. The signed-out screens are done for good, and
-    /// when `showsPaywall` is set the paywall opens for them if they turn out to hold no access -
-    /// the root decides that from the entitlement, so a climber who already pays never sees it.
-    func completeSignIn(userID: String, showsPaywall: Bool) {
-        update {
-            if $0.completedAt == nil { $0.completedAt = Date() }
-            if showsPaywall { $0.paywallStageUserID = userID }
-        }
-
-        guard showsPaywall else { return }
-        trail = []
-        paywallStageUserID = userID
-        show(.paywall, from: step)
-    }
-
-    /// The climber holds access, so the paywall has nothing left to sell. A lapse later meets the
-    /// app-access gate, not this flow.
-    func paywallStageEnded() {
-        guard paywallStageUserID != nil else { return }
-
-        paywallStageUserID = nil
-        update { $0.paywallStageUserID = nil }
+    /// The climber signed in. The signed-out screens are done for good, and the app resolves its
+    /// route from ``isFinished`` after this.
+    func finish() {
+        guard !isFinished else { return }
+        update { $0.completedAt = Date() }
     }
 }
 
@@ -209,8 +177,6 @@ struct OnboardingV3FlowView: View {
         case .weeklyTarget: OnboardingWeeklyTargetScreen(coordinator: coordinator)
         case .thisMonthEvent: OnboardingThisMonthEventScreen(coordinator: coordinator)
         case .notificationPrimer: OnboardingNotificationPrimerScreen(coordinator: coordinator)
-        case .paywall: OnboardingPaywallScreen(coordinator: coordinator)
-        case .exitGift: OnboardingExitGiftScreen(coordinator: coordinator)
         case .auth: OnboardingAuthScreen(coordinator: coordinator)
         }
     }

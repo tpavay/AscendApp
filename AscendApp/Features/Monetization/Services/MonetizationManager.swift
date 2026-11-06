@@ -27,8 +27,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private var preparedIdentityTransition: MonetizationIdentityTransition?
     @ObservationIgnored
     private var paywallAttemptRevision: UInt = 0
-    /// The identity a native surface already reported reaching the paywall for.
-    private var nativePaywallReachedIdentity: MonetizationIdentityTransition?
     @ObservationIgnored
     private var activePaywallAttempt: (
         revision: UInt,
@@ -348,6 +346,11 @@ final class MonetizationManager: MonetizationIdentityManaging {
         return true
     }
 
+    /// The one Superwall user attribute Ascend sets: which onboarding led the climber to the paywall
+    /// (`v3`), or none at all. A campaign audience can then treat that climber differently without a
+    /// build. A version label names no one, and nothing about the climber's access history is sent.
+    nonisolated static let onboardingFlowVersionAttribute = "onboarding_flow_version"
+
     func presentPaywall(
         _ placement: SuperwallPlacement,
         params: [String: Any]? = nil,
@@ -375,6 +378,12 @@ final class MonetizationManager: MonetizationIdentityManaging {
         paywallAttemptRevision &+= 1
         let attemptRevision = paywallAttemptRevision
         activePaywallAttempt = (attemptRevision, presentationIdentity)
+
+        if tracksOnboardingAccess {
+            paywallPresenter.setUserAttributes([
+                Self.onboardingFlowVersionAttribute: onboardingLifecycle.activePassFlowVersion
+            ])
+        }
 
         guard paywallPresenter.isConfigured else {
             if tracksOnboardingAccess {
@@ -423,37 +432,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
     }
     #endif
 
-    /// Records that a surface Ascend draws itself - the onboarding paywall - reached a climber, which
-    /// the hosted paywall's `presentPaywall` does for itself. Once per identity, because the gift
-    /// sends the climber back to the paywall and a second arrival is the same paywall. Its screen
-    /// view is the onboarding flow's own step view, so the v1 paywall screen view is not recorded.
-    ///
-    /// Every arrival asks for access, so a grant that lands later - Ask to Buy approved, a comp - is
-    /// not read as access the climber already held. Only a pass nothing has answered opens a
-    /// request: a purchase confirmed here can still be waiting on its entitlement when the climber
-    /// comes back from the gift or relaunches, and that purchase keeps its name.
-    func recordNativePaywallReached(_ placement: SuperwallPlacement) {
-        guard let identity = identityGeneration, identity.userID != nil else { return }
-
-        if onboardingLifecycle.accessGrantProvenance == .notRequested {
-            beginOnboardingAccessGrantRequest()
-        }
-
-        guard nativePaywallReachedIdentity != identity else { return }
-
-        nativePaywallReachedIdentity = identity
-        LifecycleEventRecorder.shared.recordPaywallReached(
-            placement: placement.rawValue,
-            expectedUserID: identity.userID
-        )
-        trackPaywallReached(placement, params: nil, identity: identity, recordsScreenView: false)
-    }
-
     private func trackPaywallReached(
         _ placement: SuperwallPlacement,
         params: [String: Any]?,
-        identity: MonetizationIdentityTransition,
-        recordsScreenView: Bool = true
+        identity: MonetizationIdentityTransition
     ) {
         guard let userID = identity.userID else { return }
         let source = params?["source"] as? String
@@ -475,17 +457,19 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
         guard placement == .onboardingPaywall || placement == .appAccessGate else { return }
 
+        // The gate is where every flow hands a climber without access, so it reports under the pass
+        // that led there.
+        let context = OnboardingAnalyticsContext.paywallHandOff(flowVersion: onboardingLifecycle.activeFlowVersion)
         telemetry.track(
             OnboardingAnalyticsEvent.paywallReached(
                 placement: placement.rawValue,
-                source: source
+                source: source,
+                context: context
             ),
             ifIdentifiedAs: userID
         )
-        guard recordsScreenView else { return }
-
         OnboardingScreenViewRecorder(lifecycle: onboardingLifecycle).recordIfNeeded(
-            OnboardingAnalyticsEvent.paywallContext,
+            context,
             telemetry: telemetry,
             expectedUserID: userID
         )

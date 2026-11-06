@@ -17,6 +17,12 @@ Event parameters are not scanned, which is why they are inventoried here.
 | Other Data Types | `profile_gender`, `profile_age_group` (band, never the birth date), `notifications_choice`, `first_climb_id`, `first_climb_tier`, `first_climb_steps` |
 | Product Interaction | `profile_location_set`, `onboarding_complete`, `division_inputted`, `age_inputted`, `body_metrics_inputted`, `location_inputted`, `notifications_inputted`, `first_climb_selected` |
 
+## Superwall user attributes
+
+| Data type | Attributes | Call site |
+| --- | --- | --- |
+| Product Interaction | `onboarding_flow_version` | `MonetizationManager.presentPaywall` for the `app_access_gate` and `onboarding_paywall` placements, through `PaywallPresenting.setUserAttributes`. The label of the onboarding that led the climber to the paywall (`v1` or `v3`), removed when no onboarding pass is running, so a Superwall audience can be tuned without a build. A version label names no one, and no access history, price or identity is sent |
+
 ## Event parameters
 
 | Data type | Parameters | Call sites |

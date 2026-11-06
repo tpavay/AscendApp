@@ -45,8 +45,9 @@ test("StoreKit catalog keeps the annual trial, the monthly plan and Lifetime tru
     paymentMode: "free",
     subscriptionPeriod: "P1M"
   });
-  // The welcome gift: the same yearly plan at $9.99 with a seven-day trial, in the annual's
-  // group so an Apple ID holds one or the other and the trial is granted once per group.
+  // The welcome product the Superwall decline offer sells: the same yearly plan at $9.99 with a
+  // seven-day trial, in the annual's group so an Apple ID holds one or the other and the trial is
+  // granted once per group.
   const welcome = subscriptions.find(
     (subscription) => subscription.productID === "ascend_staging_yearly_welcome"
   );

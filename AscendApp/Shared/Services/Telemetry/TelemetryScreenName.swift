@@ -51,8 +51,6 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case onboardingWeeklyTarget = "onboarding_weekly_target"
     case onboardingThisMonthEvent = "onboarding_this_month_event"
     case onboardingNotificationPrimer = "onboarding_notification_primer"
-    case onboardingPaywall = "onboarding_paywall"
-    case onboardingExitGift = "onboarding_exit_gift"
     case onboardingAuth = "onboarding_auth"
     case healthConnectLater = "health_connect_later"
 
@@ -186,8 +184,6 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .onboardingWeeklyTarget: "OnboardingWeeklyTargetScreen"
         case .onboardingThisMonthEvent: "OnboardingThisMonthEventScreen"
         case .onboardingNotificationPrimer: "OnboardingNotificationPrimerScreen"
-        case .onboardingPaywall: "OnboardingPaywallScreen"
-        case .onboardingExitGift: "OnboardingExitGiftScreen"
         case .onboardingAuth: "OnboardingAuthScreen"
         case .healthConnectLater: "AppleHealthConnectView"
         case .home: "HomeView"

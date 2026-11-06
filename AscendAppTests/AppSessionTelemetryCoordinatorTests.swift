@@ -256,7 +256,6 @@ struct AppSessionTelemetryCoordinatorTests {
                 "restoring_session",
                 "resolving",
                 "onboarding",
-                "onboarding_paywall",
                 "paywall",
                 "main_app",
                 "unresolved"

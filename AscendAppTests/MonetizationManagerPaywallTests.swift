@@ -623,6 +623,8 @@ final class PaywallPresenterSpy: PaywallPresenting {
     private(set) var registeredSource: String?
     private(set) var registrations: [SuperwallPlacement] = []
     private(set) var subscriptionStatuses: [Set<String>] = []
+    /// Every attribute write in order; a `nil` value is a removal.
+    private(set) var userAttributeWrites: [[String: String?]] = []
     private var outcomeHandler: (@MainActor (PaywallPresentationOutcome) -> Void)?
 
     init(isConfigured: Bool = true) {
@@ -640,6 +642,10 @@ final class PaywallPresenterSpy: PaywallPresenting {
 
     func updateSubscriptionStatus(entitlementIDs: Set<String>) {
         subscriptionStatuses.append(entitlementIDs)
+    }
+
+    func setUserAttributes(_ attributes: [String: Any?]) {
+        userAttributeWrites.append(attributes.mapValues { $0 as? String })
     }
 
     func register(

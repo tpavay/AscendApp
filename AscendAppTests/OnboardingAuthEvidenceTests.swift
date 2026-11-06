@@ -42,7 +42,7 @@ struct OnboardingAuthEvidenceTests {
             #expect(copy.contains("ascend"), "the wordmark: \(copy)")
             #expect(!copy.contains("your name here"), "no name prompt: \(copy)")
             #expect(copy.contains("almost there"), "\(copy)")
-            #expect(!copy.contains("last step"), "the paywall still follows: \(copy)")
+            #expect(!copy.contains("last step"), "the paywall follows sign-in: \(copy)")
             #expect(copy.contains("back"), "a way back to the setup screens: \(copy)")
             try hosted.photograph(named: "onboarding-v3-auth-claim-se")
         }

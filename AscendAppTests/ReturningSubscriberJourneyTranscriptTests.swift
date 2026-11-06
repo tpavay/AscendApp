@@ -107,9 +107,10 @@ struct ReturningSubscriberJourneyTranscriptTests {
         )
     }
 
-    /// The onboarding walks a signed-out climber through the setup screens, then sign-in, then the
-    /// paywall. Which climbers see that paywall is decided by what RevenueCat says about the account
-    /// that just signed in, never by the order of the screens.
+    /// The onboarding walks a signed-out climber through the setup screens, then sign-in, and ends
+    /// there. The paywall that may follow is the app-access gate, and which climbers meet it is
+    /// decided by what RevenueCat says about the account that just signed in, never by the order of
+    /// the screens.
     private func routesWalkingTheOnboarding(
         accountHolds identityResolution: MonetizationEntitlementState
     ) async throws -> [AppRootRoute] {
@@ -123,7 +124,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
             observesFirebaseAuth: false
         )
 
-        func route(userId: String?, showsPaywall: Bool) -> AppRootRoute {
+        func route(userId: String?) -> AppRootRoute {
             AppRootRouteResolver.resolve(
                 updatePresentation: nil,
                 authenticationState: authentication.authenticationState,
@@ -131,41 +132,40 @@ struct ReturningSubscriberJourneyTranscriptTests {
                 postAuthOnboardingPhase: .complete,
                 entitlementState: monetization.entitlementStateForRouting,
                 requiredEntitlementID: "app_access",
-                showsPreAuthOnboardingV3: true,
-                showsOnboardingPaywallV3: showsPaywall
+                showsPreAuthOnboardingV3: true
             )
         }
 
         var routes: [AppRootRoute] = []
         authentication.authenticationState = .unauthenticated
-        routes.append(route(userId: nil, showsPaywall: false))
+        routes.append(route(userId: nil))
 
-        // Sign-in closes the flow and asks for the paywall; the answer is still outstanding.
+        // Sign-in closes the flow; the entitlement answer is still outstanding.
         entitlementService.identityResolution = identityResolution
         authentication.beginAuthenticatedSession(
             customer: .climber("walker"),
             initialState: .authenticated
         )
-        routes.append(route(userId: "walker", showsPaywall: true))
+        routes.append(route(userId: "walker"))
 
         await Task.yield()
         try await waitForEntitlementResolution(of: monetization)
-        routes.append(route(userId: "walker", showsPaywall: true))
+        routes.append(route(userId: "walker"))
         return routes
     }
 
     @Test
-    func anExistingSubscriberWhoWalksTheOnboardingSkipsThePaywallAndTheGift() async throws {
+    func anExistingSubscriberWhoWalksTheOnboardingSkipsThePaywall() async throws {
         let routes = try await routesWalkingTheOnboarding(accountHolds: .active(["app_access"]))
 
         #expect(routes == [.preAuthOnboarding, .resolving, .mainApp])
     }
 
     @Test
-    func aLapsedSubscriberWhoWalksTheOnboardingSeesThePaywallOnceTheAnswerIsIn() async throws {
+    func aLapsedSubscriberWhoWalksTheOnboardingMeetsTheAppAccessGateOnceTheAnswerIsIn() async throws {
         let routes = try await routesWalkingTheOnboarding(accountHolds: .inactive)
 
-        #expect(routes == [.preAuthOnboarding, .resolving, .onboardingPaywall])
+        #expect(routes == [.preAuthOnboarding, .resolving, .paywall])
     }
 
     /// Waits on the identity `Task` that `beginAuthenticatedSession` starts. This is polling for a
@@ -193,7 +193,6 @@ struct ReturningSubscriberJourneyTranscriptTests {
         case .restoringSession: "restoringSession"
         case .resolving: "resolving (neutral Checking your access surface)"
         case .onboarding(let stage): "onboarding(\(stage))"
-        case .onboardingPaywall: "onboardingPaywall (v3 paywall and gift, signed in, until access arrives)"
         case .paywall: "paywall (app-access gate)"
         case .mainApp: "mainApp"
         }

@@ -25,38 +25,28 @@ struct NativePaywallProductTerms: Equatable, Sendable {
     let billing: NativePaywallPlan.Billing
     let renewalPeriod: NativeSubscriptionPeriod?
     let freeTrialPeriod: NativeSubscriptionPeriod?
-    let price: Decimal?
-    let localizedPricePerMonth: String?
 
     init(
         productID: String,
         localizedPrice: String,
         billing: NativePaywallPlan.Billing = .subscription,
         renewalPeriod: NativeSubscriptionPeriod?,
-        freeTrialPeriod: NativeSubscriptionPeriod?,
-        price: Decimal? = nil,
-        localizedPricePerMonth: String? = nil
+        freeTrialPeriod: NativeSubscriptionPeriod?
     ) {
         self.productID = productID
         self.localizedPrice = localizedPrice
         self.billing = billing
         self.renewalPeriod = renewalPeriod
         self.freeTrialPeriod = freeTrialPeriod
-        self.price = price
-        self.localizedPricePerMonth = localizedPricePerMonth
     }
 }
 
 enum NativePaywallPlanMapper {
-    /// - Parameter welcomeProductID: The gift's yearly product. Only the onboarding paywall passes
-    ///   it, so the signed-in gate's plan list - which sells the two launch plans and nothing else -
-    ///   is unchanged. It maps as an Annual subscription after the launch plans.
     static func plans(
         from products: [NativePaywallProductTerms],
         eligibilityByProductID: [String: NativeTrialEligibility],
         yearlyProductID: String,
         lifetimeProductID: String,
-        welcomeProductID: String? = nil,
         locale: Locale = .current,
         bundle: Bundle = .main
     ) -> [NativePaywallPlan] {
@@ -65,27 +55,21 @@ enum NativePaywallPlanMapper {
             uniqueKeysWithValues: products.map { ($0.productID, $0) }
         )
 
-        let productIDs = [yearlyProductID, lifetimeProductID] + [welcomeProductID].compactMap { $0 }
-
-        return productIDs.compactMap { productID in
+        return [yearlyProductID, lifetimeProductID].compactMap { productID in
             guard let product = productsByID[productID] else { return nil }
-            let title: String
-            switch productID {
-            case lifetimeProductID:
-                title = String(
-                    localized: "subscription.plan.lifetime",
-                    defaultValue: "Lifetime",
-                    bundle: localizedBundle,
-                    locale: locale
-                )
-            default:
-                title = String(
+            let title = productID == yearlyProductID
+                ? String(
                     localized: "subscription.plan.annual",
                     defaultValue: "Annual",
                     bundle: localizedBundle,
                     locale: locale
                 )
-            }
+                : String(
+                    localized: "subscription.plan.lifetime",
+                    defaultValue: "Lifetime",
+                    bundle: localizedBundle,
+                    locale: locale
+                )
 
             switch product.billing {
             case .oneTime:
@@ -102,8 +86,7 @@ enum NativePaywallPlanMapper {
                         bundle: localizedBundle,
                         locale: locale
                     ),
-                    trialDescription: nil,
-                    price: product.price
+                    trialDescription: nil
                 )
             case .subscription:
                 return subscriptionPlan(
@@ -145,7 +128,6 @@ enum NativePaywallPlanMapper {
         )
         let trialDescription: String?
         let trialActionDescription: String?
-        let eligibleTrialPeriod: NativeSubscriptionPeriod?
         // The trial is promised only when the product carries one and RevenueCat says this Apple
         // account can still take it: Apple grants one introductory offer per subscription group.
         if eligibility == .eligible, let freeTrialPeriod = product.freeTrialPeriod {
@@ -170,11 +152,9 @@ enum NativePaywallPlanMapper {
                 locale: locale,
                 bundle: localizedBundle
             )
-            eligibleTrialPeriod = freeTrialPeriod
         } else {
             trialDescription = nil
             trialActionDescription = nil
-            eligibleTrialPeriod = nil
         }
 
         return NativePaywallPlan(
@@ -184,10 +164,7 @@ enum NativePaywallPlanMapper {
             billing: .subscription,
             billingDescription: renewalDescription,
             trialDescription: trialDescription,
-            trialActionDescription: trialActionDescription,
-            price: product.price,
-            localizedPricePerMonth: product.localizedPricePerMonth,
-            freeTrialPeriod: eligibleTrialPeriod
+            trialActionDescription: trialActionDescription
         )
     }
 

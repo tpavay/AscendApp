@@ -532,7 +532,6 @@ struct OnboardingAuthTests {
         #expect(flow.step == .auth)
         #expect(OnboardingAuthMode(arrivedFrom: flow.previousStep) == .returning)
         #expect(!flow.isFinished)
-        #expect(!flow.presentsPaywall(for: "a"))
         #expect(!harness.intent.isSet)
 
         harness.recorder.events.removeAll()

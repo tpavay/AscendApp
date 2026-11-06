@@ -1,7 +1,8 @@
 import Foundation
 
 /// Every screen of the onboarding flow, in the order the funnel counts them: the selling and setup
-/// screens, sign-in, then the paywall and the welcome gift a signed-in climber without access sees.
+/// screens, then sign-in, which ends the flow. What a climber without access sees next is the
+/// app-access paywall, a Superwall paywall configured in the dashboard, not a step of this flow.
 ///
 /// The raw value is the analytics `step_id`; it must match
 /// ``OnboardingAnalyticsContext/orderedStepIDs`` exactly, which
@@ -23,8 +24,6 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
     case thisMonthEvent = "this_month_event"
     case notificationPrimer = "notification_primer"
     case auth
-    case paywall
-    case exitGift = "exit_gift"
 
     var analyticsID: String { rawValue }
 
@@ -47,14 +46,11 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .thisMonthEvent: "This month's live event"
         case .notificationPrimer: "We'll keep you on track"
         case .auth: "Claim your spot on the board"
-        case .paywall: "Never climb a boring minute again"
-        case .exitGift: "Open your welcome gift"
         }
     }
 
-    /// Where the screen's primary action leads. `nil` for a step that ends the flow on its own: the
-    /// root moves on when the account appears (sign-in) or when access arrives (paywall, gift), and
-    /// no tap on the screen is the way out.
+    /// Where the screen's primary action leads. `nil` for sign-in, which ends the flow on its own:
+    /// the root moves on when the account appears, and no tap on the screen is the way out.
     ///
     /// The two Health steps and the usual-climb step form one branch: connecting walks
     /// `healthConnect -> healthPermission -> healthHistory`, and everything that leaves Health
@@ -75,7 +71,7 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .weeklyTarget: .thisMonthEvent
         case .thisMonthEvent: .notificationPrimer
         case .notificationPrimer: .auth
-        case .auth, .paywall, .exitGift: nil
+        case .auth: nil
         }
     }
 
@@ -88,10 +84,6 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
             [OnboardingV3Exit(action: "Skip", destination: .usualClimb)]
         case .healthPermission:
             [OnboardingV3Exit(action: "No stair stepper workouts found", destination: .usualClimb)]
-        case .paywall:
-            [OnboardingV3Exit(action: "Close", destination: .exitGift)]
-        case .exitGift:
-            [OnboardingV3Exit(action: "No thanks", destination: .paywall)]
         default:
             []
         }

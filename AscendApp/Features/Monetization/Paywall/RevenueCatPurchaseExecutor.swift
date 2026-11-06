@@ -87,8 +87,6 @@ final class RevenueCatPurchaseExecutor {
                 purchaseIdentity: purchaseIdentity
             )
         }
-        // A purchase belongs to an account. An anonymous RevenueCat customer has no uid to attribute
-        // it to, and a charge nobody can attach to a climber is the one thing this refuses.
         guard let purchaseIdentity,
               purchaseIdentity.userID != nil,
               currentIdentityGeneration() == purchaseIdentity else {

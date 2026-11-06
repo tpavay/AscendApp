@@ -172,7 +172,6 @@ test("Info.plist resolves the selected build settings for runtime configuration"
     ["AscendUseRevenueCatTestStore", "ASCEND_USE_REVENUECAT_TEST_STORE"],
     ["AscendRevenueCatYearlyProductID", "ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"],
     ["AscendRevenueCatLifetimeProductID", "ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID"],
-    ["AscendRevenueCatWelcomeProductID", "ASCEND_REVENUECAT_WELCOME_PRODUCT_ID"],
     ["AscendSuperwallAPIKey", "ASCEND_SUPERWALL_API_KEY"],
     ["AscendSuperwallTestMode", "ASCEND_SUPERWALL_TEST_MODE"],
     ["AscendAllowsUnentitledAppAccess", "ASCEND_ALLOWS_UNENTITLED_APP_ACCESS"]

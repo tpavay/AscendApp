@@ -3,14 +3,14 @@ import SwiftUI
 /// How far along the bar is on each screen, as a percentage. One table keyed by step, front-loaded
 /// on purpose: the first screens move the bar a long way so a climber feels the end is near.
 ///
-/// 01 and the sign-in, paywall and gift screens (13, 14 and 15) have no bar. 06b holds 06's value, and the two branches of 07 share one.
+/// 01 and the sign-in screen (13) have no bar. 06b holds 06's value, and the two branches of 07 share one.
 enum OnboardingProgressTable {
     /// Where the bar starts on the first screen that shows it.
     static let entryValue: Double = 15
 
     static func value(for step: OnboardingV3Step) -> Double? {
         switch step {
-        case .welcome, .auth, .paywall, .exitGift: nil
+        case .welcome, .auth: nil
         case .goHarder: 38
         case .getBetter: 55
         case .somethingToChase: 67
