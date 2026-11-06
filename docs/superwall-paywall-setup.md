@@ -111,7 +111,7 @@ Who sees them is decided by the entitlement, never by the order of the screens (
   A purchase or a restore flips the entitlement and the root takes them into the app; the screens never navigate themselves.
 - The route lasts until access arrives, across relaunches: the account that signed in is stored in the onboarding answers (`PreAuthOnboardingAnswers.paywallStageUserID`), cleared when access arrives and on sign-out, and no other account matches it.
   A relaunch before buying therefore returns to the paywall and still offers the gift.
-- The paywall carries the app-access gate's `Sign out` and `Delete account` routes (Guideline 5.1.1(v)), wired to the root's one account-deletion sheet; `LockedOutSubscriberRecoveryContractTests` holds them.
+- The paywall carries the app-access gate's `Sign out` and `Delete account` routes (Guideline 5.1.1(v)), wired to the root's one account-deletion sheet; `LockedOutSubscriberRecoveryContractTests` and `OnboardingPaywallEvidenceTests` hold them.
 - With the kill switch off, the same climber meets the app-access gate straight after sign-in.
 - "Already have an account? Sign in" on the first screen opens the same sign-in in returning mode.
   It never closes post-sign-in onboarding, and a lapsed subscriber who signs in that way meets the app-access gate.

@@ -195,12 +195,7 @@ extension OnboardingV3SignInHandOff {
     /// that every route calls these seams, in order.
     static func live(
         markPostSignInOnboardingComplete: @escaping @MainActor () -> Void,
-        importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool = { _ in false },
-        reconcileWeeklyTarget: @escaping @MainActor (_ userId: String) async -> Void = { userId in
-            await WeeklyTargetService().reconcile(for: userId)
-        },
-        store: PreAuthOnboardingStore = PreAuthOnboardingStore(),
-        intent: OnboardingV3HandOffIntent = OnboardingV3HandOffIntent()
+        importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool = { _ in false }
     ) -> OnboardingV3SignInHandOff {
         OnboardingV3SignInHandOff(
             seams: Seams(
@@ -239,10 +234,10 @@ extension OnboardingV3SignInHandOff {
                     guard let target = WeeklyTarget(days: days) else { return }
                     await WeeklyTargetService().save(target, for: userId)
                 },
-                reconcileWeeklyTarget: reconcileWeeklyTarget
-            ),
-            store: store,
-            intent: intent
+                reconcileWeeklyTarget: { userId in
+                    await WeeklyTargetService().reconcile(for: userId)
+                }
+            )
         )
     }
 }

@@ -17,7 +17,7 @@ enum AppRootRoute: Equatable, Sendable {
     case resolving
     case onboarding(PostAuthOnboardingStage)
     /// Signed in at the end of the v3 flow and holding no access: the onboarding's own paywall and
-    /// welcome gift. Replaces ``paywall`` for that one session only; a relaunch meets ``paywall``.
+    /// welcome gift. Replaces ``paywall`` for that account until access arrives, across relaunches.
     case onboardingPaywall
     case paywall
     case mainApp
@@ -38,9 +38,10 @@ struct AppRootRouteResolver {
     ///     decided (``OnboardingV3RouteLatch``). Resolved outside, like every other input, so the
     ///     decision stays synchronous and pure.
     ///   - showsOnboardingPaywallV3: Whether a signed-in climber without access gets the onboarding's
-    ///     paywall instead of the app-access gate: they signed in at the end of the v3 flow in this
-    ///     session and `onboarding_paywall_enabled` is on. Entitlement still decides whether anyone
-    ///     sees it, so a climber who already pays never does.
+    ///     paywall instead of the app-access gate: this account signed in at the end of the v3 flow
+    ///     with `onboarding_paywall_enabled` on, which stays recorded on the device until access
+    ///     arrives. Entitlement still decides whether anyone sees it, so a climber who already pays
+    ///     never does.
     static func resolve(
         updatePresentation: AppUpdatePresentation?,
         authenticationState: AuthenticationState,

@@ -351,8 +351,8 @@ struct OnboardingV3KitTests {
         )
         #expect(withoutAccess == .onboardingPaywall)
 
-        let relaunched = route(state: .authenticated, userId: "u1", showsV3: false, showsOnboardingPaywall: false)
-        #expect(relaunched == .paywall, "the gate, with its deletion and sign-out routes, owns every other case")
+        let notAsked = route(state: .authenticated, userId: "u1", showsV3: false, showsOnboardingPaywall: false)
+        #expect(notAsked == .paywall, "the gate owns every case the flow's paywall stage does not")
     }
 
     @Test

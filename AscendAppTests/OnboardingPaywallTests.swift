@@ -378,6 +378,69 @@ struct OnboardingPaywallModelTests {
         #expect(store.hold() == PendingPurchaseHold.askToBuy)
     }
 
+    private func makeManagerReportingGrants(
+        entitlements: EntitlementServiceStub,
+        defaults: UserDefaults
+    ) -> MonetizationManager {
+        let manager = MonetizationManager(
+            configuration: Self.configuration,
+            entitlementService: entitlements,
+            paywallPresenter: NoopPresenter(),
+            appAccessReconciler: NoopReconciler(),
+            onboardingLifecycle: OnboardingFlowAnalyticsCoordinator(userDefaults: defaults),
+            userDefaults: defaults,
+            unattributedGrantSettleDelay: .zero
+        )
+        manager.configure()
+        return manager
+    }
+
+    /// The parent's approval arrives through the entitlement stream with no purchase to name it, and
+    /// the climber did not already hold that access.
+    @Test
+    func anAskToBuyApprovedLaterIsNotReportedAsAccessTheClimberAlreadyHeld() async {
+        let defaults = UserDefaults(suiteName: "OnboardingPaywallModelTests-g-\(UUID().uuidString)")!
+        let entitlements = EntitlementServiceStub(entitlementState: .inactive)
+        let manager = makeManagerReportingGrants(entitlements: entitlements, defaults: defaults)
+        let provider = StubPlanProvider(plans: plans())
+        provider.purchaseResult = .pending
+        let model = OnboardingPaywallModel(
+            provider: provider,
+            monetization: manager,
+            restoreService: AppAccessRestoreService(entitlementID: "app_access", restorer: { manager }),
+            holdStore: PendingPurchaseHoldStore(userDefaults: defaults)
+        )
+
+        manager.recordNativePaywallReached(.onboardingPaywall)
+        await model.load()
+        #expect(await model.purchaseSelectedPlan() == .notCompleted)
+
+        entitlements.setEntitlementState(.active(["app_access"]))
+        await manager.settleUnattributedAccessGrantForTesting()
+
+        #expect(manager.onboardingCompletionReasonForActiveAccess == .unknown)
+    }
+
+    /// RevenueCat can confirm a purchase before its answer carries the entitlement, and the climber
+    /// can come back to the paywall, or relaunch into it, during that wait.
+    @Test
+    func arrivingAgainDoesNotRenameAPurchaseStillWaitingOnItsEntitlement() async throws {
+        let defaults = UserDefaults(suiteName: "OnboardingPaywallModelTests-g-\(UUID().uuidString)")!
+        let entitlements = EntitlementServiceStub(entitlementState: .inactive)
+        let manager = makeManagerReportingGrants(entitlements: entitlements, defaults: defaults)
+        manager.recordNativePaywallReached(.onboardingPaywall)
+        manager.adoptPurchaseEntitlementState(.inactive, for: try #require(manager.identityGeneration))
+
+        manager.recordNativePaywallReached(.onboardingPaywall)
+        let relaunched = makeManagerReportingGrants(entitlements: entitlements, defaults: defaults)
+        relaunched.recordNativePaywallReached(.onboardingPaywall)
+
+        entitlements.setEntitlementState(.active(["app_access"]))
+        await relaunched.settleUnattributedAccessGrantForTesting()
+
+        #expect(relaunched.onboardingCompletionReasonForActiveAccess == .purchase)
+    }
+
     @Test
     func aFailedPurchaseIsReportedAndRetryable() async {
         let provider = StubPlanProvider(plans: plans())

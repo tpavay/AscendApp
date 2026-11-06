@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import SuperwallKit
 
-/// The state behind the paywall (13) and the welcome gift (14): the plans, the purchase, restore.
+/// The state behind the paywall (14) and the welcome gift (15): the plans, the purchase, restore.
 ///
 /// One instance serves both screens, because the gift is the paywall's own yearly plan at another
 /// price and the two share one purchase in flight. It never imports SwiftUI; the screens render it.
@@ -68,7 +68,6 @@ final class OnboardingPaywallModel {
     @ObservationIgnored private let configuration: MonetizationConfiguration
     /// What Apple is still deciding on: Ask to Buy, or a charge RevenueCat has not confirmed. Nothing
     /// else can be bought meanwhile, because another product would be a second real charge.
-    ///
     private var unconfirmedPurchase: PendingPurchaseHold?
 
     init(

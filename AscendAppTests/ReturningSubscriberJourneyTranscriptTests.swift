@@ -193,7 +193,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         case .restoringSession: "restoringSession"
         case .resolving: "resolving (neutral Checking your access surface)"
         case .onboarding(let stage): "onboarding(\(stage))"
-        case .onboardingPaywall: "onboardingPaywall (v3 paywall and gift, signed in, this session only)"
+        case .onboardingPaywall: "onboardingPaywall (v3 paywall and gift, signed in, until access arrives)"
         case .paywall: "paywall (app-access gate)"
         case .mainApp: "mainApp"
         }

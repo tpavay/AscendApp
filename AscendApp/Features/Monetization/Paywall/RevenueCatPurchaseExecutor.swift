@@ -343,8 +343,7 @@ final class RevenueCatPurchaseExecutor {
         _ event: PaywallAnalyticsEvent,
         for identity: MonetizationIdentityTransition?
     ) {
-        if let userID = identity?.userID {
-            telemetry.track(event, ifIdentifiedAs: userID)
-        }
+        guard let userID = identity?.userID else { return }
+        telemetry.track(event, ifIdentifiedAs: userID)
     }
 }
