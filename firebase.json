@@ -9,6 +9,9 @@
   "remoteconfig": {
     "template": "remoteconfig.template.json"
   },
+  "emulators": {
+    "auth": {}
+  },
   "functions": [
     {
       "source": "functions",
