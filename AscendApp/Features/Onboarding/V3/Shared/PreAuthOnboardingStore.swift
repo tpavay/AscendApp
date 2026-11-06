@@ -54,7 +54,7 @@ enum PreAuthOnboardingNotificationChoice: String, Codable, Equatable, Sendable {
 /// Everything the pre-sign-in flow collects. All optional: every screen can be skipped, and a
 /// field nobody answered is simply absent.
 ///
-/// Nothing here reaches Firestore. There is no uid until the last step, so these answers wait on
+/// Nothing here reaches Firestore. There is no uid until the sign-in step, so these answers wait on
 /// the device and are written to the profile right after sign-in, never before.
 struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
     /// Steps and minutes of the climb the climber calls usual: typed in on `usual_climb`, or the
@@ -81,9 +81,11 @@ struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
     /// only records that the climber has seen it, so a later visit opens the box without a tap.
     var welcomeGiftFirstShownAt: Date?
 
-    /// Whether a free trial actually started. The trial-ending reminder is scheduled only when it
-    /// did.
-    var trialStarted = false
+    /// The account that signed in at the end of the flow and has not yet reached access. While it
+    /// matches the signed-in account, the root shows the paywall and gift instead of the app-access
+    /// gate, so a relaunch before buying returns to them. Cleared when access arrives and on
+    /// sign-out; a different account never matches it.
+    var paywallStageUserID: String?
 
     /// When the climber reached the end of the flow. Present means the flow is finished and the
     /// app moves on to whatever follows it.

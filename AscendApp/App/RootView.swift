@@ -53,6 +53,8 @@ struct RootView: View {
                 authenticatedContent(for: .resolving)
             case .onboarding:
                 authenticatedContent(for: rootRoute)
+            case .onboardingPaywall:
+                authenticatedContent(for: .onboardingPaywall)
             case .paywall:
                 authenticatedContent(for: .paywall)
             case .mainApp:
@@ -147,6 +149,7 @@ struct RootView: View {
             if previousUid != nil, currentUid == nil {
                 LocalReminderCoordinator.shared.sessionEnded()
                 onboardingV3Coordinator.sessionEnded()
+                OnboardingPaywallModel.live.releaseUnconfirmedPurchase()
             }
             // The sheet belongs to the session that opened it, or it re-presents itself unprompted
             // over the next climber's gate. But deletion ends the session at the auth step, several
@@ -173,6 +176,9 @@ struct RootView: View {
         // the purchase yet.
         .onChange(of: monetizationManager.hasAppAccess) { _, hasAccess in
             guard hasAccess else { return }
+            // Whatever the onboarding paywall was waiting on has landed, and it has nothing left to sell.
+            OnboardingPaywallModel.live.releaseUnconfirmedPurchase()
+            onboardingV3Coordinator.paywallStageEnded()
             Task {
                 await monetizationManager.reconcileServerAppAccess()
             }
@@ -298,7 +304,9 @@ struct RootView: View {
             entitlementState: monetizationManager.entitlementStateForRouting,
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
             allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting,
-            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow
+            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow,
+            showsOnboardingPaywallV3: onboardingV3Coordinator.presentsPaywall(for: authVM.user?.uid)
+                && RemoteFeatureFlagStore.shared.isEnabled(.onboardingPaywall)
         )
 
         // At the very start of onboarding we do not yet know whether this account
@@ -409,6 +417,15 @@ struct RootView: View {
                 )
             }
 
+        case .onboardingPaywall:
+            routeScreen(route) {
+                OnboardingPaywallRouteView(
+                    coordinator: onboardingV3Coordinator,
+                    onDeleteAccount: { presentGateAccountDeletion() },
+                    onSignOut: authVM.signOut
+                )
+            }
+
         case .paywall:
             routeScreen(route) {
                 AppAccessPaywallPlaceholderView(
@@ -479,18 +496,24 @@ struct RootView: View {
     }
 
     /// What the onboarding v3 hand-off needs, built once. A no-op until a climber signs in at the end
-    /// of the flow: with the switch off nothing sets the intent, holds a purchase or leaves answers,
-    /// and a target set in Settings is the service's to deliver, not the hand-off's.
+    /// of the flow: with the switch off nothing sets the intent or leaves answers, and a target set
+    /// in Settings is the service's to deliver, not the hand-off's.
     @MainActor
     private func onboardingV3HandOffService() -> OnboardingV3SignInHandOff {
         if let onboardingV3HandOff { return onboardingV3HandOff }
 
         let postAuthOnboardingCoordinator = postAuthOnboardingCoordinator
         let onboardingV3Coordinator = onboardingV3Coordinator
+        let authVM = authVM
         let handOff = OnboardingV3SignInHandOff.live(
             markPostSignInOnboardingComplete: {
                 postAuthOnboardingCoordinator.markCurrentUserComplete()
-                onboardingV3Coordinator.finish()
+                if let userID = authVM.user?.uid {
+                    onboardingV3Coordinator.completeSignIn(
+                        userID: userID,
+                        showsPaywall: RemoteFeatureFlagStore.shared.isEnabled(.onboardingPaywall)
+                    )
+                }
             }
         )
         onboardingV3HandOff = handOff

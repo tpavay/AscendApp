@@ -1,8 +1,9 @@
 import Observation
 import SwiftUI
 
-/// Drives the pre-sign-in onboarding flow: which step is showing, where back goes, and the answers
-/// collected so far.
+/// Drives the onboarding flow: which step is showing, where back goes, and the answers collected so
+/// far. The selling and setup screens and sign-in run before an account exists; the paywall and the
+/// welcome gift run after it, for a climber who signed in at the end of the flow and holds no access.
 ///
 /// Screens never decide the next step themselves. A primary action calls ``advance()``, an
 /// alternate exit calls ``go(to:)``, and the coordinator keeps the trail so back returns to the
@@ -20,12 +21,10 @@ final class OnboardingV3Coordinator {
     private(set) var step: OnboardingV3Step
     private(set) var answers: PreAuthOnboardingAnswers
 
-    /// Whether the climber asked for the sign-in step as someone who already has an account. Held
-    /// in memory because the flow itself is: every launch starts over at the first screen, where a
-    /// remembered request could only put a climber who then walks the whole flow in the wrong mode.
-    /// Within a launch it lasts until they back out of the sign-in step, so signing out returns them
-    /// to the mode they chose.
-    private(set) var returningSignInRequested = false
+    /// The account that signed in at the end of the flow and has not yet reached access. Persisted
+    /// in the answers, so a relaunch before buying returns to the paywall and the gift rather than
+    /// to the app-access gate. The paywall carries the gate's delete-account and sign-out routes.
+    private(set) var paywallStageUserID: String?
 
     /// The bar value the screen just left was showing, which the next bar animates from.
     private var lastShownProgress: Double?
@@ -42,17 +41,27 @@ final class OnboardingV3Coordinator {
     ) {
         self.store = store
         self.now = now
-        self.step = step
-        answers = store.answers()
+        let answers = store.answers()
+        self.answers = answers
+        paywallStageUserID = answers.paywallStageUserID
+        self.step = answers.paywallStageUserID == nil ? step : .paywall
     }
 
-    /// Whether the flow has reached its end, and the app moves on to what follows it.
+    /// Whether `userID` is the account the paywall stage belongs to.
+    func presentsPaywall(for userID: String?) -> Bool {
+        guard let userID else { return false }
+
+        return paywallStageUserID == userID
+    }
+
+    /// Whether the climber has signed in at the end of the flow, after which the signed-out screens
+    /// never show again.
     var isFinished: Bool { answers.completedAt != nil }
 
     var canGoBack: Bool { !trail.isEmpty }
 
     /// The screen back would return to. The sign-in screen reads it to tell a climber who walked
-    /// the whole flow from one who tapped "Already climbing? Sign in" on the first screen.
+    /// the whole flow from one who tapped "Already have an account? Sign in" on the first screen.
     var previousStep: OnboardingV3Step? { trail.last }
 
     var analyticsContext: OnboardingAnalyticsContext {
@@ -71,17 +80,16 @@ final class OnboardingV3Coordinator {
         lastShownProgress ?? OnboardingProgressTable.value(for: step)
     }
 
-    /// Follows the current screen's primary action. On the last screen it finishes the flow.
+    /// Follows the current screen's primary action. A step with no destination - sign-in, the paywall
+    /// and the gift, which the root moves past - does nothing.
     ///
     /// Ignored while a transition runs: the outgoing screen's button still takes taps during the
-    /// fade, so a double tap would otherwise skip the screen it just opened.
+    /// fade, so a double tap would otherwise skip the screen it just opened. A move the app makes on
+    /// its own is not a tap, and uses ``go(to:)``.
     func advance() {
         if let transitionEnd, now() < transitionEnd { return }
 
-        guard let destination = step.primaryDestination else {
-            finish()
-            return
-        }
+        guard let destination = step.primaryDestination else { return }
 
         go(to: destination)
     }
@@ -94,17 +102,9 @@ final class OnboardingV3Coordinator {
         show(destination, from: step)
     }
 
-    /// Opens the sign-in step for a climber who already has an account - the paywall's "Already
-    /// climbing? Sign in" - which the step it came from cannot show on its own.
-    func goToReturningSignIn() {
-        returningSignInRequested = true
-        go(to: .auth)
-    }
-
     /// Returns to the screen the climber came from. Does nothing on the first screen.
     func back() {
         guard let previous = trail.popLast() else { return }
-        if step == .auth { returningSignInRequested = false }
         show(previous, from: step)
     }
 
@@ -126,12 +126,31 @@ final class OnboardingV3Coordinator {
     /// account nor a prefilled setup screen receives them. The flow stays finished if it was.
     func sessionEnded() {
         answers = store.update { $0 = $0.droppingSessionAnswers }
+        paywallStageUserID = nil
     }
 
-    /// Ends the flow. The app resolves its route from ``isFinished`` after this.
-    func finish() {
-        guard !isFinished else { return }
-        update { $0.completedAt = Date() }
+    /// The climber signed in at the end of the flow. The signed-out screens are done for good, and
+    /// when `showsPaywall` is set the paywall opens for them if they turn out to hold no access -
+    /// the root decides that from the entitlement, so a climber who already pays never sees it.
+    func completeSignIn(userID: String, showsPaywall: Bool) {
+        update {
+            if $0.completedAt == nil { $0.completedAt = Date() }
+            if showsPaywall { $0.paywallStageUserID = userID }
+        }
+
+        guard showsPaywall else { return }
+        trail = []
+        paywallStageUserID = userID
+        show(.paywall, from: step)
+    }
+
+    /// The climber holds access, so the paywall has nothing left to sell. A lapse later meets the
+    /// app-access gate, not this flow.
+    func paywallStageEnded() {
+        guard paywallStageUserID != nil else { return }
+
+        paywallStageUserID = nil
+        update { $0.paywallStageUserID = nil }
     }
 }
 

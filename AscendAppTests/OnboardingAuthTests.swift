@@ -4,7 +4,7 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Screen 15 and what happens when the climber signs in at the end of the flow: the example board,
+/// Screen 13 and what happens when the climber signs in at the end of the flow: the example board,
 /// the two modes, the profile fill, and every route's hand-off.
 @MainActor
 struct OnboardingAuthTests {
@@ -38,45 +38,27 @@ struct OnboardingAuthTests {
     // MARK: - Modes
 
     @Test
-    func theSignInOpensInReturningModeFromTheFirstScreenAndTheClaimSpotModeFromThePaywall() {
-        #expect(OnboardingAuthMode(arrivedFrom: .welcome, returningRequested: false) == .returning)
-        #expect(OnboardingAuthMode(arrivedFrom: .paywall, returningRequested: false) == .claimSpot)
-        #expect(OnboardingAuthMode(arrivedFrom: .exitGift, returningRequested: false) == .claimSpot)
-        #expect(OnboardingAuthMode(arrivedFrom: nil, returningRequested: false) == .claimSpot)
-    }
-
-    private func mode(of coordinator: OnboardingV3Coordinator) -> OnboardingAuthMode {
-        OnboardingAuthMode(
-            arrivedFrom: coordinator.previousStep,
-            returningRequested: coordinator.returningSignInRequested
-        )
+    func theSignInOpensInReturningModeFromTheFirstScreenAndTheClaimSpotModeFromTheSetupScreens() {
+        #expect(OnboardingAuthMode(arrivedFrom: .welcome) == .returning)
+        #expect(OnboardingAuthMode(arrivedFrom: .notificationPrimer) == .claimSpot)
+        #expect(OnboardingAuthMode(arrivedFrom: nil) == .claimSpot)
     }
 
     @Test
-    func aReturningRequestFromThePaywallWinsOverTheStepItCameFromUntilTheClimberBacksOut() {
+    func walkingTheFlowEndsInClaimSpotAndTheFirstScreensLinkEndsInReturning() {
         let store = PreAuthOnboardingStore(userDefaults: defaults())
-        let coordinator = OnboardingV3Coordinator(store: store, startingAt: .paywall)
 
-        coordinator.goToReturningSignIn()
-        #expect(coordinator.step == .auth)
-        #expect(mode(of: coordinator) == .returning)
+        let walked = OnboardingV3Coordinator(store: store, startingAt: .notificationPrimer)
+        walked.advance()
+        #expect(walked.step == .auth)
+        #expect(OnboardingAuthMode(arrivedFrom: walked.previousStep) == .claimSpot)
 
-        coordinator.back()
-        #expect(coordinator.step == .paywall)
-        coordinator.go(to: .auth)
-        #expect(mode(of: coordinator) == .claimSpot)
-    }
+        let linked = OnboardingV3Coordinator(store: store)
+        linked.go(to: .auth)
+        #expect(OnboardingAuthMode(arrivedFrom: linked.previousStep) == .returning)
 
-    @Test
-    func aRelaunchForgetsAReturningRequestSoWalkingTheFlowEndsInClaimSpot() {
-        let store = PreAuthOnboardingStore(userDefaults: defaults())
-        let beforeTheKill = OnboardingV3Coordinator(store: store, startingAt: .paywall)
-        beforeTheKill.goToReturningSignIn()
-
-        let relaunched = OnboardingV3Coordinator(store: store, startingAt: .paywall)
-        relaunched.go(to: .auth)
-
-        #expect(mode(of: relaunched) == .claimSpot)
+        linked.back()
+        #expect(linked.step == .welcome)
     }
 
     // MARK: - Profile fill
@@ -209,8 +191,6 @@ struct OnboardingAuthTests {
 
         func seams() -> OnboardingV3SignInHandOff.Seams {
             .init(
-                completePurchaseTransfer: { [self] in events.append("transfer") },
-                clearPurchaseLedger: { [self] in events.append("clearLedger") },
                 isProfileWriteEnabled: { [self] in profileWriteEnabled },
                 readProfile: { [self] _ in
                     events.append("read")
@@ -260,7 +240,7 @@ struct OnboardingAuthTests {
     }
 
     @Test
-    func purchaseThenSignInClosesTheFlowMovesThePurchaseWritesTheAnswersAndClearsTheLedger() async {
+    func signInClosesTheFlowThenWritesTheAnswers() async {
         var answers = fullAnswers()
         answers.completedAt = Self.now
         let harness = Harness(defaults: defaults(), answers: answers)
@@ -269,10 +249,8 @@ struct OnboardingAuthTests {
         let outcome = await harness.handOff.runAfterSignIn(userId: "u1", email: nil)
 
         #expect(outcome == .complete)
-        // The flow closes first, so the route never shows the old questions while the purchase moves.
-        #expect(harness.recorder.events == [
-            "markComplete", "transfer", "clearLedger", "read", "write", "health", "reconcileTarget"
-        ])
+        // The flow closes first, so the route never shows the old questions while the answers land.
+        #expect(harness.recorder.events == ["markComplete", "read", "write", "health", "reconcileTarget"])
         #expect(harness.recorder.writtenFills.count == 1)
         #expect(!harness.store.answers().carriesHandOffWork)
         #expect(harness.store.answers().completedAt == Self.now, "the flow stays finished")
@@ -280,42 +258,14 @@ struct OnboardingAuthTests {
     }
 
     @Test
-    func theGiftPathIsTheSameRouteOut() async {
-        // The gift's CLAIM goes straight to sign-in with a purchase in the ledger: same intent, same hand-off.
-        var answers = fullAnswers()
-        answers.completedAt = Self.now
-        let harness = Harness(defaults: defaults(), answers: answers)
-        harness.intent.set()
-
-        await harness.handOff.runAfterSignIn(userId: "u1", email: nil)
-
-        #expect(harness.recorder.events.prefix(3) == ["markComplete", "transfer", "clearLedger"])
-    }
-
-    @Test
-    func returningModeMovesTheStoredPurchaseButNeverClosesPostSignInOnboarding() async {
+    func returningModeNeverClosesPostSignInOnboarding() async {
         let harness = Harness(defaults: defaults(), answers: PreAuthOnboardingAnswers())
         // No intent: returning mode never sets one.
 
         let outcome = await harness.handOff.runAfterSignIn(userId: "u1", email: nil)
 
         #expect(outcome == .complete)
-        #expect(harness.recorder.events == ["transfer", "clearLedger", "reconcileTarget"])
-    }
-
-    @Test
-    func everyRouteCallsTheTransferAndClearsTheLedgerAfterIt() async {
-        for intended in [true, false] {
-            let harness = Harness(defaults: defaults(), answers: PreAuthOnboardingAnswers())
-            if intended { harness.intent.set() }
-
-            await harness.handOff.runAfterSignIn(userId: "u1", email: nil)
-
-            let events = harness.recorder.events
-            let transfer = events.firstIndex(of: "transfer")
-            let cleared = events.firstIndex(of: "clearLedger")
-            #expect(transfer != nil && cleared != nil && transfer! < cleared!)
-        }
+        #expect(harness.recorder.events == ["reconcileTarget"])
     }
 
     @Test
@@ -564,24 +514,25 @@ struct OnboardingAuthTests {
         #expect(harness.recorder.writtenFills.isEmpty)
         #expect(harness.recorder.savedTargets.isEmpty)
         #expect(harness.recorder.importedAnswers.isEmpty)
-        #expect(harness.recorder.events == ["transfer", "clearLedger", "reconcileTarget"])
+        #expect(harness.recorder.events == ["reconcileTarget"])
         #expect(flow.answers.gender == nil, "no setup screen prefills the last climber's answers")
         #expect(flow.answers.foundHealthWorkoutIDs.isEmpty)
         #expect(flow.isFinished, "signing out does not restart the flow")
     }
 
     @Test
-    func aReturningClimberWhoSignsOutComesBackToReturningModeAndABrandNewAccountIsNotClosedOut() async {
+    func aReturningClimberWhoSignsOutIsNotClosedOutAndABrandNewAccountIsNotEither() async {
         let harness = Harness(defaults: defaults(), answers: PreAuthOnboardingAnswers())
-        let flow = OnboardingV3Coordinator(store: harness.store, startingAt: .paywall)
-        flow.goToReturningSignIn()
+        let flow = OnboardingV3Coordinator(store: harness.store)
+        flow.go(to: .auth)
 
         await harness.handOff.runAfterSignIn(userId: "a", email: nil)
         flow.sessionEnded()
 
         #expect(flow.step == .auth)
-        #expect(mode(of: flow) == .returning)
+        #expect(OnboardingAuthMode(arrivedFrom: flow.previousStep) == .returning)
         #expect(!flow.isFinished)
+        #expect(!flow.presentsPaywall(for: "a"))
         #expect(!harness.intent.isSet)
 
         harness.recorder.events.removeAll()
@@ -589,8 +540,7 @@ struct OnboardingAuthTests {
         #expect(!harness.recorder.events.contains("markComplete"))
 
         flow.back()
-        #expect(flow.step == .paywall)
-        #expect(!flow.returningSignInRequested)
+        #expect(flow.step == .welcome)
     }
 
     @Test
@@ -658,6 +608,6 @@ struct OnboardingAuthTests {
 
         coordinator.go(to: .auth)
         #expect(coordinator.previousStep == .welcome)
-        #expect(mode(of: coordinator) == .returning)
+        #expect(OnboardingAuthMode(arrivedFrom: coordinator.previousStep) == .returning)
     }
 }

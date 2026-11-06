@@ -240,8 +240,6 @@ struct LocalReminderCoordinatorTests {
     ) -> OnboardingV3SignInHandOff {
         OnboardingV3SignInHandOff(
             seams: .init(
-                completePurchaseTransfer: {},
-                clearPurchaseLedger: {},
                 isProfileWriteEnabled: { true },
                 readProfile: { _ in
                     profileReads.count += 1

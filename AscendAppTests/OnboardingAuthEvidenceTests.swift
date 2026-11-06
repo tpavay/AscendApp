@@ -4,7 +4,7 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Screen 15 on the simulator, at the smallest phone and at an accessibility text size. Photographs
+/// Screen 13 on the simulator, at the smallest phone and at an accessibility text size. Photographs
 /// are written only when `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 @Suite(.hostsAWindow)
@@ -29,7 +29,7 @@ struct OnboardingAuthEvidenceTests {
 
     @Test
     func theClaimYourSpotScreenShowsTheExampleBoardAndYourEmptyRow() async throws {
-        try await RenderedScreen.host(screen(from: .paywall), size: Self.smallestPhone, settle: .turns(40)) { hosted in
+        try await RenderedScreen.host(screen(from: .notificationPrimer), size: Self.smallestPhone, settle: .turns(40)) { hosted in
             let copy = try await hosted.copy()
             #expect(copy.contains("claim your"), "\(copy)")
             #expect(copy.contains("mason d."), "\(copy)")
@@ -41,13 +41,16 @@ struct OnboardingAuthEvidenceTests {
             #expect(copy.contains("continue with google"), "\(copy)")
             #expect(copy.contains("ascend"), "the wordmark: \(copy)")
             #expect(!copy.contains("your name here"), "no name prompt: \(copy)")
+            #expect(copy.contains("almost there"), "\(copy)")
+            #expect(!copy.contains("last step"), "the paywall still follows: \(copy)")
+            #expect(copy.contains("back"), "a way back to the setup screens: \(copy)")
             try hosted.photograph(named: "onboarding-v3-auth-claim-se")
         }
     }
 
     @Test
     func nothingOnTheScreenTakesTypedInput() async throws {
-        try await RenderedScreen.host(screen(from: .paywall), size: Self.smallestPhone, settle: .turns(40)) { hosted in
+        try await RenderedScreen.host(screen(from: .notificationPrimer), size: Self.smallestPhone, settle: .turns(40)) { hosted in
             _ = try await hosted.copy()
             func inputs(in view: UIView) -> Int {
                 let own = (view is UITextField || view is UITextView || view is UISearchBar) ? 1 : 0
@@ -75,7 +78,7 @@ struct OnboardingAuthEvidenceTests {
     @Test
     func everyControlStaysReachableAtAnAccessibilityTextSize() async throws {
         try await RenderedScreen.host(
-            screen(from: .paywall).environment(\.dynamicTypeSize, .accessibility3),
+            screen(from: .notificationPrimer).environment(\.dynamicTypeSize, .accessibility3),
             size: Self.smallestPhone,
             settle: .turns(40)
         ) { hosted in

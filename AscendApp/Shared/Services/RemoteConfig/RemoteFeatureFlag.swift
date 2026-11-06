@@ -103,8 +103,9 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// edited. Off, Log it is not offered and every stored status is left exactly as it is.
     case climbLogging = "climb_logging_enabled"
 
-    /// The pre-sign-in onboarding of 1.3.0: selling screens, setup questions and the paywall before
-    /// sign-in. Off, a signed-out climber gets the flow that shipped before it, whole. Display and
+    /// The onboarding of 1.3.0: selling screens and setup questions before sign-in, then the paywall
+    /// and the welcome gift for a climber who signed in holding no access. Off, a signed-out climber
+    /// gets the flow that shipped before it, whole. Display and
     /// routing only - it writes nothing, and the answers it collects stay on the device until
     /// ``onboardingAnswersProfileWrite`` lets the post-sign-in hand-off send them. Unlike a kill
     /// switch it ships off, because it is a rollout and not a path that must keep running
@@ -127,6 +128,12 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// and the event stays unannounced, so the first sweep after the switch is turned on sends it if
     /// it is still within its window.
     case gearDropPush = "gear_drop_push_enabled"
+
+    /// The paywall inside the 1.3.0 onboarding, and the welcome gift behind its close button, shown
+    /// to a climber who has just signed in at the end of the flow and holds no access. Off, that
+    /// climber meets the app-access paywall that sells today instead. A kill switch like the rest:
+    /// it ships on, because the whole flow is already dark behind ``onboardingV3``.
+    case onboardingPaywall = "onboarding_paywall_enabled"
 
     /// Importing stair workouts from Apple Health as climbs: the discovery pass, the automatic
     /// import, the Imports screen's import actions and the observer that wakes the app for a new
@@ -219,6 +226,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Schedules the local reminder two days before a free trial ends."
         case .gearDropPush:
             return "Lets the server push announce a new gear event. Ships off. Read by the Cloud Function, not the app."
+        case .onboardingPaywall:
+            return "Shows the paywall and welcome gift of the 1.3.0 onboarding after sign-in. Off shows the app-access paywall instead."
         case .appleHealthImport:
             return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
         case .onboardingAnswersProfileWrite:

@@ -3,7 +3,7 @@ import Foundation
 struct OnboardingAnalyticsContext: Sendable, Hashable {
     static let flowID = "onboarding"
 
-    /// The pre-sign-in flow of 1.3.0: selling screens, setup, paywall, then sign-in last.
+    /// The onboarding of 1.3.0: selling screens and setup before sign-in, then the paywall and the welcome gift.
     static let currentFlowVersion = "v3"
     /// The flow that ships while `onboarding_v3_enabled` is off. Every context the old screens
     /// build defaults to it, so switching the new flow on never relabels the old funnel.
@@ -32,9 +32,9 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "weekly_target",
         "this_month_event",
         "notification_primer",
+        "auth",
         "paywall",
-        "exit_gift",
-        "auth"
+        "exit_gift"
     ]
 
     /// The v1 funnel's order, kept only while the old flow still ships behind the v3 switch.

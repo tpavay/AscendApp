@@ -182,7 +182,7 @@ struct NotificationPrimerTests {
         #expect(recorder.calls.asked == 1)
         #expect(recorder.calls.tracked == [.allowed])
         #expect(coordinator.answers.notificationChoice == .allowed)
-        #expect(coordinator.step == .paywall)
+        #expect(coordinator.step == .auth)
     }
 
     @Test
@@ -194,7 +194,7 @@ struct NotificationPrimerTests {
         await model.turnOn()
 
         #expect(coordinator.answers.notificationChoice == .denied)
-        #expect(coordinator.step == .paywall)
+        #expect(coordinator.step == .auth)
     }
 
     @Test
@@ -209,6 +209,6 @@ struct NotificationPrimerTests {
         #expect(recorder.calls.declined == 1)
         #expect(recorder.calls.tracked == [.skipped])
         #expect(coordinator.answers.notificationChoice == .skipped)
-        #expect(coordinator.step == .paywall)
+        #expect(coordinator.step == .auth)
     }
 }

@@ -14,6 +14,7 @@ struct MonetizationConfiguration: Equatable {
     static let revenueCatUseTestStoreInfoKey = "AscendUseRevenueCatTestStore"
     static let revenueCatYearlyProductIDInfoKey = "AscendRevenueCatYearlyProductID"
     static let revenueCatLifetimeProductIDInfoKey = "AscendRevenueCatLifetimeProductID"
+    static let revenueCatWelcomeProductIDInfoKey = "AscendRevenueCatWelcomeProductID"
     static let superwallAPIKeyInfoKey = "AscendSuperwallAPIKey"
     static let superwallTestModeInfoKey = "AscendSuperwallTestMode"
     static let allowsUnentitledAppAccessInfoKey = "AscendAllowsUnentitledAppAccess"
@@ -23,6 +24,8 @@ struct MonetizationConfiguration: Equatable {
         "UNCONFIGURED_ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"
     private static let unconfiguredLifetimeProductID =
         "UNCONFIGURED_ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID"
+    private static let unconfiguredWelcomeProductID =
+        "UNCONFIGURED_ASCEND_REVENUECAT_WELCOME_PRODUCT_ID"
 
     /// Mirrored by `PLACEHOLDER_API_KEY_PREFIX` in
     /// `scripts/lib/monetization-build-settings.mjs`, which gates staging and
@@ -43,6 +46,10 @@ struct MonetizationConfiguration: Equatable {
     let revenueCatOfferingID: String
     let revenueCatYearlyProductID: String
     let revenueCatLifetimeProductID: String
+    /// The yearly plan at the welcome price, offered only by the gift that follows a closed
+    /// onboarding paywall. It lives in the yearly subscription's group, so a climber holds one or
+    /// the other, and it unlocks the same entitlement.
+    let revenueCatWelcomeProductID: String
     let isRevenueCatTestStoreEnabled: Bool
     let isSuperwallTestModeEnabled: Bool
     let allowsUnentitledAppAccess: Bool
@@ -66,6 +73,13 @@ struct MonetizationConfiguration: Equatable {
     /// unlocks `app_access`, but this paywall does not sell it, so nothing here names it.
     var launchProductIDs: [String] {
         [revenueCatYearlyProductID, revenueCatLifetimeProductID]
+    }
+
+    /// Every plan the onboarding paywall and its gift can sell. The welcome product is not part of
+    /// ``launchProductIDs``: the offering audit and the signed-in gate sell the two launch plans
+    /// only, and a gift is not something the gate may offer.
+    var onboardingProductIDs: [String] {
+        launchProductIDs + [revenueCatWelcomeProductID]
     }
 
     var shouldAuditLaunchOffering: Bool {
@@ -110,6 +124,9 @@ struct MonetizationConfiguration: Equatable {
         revenueCatLifetimeProductID = Self.normalizedString(
             infoDictionary[Self.revenueCatLifetimeProductIDInfoKey]
         ) ?? Self.unconfiguredLifetimeProductID
+        revenueCatWelcomeProductID = Self.normalizedString(
+            infoDictionary[Self.revenueCatWelcomeProductIDInfoKey]
+        ) ?? Self.unconfiguredWelcomeProductID
         isRevenueCatTestStoreEnabled = shouldUseRevenueCatTestStore
         isSuperwallTestModeEnabled =
             Self.normalizedBool(infoDictionary[Self.superwallTestModeInfoKey]) ?? false

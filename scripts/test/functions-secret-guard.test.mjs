@@ -70,8 +70,21 @@ function revenueCatConfig(allowedProductIds, overrides = {}) {
 // The versions the 2026-09-25 incident moved between. Version 3 was built
 // from a stale local copy and dropped the promo id every comp carries.
 const V2 = revenueCatConfig(["ascend_yearly", "ascend_monthly", PROMO]);
-const V3 = revenueCatConfig(["ascend_lifetime", "ascend_monthly", "ascend_yearly"]);
-const V4 = revenueCatConfig(["ascend_lifetime", "ascend_monthly", "ascend_yearly", PROMO]);
+const V3 = revenueCatConfig([
+  "ascend_lifetime",
+  "ascend_monthly",
+  "ascend_yearly",
+  "ascend_yearly_welcome",
+]);
+// Stands in for the healthy version: everything the Release build sells, including the welcome
+// product the onboarding gift offers, and the promo id every comp carries.
+const V4 = revenueCatConfig([
+  "ascend_lifetime",
+  "ascend_monthly",
+  "ascend_yearly",
+  "ascend_yearly_welcome",
+  PROMO,
+]);
 
 const repository = readRepositoryInputs(REPO_ROOT);
 
@@ -290,7 +303,11 @@ test("the required products are derived from the app's own configuration", () =>
   assert.equal(production.entitlementId, "app_access");
   assert.deepEqual(
     production.products.map((entry) => entry.productId),
-    ["ascend_lifetime", "ascend_monthly", "ascend_yearly", PROMO]
+    ["ascend_lifetime", "ascend_monthly", "ascend_yearly", "ascend_yearly_welcome", PROMO]
+  );
+  assert.match(
+    production.products.find((entry) => entry.productId === "ascend_yearly_welcome").reasons.join(),
+    /Release build sells it \(ASCEND_REVENUECAT_WELCOME_PRODUCT_ID\)/
   );
   assert.match(
     production.products.find((entry) => entry.productId === "ascend_lifetime").reasons.join(),
@@ -308,7 +325,12 @@ test("the required products are derived from the app's own configuration", () =>
   const staging = requiredAllowlistFloor({projectId: STAGING, ...repository});
   assert.deepEqual(
     staging.products.map((entry) => entry.productId),
-    ["ascend_staging_lifetime", "ascend_staging_monthly", "ascend_staging_yearly"]
+    [
+      "ascend_staging_lifetime",
+      "ascend_staging_monthly",
+      "ascend_staging_yearly",
+      "ascend_staging_yearly_welcome",
+    ]
   );
 });
 
@@ -572,6 +594,7 @@ test("every product a live grant holds is required, and an expired grant holds n
     "ascend_staging_lifetime",
     "ascend_staging_monthly",
     "ascend_staging_yearly",
+    "ascend_staging_yearly_welcome",
     PROMO,
   ]);
   assert.deepEqual(
@@ -586,6 +609,7 @@ test("every product a live grant holds is required, and an expired grant holds n
       "ascend_staging_lifetime",
       "ascend_staging_monthly",
       "ascend_staging_yearly",
+      "ascend_staging_yearly_welcome",
     ]),
     entitlementId: "app_access",
     required,

@@ -1,6 +1,7 @@
 import Foundation
 
-/// Every screen of the pre-sign-in onboarding flow, in the order the funnel counts them.
+/// Every screen of the onboarding flow, in the order the funnel counts them: the selling and setup
+/// screens, sign-in, then the paywall and the welcome gift a signed-in climber without access sees.
 ///
 /// The raw value is the analytics `step_id`; it must match
 /// ``OnboardingAnalyticsContext/orderedStepIDs`` exactly, which
@@ -21,9 +22,9 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
     case weeklyTarget = "weekly_target"
     case thisMonthEvent = "this_month_event"
     case notificationPrimer = "notification_primer"
+    case auth
     case paywall
     case exitGift = "exit_gift"
-    case auth
 
     var analyticsID: String { rawValue }
 
@@ -45,13 +46,15 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .weeklyTarget: "How many days a week?"
         case .thisMonthEvent: "This month's live event"
         case .notificationPrimer: "We'll keep you on track"
+        case .auth: "Claim your spot on the board"
         case .paywall: "Never climb a boring minute again"
         case .exitGift: "Open your welcome gift"
-        case .auth: "Claim your spot on the board"
         }
     }
 
-    /// Where the screen's primary action leads. `nil` for the last step, which ends the flow.
+    /// Where the screen's primary action leads. `nil` for a step that ends the flow on its own: the
+    /// root moves on when the account appears (sign-in) or when access arrives (paywall, gift), and
+    /// no tap on the screen is the way out.
     ///
     /// The two Health steps and the usual-climb step form one branch: connecting walks
     /// `healthConnect -> healthPermission -> healthHistory`, and everything that leaves Health
@@ -71,10 +74,8 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .claimCity: .weeklyTarget
         case .weeklyTarget: .thisMonthEvent
         case .thisMonthEvent: .notificationPrimer
-        case .notificationPrimer: .paywall
-        case .paywall: .auth
-        case .exitGift: .auth
-        case .auth: nil
+        case .notificationPrimer: .auth
+        case .auth, .paywall, .exitGift: nil
         }
     }
 

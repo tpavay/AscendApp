@@ -4,6 +4,7 @@ enum AppAccessRestoreSource: String, Sendable {
     case appAccessGate = "app_access_gate"
     case hostedPaywall = "hosted_paywall"
     case accountSettings = "account_settings"
+    case onboardingPaywall = "onboarding_paywall"
 }
 
 struct AppAccessRestoreAnalyticsContext: Equatable, Sendable {
@@ -26,6 +27,19 @@ struct AppAccessRestoreAnalyticsContext: Equatable, Sendable {
             placement: RevenueCatPurchasePlacement(SuperwallPlacement.appAccessGate.rawValue),
             presentationID: nil,
             source: .appAccessGate,
+            recoveryPath: .restore,
+            identity: identity
+        )
+    }
+
+    /// The onboarding paywall's Restore, run by a signed-in climber like every other restore.
+    static func onboardingPaywall(identity: MonetizationIdentityTransition?) -> Self {
+        Self(
+            restoreAttemptID: makeAttemptID(),
+            gateAttemptID: nil,
+            placement: RevenueCatPurchasePlacement(SuperwallPlacement.onboardingPaywall.rawValue),
+            presentationID: nil,
+            source: .onboardingPaywall,
             recoveryPath: .restore,
             identity: identity
         )

@@ -27,12 +27,12 @@ enum AppAccessRestoreError: LocalizedError {
 }
 
 /// The one restore every surface runs - the Superwall paywall's Restore button, the account
-/// settings row, and the app-access gate.
+/// settings row, the app-access gate, and the onboarding paywall.
 ///
 /// Provider work is single-flight for one exact identity generation.
 /// Each caller is still one observable attempt with one start and one terminal, because a caller
 /// can independently time out or cancel without changing another surface's answer.
-/// Keeping those events here prevents three surfaces from drifting into three different funnels.
+/// Keeping those events here prevents the surfaces from drifting into different funnels.
 @MainActor
 final class AppAccessRestoreService {
     typealias Sleep = @Sendable (Duration) async throws -> Void

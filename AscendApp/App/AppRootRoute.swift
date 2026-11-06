@@ -9,13 +9,16 @@ enum AppRootRoute: Equatable, Sendable {
     /// ``preAuthOnboarding``: a device the backend has never answered about the switch, for at most
     /// ``OnboardingV3RouteLatch/holdLimit``.
     case signedOutHold
-    /// Signed out with `onboarding_v3_enabled` on: the pre-sign-in flow, selling screens through the
-    /// paywall and then sign-in. Replaces ``signedOut``'s landing screen while the switch is on.
+    /// Signed out with `onboarding_v3_enabled` on: the selling and setup screens, then sign-in.
+    /// Replaces ``signedOut``'s landing screen while the switch is on.
     case preAuthOnboarding
     case signingIn
     case restoringSession
     case resolving
     case onboarding(PostAuthOnboardingStage)
+    /// Signed in at the end of the v3 flow and holding no access: the onboarding's own paywall and
+    /// welcome gift. Replaces ``paywall`` for that account until access arrives, across relaunches.
+    case onboardingPaywall
     case paywall
     case mainApp
 }
@@ -34,6 +37,11 @@ struct AppRootRouteResolver {
     ///     switch is on and the flow has not reached its end. `nil` while this launch has not
     ///     decided (``OnboardingV3RouteLatch``). Resolved outside, like every other input, so the
     ///     decision stays synchronous and pure.
+    ///   - showsOnboardingPaywallV3: Whether a signed-in climber without access gets the onboarding's
+    ///     paywall instead of the app-access gate: this account signed in at the end of the v3 flow
+    ///     with `onboarding_paywall_enabled` on, which stays recorded on the device until access
+    ///     arrives. Entitlement still decides whether anyone sees it, so a climber who already pays
+    ///     never does.
     static func resolve(
         updatePresentation: AppUpdatePresentation?,
         authenticationState: AuthenticationState,
@@ -42,7 +50,8 @@ struct AppRootRouteResolver {
         entitlementState: MonetizationEntitlementState,
         requiredEntitlementID: String,
         allowsUnentitledAppAccess: Bool = false,
-        showsPreAuthOnboardingV3: Bool? = false
+        showsPreAuthOnboardingV3: Bool? = false,
+        showsOnboardingPaywallV3: Bool = false
     ) -> AppRootRoute {
         // First, above authentication and above the entitlement gate. As a sheet this lost to the
         // paywall outright - Superwall presents outside `RootView`'s hierarchy, so an unentitled
@@ -74,7 +83,8 @@ struct AppRootRouteResolver {
                 postAuthOnboardingPhase: postAuthOnboardingPhase,
                 entitlementState: entitlementState,
                 requiredEntitlementID: requiredEntitlementID,
-                allowsUnentitledAppAccess: allowsUnentitledAppAccess
+                allowsUnentitledAppAccess: allowsUnentitledAppAccess,
+                showsOnboardingPaywallV3: showsOnboardingPaywallV3
             )
         }
     }
@@ -83,7 +93,8 @@ struct AppRootRouteResolver {
         postAuthOnboardingPhase: PostAuthOnboardingPhase,
         entitlementState: MonetizationEntitlementState,
         requiredEntitlementID: String,
-        allowsUnentitledAppAccess: Bool
+        allowsUnentitledAppAccess: Bool,
+        showsOnboardingPaywallV3: Bool
     ) -> AppRootRoute {
         switch postAuthOnboardingPhase {
         case .signedOut, .resolving:
@@ -95,7 +106,9 @@ struct AppRootRouteResolver {
                 return .mainApp
             }
 
-            return entitlementState == .unknown ? .resolving : .paywall
+            if entitlementState == .unknown { return .resolving }
+
+            return showsOnboardingPaywallV3 ? .onboardingPaywall : .paywall
         }
     }
 }

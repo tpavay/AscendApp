@@ -26,7 +26,7 @@ test("StoreKit catalog keeps the annual trial, the monthly plan and Lifetime tru
   );
   assert.deepEqual(
     subscriptions.map((subscription) => subscription.productID).sort(),
-    ["ascend_staging_monthly", "ascend_staging_yearly"]
+    ["ascend_staging_monthly", "ascend_staging_yearly", "ascend_staging_yearly_welcome"]
   );
 
   const annual = subscriptions.find(
@@ -44,6 +44,20 @@ test("StoreKit catalog keeps the annual trial, the monthly plan and Lifetime tru
     numberOfPeriods: 1,
     paymentMode: "free",
     subscriptionPeriod: "P1M"
+  });
+  // The welcome gift: the same yearly plan at $9.99 with a seven-day trial, in the annual's
+  // group so an Apple ID holds one or the other and the trial is granted once per group.
+  const welcome = subscriptions.find(
+    (subscription) => subscription.productID === "ascend_staging_yearly_welcome"
+  );
+  assert.equal(welcome.recurringSubscriptionPeriod, "P1Y");
+  assert.equal(welcome.displayPrice, "9.99");
+  assert.equal(welcome.subscriptionGroupID, annual.subscriptionGroupID);
+  assert.deepEqual(welcome.introductoryOffer, {
+    internalID: "0F6EC9A8-A75E-43EF-9C9E-554000000002",
+    numberOfPeriods: 1,
+    paymentMode: "free",
+    subscriptionPeriod: "P1W"
   });
   assert.equal(monthly.recurringSubscriptionPeriod, "P1M");
   assert.equal(monthly.introductoryOffer, undefined);

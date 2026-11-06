@@ -71,8 +71,8 @@ The JSON shape is:
 }
 ```
 
-Staging must allow `ascend_staging_yearly`, `ascend_staging_lifetime` and `ascend_staging_monthly`.
-Production must allow `ascend_yearly`, `ascend_lifetime`, `ascend_monthly`, and `rc_promo_app_access_lifetime`, the product every comp from `scripts/comp-access.mjs` carries.
+Staging must allow `ascend_staging_yearly`, `ascend_staging_lifetime`, `ascend_staging_monthly` and `ascend_staging_yearly_welcome`.
+Production must allow `ascend_yearly`, `ascend_lifetime`, `ascend_monthly`, `ascend_yearly_welcome`, and `rc_promo_app_access_lifetime`, the product every comp from `scripts/comp-access.mjs` carries.
 `ascend_lifetime` is the one-time purchase a climber pays for and `rc_promo_app_access_lifetime` is a free comp; they are different products that happen to share a word.
 A Lifetime purchase reaches the webhook as `NON_RENEWING_PURCHASE` with no expiry, and `buildAppAccessProjection` grants it as non-expiring access (`docs/superwall-paywall-setup.md`, "Lifetime").
 Add any other promotional product identifier only when a subscriber response proves its exact value.
@@ -207,7 +207,7 @@ Every outcome still sets its own next-attempt time - five minutes after an answe
 An explicit restore bypasses that client spacing entirely and lets the server's own policy decide.
 
 The app invokes it wherever an active device entitlement can outlive or race webhook delivery: after every entitlement refresh (launch, foreground, identity change), when access flips active mid-session from RevenueCat's customer-info stream, on the entitlement refresh a completed purchase forces before its verdict, and unconditionally after every restore.
-All three restore surfaces - account settings, the Superwall paywall's Restore button, and the app-access gate placeholder - run the single `AppAccessRestoreService`, which restores through `MonetizationManager`, so none can drift back to calling RevenueCat directly and skipping reconciliation.
+All four restore surfaces - account settings, the Superwall paywall's Restore button, the app-access gate placeholder, and the onboarding paywall - run the single `AppAccessRestoreService`, which restores through `MonetizationManager`, so none can drift back to calling RevenueCat directly and skipping reconciliation.
 `restorePurchases()` returns the state RevenueCat resolved for that restore, and the Superwall status, the forced reconciliation, and the restore's analytics terminal all read that return value rather than the stored `entitlementState`, which a pending identity transition can still be holding at `.unknown`.
 The device entitlement check, the hard paywall, and the restore surfaces are otherwise unchanged.
 

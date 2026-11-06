@@ -55,6 +55,10 @@ async function monetizationConfigurations() {
         buildSettings,
         "ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID"
       ),
+      revenueCatWelcomeProductID: requiredSetting(
+        buildSettings,
+        "ASCEND_REVENUECAT_WELCOME_PRODUCT_ID"
+      ),
       revenueCatMonthlyProductID: requiredSetting(
         buildSettings,
         "ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID"
@@ -149,12 +153,15 @@ test("app access and launch products are explicit and safe in every environment"
   assert.equal(debug.revenueCatYearlyProductID, "ascend_staging_yearly");
   assert.equal(debug.revenueCatLifetimeProductID, "ascend_staging_lifetime");
   assert.equal(debug.revenueCatMonthlyProductID, "ascend_staging_monthly");
+  assert.equal(debug.revenueCatWelcomeProductID, "ascend_staging_yearly_welcome");
   assert.equal(staging.revenueCatYearlyProductID, "ascend_staging_yearly");
   assert.equal(staging.revenueCatLifetimeProductID, "ascend_staging_lifetime");
   assert.equal(staging.revenueCatMonthlyProductID, "ascend_staging_monthly");
+  assert.equal(staging.revenueCatWelcomeProductID, "ascend_staging_yearly_welcome");
   assert.equal(release.revenueCatYearlyProductID, "ascend_yearly");
   assert.equal(release.revenueCatLifetimeProductID, "ascend_lifetime");
   assert.equal(release.revenueCatMonthlyProductID, "ascend_monthly");
+  assert.equal(release.revenueCatWelcomeProductID, "ascend_yearly_welcome");
 });
 
 test("Info.plist resolves the selected build settings for runtime configuration", async () => {
@@ -165,6 +172,7 @@ test("Info.plist resolves the selected build settings for runtime configuration"
     ["AscendUseRevenueCatTestStore", "ASCEND_USE_REVENUECAT_TEST_STORE"],
     ["AscendRevenueCatYearlyProductID", "ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"],
     ["AscendRevenueCatLifetimeProductID", "ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID"],
+    ["AscendRevenueCatWelcomeProductID", "ASCEND_REVENUECAT_WELCOME_PRODUCT_ID"],
     ["AscendSuperwallAPIKey", "ASCEND_SUPERWALL_API_KEY"],
     ["AscendSuperwallTestMode", "ASCEND_SUPERWALL_TEST_MODE"],
     ["AscendAllowsUnentitledAppAccess", "ASCEND_ALLOWS_UNENTITLED_APP_ACCESS"]
