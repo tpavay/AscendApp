@@ -206,6 +206,74 @@ struct LocalReminderCoordinatorTests {
         #expect(center.pending == Set(LocalReminderPlan.weeklyTargetIdentifiers))
     }
 
+    private func settings(telling reminders: LocalReminderCoordinator) throws -> WeeklyTargetService {
+        let suite = "local-reminder-settings-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        return WeeklyTargetService(
+            store: WeeklyTargetStore(userDefaults: defaults),
+            isWriteEnabled: { true },
+            readRemote: { _ in nil },
+            writeRemote: { _, _ in },
+            onTargetChange: { _, target in reminders.weeklyTargetChanged(to: target) },
+            queue: WeeklyTargetSyncQueue()
+        )
+    }
+
+    @Test
+    func clearingTheTargetInSettingsStopsTheNudge() async throws {
+        let center = CoordinatorRecordingCenter()
+        let store = try answersStore(target: 3)
+        let reminders = coordinator(center: center, store: store, now: monday)
+        reminders.configure(modelContext: try context())
+        await reminders.reconcile()
+        #expect(!center.pending.isEmpty)
+
+        try await settings(telling: reminders).save(nil, for: "alice")
+
+        await waitUntil { center.pending.isEmpty }
+        #expect(center.pending.isEmpty)
+        await reminders.reconcile()
+        #expect(center.pending.isEmpty, "no later reconcile re-arms a nudge for a cleared target")
+        #expect(store.answers().weeklyTargetDays == nil)
+    }
+
+    @Test
+    func settingTheTargetInSettingsReachesTheNudge() async throws {
+        let center = CoordinatorRecordingCenter()
+        let store = try answersStore(target: nil)
+        let reminders = coordinator(center: center, store: store, now: monday)
+        reminders.configure(modelContext: try context())
+        await reminders.reconcile()
+        #expect(center.pending.isEmpty)
+
+        try await settings(telling: reminders).save(WeeklyTarget(days: 3), for: "alice")
+
+        await waitUntil { !center.pending.isEmpty }
+        #expect(center.pending == Set(LocalReminderPlan.weeklyTargetIdentifiers))
+        #expect(store.answers().weeklyTargetDays == 3)
+    }
+
+    /// One climb already meets a target of one, so only the changed target can arm this week's nudge.
+    @Test
+    func changingTheTargetInSettingsReachesTheNudge() async throws {
+        let center = CoordinatorRecordingCenter()
+        let store = try answersStore(target: 1)
+        let modelContext = try context()
+        climb(on: 2, in: modelContext)
+        try modelContext.save()
+        let reminders = coordinator(center: center, store: store, now: monday)
+        reminders.configure(modelContext: modelContext)
+        await reminders.reconcile()
+        #expect(!center.pending.contains(LocalReminderPlan.thisWeekIdentifier))
+
+        try await settings(telling: reminders).save(WeeklyTarget(days: 3), for: "alice")
+
+        await waitUntil { center.pending.contains(LocalReminderPlan.thisWeekIdentifier) }
+        #expect(center.pending.contains(LocalReminderPlan.thisWeekIdentifier))
+        #expect(store.answers().weeklyTargetDays == 3)
+    }
+
     @Test
     func aSignOutClearsTheNudgeAndNoLaterReconcileReArmsIt() async throws {
         let center = CoordinatorRecordingCenter()

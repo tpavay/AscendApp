@@ -2,32 +2,41 @@ import SwiftUI
 
 /// The two tiles under the today rows: this week's rank by steps, and the streak of
 /// weeks with a climb. The rank tile opens the Leaderboard tab; the streak tile opens
-/// Profile, where the activity calendar shows the weeks behind the number.
+/// Profile, where the activity calendar shows the weeks behind the number. A climber who set a
+/// weekly target also gets the weekly ring under them; a climber who did not never sees one.
 struct HomeRankStreakSection: View {
     let weeklyRankSummary: HomeWeeklyRankSummary?
     let isRankLoading: Bool
     let streak: WeeklyStreak
+    /// This week against the climber's target, or nil when they have none.
+    var weeklyTargetProgress: WeeklyTargetProgress? = nil
     /// Fixes the countdown's clock for evidence tests.
     var now: Date? = nil
     let onRankTapped: () -> Void
     let onStreakTapped: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            HomeRankCard(
-                summary: weeklyRankSummary,
-                isLoading: isRankLoading,
-                now: now,
-                action: onRankTapped
-            )
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                HomeRankCard(
+                    summary: weeklyRankSummary,
+                    isLoading: isRankLoading,
+                    now: now,
+                    action: onRankTapped
+                )
 
-            HomeStreakCard(
-                streak: streak,
-                action: onStreakTapped
-            )
+                HomeStreakCard(
+                    streak: streak,
+                    action: onStreakTapped
+                )
+            }
+            // The rank tile carries the countdown, so the pair is sized to the taller one.
+            .fixedSize(horizontal: false, vertical: true)
+
+            if let weeklyTargetProgress {
+                HomeWeeklyTargetCard(progress: weeklyTargetProgress)
+            }
         }
-        // The rank tile carries the countdown, so the pair is sized to the taller one.
-        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

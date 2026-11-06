@@ -41,6 +41,7 @@ struct HomeView: View {
     @State private var todayActivity: HomeTodayActivityViewModel
     @State private var globeViewModel: GlobeViewModel
     @State private var showingStartActionSheet = false
+    @State private var reconciledWeeklyTargetUserID: String?
     @State private var showingHelpSheet = false
     @State private var showingJustClimbSetup = false
     @State private var pendingStartAction: HomeStartAction?
@@ -364,7 +365,7 @@ struct HomeView: View {
         .onChange(of: workouts) { _, newValue in
             // The query lands after the save notification, so a climb added or
             // removed reaches the week line and the streak from the array itself.
-            homeDashboard.refreshLocalData(modelContext: modelContext, workouts: newValue)
+            homeDashboard.refreshLocalData(modelContext: modelContext, workouts: newValue, weeklyTarget: weeklyTarget)
             personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: newValue)
         }
         .onChange(of: tabRouter.selectedTab) { _, newValue in
@@ -548,6 +549,7 @@ struct HomeView: View {
                         weeklyRankSummary: homeDashboard.weeklyRankSummary,
                         isRankLoading: homeDashboard.isRankLoading,
                         streak: homeDashboard.weeklyStreak,
+                        weeklyTargetProgress: homeDashboard.weeklyTargetProgress,
                         onRankTapped: { tabRouter.select(.leaderboard, reason: .homeRankCard) },
                         onStreakTapped: { tabRouter.select(.profile, reason: .appRouting) }
                     )
@@ -903,8 +905,29 @@ struct HomeView: View {
         }
     }
 
+    /// The climber's weekly target on this device. Nil when they set none, so no ring is drawn.
+    private var weeklyTarget: WeeklyTarget? {
+        authVM.user.flatMap { WeeklyTargetService().localTarget(for: $0.uid) }
+    }
+
+    /// Brings the account's target to this device once a launch per account, so a new phone shows
+    /// the ring the climber already set. A failed read leaves the device's copy standing.
+    private func reconcileWeeklyTarget() {
+        guard let userId = authVM.user?.uid, reconciledWeeklyTargetUserID != userId else { return }
+        reconciledWeeklyTargetUserID = userId
+
+        Task {
+            let service = WeeklyTargetService()
+            let before = service.localTarget(for: userId)
+            let after = await service.reconcile(for: userId)
+            guard before != after else { return }
+            homeDashboard.refreshLocalData(modelContext: modelContext, workouts: workouts, weeklyTarget: after)
+        }
+    }
+
     private func refreshHomeDashboard(forceRank: Bool = false) {
-        homeDashboard.refreshLocalData(modelContext: modelContext, workouts: workouts)
+        homeDashboard.refreshLocalData(modelContext: modelContext, workouts: workouts, weeklyTarget: weeklyTarget)
+        reconcileWeeklyTarget()
         homeDashboard.refreshWeeklyRank(
             userId: authVM.user?.uid,
             displayName: authVM.displayName,

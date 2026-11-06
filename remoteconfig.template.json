@@ -154,6 +154,13 @@
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off hides Log it and refuses saving a typed climb, and stops re-deriving a climb's leaderboard status on restore or a steps/time edit; stored statuses and saved climbs are left untouched."
     },
+    "weekly_target_writes_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops writing the weekly target (weekly_target_days) to the user record; a change stays on the device, marked unsynced, and goes up when the switch returns."
+    },
     "onboarding_v3_enabled": {
       "defaultValue": {
         "value": "false"

@@ -27,6 +27,18 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
     case pumpkinPie = "pumpkin_pie"
     case goldenTurkey = "golden_turkey"
     case turkeyGiant = "turkey_giant"
+    // Winter Lights (December)
+    case candyCane = "candy_cane"
+    case giftBox = "gift_box"
+    case winterHat = "winter_hat"
+    case ornament
+    case giantOrnament = "giant_ornament"
+    // New Year (January)
+    case partyHat = "party_hat"
+    case sparkler
+    case fireworksRocket = "fireworks_rocket"
+    case goldTrophy = "gold_trophy"
+    case giantTrophy = "giant_trophy"
 
     var id: String { rawValue }
 
@@ -51,7 +63,7 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var slot: Slot {
         switch self {
-        case .witchHat, .pumpkinHead: .head
+        case .witchHat, .pumpkinHead, .winterHat, .partyHat: .head
         case .ghostSheet: .costume
         case .witchingShorts: .shorts
         case .glowTrainers, .emberTrainers: .trainers
@@ -71,8 +83,8 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var carry: Carry {
         switch self {
-        case .pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant: .overhead
-        case .pumpkinPie, .chocolateBar, .cornucopia: .tray
+        case .pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant, .giantOrnament, .giantTrophy: .overhead
+        case .pumpkinPie, .chocolateBar, .cornucopia, .giftBox: .tray
         default: .shoulder
         }
     }
@@ -100,6 +112,16 @@ enum AthleteGear: String, Codable, CaseIterable, Identifiable, Sendable {
         case .pumpkinPie: "Pumpkin Pie"
         case .goldenTurkey: "Golden Turkey"
         case .turkeyGiant: "Giant Turkey"
+        case .candyCane: "Candy Cane"
+        case .giftBox: "Gift Box"
+        case .winterHat: "Winter Hat"
+        case .ornament: "Ornament"
+        case .giantOrnament: "Giant Ornament"
+        case .partyHat: "Party Hat"
+        case .sparkler: "Sparkler"
+        case .fireworksRocket: "Rocket"
+        case .goldTrophy: "Gold Trophy"
+        case .giantTrophy: "Giant Trophy"
         }
     }
 }
