@@ -138,6 +138,12 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
         }
+        #if DEBUG || STAGING
+        .onReceive(NotificationCenter.default.publisher(for: .onboardingV3DebugReplayRequested)) { _ in
+            onboardingV3Coordinator.restartFromWelcome()
+            onboardingV3RouteLatch.forceFlow()
+        }
+        #endif
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
             AppDiagnosticsRecorder.shared.record(
                 "app_will_terminate",
