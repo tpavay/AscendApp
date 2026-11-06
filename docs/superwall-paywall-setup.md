@@ -145,9 +145,9 @@ Read-only, through the App Store Connect API, the public Superwall static config
 - App Store Connect, production app `6757202987`: `ascend_yearly` is `APPROVED` at `$29.99` in the United States with a one-month free trial that started 2026-10-04; `ascend_monthly` is `APPROVED` at `$9.99` with no introductory offer; `ascend_lifetime` is a `NON_CONSUMABLE` in `READY_TO_SUBMIT` listed at `$89.99`.
 - App Store Connect, staging app `6759919365`: `ascend_staging_yearly` is `$49.99` with a one-week trial, `ascend_staging_monthly` is `$9.99`, and `ascend_staging_lifetime` is a `NON_CONSUMABLE` listed at `$89.99`; all three are `READY_TO_SUBMIT`.
 - Superwall: production paywall `232372` and staging paywall `249435` each still register that environment's annual and monthly products, and neither registers Lifetime.
-- Server allowlists: the version each project's functions are bound to already allowlists that environment's Lifetime product (`ascend-prod-9c8f2` version 4, `ascend-staging-fa7d5` version 3).
-Staging version 3 also allowlists `ascend_staging_yearly_welcome` and is pinned in `functions/secret-versions.json`, so staging deploys pass the preflight.
-Production version 4 does not allowlist `ascend_yearly_welcome`: the production version is created at release, before this reaches `main`.
+- Server allowlists: the version each project's functions are bound to already allowlists that environment's Lifetime product (`ascend-prod-9c8f2` version 4, `ascend-staging-fa7d5` version 2).
+  Since this measurement, staging version 3 was built from bound version 2 with only `ascend_staging_yearly_welcome` added, and it is pinned in `functions/secret-versions.json`, so the next staging deploy binds it and passes the preflight.
+  Production version 4 does not allowlist `ascend_yearly_welcome`: the production version is created at release, before this reaches `main`.
 - Not measured: whether RevenueCat has either Lifetime product attached to `app_access` or in the `default` offering.
 - `node scripts/validate-superwall-live-artifact.mjs production` failed earlier on this date with `Purchase action ... does not close after purchase completion`, and passed when re-run twice at about 18:55 UTC during the 1.2.3 release pre-flight against paywall `232372`, runtime document `4b-Uit9i1kHEL6kVnajl9`, still offering `ascend_monthly` and `ascend_yearly` only.
   That step gates the production archive, so re-run it immediately before approving the deploy: the paywall is edited in the Superwall editor without a release, and a pass is only true of the artifact that was live when it ran.
@@ -213,6 +213,7 @@ Both shippable configurations carry real publishable client keys, so no placehol
 `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is `YES` in Debug for local convenience and `NO` in Staging and Release.
 Changing Staging back to bypassed access requires no app code edit - see Tester-lockout recovery below for the two configuration steps it does require.
 Debug and Staging use `ascend_staging_yearly`, `ascend_staging_lifetime` and `ascend_staging_monthly`; Release uses `ascend_yearly`, `ascend_lifetime` and `ascend_monthly`.
+Each configuration also sets the welcome gift's product (see "Pre-sign-in paywall and welcome gift").
 `scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key, the per-configuration access and launch-product values, and proves the preflight rejects a placeholder key, a reopened Release paywall, and either vendor test surface against a synthetic project; keep all of it aligned with any future setting move.
 Never commit the real keys to documentation or test fixtures.
 These publishable client keys are currently committed in `AscendApp.xcodeproj`.
@@ -220,7 +221,7 @@ They are intended to move into gitignored xcconfig files and CI secrets; that mi
 
 Every environment that points at its own vendor projects needs the same logical configuration:
 
-- Its own annual subscription and Lifetime non-consumable - `ascend_yearly` and `ascend_lifetime` in production, `ascend_staging_yearly` and `ascend_staging_lifetime` in staging - plus the monthly subscription while it stays on sale
+- Its own annual subscription and Lifetime non-consumable - `ascend_yearly` and `ascend_lifetime` in production, `ascend_staging_yearly` and `ascend_staging_lifetime` in staging - plus the monthly subscription while it stays on sale, and the welcome product once `onboarding_v3_enabled` is on there
 - RevenueCat entitlement `app_access`
 - RevenueCat current offering `default`
 - Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, so the `.onboardingPaywall` placement always takes its `onSkip` path in Staging even though the hard gate is live there
