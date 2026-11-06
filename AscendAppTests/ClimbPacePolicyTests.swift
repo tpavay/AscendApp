@@ -196,7 +196,17 @@ struct ClimbPacePolicyTests {
             source: .appleHealth
         )
 
-        #expect(LoggedClimbCopy.savedNote(for: overPace, accountCreatedAt: joined) == LoggedClimbCopy.savedBeforeJoiningNote)
+        let noSteps = Workout(
+            name: "Stair Stepper",
+            date: joined.addingTimeInterval(-86_400),
+            duration: 1_800,
+            steps: 0,
+            floors: 0,
+            source: .appleHealth
+        )
+
+        #expect(LoggedClimbCopy.savedNote(for: overPace, accountCreatedAt: joined) == LoggedClimbCopy.savedBeforeJoiningHistoryOnlyNote)
+        #expect(LoggedClimbCopy.savedNote(for: noSteps, accountCreatedAt: joined) == LoggedClimbCopy.savedBeforeJoiningHistoryOnlyNote)
         #expect(LoggedClimbCopy.savedNote(for: withinPace, accountCreatedAt: joined) == LoggedClimbCopy.savedBeforeJoiningNote)
     }
 

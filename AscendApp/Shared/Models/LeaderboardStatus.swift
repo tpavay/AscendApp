@@ -10,8 +10,9 @@ import Foundation
 ///
 /// Stored as a raw value so it can appear in a `#Predicate`.
 ///
-/// There is no review state: the automatic pace check is the only gate, and a climb it excludes
-/// returns to the boards the moment an edit brings it back inside the ceiling.
+/// There is no review state: the automatic checks are the only gate. A climb the pace check excludes
+/// returns to the boards the moment an edit brings it back inside the ceiling; one the join-date
+/// rule excludes stays off whatever its pace, until its date moves after the account's creation.
 enum LeaderboardStatus: String, CaseIterable, Codable, Sendable {
     case eligible
     case excluded

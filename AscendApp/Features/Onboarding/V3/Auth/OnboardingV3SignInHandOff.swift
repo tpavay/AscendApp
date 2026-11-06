@@ -188,15 +188,11 @@ final class OnboardingV3SignInHandOff {
 // MARK: - Live wiring
 
 extension OnboardingV3SignInHandOff {
-    /// The hand-off against the real services.
-    ///
-    /// The Health seam is left empty here on purpose: the history import belongs to the Health
-    /// chunk, and until it is wired it reports that nothing landed, so the workouts it found stay on
-    /// the device. Chunk H wires it in this closure when the chunks meet; `OnboardingAuthTests` pins
-    /// that every route calls these seams, in order.
+    /// The hand-off against the real services. `OnboardingAuthTests` pins that every route calls
+    /// these seams, in order.
     static func live(
         markPostSignInOnboardingComplete: @escaping @MainActor () -> Void,
-        importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool = { _ in false }
+        importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool
     ) -> OnboardingV3SignInHandOff {
         OnboardingV3SignInHandOff(
             seams: Seams(

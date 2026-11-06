@@ -181,6 +181,7 @@ struct RootView: View {
             onboardingV3Coordinator.paywallStageEnded()
             Task {
                 await monetizationManager.reconcileServerAppAccess()
+                await uploadWorkoutsHeldForAppAccess()
             }
         }
         // The lockout suppresses the session bootstrap, and the fetch that releases it lands after
@@ -493,6 +494,21 @@ struct RootView: View {
                 isCurrentSession: { isCurrentAuthenticatedSession(expectedUserId) }
             ).run()
         }
+    }
+
+    /// Runs the sync pass that lets climbs saved before a purchase go up, behind the same guards as
+    /// the session work, once the backend has had its chance to hear about the purchase.
+    @MainActor
+    private func uploadWorkoutsHeldForAppAccess() async {
+        guard !appVersionGateState.isUpdateRequired,
+              !authenticatedBootstrapCoordinator.isSuspended,
+              let userId = authVM.user?.uid else {
+            return
+        }
+        await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: userId
+        )
     }
 
     /// What the onboarding v3 hand-off needs, built once. A no-op until a climber signs in at the end

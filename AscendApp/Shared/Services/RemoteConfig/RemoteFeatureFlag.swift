@@ -27,6 +27,11 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// it is separable from the upload path it feeds.
     case workoutSyncRecoveryReopen = "workout_sync_recovery_reopen_enabled"
 
+    /// Holding workout uploads back while the climber holds no app access, because the rules would
+    /// refuse them and enough refusals stop the series. Off, a pass attempts them as it did before
+    /// this hold existed - the way out if the device's reading of access is ever wrong.
+    case workoutSyncAppAccessHold = "workout_sync_app_access_hold_enabled"
+
     /// Decoding cloud backups back into local SwiftData on sign-in and reinstall.
     case workoutCloudRestore = "workout_cloud_restore_enabled"
 
@@ -99,8 +104,7 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     case headphoneSessionAutoResume = "headphone_session_auto_resume_enabled"
 
     /// Logging a climb by hand - the Log it entry and the save behind it - and re-deriving a
-    /// climb's leaderboard status from its pace when it is restored or its steps or time are
-    /// edited. Off, Log it is not offered and every stored status is left exactly as it is.
+    /// climb's leaderboard status when it is restored or its steps, time or date change. Off, Log it is not offered and every stored status is left exactly as it is.
     case climbLogging = "climb_logging_enabled"
 
     /// The onboarding of 1.3.0: selling screens and setup questions before sign-in, then the paywall
@@ -193,6 +197,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Deletes remote workout documents and heart-rate sidecars."
         case .workoutSyncRecoveryReopen:
             return "Re-opens one sync attempt for a stopped workout after a build, epoch or sign-in."
+        case .workoutSyncAppAccessHold:
+            return "Holds workout uploads back while the climber has no app access. Off attempts them anyway."
         case .workoutCloudRestore:
             return "Restores cloud backups into local storage on sign-in and reinstall."
         case .workoutMediaUploads:

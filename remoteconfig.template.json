@@ -42,6 +42,13 @@
       "valueType": "NUMBER",
       "description": "Operator recovery epoch, NOT a kill switch. Bump it after a rules or backend fix to give every stopped workout one more automatic sync attempt without shipping a binary. Never decrease it."
     },
+    "workout_sync_app_access_hold_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops holding workout uploads back for a climber with no app access; a pass attempts them, and the rules refuse them, as they did before the hold existed."
+    },
     "workout_cloud_restore_enabled": {
       "defaultValue": {
         "value": "true"

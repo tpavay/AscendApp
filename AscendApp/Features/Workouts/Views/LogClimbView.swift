@@ -477,13 +477,16 @@ enum LoggedClimbCopy {
     /// whatever its pace: only climbs after the climber signed up count on leaderboards.
     static let savedBeforeJoiningNote = "This climb is from before you joined, so it stays off the leaderboards. It still counts for your history and personal bests."
 
+    /// The same note on one that holds no record either: over the pace ceiling, or with no steps.
+    static let savedBeforeJoiningHistoryOnlyNote = "This climb is from before you joined, so it stays off the leaderboards. It still counts for your history."
+
     /// What a saved climb says about being off the leaderboards, or nil when nothing about it does.
     /// The join date is read first: a climb from before the account never ranks, so the pace note's
     /// "edit it and it ranks" would be false for it.
     static func savedNote(for workout: Workout, accountCreatedAt: Date? = AccountJoinDate.current()) -> String? {
         guard workout.origin != .live else { return nil }
         if ClimbPacePolicy.startedBeforeAccount(workout.date, accountCreatedAt: accountCreatedAt) {
-            return savedBeforeJoiningNote
+            return workout.canHoldRecords ? savedBeforeJoiningNote : savedBeforeJoiningHistoryOnlyNote
         }
         return workout.exceedsPaceCeiling ? savedOffTheBoardsNote(stepsPerMinute: workout.stepsPerMinute ?? 0) : nil
     }
