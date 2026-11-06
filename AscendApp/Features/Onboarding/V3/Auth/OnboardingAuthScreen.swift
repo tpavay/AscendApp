@@ -55,8 +55,8 @@ struct OnboardingAuthScreen: View {
                 OnboardingAuthReturningRequest().clear()
                 coordinator.back()
             }
-                .padding(.top, 9)
-                .padding(.leading, 20)
+            .padding(.top, 9)
+            .padding(.leading, 20)
         }
 
         AscendWordmark(height: 22, treatment: .onDark)

@@ -188,10 +188,11 @@ extension OnboardingV3SignInHandOff {
     ///
     /// The purchase, Health and weekly-target seams are left empty here on purpose: the purchase
     /// transfer (`PreAuthPurchaseTransfer.completeAfterSignIn()`) and its ledger belong to the
-    /// paywall chunk, `WeeklyTargetService` and the profile's `weekly_target_days` to the setup
-    /// chunk, and `LocalReminderScheduler.reconcileWeeklyTarget` to the notifications chunk, none
-    /// of which has reached this branch. Chunk H wires them in these closures when the chunks
-    /// meet; `OnboardingAuthTests` pins that every route calls them, in order.
+    /// paywall chunk and `WeeklyTargetService` and the profile's `weekly_target_days` to the setup
+    /// chunk, neither of which has reached this branch. The reminder seam waits with them: until
+    /// the account holds a target there is nothing to hand
+    /// `LocalReminderScheduler.reconcileWeeklyTarget`. Chunk H wires them in these closures when
+    /// the chunks meet; `OnboardingAuthTests` pins that every route calls them, in order.
     static func live(
         markPostSignInOnboardingComplete: @escaping @MainActor () -> Void,
         completePurchaseTransfer: @escaping @MainActor () async -> Void = {},
