@@ -330,7 +330,7 @@ struct OnboardingPaywallModelTests {
     }
 
     @Test
-    func claimingTheGiftBuysTheWelcomeProductAndReportsTheTrial() async {
+    func claimingTheGiftBuysTheWelcomeProduct() async {
         let provider = StubPlanProvider(plans: plans())
         let (model, _) = make(provider: provider)
         await model.load()

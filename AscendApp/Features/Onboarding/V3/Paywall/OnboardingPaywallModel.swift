@@ -268,9 +268,8 @@ final class OnboardingPaywallModel {
         resetNotice()
     }
 
-    /// Ends the hold, on disk and here. The root calls it when access arrives and the coordinator
-    /// when the climber signs out, so a marker cannot lock the paywall once there is nothing left to
-    /// wait for.
+    /// Ends the hold, on disk and here. The root calls it when access arrives and when the climber
+    /// signs out, so a marker cannot lock the paywall once there is nothing left to wait for.
     func releaseUnconfirmedPurchase() {
         holdStore.clear()
         unconfirmedPurchase = nil

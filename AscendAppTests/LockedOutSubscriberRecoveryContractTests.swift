@@ -1,4 +1,6 @@
 import Foundation
+import enum SuperwallKit.PurchaseResult
+import SwiftUI
 import Testing
 @testable import AscendApp
 
@@ -96,21 +98,50 @@ struct LockedOutSubscriberRecoveryContractTests {
 
     /// The onboarding paywall replaces the gate for the climber who just signed in, so it inherits
     /// the gate's duty: deletion and sign-out leave from it, through the same one deletion sheet.
-    /// The screen's two buttons reaching these actions is proved by
-    /// `OnboardingPaywallEvidenceTests.thePaywallCarriesTheGatesDeleteAccountAndSignOutRoutes`.
-    @Test @MainActor
-    func theOnboardingPaywallRoutesToAccountDeletionAndSignOut() {
-        var routesTaken: [String] = []
-        let actions = OnboardingPaywallAccountActions.gateRoutes(
-            presentAccountDeletion: { routesTaken.append("deletion") },
-            signOut: { routesTaken.append("signOut") }
+    /// Hosts the view the root draws for this route, with a store that has no plans to sell, because
+    /// the way out cannot depend on the offer loading.
+    @Test(.hostsAWindow) @MainActor
+    func theOnboardingPaywallRoutesToAccountDeletionAndSignOut() async throws {
+        let suite = "locked-out-onboarding-paywall-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(entitlementState: .inactive),
+            paywallPresenter: PaywallPresenterSpy(),
+            appAccessReconciler: IdleAppAccessReconciler(),
+            userDefaults: defaults
         )
+        let model = OnboardingPaywallModel(
+            provider: EmptyStorePlanProvider(),
+            monetization: manager,
+            restoreService: AppAccessRestoreService(entitlementID: "app_access", restorer: { manager }),
+            holdStore: PendingPurchaseHoldStore(userDefaults: defaults)
+        )
+        await model.load()
+        var routesTaken: [String] = []
 
-        actions.onDeleteAccount()
-        #expect(routesTaken == ["deletion"])
+        try await RenderedScreen.host(
+            OnboardingPaywallRouteView(
+                coordinator: OnboardingV3Coordinator(
+                    store: PreAuthOnboardingStore(userDefaults: defaults),
+                    startingAt: .paywall
+                ),
+                onDeleteAccount: { routesTaken.append("deletion") },
+                onSignOut: { routesTaken.append("signOut") }
+            )
+            .environment(\.onboardingPaywallModel, model)
+            .environment(AuthenticationViewModel()),
+            settle: .turns(100)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("delete account") })
 
-        actions.onSignOut()
-        #expect(routesTaken == ["deletion", "signOut"])
+            try activateAccessibilityElement(labelled: "Sign out", in: screen.root)
+            #expect(routesTaken == ["signOut"])
+
+            try activateAccessibilityElement(labelled: "Delete account", in: screen.root)
+            #expect(routesTaken == ["signOut", "deletion"])
+        }
     }
 
     @Test
@@ -298,4 +329,16 @@ struct LockedOutSubscriberRecoveryContractTests {
             encoding: .utf8
         )
     }
+}
+
+@MainActor
+private final class EmptyStorePlanProvider: OnboardingPaywallPlanProviding {
+    func loadPlans() async throws -> [NativePaywallPlan] { [] }
+    func loadOnboardingPlans() async throws -> [NativePaywallPlan] { [] }
+    func purchase(planID: String) async -> PurchaseResult { .cancelled }
+}
+
+@MainActor
+private final class IdleAppAccessReconciler: AppAccessReconciling {
+    func reconcileAppAccess(force: Bool) async {}
 }

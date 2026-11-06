@@ -419,11 +419,11 @@ struct RootView: View {
 
         case .onboardingPaywall:
             routeScreen(route) {
-                OnboardingV3FlowView(coordinator: onboardingV3Coordinator)
-                    .environment(\.onboardingPaywallAccountActions, OnboardingPaywallAccountActions.gateRoutes(
-                        presentAccountDeletion: { presentGateAccountDeletion() },
-                        signOut: authVM.signOut
-                    ))
+                OnboardingPaywallRouteView(
+                    coordinator: onboardingV3Coordinator,
+                    onDeleteAccount: { presentGateAccountDeletion() },
+                    onSignOut: authVM.signOut
+                )
             }
 
         case .paywall:

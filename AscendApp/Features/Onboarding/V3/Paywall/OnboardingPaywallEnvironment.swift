@@ -10,15 +10,6 @@ private struct OnboardingPaywallModelKey: EnvironmentKey {
 struct OnboardingPaywallAccountActions: Sendable {
     var onDeleteAccount: @MainActor () -> Void
     var onSignOut: @MainActor () -> Void
-
-    /// The same two destinations the app-access gate leaves for: the root's one deletion sheet and
-    /// its sign-out.
-    static func gateRoutes(
-        presentAccountDeletion: @escaping @MainActor () -> Void,
-        signOut: @escaping @MainActor () -> Void
-    ) -> OnboardingPaywallAccountActions {
-        OnboardingPaywallAccountActions(onDeleteAccount: presentAccountDeletion, onSignOut: signOut)
-    }
 }
 
 private struct OnboardingPaywallAccountActionsKey: EnvironmentKey {
