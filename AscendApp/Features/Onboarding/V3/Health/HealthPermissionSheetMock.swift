@@ -44,11 +44,6 @@ struct HealthPermissionSheetMock: View {
             sheet
                 .padding(.top, 40)
                 .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-
-            numberBadge("1")
-                .offset(x: 1, y: 150)
-            numberBadge("2")
-                .offset(x: 230 - 12 - 22, y: 296)
         }
         .overlay(
             RoundedRectangle(cornerRadius: 38, style: .continuous)
@@ -58,6 +53,13 @@ struct HealthPermissionSheetMock: View {
             RoundedRectangle(cornerRadius: 38, style: .continuous)
                 .strokeBorder(Color(hex: "333333"), lineWidth: 1)
         )
+        // Above the bezel, because the "1" straddles it.
+        .overlay(alignment: .topLeading) {
+            numberBadge("1")
+                .offset(x: 1, y: 150)
+            numberBadge("2")
+                .offset(x: 230 - 12 - 22, y: 296)
+        }
         .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
         .shadow(color: .black.opacity(0.8), radius: 30, y: 30)
     }

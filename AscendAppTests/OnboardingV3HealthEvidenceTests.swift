@@ -226,6 +226,27 @@ struct OnboardingV3HealthEvidenceTests {
         }
     }
 
+    /// The "1" badge straddles the phone's edge, so a bezel drawn over it cuts the circle flat. At its
+    /// vertical centre the badge spans x 1 to 23 and the 6-point bezel x 0 to 6, so a point inside
+    /// the bezel's width shows the badge there and the bare bezel above it.
+    @Test
+    func theFirstStepBadgeIsDrawnOverThePhonesBezel() async throws {
+        try await RenderedScreen.host(
+            HealthPermissionSheetMock()
+                .frame(width: 230, height: 390)
+                .ignoresSafeArea()
+                .environment(\.onboardingReduceMotionOverride, true),
+            size: CGSize(width: 230, height: 390),
+            settle: .turns(40)
+        ) { screen in
+            let accent = RGBA(red: 134, green: 211, blue: 10, alpha: 255)
+            let bareBezel = try screen.color(at: CGPoint(x: 3, y: 100))
+            let bezelAtBadge = try screen.color(at: CGPoint(x: 3, y: 161))
+            #expect(bareBezel.isNearBlack, "the sample point is not on the bezel: \(bareBezel)")
+            #expect(bezelAtBadge.isClose(to: accent, tolerance: 40), "the bezel covers the badge: \(bezelAtBadge)")
+        }
+    }
+
     @Test(arguments: Self.accessibilitySizes)
     func twoTapsAtAnAccessibilityTextSizeKeepsGotItReachable(size: DynamicTypeSize) async throws {
         try await RenderedScreen.host(
