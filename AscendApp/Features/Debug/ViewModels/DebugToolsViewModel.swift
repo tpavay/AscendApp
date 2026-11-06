@@ -77,7 +77,7 @@ class DebugToolsViewModel {
             actions: [
                 DebugAction(
                     title: ActionTitle.replayNewOnboardingFromWelcome,
-                    description: "Tests the new (v3) onboarding. Signs out, clears the v3 answers and finished mark, and forces the v3 flow on even if onboarding_v3_enabled is off, so the next screen is Welcome. The override stays on until the app is deleted.",
+                    description: "Tests the new (v3) onboarding. Signs out, clears the v3 answers and finished mark, and forces the v3 flow on even if onboarding_v3_enabled is off, so the next screen is Welcome. The override stays on until the app is deleted. Covers Welcome through sign-in: Debug builds allow unentitled app access, so you land in the app after sign-in. To see the paywall afterwards, use \(ActionTitle.forceAppAccessGate).",
                     icon: "sparkles",
                     iconColor: .accent
                 ),
@@ -200,7 +200,7 @@ class DebugToolsViewModel {
                 OnboardingFlowAnalyticsCoordinator.shared.resetPass()
                 NotificationCenter.default.post(name: .onboardingV3DebugReplayRequested, object: nil)
                 authVM.signOut()
-                successMessage = "New onboarding replay is ready. You are signed out and the next screen is Welcome."
+                successMessage = "New onboarding replay is ready. You are signed out and the next screen is Welcome. The replay covers Welcome through sign-in, then you land in the app because Debug builds allow unentitled app access. To see the paywall afterwards, use \(ActionTitle.forceAppAccessGate)."
 
             case ActionTitle.resetRoutineBuilderWalkthrough:
                 UserDefaults.standard.removeObject(forKey: RoutineBuilderCoachMark.seenStorageKey)
