@@ -6,7 +6,7 @@ struct OnboardingClimberCardScreen: View {
     let coordinator: OnboardingV3Coordinator
 
     @State private var draft: ClimberCardDraft
-    /// Whether the climber has touched the wheel, so an untouched wheel never invents a birthday.
+    /// The date the wheel shows. Only moving it sets `draft.birthday`, so an untouched wheel never invents one.
     @State private var wheelDate: Date
 
     init(coordinator: OnboardingV3Coordinator, system: MeasurementSystem = SettingsManager.shared.measurementSystem) {
