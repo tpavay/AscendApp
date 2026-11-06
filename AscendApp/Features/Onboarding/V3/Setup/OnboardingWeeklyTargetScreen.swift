@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 10: how many days a week. Optional: Skip and "No target for now" leave the target unset, and a
+/// 10: how many days a week. Optional: "No target for now" leaves the target unset, and a
 /// climber with no target never gets the weekly ring. Nothing is preselected and the number reads
 /// "?" until a bar is tapped.
 struct OnboardingWeeklyTargetScreen: View {
@@ -22,7 +22,7 @@ struct OnboardingWeeklyTargetScreen: View {
     }
 
     private func layout(isCompact: Bool) -> some View {
-        OnboardingSetupLayout(step: .weeklyTarget, onSkip: { skip() }) {
+        OnboardingSetupLayout(step: .weeklyTarget) {
             VStack(alignment: .leading, spacing: 14) {
                 OnboardingHeadline(["How many days"], accentLines: ["a week?"], accent: .lime)
                     .onboardingEntrance(index: 0)
