@@ -85,7 +85,7 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .welcome:
             [OnboardingV3Exit(prompt: "Already have an account? ", action: "Sign in", destination: .auth)]
         case .healthConnect:
-            [OnboardingV3Exit(action: "I don't track workouts", destination: .usualClimb)]
+            [OnboardingV3Exit(action: "Skip", destination: .usualClimb)]
         case .healthPermission:
             [OnboardingV3Exit(action: "No stair stepper workouts found", destination: .usualClimb)]
         case .paywall:

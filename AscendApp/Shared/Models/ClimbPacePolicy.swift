@@ -95,7 +95,7 @@ enum ClimbPacePolicy {
 
     /// Whether a climb began before its climber's account did.
     ///
-    /// Leaderboards count from the day a climber joins, so it is fair for everyone: a climb nobody
+    /// Only climbs after a climber signed up count on leaderboards, so it is fair for everyone: a climb nobody
     /// measured that started earlier is history. It fills the climber's own records, streak and
     /// personal bests and never a board. `accountCreatedAt` is Firebase Auth's creation time, the
     /// clock the server ranks against (`startedBeforeAccount` in `functions/src/leaderboardStats.ts`),

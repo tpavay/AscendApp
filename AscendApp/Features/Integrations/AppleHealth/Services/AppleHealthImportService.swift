@@ -475,13 +475,13 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     /// It never touches the pass's anchor, announces nothing and opens nothing: the climber saw
     /// the screen that promised it.
     ///
-    /// - Parameter workoutIDs: The workouts 07a showed, which is all the climber agreed to. Nil
-    ///   means every pre-join stair workout Health holds.
+    /// - Parameter workoutIDs: The workouts 07a showed, which is all the climber agreed to. There is
+    ///   no "everything" form: a caller that forgot the list would import what the climber never saw.
     /// - Returns: Whether the history landed. False means something deferred it - the switch, a
     ///   gate the pass shares, a failed read or save - and nothing was lost: running it again
     ///   files and imports whatever is still waiting.
     @discardableResult
-    func importHistory(before joinDate: Date, matching workoutIDs: Set<String>? = nil) async -> Bool {
+    func importHistory(before joinDate: Date, matching workoutIDs: Set<String>) async -> Bool {
         guard RemoteFeatureGate.allows(
             .appleHealthHistoryImport,
             path: "AppleHealthImportService.importHistory",
@@ -514,7 +514,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         do {
             for snapshot in found.added where snapshot.startDate < joinDate {
                 guard AppleHealthImportPolicy.isImportableDuration(snapshot.duration),
-                      workoutIDs?.contains(snapshot.uuid.uuidString) ?? true else {
+                      workoutIDs.contains(snapshot.uuid.uuidString) else {
                     continue
                 }
                 switch try file(snapshot, ledger: ledger) {

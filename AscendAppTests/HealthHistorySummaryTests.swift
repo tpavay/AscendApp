@@ -210,6 +210,42 @@ struct HealthHistorySummaryTests {
         #expect(comparison.kicker == "That's the Empire State Building")
     }
 
+    @Test(arguments: [
+        ("Empire State Building", "That's the Empire State Building"),
+        ("Eiffel Tower", "That's the Eiffel Tower"),
+        ("Petronas Towers", "That's the Petronas Towers"),
+        ("Space Needle", "That's the Space Needle"),
+        ("Statue of Liberty", "That's the Statue of Liberty"),
+        ("One World Trade Center", "That's the One World Trade Center"),
+        ("Taipei 101", "That's Taipei 101"),
+        ("Merdeka 118", "That's Merdeka 118"),
+        ("Monserrate", "That's Monserrate"),
+        ("Burj Khalifa", "That's Burj Khalifa"),
+        ("Torre Glòries", "That's Torre Glòries")
+    ])
+    func theKickerCarriesAnArticleOnlyWhereTheNameNeedsOne(name: String, kicker: String) {
+        let comparison = HealthHistoryComparison(name: name, isEverest: false, timesOver: 2)
+
+        #expect(comparison.kicker == kicker)
+    }
+
+    @Test
+    func noCatalogueClimbEverReadsThatsTheTaipei101() throws {
+        let url = try #require(Bundle.main.url(forResource: "climbs", withExtension: "json"))
+        let climbs = try JSONDecoder().decode([Climb].self, from: Data(contentsOf: url)).filter(\.isAvailable)
+        #expect(climbs.count > 40)
+
+        for climb in climbs {
+            let kicker = HealthHistoryComparison(name: climb.name, isEverest: false, timesOver: 1).kicker
+            let hasNoun = HealthHistoryComparison.carriesArticle(climb.name)
+            #expect(kicker == (hasNoun ? "That's the \(climb.name)" : "That's \(climb.name)"), "\(climb.name)")
+            // A name that starts with a digit or is a bare proper name never takes the article.
+            if climb.name.first?.isNumber == true || !climb.name.contains(" ") {
+                #expect(!kicker.contains("the"), "\(climb.name): \(kicker)")
+            }
+        }
+    }
+
     @Test
     func underEveryClimbThereIsNoCardAndAComingSoonClimbIsNeverTheComparison() {
         #expect(HealthHistoryComparison.make(knownSteps: 100, climbs: [Climb.preview]) == nil)

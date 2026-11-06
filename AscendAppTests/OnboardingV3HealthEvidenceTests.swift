@@ -100,13 +100,54 @@ struct OnboardingV3HealthEvidenceTests {
             #expect(copy.contains("any device or app that saves there show up in ascend. no typing."), "\(copy)")
             for chip in ["workouts", "steps", "heart rate"] { #expect(copy.contains(chip), "\(copy)") }
             #expect(copy.contains("connect apple health"), "\(copy)")
-            #expect(copy.contains("i don't track workouts"), "\(copy)")
+            #expect(copy.contains("skip"), "\(copy)")
+            #expect(copy.contains("you can always connect this in settings."), "\(copy)")
             #expect(copy.contains("onboarding progress"), "the bar replaces the X: \(copy)")
             #expect(copy.contains("back"), "\(copy)")
             #expect(!copy.contains("not now"), "onboarding's quiet link is the other one: \(copy)")
+            #expect(!copy.contains("i don't track workouts"), "\(copy)")
             #expect(!copy.contains("close"), "no X in onboarding: \(copy)")
             #expect(!copy.contains("tap turn on all"), "06b shows the sheet, so the hint is left out: \(copy)")
             try screen.photograph(named: "onboarding-v3-health-06-connect-\(Int(size.height))")
+        }
+    }
+
+    /// The captain's balance call on 06: the Health tile, the dots and the Ascend tile sit centred in
+    /// the room between the progress bar and the headline, and the words sit low, above the buttons.
+    @Test(arguments: Self.phones)
+    func connectCentresTheArtBetweenTheBarAndTheWords(size: CGSize) async throws {
+        try await RenderedScreen.host(flow(.healthConnect), size: size, settle: .turns(60)) { screen in
+            _ = try await screen.copy { $0.contains("connect apple health") }
+            let bar = try #require(try await screen.frame(ofElementLabelled: "Onboarding progress"))
+            let primary = try #require(try await screen.frame(ofElementLabelled: "Connect Apple Health"))
+            let skip = try #require(try await screen.frame(ofElementLabelled: "Skip"))
+            let footnote = try #require(try await screen.frame(ofElementLabelled: "You can always connect this in Settings."))
+
+            // The Health tile is the only pure white on the screen above the headline, and the headline
+            // is the first white ink below it.
+            let (art, words) = try screen.withPixels { sampler in
+                let tile = sampler.bounds(in: CGRect(x: 0, y: bar.maxY, width: size.width, height: size.height / 2 - bar.maxY)) {
+                    $0.red > 245 && $0.green > 245 && $0.blue > 245
+                }
+                let below = tile.map { CGRect(x: 0, y: $0.maxY + 4, width: size.width, height: primary.minY - $0.maxY - 4) }
+                let ink = below.flatMap { region in
+                    sampler.bounds(in: region) { $0.red > 230 && $0.green > 230 && $0.blue > 230 }
+                }
+                return (tile, ink)
+            }
+            let tile = try #require(art, "the Health tile is on screen")
+            let headlineInk = try #require(words, "the headline is on screen")
+            let roomAbove = tile.minY - bar.maxY
+            let roomBelow = headlineInk.minY - tile.maxY
+            // The smallest phone has no room to spare, so the balance is read on the tall one and the
+            // small one is read from its photograph; both keep the bottom of the screen in order below.
+            if size.height > 800 {
+                #expect(abs(roomAbove - roomBelow) <= 10, "centred: \(roomAbove) above, \(roomBelow) below")
+            }
+
+            #expect(skip.minY > primary.maxY, "Skip is under the button")
+            #expect(footnote.minY >= skip.maxY - 4, "the Settings line is under Skip")
+            #expect(screen.bounds.contains(footnote), "the Settings line is on screen: \(footnote)")
         }
     }
 
@@ -118,7 +159,8 @@ struct OnboardingV3HealthEvidenceTests {
             #expect(copy.contains("not now"), "\(copy)")
             #expect(copy.contains("tap turn on all, then allow."), "\(copy)")
             #expect(!copy.contains("onboarding progress"), "\(copy)")
-            #expect(!copy.contains("i don't track workouts"), "\(copy)")
+            #expect(!copy.contains("skip"), "\(copy)")
+            #expect(!copy.contains("you can always connect this in settings."), "\(copy)")
         }
     }
 
@@ -131,7 +173,7 @@ struct OnboardingV3HealthEvidenceTests {
         ) { screen in
             let copy = try await screen.copy { $0.contains("connect apple health") }
             #expect(copy.contains("connect apple health"), "\(copy)")
-            #expect(copy.contains("i don't track workouts"), "\(copy)")
+            #expect(copy.contains("skip"), "\(copy)")
             let primary = try #require(try await screen.frame(ofElementLabelled: "Connect Apple Health"))
             #expect(screen.bounds.contains(primary), "the primary button \(primary) runs off the screen")
             try screen.photograph(named: "onboarding-v3-health-06-connect-se-\(size)")
@@ -237,7 +279,7 @@ struct OnboardingV3HealthEvidenceTests {
             #expect(copy.contains("23,000"), "\(copy)")
             #expect(copy.contains("steps · 200 min"), "\(copy)")
             #expect(copy.contains("past climbs fill your history and personal bests."), "\(copy)")
-            #expect(copy.contains("leaderboards count from today, so it's fair for everyone."), "\(copy)")
+            #expect(copy.contains("every climb after you sign up counts on the leaderboards."), "\(copy)")
             #expect(!copy.contains("rank 2nd"), "the estimated rank card is dropped: \(copy)")
             #expect(!copy.contains("#2"), "\(copy)")
             let primary = try #require(try await screen.frame(ofElementLabelled: "Add to my history"))

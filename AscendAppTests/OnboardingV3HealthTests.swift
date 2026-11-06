@@ -325,7 +325,7 @@ struct OnboardingV3HealthTests {
     @Test
     func noHealthCopyBreaksTheWordingRules() {
         let copy = [
-            "Your workouts,", "counted for you.", "I don't track workouts",
+            "Your workouts,", "counted for you.", "Skip", "You can always connect this in Settings.",
             "Two taps and", "you're set.", "Tap Turn On All", "Tap Allow at the bottom",
             "We found your climbs", "Add to my history", OnboardingHealthHistoryScreen.footnote,
             HealthPermissionSheetMock.accessibilityDescription

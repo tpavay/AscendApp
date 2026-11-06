@@ -56,6 +56,8 @@ struct HealthFlowBottomBar: View {
     let primaryTitle: String
     let primaryHeight: CGFloat
     var caption: String?
+    /// A line under the secondary action, for the screen that says where the skipped step lives.
+    var footnote: String?
     var secondaryTitle: String?
     var isDisabled = false
     let onPrimary: () -> Void
@@ -86,6 +88,14 @@ struct HealthFlowBottomBar: View {
                 }
             }
             .frame(height: HealthFlowChrome.secondarySlotHeight)
+
+            if let footnote {
+                Text(footnote)
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

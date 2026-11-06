@@ -408,10 +408,11 @@ export function parseEligibleWorkout(
     return null;
   }
 
-  // Leaderboards count from the day a climber joins, so it is fair for
-  // everyone: a climb nobody measured that started before the account existed
-  // is history - it fills the climber's own records and streak, and never a
-  // board. A live session cannot predate the account, so it is not asked.
+  // Only climbs after a climber signed up count on leaderboards, so it is
+  // fair for everyone: a climb nobody measured that started before the
+  // account existed is history - it fills the climber's own records and
+  // streak, and never a board. A live session cannot predate the account, so
+  // it is not asked.
   if (
     data.source !== LIVE_SENSOR_SOURCE &&
     startedBeforeAccount(startedAtMillis, accountCreatedAtMillis)

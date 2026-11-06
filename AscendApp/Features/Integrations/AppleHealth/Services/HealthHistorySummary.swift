@@ -165,9 +165,24 @@ struct HealthHistoryComparison: Equatable, Sendable {
         )
     }
 
+    /// The words that make a name a thing you say "the" before: a building, a tower, a centre.
+    /// A name without one - Taipei 101, Merdeka 118, Monserrate, Burj Khalifa - is a proper name
+    /// on its own, and "the" in front of it reads wrong on a screen a new climber sees first.
+    private static let articleNouns: Set<String> = [
+        "Building", "Tower", "Towers", "Centre", "Center", "Needle", "Castle", "Monument",
+        "Plaza", "Square", "Stair", "Liberty"
+    ]
+
+    /// Whether `name` is said with "the": its last word is a generic noun, or it names a statue.
+    static func carriesArticle(_ name: String) -> Bool {
+        guard let last = name.split(separator: " ").last else { return false }
+        return articleNouns.contains(String(last))
+    }
+
     /// The card's kicker.
     var kicker: String {
-        isEverest ? "That's Everest" : "That's the \(name)"
+        if isEverest { return "That's Everest" }
+        return Self.carriesArticle(name) ? "That's the \(name)" : "That's \(name)"
     }
 
     var timesOverText: String {

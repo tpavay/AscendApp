@@ -33,7 +33,7 @@ struct AppleHealthHistoryImportTests {
     func olderWorkoutsBecomeOffBoardAppleHealthClimbs() async throws {
         let (harness, old, _) = try harnessWithHistory()
 
-        let landed = await harness.service.importHistory(before: harness.referenceJoinDate)
+        let landed = await harness.importHistory()
 
         #expect(landed)
         let climbs = try harness.climbs()
@@ -52,7 +52,7 @@ struct AppleHealthHistoryImportTests {
     @Test
     func historyFillsRecordsButAClimbWithNoStepsHoldsNone() async throws {
         let (harness, old, _) = try harnessWithHistory()
-        await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
 
         let climbs = try harness.climbs()
         let counted = try #require(climbs.first { $0.healthKitUUID == old[0].uuid.uuidString })
@@ -65,7 +65,7 @@ struct AppleHealthHistoryImportTests {
     func workoutsFromTheJoinDateOnAreLeftToThePass() async throws {
         let (harness, _, recent) = try harnessWithHistory()
 
-        await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
 
         #expect(try harness.climbs().allSatisfy { $0.healthKitUUID != recent.uuid.uuidString })
         #expect(try harness.record(recent) == nil)
@@ -75,7 +75,7 @@ struct AppleHealthHistoryImportTests {
     func itNeverMovesThePassAnchorAndAnnouncesNothing() async throws {
         let (harness, _, recent) = try harnessWithHistory()
 
-        await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
 
         #expect(harness.settings.anchorData(for: AppleHealthImportHarness.userID) == nil)
         #expect(harness.notifier.imported.isEmpty)
@@ -90,7 +90,7 @@ struct AppleHealthHistoryImportTests {
     func itFilesTheWorkoutsThroughTheLedgerAsImported() async throws {
         let (harness, old, _) = try harnessWithHistory()
 
-        await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
 
         for snapshot in old {
             let record = try #require(try harness.record(snapshot))
@@ -105,8 +105,8 @@ struct AppleHealthHistoryImportTests {
     func runningItAgainFilesNothingTwice() async throws {
         let (harness, old, _) = try harnessWithHistory()
 
-        await harness.service.importHistory(before: harness.referenceJoinDate)
-        let landedAgain = await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
+        let landedAgain = await harness.importHistory()
 
         #expect(landedAgain)
         #expect(try harness.climbs().count == old.count)
@@ -116,11 +116,11 @@ struct AppleHealthHistoryImportTests {
     @Test
     func aClimbRemovedAfterwardsIsNeverBroughtBack() async throws {
         let (harness, old, _) = try harnessWithHistory()
-        await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
         let climb = try #require(try harness.climbs().first { $0.healthKitUUID == old[0].uuid.uuidString })
 
         await harness.service.removeImportedClimb(workoutID: climb.id)
-        await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
 
         #expect(try harness.climbs().allSatisfy { $0.healthKitUUID != old[0].uuid.uuidString })
         #expect(try harness.record(old[0])?.state == .skipped)
@@ -142,7 +142,7 @@ struct AppleHealthHistoryImportTests {
         harness.context.insert(restored)
         try harness.context.save()
 
-        await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
 
         #expect(try harness.climbs().filter { $0.healthKitUUID == old[0].uuid.uuidString }.count == 1)
     }
@@ -168,7 +168,7 @@ struct AppleHealthHistoryImportTests {
         let harness = try AppleHealthImportHarness()
         let tooLong = harness.addWorkout(daysAgo: 70, steps: 5_000, minutes: 25 * 60)
 
-        await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
 
         #expect(try harness.record(tooLong) == nil)
     }
@@ -180,7 +180,7 @@ struct AppleHealthHistoryImportTests {
         let off = switchedOff(.appleHealthHistoryImport)
         let (harness, old, _) = try harnessWithHistory(featureFlags: off)
 
-        let landed = await harness.service.importHistory(before: harness.referenceJoinDate)
+        let landed = await harness.importHistory()
 
         #expect(!landed)
         #expect(try harness.climbs().isEmpty)
@@ -188,7 +188,7 @@ struct AppleHealthHistoryImportTests {
         // The same service with the switch on lands it, from the same Health database.
         let on = try AppleHealthImportHarness()
         for snapshot in old { on.reader.workouts.append(snapshot) }
-        #expect(await on.service.importHistory(before: on.referenceJoinDate))
+        #expect(await on.importHistory())
     }
 
     @Test
@@ -196,7 +196,7 @@ struct AppleHealthHistoryImportTests {
         let off = switchedOff(.appleHealthImport)
         let (harness, _, _) = try harnessWithHistory(featureFlags: off)
 
-        let landed = await harness.service.importHistory(before: harness.referenceJoinDate)
+        let landed = await harness.importHistory()
 
         #expect(!landed)
         #expect(try harness.climbs().isEmpty)
@@ -207,7 +207,7 @@ struct AppleHealthHistoryImportTests {
         let (harness, _, _) = try harnessWithHistory()
         let unrestored = harness.relaunchedServiceWithoutCloudRestore()
 
-        let landed = await unrestored.importHistory(before: harness.referenceJoinDate)
+        let landed = await harness.importHistory(using: unrestored)
 
         #expect(!landed)
         #expect(try harness.climbs().isEmpty, "a climb the account already holds is the only thing that stops a second one")
@@ -218,7 +218,7 @@ struct AppleHealthHistoryImportTests {
         let (harness, _, _) = try harnessWithHistory()
         harness.authorization.importConnectionState = .neverConnected
 
-        let landed = await harness.service.importHistory(before: harness.referenceJoinDate)
+        let landed = await harness.importHistory()
 
         #expect(!landed)
         #expect(try harness.climbs().isEmpty)
@@ -229,7 +229,7 @@ struct AppleHealthHistoryImportTests {
         let (harness, _, _) = try harnessWithHistory()
         harness.userID = nil
 
-        let landed = await harness.service.importHistory(before: harness.referenceJoinDate)
+        let landed = await harness.importHistory()
 
         #expect(!landed)
         #expect(try harness.records().isEmpty, "nothing is written before there is an account")
@@ -240,11 +240,11 @@ struct AppleHealthHistoryImportTests {
         let (harness, old, _) = try harnessWithHistory()
         harness.reader.readError = NSError(domain: "HealthKit", code: 1)
 
-        #expect(await harness.service.importHistory(before: harness.referenceJoinDate) == false)
+        #expect(await harness.importHistory() == false)
         #expect(try harness.climbs().isEmpty)
 
         harness.reader.readError = nil
-        #expect(await harness.service.importHistory(before: harness.referenceJoinDate))
+        #expect(await harness.importHistory())
         #expect(try harness.climbs().count == old.count)
     }
 
@@ -252,7 +252,7 @@ struct AppleHealthHistoryImportTests {
     func noWorkoutsToBringInStillCountsAsLanded() async throws {
         let harness = try AppleHealthImportHarness()
 
-        #expect(await harness.service.importHistory(before: harness.referenceJoinDate))
+        #expect(await harness.importHistory())
         #expect(try harness.climbs().isEmpty)
     }
 
@@ -261,7 +261,7 @@ struct AppleHealthHistoryImportTests {
     @Test
     func editingTheStepsOfAHistoryClimbNeverPutsItOnABoard() async throws {
         let (harness, old, _) = try harnessWithHistory()
-        await harness.service.importHistory(before: harness.referenceJoinDate)
+        await harness.importHistory()
         let climb = try #require(try harness.climbs().first { $0.healthKitUUID == old[1].uuid.uuidString })
         #expect(climb.isMissingSteps)
 
@@ -273,6 +273,15 @@ struct AppleHealthHistoryImportTests {
 }
 
 extension AppleHealthImportHarness {
+    /// Imports history for every workout the fake Health holds, as a climber who was shown them all.
+    @discardableResult
+    func importHistory(using service: AppleHealthImportService? = nil) async -> Bool {
+        await (service ?? self.service).importHistory(
+            before: referenceJoinDate,
+            matching: Set(reader.workouts.map { $0.uuid.uuidString })
+        )
+    }
+
     /// A process that has not yet heard its climber's cloud restore finished.
     func relaunchedServiceWithoutCloudRestore() -> AppleHealthImportService {
         let service = relaunchedService()

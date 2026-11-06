@@ -47,7 +47,7 @@ struct OnboardingHealthHistoryScreen: View {
         .trackOnce(screen: .onboardingHealthHistory)
     }
 
-    static let footnote = "Past climbs fill your history and personal bests. Leaderboards count from today, so it's fair for everyone."
+    static let footnote = "Past climbs fill your history and personal bests. Every climb after you sign up counts on the leaderboards."
 
     private var summary: HealthHistorySummary? {
         if case .found(let summary) = viewModel.state { return summary }

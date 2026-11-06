@@ -1,5 +1,5 @@
 {
-  "description": "Canonical test vector for the join-date rule on a climb Ascend did not measure: leaderboards count from the day a climber joins, so a typed or imported climb that started before the account was created is history. It fills the climber's own records, streak and personal bests and never a board. The same cases pin the Swift implementation (ClimbPacePolicy.leaderboardStatus with accountCreatedAt, AscendApp/Shared/Models/ClimbPacePolicy.swift) and the TypeScript derivation (parseEligibleWorkout and startedBeforeAccount in functions/src/leaderboardStats.ts). A live climb is measured by Ascend's own sensor and can never predate the account, so it is never asked. accountCreatedAt is Firebase Auth's creation time; startedAt is the workout's start. deviceLeaderboardStatus is what ClimbPacePolicy.leaderboardStatus stores; serverCountsOnLeaderboards is whether parseEligibleWorkout derives the climb into a standing. The pace ceiling is not under test here (SharedTestVectors/climb-pace-policy-vector.json owns it), so every case is inside it.",
+  "description": "Canonical test vector for the join-date rule on a climb Ascend did not measure: only climbs after a climber signed up count on leaderboards, so a typed or imported climb that started before the account was created is history. It fills the climber's own records, streak and personal bests and never a board. The same cases pin the Swift implementation (ClimbPacePolicy.leaderboardStatus with accountCreatedAt, AscendApp/Shared/Models/ClimbPacePolicy.swift) and the TypeScript derivation (parseEligibleWorkout and startedBeforeAccount in functions/src/leaderboardStats.ts). A live climb is measured by Ascend's own sensor and can never predate the account, so it is never asked. accountCreatedAt is Firebase Auth's creation time; startedAt is the workout's start. deviceLeaderboardStatus is what ClimbPacePolicy.leaderboardStatus stores; serverCountsOnLeaderboards is whether parseEligibleWorkout derives the climb into a standing. The pace ceiling is not under test here (SharedTestVectors/climb-pace-policy-vector.json owns it), so every case is inside it.",
   "accountCreatedAt": "2026-09-10T12:00:00Z",
   "cases": [
     {
@@ -64,6 +64,15 @@
       "durationSeconds": 1800,
       "deviceLeaderboardStatus": "eligible",
       "serverCountsOnLeaderboards": true
+    },
+    {
+      "name": "a legacy hevy climb from before the account is history",
+      "source": "hevy",
+      "startedAt": "2026-08-01T07:00:00Z",
+      "steps": 3000,
+      "durationSeconds": 1800,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
     }
   ]
 }

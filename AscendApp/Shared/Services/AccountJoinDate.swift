@@ -4,7 +4,7 @@ import Foundation
 
 /// When the signed-in climber's account was created, from Firebase Auth.
 ///
-/// The one clock "leaderboards count from the day you joined" is measured against, because it is
+/// The one clock "every climb after you sign up counts" is measured against, because it is
 /// the clock the server ranks on: `functions/src/leaderboardStats.ts` reads the same creation time
 /// from Auth. A date the climber could edit - a profile field, the device clock - would let the
 /// phone and the board disagree about which climbs are history.

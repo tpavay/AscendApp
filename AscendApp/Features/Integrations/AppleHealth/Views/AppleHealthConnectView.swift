@@ -7,17 +7,27 @@ import SwiftUI
 ///   button goes straight to the iOS Health sheet, so connecting is this tap and the sheet's own
 ///   two. The close X and "Not now" both close it.
 /// - ``Chrome/onboarding``, screen 06 of the first-run flow. The progress header replaces the X,
-///   the quiet link says "I don't track workouts", and the one-line hint about the iOS sheet is
-///   left out, because the next screen (06b) shows the sheet itself.
+///   the quiet link says "Skip" with a line under it that connecting waits in Settings, the art
+///   sits centred in the room above the words, and the one-line hint about the iOS sheet is left
+///   out, because the next screen (06b) shows the sheet itself.
 struct AppleHealthConnectView: View {
     enum Chrome: Equatable {
         case closeButton
         case onboarding
 
+        /// The line under the quiet link: the way back to connecting later, said only where the climber
+        /// has just chosen to skip it.
+        var footnote: String? {
+            switch self {
+            case .closeButton: nil
+            case .onboarding: "You can always connect this in Settings."
+            }
+        }
+
         var secondaryTitle: String {
             switch self {
             case .closeButton: "Not now"
-            case .onboarding: "I don't track workouts"
+            case .onboarding: "Skip"
             }
         }
     }
@@ -27,8 +37,7 @@ struct AppleHealthConnectView: View {
     var isWorking = false
     var errorMessage: String?
     let onConnect: () -> Void
-    /// The close X and "Not now" for ``Chrome/closeButton``; "I don't track workouts" for
-    /// ``Chrome/onboarding``.
+    /// The close X and "Not now" for ``Chrome/closeButton``; "Skip" for ``Chrome/onboarding``.
     let onClose: () -> Void
 
     var body: some View {
@@ -62,6 +71,12 @@ struct AppleHealthConnectView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             Spacer().frame(height: HealthFlowChrome.contentTopClearance)
 
+                            // Onboarding centres the art between the bar and the words; the sheet's own
+                            // copy of the screen keeps it at the top, where it has always been.
+                            if chrome == .onboarding {
+                                Spacer(minLength: 12)
+                            }
+
                             linkIllustration
                                 .frame(maxWidth: .infinity)
 
@@ -75,6 +90,9 @@ struct AppleHealthConnectView: View {
                             }
                             .font(.montserratBold(size: 32))
                             .minimumScaleFactor(0.7)
+                            // Each line stays one line, shrinking to fit; only at an accessibility size,
+                            // where shrinking cannot save it, does a line break.
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                             .fixedSize(horizontal: false, vertical: true)
 
                             Text("Connect Apple Health and stair stepper workouts from any device or app that saves there show up in Ascend. No typing.")
@@ -113,7 +131,8 @@ struct AppleHealthConnectView: View {
                                     .padding(.top, 16)
                             }
 
-                            Spacer(minLength: 190)
+                            // Room for the bar laid over the content, which is a line taller in onboarding.
+                            Spacer(minLength: chrome.footnote == nil ? 190 : 206)
                         }
                         .padding(.horizontal, layout.horizontalPadding)
                         .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .leading)
@@ -126,6 +145,7 @@ struct AppleHealthConnectView: View {
                 HealthFlowBottomBar(
                     primaryTitle: "CONNECT APPLE HEALTH",
                     primaryHeight: layout.primaryButtonHeight,
+                    footnote: chrome.footnote,
                     secondaryTitle: chrome.secondaryTitle,
                     isDisabled: isWorking,
                     onPrimary: onConnect,

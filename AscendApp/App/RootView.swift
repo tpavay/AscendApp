@@ -514,6 +514,9 @@ struct RootView: View {
                         showsPaywall: RemoteFeatureFlagStore.shared.isEnabled(.onboardingPaywall)
                     )
                 }
+            },
+            importHealthHistory: { answers in
+                await OnboardingHealthHistoryImport.run(answers)
             }
         )
         onboardingV3HandOff = handOff

@@ -95,9 +95,9 @@ struct OnboardingV3KitEvidenceTests {
         ) { screen in
             let recognized = try await screen.recognizedText(scale: 2).lowercased()
             let copy = try await screen.copy()
-            #expect(copy.contains("continue"), "\(copy)")
-            #expect(copy.contains("i don't track workouts"), "\(copy)")
-            #expect(recognized.contains("continue"), "legible, not just in the tree: \(recognized)")
+            #expect(copy.contains("connect apple health"), "\(copy)")
+            #expect(copy.contains("skip"), "\(copy)")
+            #expect(recognized.contains("connect apple"), "legible, not just in the tree: \(recognized)")
             try screen.photograph(named: "onboarding-v3-health-connect-se-accessibility3")
         }
     }
