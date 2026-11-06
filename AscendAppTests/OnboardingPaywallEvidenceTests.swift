@@ -444,6 +444,22 @@ struct OnboardingPaywallEvidenceTests {
         }
     }
 
+    /// Nothing was shown, so the first real gift still asks for the design's tap.
+    @Test
+    func aFirstVisitDuringAPurchaseHoldDoesNotCountAsSeeingTheGift() async throws {
+        let fixture = await fixture(startingAt: .exitGift, pending: .askToBuy)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel()),
+            settle: .turns(120)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("check my purchase") })
+            #expect(fixture.coordinator.answers.welcomeGiftFirstShownAt == nil)
+        }
+    }
+
     @Test
     func aPurchaseHoldAlsoShowsTheNewButtonWordingOnThePaywall() async throws {
         let fixture = await fixture(startingAt: .paywall, pending: .askToBuy)

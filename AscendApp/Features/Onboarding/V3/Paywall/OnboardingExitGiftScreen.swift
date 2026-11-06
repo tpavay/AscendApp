@@ -274,6 +274,7 @@ struct OnboardingExitGiftScreen: View {
 
     private func start() async {
         model.resetNotice()
+        guard !model.isAwaitingConfirmation else { return }
 
         let hasSeenGift = coordinator.answers.welcomeGiftFirstShownAt != nil
         if !hasSeenGift {
