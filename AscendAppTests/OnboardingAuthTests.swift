@@ -4,7 +4,7 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Screen 15 and what happens when the climber signs in at the end of the flow: the example board,
+/// Screen 13 and what happens when the climber signs in at the end of the flow: the example board,
 /// the two modes, the profile fill, and every route's hand-off.
 @MainActor
 struct OnboardingAuthTests {

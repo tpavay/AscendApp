@@ -23,7 +23,8 @@ The planned onboarding sequence, in order:
 This sequence will evolve as we learn from SuperWall and RevenueCat funnel analytics. Treat it as the current plan, not a permanent contract.
 
 That sequence, and the `Pre-auth value screens` rules below, describe the flow with `onboarding_v3_enabled` off, which is how the switch ships.
-With it on, a signed-out climber gets the 1.3.0 flow instead: selling screens, setup questions and then sign-in, with Skip on the screens the design gives one. A signed-in climber who holds no access then sees the onboarding paywall and the welcome gift until access arrives, across relaunches; one who already pays goes straight to the app (`docs/superwall-paywall-setup.md`).
+With it on, a signed-out climber gets the 1.3.0 flow instead: selling screens, setup questions and then sign-in, with Skip on the screens the design gives one.
+A signed-in climber who holds no access then sees the onboarding paywall and the welcome gift until access arrives, across relaunches; one who already pays goes straight to the app (`docs/superwall-paywall-setup.md`).
 Signing in at the end of that flow marks post-sign-in onboarding complete, so the resolver's first-time path below does not run for that climber, while "Already have an account? Sign in" on the first screen gets normal routing.
 `OnboardingV3SignInHandOff` owns what carries over to the account and in what order.
 `OnboardingV3Step` owns its screens and branches, and `docs/remote-config-kill-switches.md` (Rollouts, which ship off) owns how the switch behaves.
