@@ -8,9 +8,6 @@ protocol PaywallPresenting: AnyObject {
     func identify(userId: String)
     func resetIdentity()
     func updateSubscriptionStatus(entitlementIDs: Set<String>)
-    /// Sets attributes a campaign audience can filter on in the Superwall dashboard. A `nil` value
-    /// removes the attribute, so a stale one never outlives the fact it described.
-    func setUserAttributes(_ attributes: [String: Any?])
     func cancelPresentation()
     func register(
         placement: SuperwallPlacement,
@@ -27,7 +24,6 @@ protocol PaywallPresenting: AnyObject {
 
 extension PaywallPresenting {
     func updateSubscriptionStatus(entitlementIDs: Set<String>) { }
-    func setUserAttributes(_ attributes: [String: Any?]) { }
     func cancelPresentation() { }
 
     func register(placement: SuperwallPlacement, params: [String: Any]?) {

@@ -315,32 +315,284 @@ struct HostedPurchaseRecoveryIntegrationTests {
         })
     }
 
-    private func makeHarness() -> HostedHarness {
+    // MARK: - A paywall the dashboard chains onto the registered one
+
+    @Test
+    func theFirstPaywallClosingForAnOfferEndsNothingAndTheOfferJoinsTheSameAttempt() {
+        let harness = makeHarness()
+        harness.openHostedPresentation()
+
+        harness.closeFirstPaywallForOffer()
+        #expect(harness.coordinator.phase == .openingHosted)
+        #expect(harness.terminals.isEmpty)
+
+        harness.openOffer()
+        #expect(harness.coordinator.phase == .hostedPresented)
+        #expect(harness.coordinator.showsPurchaseControls == false)
+        #expect(harness.terminals.isEmpty)
+    }
+
+    @Test
+    func theOfferFunnelIsReadableAndSaysWhichPaywallItWas() async {
+        let harness = makeHarness()
+        harness.openHostedPresentation()
+        #expect(harness.presenter.handlePresentationFromHandler(
+            revision: harness.presenterRevision,
+            context: harness.firstPaywallContext
+        ))
+        harness.closeFirstPaywallForOffer()
+        harness.openOffer()
+
+        harness.presenter.handleTransactionStarted(
+            context: harness.offerContext,
+            productID: "ascend_staging_yearly_welcome"
+        )
+        harness.presenter.handleTransactionAbandoned(
+            context: harness.offerContext,
+            productID: "ascend_staging_yearly_welcome"
+        )
+        harness.presenter.handlePaywallDismissed(context: harness.offerContext)
+
+        let shown = harness.sink.records.filter { $0.name == "paywall_shown" }
+        #expect(shown.map { $0.parameters["source"] } == [.string("access_gate"), .string("decline_offer")])
+        #expect(shown.last?.parameters["placement"] == .string("paywall_decline"))
+        #expect(shown.last?.parameters["paywall_name"] == .string("Decline Offer"))
+
+        for name in ["paywall_transaction_started", "paywall_transaction_abandoned", "paywall_dismissed"] {
+            let record = harness.sink.records.first { $0.name == name }
+            #expect(record?.parameters["source"] == .string("decline_offer"), "\(name)")
+            #expect(record?.parameters["paywall_identifier"] == .string("offer-paywall"), "\(name)")
+        }
+    }
+
+    @Test
+    func anAskToBuyInTheOfferLandsOnTheNonRepurchaseStateAndStaysThereAfterARelaunch() async {
+        let harness = makeHarness()
+        harness.openHostedPresentation()
+        harness.closeFirstPaywallForOffer()
+        harness.openOffer()
+        harness.presenter.handleTransactionStarted(
+            context: harness.offerContext,
+            productID: harness.productID
+        )
+
+        let execution = await harness.executor.executePurchaseWithContext(
+            productID: harness.productID
+        ) {
+            throw NSError(
+                domain: ErrorCode.errorDomain,
+                code: ErrorCode.paymentPendingError.rawValue
+            )
+        }
+        let result = await harness.controller.resolveHostedExecution(execution)
+
+        #expect(result == .pending)
+        #expect(harness.dismissal.count == 1)
+        #expect(harness.coordinator.phase == .pendingApproval)
+        #expect(harness.coordinator.disablesPurchase)
+        #expect(harness.sink.records.contains { $0.name == "hosted_purchase_recovery_refused" } == false)
+        #expect(harness.manager.pendingPurchaseHold == .askToBuy)
+
+        let relaunched = harness.relaunchedCoordinator()
+        relaunched.start()
+        #expect(relaunched.phase == .pendingApproval)
+        #expect(relaunched.showsPurchaseControls == false)
+        await harness.presenter.drainPresentationOperationsForTesting()
+        #expect(harness.registrations.isEmpty, "a relaunch under a hold opens no paywall")
+    }
+
+    @Test
+    func anUnconfirmedChargeInTheOfferLandsOnTheNonRepurchaseStateAndStaysThereAfterARelaunch() async {
+        let harness = makeHarness()
+        harness.openHostedPresentation()
+        harness.closeFirstPaywallForOffer()
+        harness.openOffer()
+        harness.presenter.handleTransactionStarted(
+            context: harness.offerContext,
+            productID: harness.productID
+        )
+
+        let execution = await harness.executor.executePurchaseWithContext(
+            productID: harness.productID
+        ) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(
+                userCancelled: false,
+                entitlementState: .inactive
+            )
+        }
+        let result = await harness.controller.resolveHostedExecution(execution)
+
+        guard case .failed = result else {
+            Issue.record("Expected the entitlement-unconfirmed failure")
+            return
+        }
+        #expect(harness.dismissal.count == 1)
+        #expect(harness.coordinator.phase == .verificationUnavailable)
+        #expect(harness.manager.pendingPurchaseHold == .unconfirmedCharge)
+
+        let relaunched = harness.relaunchedCoordinator()
+        relaunched.start()
+        #expect(relaunched.phase == .verificationUnavailable)
+        #expect(relaunched.showsPurchaseControls == false)
+    }
+
+    @Test
+    func aHoldTheGateNeverHeardAboutStillRefusesThePlanListWhenThePaywallCloses() {
+        let harness = makeHarness()
+        harness.openHostedPresentation()
+        harness.manager.holdPendingPurchase(.unconfirmedCharge)
+
+        harness.presenter.handleDismissForTesting(
+            revision: harness.presenterRevision,
+            result: .declined
+        )
+
+        #expect(harness.coordinator.phase == .verificationUnavailable)
+        #expect(harness.coordinator.showsPurchaseControls == false)
+        #expect(harness.coordinator.disablesPurchase)
+        #expect(harness.terminals.last?.parameters["provider_outcome"] == .string("verification_unavailable"))
+    }
+
+    @Test
+    func aPurchaseThatNeverReachedAppleLeavesNoHold() async {
+        let harness = makeHarness(identityMatchesPurchase: false)
+        let execution = await harness.executor.executePurchaseWithContext(
+            productID: harness.productID
+        ) {
+            RevenueCatPurchaseExecutor.PurchaseResponse(userCancelled: false)
+        }
+
+        guard case .failed = execution.result else {
+            Issue.record("Expected a refusal before RevenueCat was called")
+            return
+        }
+        #expect(harness.manager.pendingPurchaseHold == nil)
+    }
+
+    @Test
+    func closingTheOfferWithoutBuyingLandsOnThePlanListOnlyWhenNothingIsHeld() async {
+        let harness = makeHarness()
+        harness.openHostedPresentation()
+        harness.closeFirstPaywallForOffer()
+        harness.openOffer()
+
+        harness.presenter.handleDismissForTesting(
+            revision: harness.presenterRevision,
+            result: .declined
+        )
+
+        #expect(harness.coordinator.phase == .loadingNative)
+        #expect(harness.coordinator.statusMessage == "No purchase was made. Choose a plan below.")
+    }
+
+    @Test
+    func theOfferNeverOpeningFallsBackRatherThanStrandingTheClimber() async {
+        let harness = makeHarness(watchdogFires: true)
+        harness.openHostedPresentation()
+
+        harness.closeFirstPaywallForOffer()
+
+        await waitUntil { harness.coordinator.phase != .openingHosted }
+        #expect(harness.coordinator.phase == .loadingNative || harness.coordinator.phase == .failed)
+        await waitUntil { harness.dismissal.count > 0 }
+    }
+
+    @Test
+    func deleteAccountOnTheOfferReachesTheAttemptOwner() async {
+        var deletionRequests = 0
+        let harness = makeHarness(onRequestAccountDeletion: { deletionRequests += 1 })
+        harness.openHostedPresentation()
+        harness.closeFirstPaywallForOffer()
+        harness.openOffer()
+
+        harness.presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.deleteAccount.rawValue)
+        await harness.presenter.drainPresentationOperationsForTesting()
+
+        #expect(harness.dismissal.count == 1)
+        #expect(deletionRequests == 1)
+    }
+
+    @Test
+    func aRestoreThatFindsNothingEndsAnAskToBuyHoldButNeverAChargeHold() async {
+        let cases: [(PendingPurchaseHold, PendingPurchaseHold?, AppAccessGatePhase)] = [
+            (.askToBuy, nil, .failed),
+            (.unconfirmedCharge, .unconfirmedCharge, .verificationUnavailable)
+        ]
+        for (hold, expectedHold, expectedPhase) in cases {
+            let harness = makeHarness()
+            harness.manager.holdPendingPurchase(hold)
+            let gate = harness.relaunchedCoordinator()
+            gate.start()
+
+            gate.restore()
+            await waitUntil { gate.restoreState != .restoring }
+
+            #expect(harness.manager.pendingPurchaseHold == expectedHold)
+            #expect(gate.phase == expectedPhase)
+        }
+    }
+
+    @Test
+    func accessArrivingEndsTheHoldAndAHoldCannotBeWrittenOverAccess() {
+        let entitlements = HostedEntitlementService(
+            identity: MonetizationIdentityTransition(revision: 1, userID: "hosted-user")
+        )
+        let telemetry = makeTestTelemetry(sink: InMemoryTelemetrySink(destination: .analytics))
+        let manager = MonetizationManager(
+            configuration: HostedHarness.configuration,
+            entitlementService: entitlements,
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: telemetry,
+            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry),
+            userDefaults: UserDefaults(
+                suiteName: "HostedPurchaseRecoveryIntegrationTests-\(UUID().uuidString)"
+            )!
+        )
+        manager.configure(configuration: HostedHarness.configuration)
+        manager.holdPendingPurchase(.askToBuy)
+        #expect(manager.pendingPurchaseHold == .askToBuy)
+
+        entitlements.publish(.active(["app_access"]))
+        #expect(manager.pendingPurchaseHold == nil)
+
+        manager.holdPendingPurchase(.unconfirmedCharge)
+        #expect(manager.pendingPurchaseHold == nil)
+    }
+
+    private func makeHarness(
+        identityMatchesPurchase: Bool = true,
+        watchdogFires: Bool = false,
+        onRequestAccountDeletion: (@MainActor () -> Void)? = nil
+    ) -> HostedHarness {
         let identity = MonetizationIdentityTransition(revision: 41, userID: "hosted-user")
         let contextStore = PaywallTransactionContextStore()
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
         telemetry.setUserId("hosted-user")
+        let router = HostedRecoveryRouterBox()
         let executor = RevenueCatPurchaseExecutor(
             telemetry: telemetry,
             transactionContextStore: contextStore,
             entitlementID: "app_access",
             applySubscriptionStatus: { _ in },
             refreshEntitlementState: { .refreshed(.inactive) },
-            currentIdentityGeneration: { identity },
-            adoptEntitlementState: { _, candidate in candidate == identity }
+            currentIdentityGeneration: { identityMatchesPurchase ? identity : nil },
+            adoptEntitlementState: { _, candidate in candidate == identity },
+            holdPendingPurchase: { router.manager?.holdPendingPurchase($0) }
         )
-        let router = HostedRecoveryRouterBox()
         let controller = RevenueCatPurchaseController(
             executor: executor,
             isPurchasesConfigured: { false },
             recoveryRouter: router.route
         )
         let dismissal = ImmediatePresenterDismissal()
+        let registrations = RegisteredPlacements()
         let presenter = SuperwallPaywallPresenter(
             purchaseController: controller,
+            telemetry: telemetry,
+            transactionContextStore: contextStore,
             startsConfigured: true,
-            registerPlacement: { _, _, _ in },
+            registerPlacement: { placement, _, _ in registrations.record(placement) },
             dismissPresentation: dismissal.dismiss
         )
         router.presenter = presenter
@@ -350,28 +602,46 @@ struct HostedPurchaseRecoveryIntegrationTests {
             entitlementService: entitlements,
             paywallPresenter: presenter,
             telemetry: telemetry,
+            onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry),
             userDefaults: UserDefaults(
                 suiteName: "HostedPurchaseRecoveryIntegrationTests-\(UUID().uuidString)"
             )!
         )
-        let coordinator = AppAccessPaywallCoordinator(
-            monetizationManager: manager,
-            nativeProvider: HostedNativeProvider(),
-            telemetry: telemetry,
-            sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
-        )
+        router.manager = manager
+        let makeCoordinator: @MainActor () -> AppAccessPaywallCoordinator = {
+            AppAccessPaywallCoordinator(
+                monetizationManager: manager,
+                nativeProvider: HostedNativeProvider(),
+                restoreService: AppAccessRestoreService(
+                    telemetry: telemetry,
+                    entitlementID: "app_access",
+                    restorer: { manager }
+                ),
+                telemetry: telemetry,
+                onRequestAccountDeletion: onRequestAccountDeletion,
+                sleep: { @Sendable _ in
+                    guard !watchdogFires else { return }
+                    try await Task.sleep(for: .seconds(3_600))
+                },
+                nativeLoadSleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
+            )
+        }
         let presentationID = "presentation-123"
         return HostedHarness(
             identity: identity,
             presentationID: presentationID,
             productID: "ascend_staging_yearly",
-            coordinator: coordinator,
+            coordinator: makeCoordinator(),
+            makeCoordinator: makeCoordinator,
+            manager: manager,
+            entitlements: entitlements,
             presenter: presenter,
             controller: controller,
             executor: executor,
             contextStore: contextStore,
             dismissal: dismissal,
-            sink: sink
+            sink: sink,
+            registrationRecorder: registrations
         )
     }
 }
@@ -400,29 +670,60 @@ private final class HostedHarness {
     private(set) var presenterRevision: UInt = 0
     let productID: String
     let coordinator: AppAccessPaywallCoordinator
+    private let makeCoordinator: @MainActor () -> AppAccessPaywallCoordinator
+    let manager: MonetizationManager
+    let entitlements: HostedEntitlementService
     let presenter: SuperwallPaywallPresenter
     let controller: RevenueCatPurchaseController
     let executor: RevenueCatPurchaseExecutor
     let contextStore: PaywallTransactionContextStore
     let dismissal: ImmediatePresenterDismissal
     let sink: InMemoryTelemetrySink
+    private let registrationRecorder: RegisteredPlacements
+
+    let firstPaywallContext: PaywallAnalyticsContext
+    let offerContext = PaywallAnalyticsContext(
+        placement: "paywall_decline",
+        paywallIdentifier: "offer-paywall",
+        paywallName: "Decline Offer",
+        presentedBy: "placement",
+        isFreeTrialAvailable: true,
+        presentationID: "offer-presentation",
+        dismissReason: "manualClose"
+    )
 
     init(
         identity: MonetizationIdentityTransition,
         presentationID: String,
         productID: String,
         coordinator: AppAccessPaywallCoordinator,
+        makeCoordinator: @escaping @MainActor () -> AppAccessPaywallCoordinator,
+        manager: MonetizationManager,
+        entitlements: HostedEntitlementService,
         presenter: SuperwallPaywallPresenter,
         controller: RevenueCatPurchaseController,
         executor: RevenueCatPurchaseExecutor,
         contextStore: PaywallTransactionContextStore,
         dismissal: ImmediatePresenterDismissal,
-        sink: InMemoryTelemetrySink
+        sink: InMemoryTelemetrySink,
+        registrationRecorder: RegisteredPlacements
     ) {
         self.identity = identity
         self.presentationID = presentationID
         self.productID = productID
         self.coordinator = coordinator
+        self.makeCoordinator = makeCoordinator
+        self.manager = manager
+        self.entitlements = entitlements
+        self.registrationRecorder = registrationRecorder
+        firstPaywallContext = PaywallAnalyticsContext(
+            placement: SuperwallPlacement.appAccessGate.rawValue,
+            paywallIdentifier: "gate-paywall",
+            paywallName: "Gate",
+            presentedBy: "placement",
+            isFreeTrialAvailable: true,
+            presentationID: presentationID
+        )
         self.presenter = presenter
         self.controller = controller
         self.executor = executor
@@ -450,11 +751,42 @@ private final class HostedHarness {
         ))
         #expect(coordinator.phase == .hostedPresented)
     }
+
+    /// What SuperwallKit does once a `paywall_decline` campaign matches: the first paywall reports a
+    /// declined dismissal with `forNextPaywall`, and the next one presents through the same handler.
+    func closeFirstPaywallForOffer() {
+        presenter.handleDismissForTesting(
+            revision: presenterRevision,
+            result: .declined,
+            closeReason: .forNextPaywall
+        )
+    }
+
+    func openOffer() {
+        #expect(presenter.handlePresentationFromHandler(
+            revision: presenterRevision,
+            context: offerContext
+        ))
+        coordinator.handleHostedOutcomeForTesting(.presented)
+    }
+
+    func relaunchedCoordinator() -> AppAccessPaywallCoordinator {
+        makeCoordinator()
+    }
+
+    var registrations: [String] { registrationRecorder.placements }
+}
+
+@MainActor
+private final class RegisteredPlacements {
+    private(set) var placements: [String] = []
+    func record(_ placement: String) { placements.append(placement) }
 }
 
 @MainActor
 private final class HostedRecoveryRouterBox {
     weak var presenter: SuperwallPaywallPresenter?
+    weak var manager: MonetizationManager?
 
     func route(
         recovery: HostedPurchaseRecovery,
@@ -529,8 +861,19 @@ private final class HostedEntitlementService: EntitlementServicing {
     var identityGeneration: MonetizationIdentityTransition?
     var isConfigured = true
 
+    private var observer: (@MainActor (MonetizationEntitlementState) -> Void)?
+
     init(identity: MonetizationIdentityTransition) { identityGeneration = identity }
     func configure(configuration: MonetizationConfiguration) {}
+    func setEntitlementStateObserver(
+        _ observer: (@MainActor (MonetizationEntitlementState) -> Void)?
+    ) {
+        self.observer = observer
+    }
+    func publish(_ state: MonetizationEntitlementState) {
+        entitlementState = state
+        observer?(state)
+    }
     func refreshCustomerInfo(waitsForPendingIdentity: Bool) async -> MonetizationEntitlementRefresh {
         .refreshed(entitlementState)
     }
@@ -554,4 +897,12 @@ private final class HostedEntitlementService: EntitlementServicing {
 private final class HostedNativeProvider: NativePaywallPlanProviding {
     func loadPlans() async throws -> [NativePaywallPlan] { [] }
     func purchase(planID: String) async -> PurchaseResult { .cancelled }
+}
+
+@MainActor
+private func waitUntil(_ condition: @MainActor () -> Bool) async {
+    for _ in 0..<500 where !condition() {
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(condition())
 }

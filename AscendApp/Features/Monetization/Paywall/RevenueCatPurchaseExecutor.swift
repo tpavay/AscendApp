@@ -39,6 +39,7 @@ final class RevenueCatPurchaseExecutor {
         MonetizationEntitlementState,
         MonetizationIdentityTransition
     ) -> Bool
+    private let holdPendingPurchase: @MainActor (PendingPurchaseHold) -> Void
 
     init(
         telemetry: TelemetryManager = .shared,
@@ -52,7 +53,8 @@ final class RevenueCatPurchaseExecutor {
         adoptEntitlementState: @escaping @MainActor (
             MonetizationEntitlementState,
             MonetizationIdentityTransition
-        ) -> Bool = { _, _ in false }
+        ) -> Bool = { _, _ in false },
+        holdPendingPurchase: @escaping @MainActor (PendingPurchaseHold) -> Void = { _ in }
     ) {
         self.telemetry = telemetry
         self.transactionContextStore = transactionContextStore
@@ -61,6 +63,7 @@ final class RevenueCatPurchaseExecutor {
         self.refreshEntitlementState = refreshEntitlementState
         self.currentIdentityGeneration = currentIdentityGeneration
         self.adoptEntitlementState = adoptEntitlementState
+        self.holdPendingPurchase = holdPendingPurchase
     }
 
     func executePurchase(
@@ -115,6 +118,15 @@ final class RevenueCatPurchaseExecutor {
             )
         }
 
+        /// Apple has taken this purchase, so a verdict that cannot confirm it has to outlive this
+        /// presentation. A purchase the account switched away from is not the current account's.
+        func finishChargedPurchase(_ result: PurchaseResult) -> Execution {
+            if case .failed = result, currentIdentityGeneration() == purchaseIdentity {
+                holdPendingPurchase(.unconfirmedCharge)
+            }
+            return finish(result)
+        }
+
         do {
             let response = try await operation()
 
@@ -131,7 +143,7 @@ final class RevenueCatPurchaseExecutor {
 
             guard currentIdentityGeneration() == purchaseIdentity,
                   adoptEntitlementState(response.entitlementState, purchaseIdentity) else {
-                return finish(failVerifiedPurchase(
+                return finishChargedPurchase(failVerifiedPurchase(
                     productID: productID,
                     errorType: .entitlementUnresolved,
                     context: context,
@@ -140,7 +152,7 @@ final class RevenueCatPurchaseExecutor {
             }
 
             if response.entitlementState.hasActiveEntitlement(entitlementID) {
-                return finish(verdict(
+                return finishChargedPurchase(verdict(
                     forRefreshedState: response.entitlementState,
                     productID: productID,
                     context: context,
@@ -161,7 +173,7 @@ final class RevenueCatPurchaseExecutor {
                         purchaseIdentity: purchaseIdentity
                     ))
                 }
-                return finish(
+                return finishChargedPurchase(
                     verdict(
                         forRefreshedState: state,
                         productID: productID,
@@ -170,7 +182,7 @@ final class RevenueCatPurchaseExecutor {
                     )
                 )
             case .unavailable(let failure):
-                return finish(failVerifiedPurchase(
+                return finishChargedPurchase(failVerifiedPurchase(
                     productID: productID,
                     errorType: RevenueCatAnalyticsErrorType(refreshFailure: failure),
                     context: context,
@@ -196,6 +208,9 @@ final class RevenueCatPurchaseExecutor {
                     ),
                     for: purchaseIdentity
                 )
+                if currentIdentityGeneration() == purchaseIdentity {
+                    holdPendingPurchase(.askToBuy)
+                }
                 return finish(.pending)
             case .failed(let errorType):
                 track(

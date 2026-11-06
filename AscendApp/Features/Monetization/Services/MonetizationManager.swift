@@ -14,6 +14,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private let appAccessReconciler: any AppAccessReconciling
     private let telemetry: TelemetryManager
     private let userDefaults: UserDefaults
+    private let pendingPurchaseHoldStore: PendingPurchaseHoldStore
     private let verdictBudget: MonetizationVerdictBudget
     private let unattributedGrantSettleDelay: Duration
     private let unattributedGrantSleep: @Sendable (Duration) async throws -> Void
@@ -127,6 +128,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         self.telemetry = telemetry
         self.onboardingLifecycle = onboardingLifecycle
         self.userDefaults = userDefaults
+        pendingPurchaseHoldStore = PendingPurchaseHoldStore(userDefaults: userDefaults)
         self.verdictBudget = verdictBudget
         #if DEBUG
         debugForcesAppAccessPaywall = userDefaults.bool(
@@ -146,6 +148,9 @@ final class MonetizationManager: MonetizationIdentityManaging {
                 entitlementIDs = []
             }
             self.paywallPresenter.updateSubscriptionStatus(entitlementIDs: entitlementIDs)
+            if state.hasActiveEntitlement(self.configuration.revenueCatEntitlementID) {
+                self.releasePendingPurchaseHold()
+            }
             self.settleUnattributedAccessGrantIfNeeded(for: state)
         }
         entitlementService.configure(configuration: configuration)
@@ -346,17 +351,34 @@ final class MonetizationManager: MonetizationIdentityManaging {
         return true
     }
 
-    /// The one Superwall user attribute Ascend sets: which onboarding led the climber to the paywall
-    /// (`v3`), or none at all. A campaign audience can then treat that climber differently without a
-    /// build. A version label names no one, and nothing about the climber's access history is sent.
-    nonisolated static let onboardingFlowVersionAttribute = "onboarding_flow_version"
+    /// Which onboarding led the climber to the gate.
+    var onboardingFlowVersion: String {
+        onboardingLifecycle.activeFlowVersion
+    }
+
+    var pendingPurchaseHold: PendingPurchaseHold? {
+        pendingPurchaseHoldStore.hold()
+    }
+
+    /// Access that has already landed leaves nothing to wait for, so a verdict that loses the race
+    /// with the customer-info stream cannot lock this account's next lapse.
+    func holdPendingPurchase(_ hold: PendingPurchaseHold) {
+        guard !entitlementState.hasActiveEntitlement(configuration.revenueCatEntitlementID) else {
+            return
+        }
+        pendingPurchaseHoldStore.mark(hold)
+    }
+
+    func releasePendingPurchaseHold() {
+        pendingPurchaseHoldStore.clear()
+    }
 
     func presentPaywall(
         _ placement: SuperwallPlacement,
         params: [String: Any]? = nil,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void = { _ in }
     ) {
-        let tracksOnboardingAccess = placement == .onboardingPaywall || placement == .appAccessGate
+        let tracksOnboardingAccess = placement == .appAccessGate
         guard let presentationIdentity = identityGeneration else {
             if tracksOnboardingAccess {
                 recordOnboardingAccessGrantRequestReportedNothing()
@@ -378,12 +400,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
         paywallAttemptRevision &+= 1
         let attemptRevision = paywallAttemptRevision
         activePaywallAttempt = (attemptRevision, presentationIdentity)
-
-        if tracksOnboardingAccess {
-            paywallPresenter.setUserAttributes([
-                Self.onboardingFlowVersionAttribute: onboardingLifecycle.activePassFlowVersion
-            ])
-        }
 
         guard paywallPresenter.isConfigured else {
             if tracksOnboardingAccess {
@@ -455,11 +471,11 @@ final class MonetizationManager: MonetizationIdentityManaging {
             ifIdentifiedAs: userID
         )
 
-        guard placement == .onboardingPaywall || placement == .appAccessGate else { return }
+        guard placement == .appAccessGate else { return }
 
         // The gate is where every flow hands a climber without access, so it reports under the pass
         // that led there.
-        let context = OnboardingAnalyticsContext.paywallHandOff(flowVersion: onboardingLifecycle.activeFlowVersion)
+        let context = OnboardingAnalyticsContext.paywallHandOff(flowVersion: onboardingFlowVersion)
         telemetry.track(
             OnboardingAnalyticsEvent.paywallReached(
                 placement: placement.rawValue,
@@ -540,7 +556,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
             // request without naming how access was given, so a later webhook-delayed purchase
             // still attributes.
             recordOnboardingAccessGrantRequestReportedNothing()
-        case .presented, .pendingApproval, .verificationUnavailable:
+        case .presented, .followOnPaywallOpening, .pendingApproval, .verificationUnavailable:
             // Presentation and recoverable transaction states are not access-grant results.
             // The entitlement stream remains authoritative and may still grant access later.
             break

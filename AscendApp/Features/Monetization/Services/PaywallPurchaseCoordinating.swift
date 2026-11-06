@@ -9,6 +9,8 @@ import Foundation
 protocol PaywallPurchaseCoordinating: PurchaseRestoring {
     var identityGeneration: MonetizationIdentityTransition? { get }
 
+    func holdPendingPurchase(_ hold: PendingPurchaseHold)
+
     @discardableResult
     func adoptPurchaseEntitlementState(
         _ state: MonetizationEntitlementState,
@@ -29,6 +31,8 @@ protocol PaywallPurchaseCoordinating: PurchaseRestoring {
 extension MonetizationManager: PaywallPurchaseCoordinating { }
 
 extension PaywallPurchaseCoordinating {
+    func holdPendingPurchase(_ hold: PendingPurchaseHold) { }
+
     var identityGeneration: MonetizationIdentityTransition? { nil }
 
     func adoptPurchaseEntitlementState(

@@ -1,4 +1,5 @@
 import Foundation
+import SuperwallKit
 import Testing
 @testable import AscendApp
 
@@ -10,6 +11,7 @@ import Testing
 struct OnboardingGateHandOffTests {
     private struct Fixture {
         let sink: InMemoryTelemetrySink
+        let telemetry: TelemetryManager
         let lifecycle: OnboardingFlowAnalyticsCoordinator
         let presenter: PaywallPresenterSpy
         let manager: MonetizationManager
@@ -41,9 +43,16 @@ struct OnboardingGateHandOffTests {
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: presenter,
             telemetry: telemetry,
-            onboardingLifecycle: lifecycle
+            onboardingLifecycle: lifecycle,
+            userDefaults: defaults
         )
-        return Fixture(sink: sink, lifecycle: lifecycle, presenter: presenter, manager: manager)
+        return Fixture(
+            sink: sink,
+            telemetry: telemetry,
+            lifecycle: lifecycle,
+            presenter: presenter,
+            manager: manager
+        )
     }
 
     @Test
@@ -101,27 +110,133 @@ struct OnboardingGateHandOffTests {
 
         let reached = f.sink.records.first { $0.name == "onboarding_paywall_reached" }
         #expect(reached?.parameters["flow_version"] == .string("v1"))
-        #expect(f.presenter.userAttributeWrites.last == [MonetizationManager.onboardingFlowVersionAttribute: nil])
     }
 
     @Test
-    func theGateTellsSuperwallWhichOnboardingLedThereAndNothingElse() {
+    func theGateAsksSuperwallForOnePlacementOnly() {
         let f = fixture(passFlowVersion: "v3")
 
         f.manager.presentPaywall(.appAccessGate, params: ["source": "app_access_gate"])
 
-        #expect(MonetizationManager.onboardingFlowVersionAttribute == "onboarding_flow_version")
-        #expect(f.presenter.userAttributeWrites == [["onboarding_flow_version": "v3"]])
-        #expect(f.presenter.registeredPlacement == .appAccessGate)
-        #expect(f.presenter.registrations == [.appAccessGate], "the app asks for one placement only")
+        #expect(f.presenter.registrations == [.appAccessGate])
     }
 
     @Test
-    func aPlacementThatIsNotTheGateSetsNoAttribute() {
+    func backDuringAV3PassIsAPlainCloseThatNeverReopensALegacyStage() async {
         let f = fixture(passFlowVersion: "v3")
+        var reopenCount = 0
+        let provider = HandOffNativeProvider()
+        let coordinator = AppAccessPaywallCoordinator(
+            monetizationManager: f.manager,
+            nativeProvider: provider,
+            telemetry: f.telemetry,
+            onRequestOnboardingBack: {
+                reopenCount += 1
+                return true
+            },
+            sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
+        )
 
-        f.manager.presentPaywall(.appLaunchHardGate)
+        coordinator.start()
+        coordinator.handleHostedOutcomeForTesting(.presented)
+        coordinator.handleHostedOutcomeForTesting(.backRequested)
 
-        #expect(f.presenter.userAttributeWrites.isEmpty)
+        #expect(reopenCount == 0)
+        #expect(coordinator.phase == .loadingNative)
+        await provider.waitUntilLoaded()
+        await waitUntil { coordinator.phase == .nativeReady }
+        #expect(coordinator.statusMessage?.isEmpty == false)
+
+        let back = f.sink.records.filter { $0.name == "onboarding_back_tapped" }
+        #expect(back.count == 1)
+        #expect(back.first?.parameters["flow_version"] == .string("v3"))
+        #expect(back.first?.parameters["step_index"] == .int(15))
+        #expect(back.first?.parameters["step_count"] == .int(15))
     }
+
+    @Test
+    func backInALegacyPassStillReopensTheStageBehindTheGate() {
+        let f = fixture(passFlowVersion: "v1")
+        var reopenCount = 0
+        let coordinator = AppAccessPaywallCoordinator(
+            monetizationManager: f.manager,
+            nativeProvider: HandOffNativeProvider(),
+            telemetry: f.telemetry,
+            onRequestOnboardingBack: {
+                reopenCount += 1
+                return true
+            },
+            sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
+        )
+
+        coordinator.start()
+        coordinator.handleHostedOutcomeForTesting(.presented)
+        coordinator.handleHostedOutcomeForTesting(.backRequested)
+
+        #expect(reopenCount == 1)
+        let back = f.sink.records.first { $0.name == "onboarding_back_tapped" }
+        #expect(back?.parameters["flow_version"] == .string("v1"))
+        #expect(back?.parameters["step_index"] == .int(20))
+    }
+
+    @Test
+    func backThatOpensADeclineOfferReportsUnderTheV3PassAndReopensNothing() {
+        let f = fixture(passFlowVersion: "v3")
+        var reopenCount = 0
+        let coordinator = AppAccessPaywallCoordinator(
+            monetizationManager: f.manager,
+            nativeProvider: HandOffNativeProvider(),
+            telemetry: f.telemetry,
+            onRequestOnboardingBack: {
+                reopenCount += 1
+                return true
+            },
+            sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
+        )
+
+        coordinator.start()
+        coordinator.handleHostedOutcomeForTesting(.presented)
+        coordinator.handleHostedOutcomeForTesting(.followOnPaywallOpening(backTapped: true))
+
+        #expect(reopenCount == 0)
+        #expect(coordinator.phase == .openingHosted)
+        let back = f.sink.records.first { $0.name == "onboarding_back_tapped" }
+        #expect(back?.parameters["flow_version"] == .string("v3"))
+    }
+}
+
+@MainActor
+private final class HandOffNativeProvider: NativePaywallPlanProviding {
+    private var loaded = false
+    private var observers: [CheckedContinuation<Void, Never>] = []
+
+    func loadPlans() async throws -> [NativePaywallPlan] {
+        loaded = true
+        observers.forEach { $0.resume() }
+        observers = []
+        return [
+            NativePaywallPlan(
+                id: "ascend_yearly",
+                title: "Yearly",
+                localizedPrice: "$29.99",
+                billingDescription: "per year",
+                trialDescription: nil
+            )
+        ]
+    }
+
+    func purchase(planID: String) async -> PurchaseResult { .cancelled }
+
+    func waitUntilLoaded() async {
+        if loaded { return }
+        await withCheckedContinuation { observers.append($0) }
+    }
+}
+
+@MainActor
+private func waitUntil(_ condition: @MainActor () -> Bool) async {
+    for _ in 0..<500 where !condition() {
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(condition())
 }

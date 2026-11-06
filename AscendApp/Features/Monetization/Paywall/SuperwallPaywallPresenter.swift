@@ -142,11 +142,6 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         )
     }
 
-    func setUserAttributes(_ attributes: [String: Any?]) {
-        guard isConfigured else { return }
-        Superwall.shared.setUserAttributes(attributes)
-    }
-
     func identify(userId: String) {
         guard isConfigured else { return }
         Superwall.shared.identify(userId: userId)
@@ -241,10 +236,11 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             onOutcome(.presented)
         }
 
-        handler.onDismiss { _, result in
+        handler.onDismiss { paywallInfo, result in
             self.handleDismiss(
                 revision: revision,
                 result: result,
+                closeReason: paywallInfo.closeReason,
                 onOutcome: onOutcome
             )
         }
@@ -292,7 +288,8 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     @discardableResult
     func handlePresentationBegan(
         revision: UInt,
-        presentationID: String? = nil
+        presentationID: String? = nil,
+        placement: String? = nil
     ) -> Bool {
         switch attemptRegistry.authority(of: revision) {
         case .stale:
@@ -316,7 +313,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             presentedToken = PresentedToken(
                 revision: revision,
                 presentationID: presentationID,
-                placement: registration.placement,
+                placement: placement ?? registration.placement,
                 identity: identity,
                 gateAttemptID: registration.gateAttemptID,
                 onOutcome: registration.onOutcome,
@@ -334,7 +331,8 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     ) -> Bool {
         guard handlePresentationBegan(
             revision: revision,
-            presentationID: context.presentationID
+            presentationID: context.presentationID,
+            placement: context.placement
         ) else {
             return false
         }
@@ -373,11 +371,16 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         await enqueuePresentationOperation {}.value
     }
 
-    func handleDismissForTesting(revision: UInt, result: PaywallResult) {
+    func handleDismissForTesting(
+        revision: UInt,
+        result: PaywallResult,
+        closeReason: PaywallCloseReason = .manualClose
+    ) {
         guard let registration = registrations[revision] else { return }
         handleDismiss(
             revision: revision,
             result: result,
+            closeReason: closeReason,
             onOutcome: registration.onOutcome
         )
     }
@@ -402,6 +405,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     private func handleDismiss(
         revision: UInt,
         result: PaywallResult,
+        closeReason: PaywallCloseReason,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
     ) {
         guard attemptRegistry.isAuthoritative(revision) else { return }
@@ -409,6 +413,19 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
            presentedToken?.recoveryOwned == true {
             presentedToken = nil
             registrations[revision] = nil
+            return
+        }
+        if closeReason == .forNextPaywall {
+            // SuperwallKit presents a paywall its dashboard chains onto this one (a decline offer)
+            // through this same state publisher, so this handler goes on to report it. The
+            // registration stays, and the next `onPresent` makes that paywall this attempt's own.
+            let latchedActionName = presentedToken?.revision == revision
+                ? presentedToken?.latchedActionName
+                : nil
+            presentedToken = nil
+            onOutcome(.followOnPaywallOpening(
+                backTapped: PaywallDismissIntent.resolve(latchedActionName: latchedActionName) == .back
+            ))
             return
         }
         switch result {

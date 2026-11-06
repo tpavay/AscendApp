@@ -42,6 +42,9 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
             },
             adoptEntitlementState: { state, identity in
                 coordinator().adoptPurchaseEntitlementState(state, for: identity)
+            },
+            holdPendingPurchase: { hold in
+                coordinator().holdPendingPurchase(hold)
             }
         )
     }

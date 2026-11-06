@@ -153,6 +153,7 @@ struct RootView: View {
             if previousUid != nil, currentUid == nil {
                 LocalReminderCoordinator.shared.sessionEnded()
                 onboardingV3Coordinator.sessionEnded()
+                monetizationManager.releasePendingPurchaseHold()
             }
             // The sheet belongs to the session that opened it, or it re-presents itself unprompted
             // over the next climber's gate. But deletion ends the session at the auth step, several

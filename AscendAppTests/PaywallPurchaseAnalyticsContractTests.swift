@@ -39,7 +39,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_completed")
         #expect(records[0].parameters["product_id"] == TelemetryValue.string(Self.productID))
-        #expect(records[0].parameters["placement"] == TelemetryValue.string("onboarding_paywall"))
+        #expect(records[0].parameters["placement"] == TelemetryValue.string("app_access_gate"))
         #expect(records[0].parameters["presentation_id"] == TelemetryValue.string("presentation-1"))
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("success"))
         #expect(records[1].parameters["entitlement_id"] == TelemetryValue.string(Self.entitlementID))
@@ -339,7 +339,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
         #expect(records[0].parameters["error_type"] == TelemetryValue.string("missing_store_product"))
-        #expect(records[0].parameters["placement"] == .string("onboarding_paywall"))
+        #expect(records[0].parameters["placement"] == .string("app_access_gate"))
         #expect(records[0].parameters["presentation_id"] == .string("presentation-1"))
     }
 
@@ -373,7 +373,6 @@ struct PaywallPurchaseAnalyticsContractTests {
     /// placement at all reports `unknown`.
     @Test
     func everyRealPlacementSurvivesAndOnlyAnAbsentOneReadsUnknown() async {
-        #expect(RevenueCatPurchasePlacement(SuperwallPlacement.onboardingPaywall.rawValue).analyticsValue == "onboarding_paywall")
         #expect(RevenueCatPurchasePlacement(SuperwallPlacement.appLaunchHardGate.rawValue).analyticsValue == "app_launch_hard_gate")
         #expect(RevenueCatPurchasePlacement(SuperwallPlacement.appAccessGate.rawValue).analyticsValue == "app_access_gate")
         #expect(RevenueCatPurchasePlacement("winback_campaign_q3").analyticsValue == "winback_campaign_q3")
@@ -1101,7 +1100,7 @@ private extension PaywallPurchaseAnalyticsContractTests {
 
     static func recordPaywallContext(
         in contextStore: PaywallTransactionContextStore,
-        placement: String = SuperwallPlacement.onboardingPaywall.rawValue,
+        placement: String = SuperwallPlacement.appAccessGate.rawValue,
         presentationID: String? = "presentation-1"
     ) {
         contextStore.record(
@@ -1120,7 +1119,7 @@ private extension PaywallPurchaseAnalyticsContractTests {
         sourceLocation: SourceLocation = #_sourceLocation
     ) {
         #expect(
-            record.parameters["placement"] == .string("onboarding_paywall"),
+            record.parameters["placement"] == .string("app_access_gate"),
             sourceLocation: sourceLocation
         )
         #expect(

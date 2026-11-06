@@ -17,12 +17,6 @@ Event parameters are not scanned, which is why they are inventoried here.
 | Other Data Types | `profile_gender`, `profile_age_group` (band, never the birth date), `notifications_choice`, `first_climb_id`, `first_climb_tier`, `first_climb_steps` |
 | Product Interaction | `profile_location_set`, `onboarding_complete`, `division_inputted`, `age_inputted`, `body_metrics_inputted`, `location_inputted`, `notifications_inputted`, `first_climb_selected` |
 
-## Superwall user attributes
-
-| Data type | Attributes | Call site |
-| --- | --- | --- |
-| Product Interaction | `onboarding_flow_version` | `MonetizationManager.presentPaywall` for the `app_access_gate` and `onboarding_paywall` placements, through `PaywallPresenting.setUserAttributes`. The label of the onboarding that led the climber to the paywall (`v1` or `v3`), removed when no onboarding pass is running, so a Superwall audience can be tuned without a build. A version label names no one, and no access history, price or identity is sent |
-
 ## Event parameters
 
 | Data type | Parameters | Call sites |
@@ -48,6 +42,7 @@ Event parameters are not scanned, which is why they are inventoried here.
 - `selected_value` on `leaderboard_filter_changed` is **Health** when `filter_type` is `body_weight`, **Other Data Types** when it is `age_group`, and **Coarse Location** when it is `location`.
 - `answer_id` and `answer_count` on `onboarding_question_answered` are **Fitness** for the `stair_stepper_baseline`, `exercise_level`, `goal`, `motivation`, and `plan` questions, and **Other Data Types** for the `notifications` and `first_climb` questions.
 - `outcome` is **Fitness** on `live_climb_attempt_saved`, and **Purchase History** on every `revenuecat_purchase_*` and `revenuecat_restore_*` terminal event.
+- `source` is **Purchase History** on every `paywall_*` event built by `PaywallAnalyticsEvent`, where it is `access_gate` for a paywall Ascend registered and `decline_offer` for one the Superwall dashboard chained onto it, and it is the raw call-site label on `paywall_reached` and `onboarding_paywall_reached`.
 - `session_type` is **Fitness** on workout and routine events, and **Product Interaction** on `app_session_started`.
 - `entitlement_active` is **Purchase History**, and it is logged only where the entitlement answer was actually resolved: `revenuecat_purchase_completed`, `revenuecat_restore_completed`, and `revenuecat_restore_not_found`. `revenuecat_restore_failed` omits it deliberately - an unresolved restore is not evidence of a lapsed subscription.
 - `error_type` on every `revenuecat_purchase_failed`, `revenuecat_restore_failed` and `paywall_transaction_failed` is a **Purchase History** value drawn from the closed `RevenueCatAnalyticsErrorType` set. It is never raw error text, so it stays low-cardinality and carries no vendor or account detail.

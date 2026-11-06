@@ -113,22 +113,21 @@ The decline offer is Superwall's, with no Ascend code:
 - The app only ever registers `app_access_gate`.
   The offer is a second campaign triggered by Superwall's built-in `paywall_decline` event, showing the welcome product's paywall, and it is shown to everyone who closes the first paywall, including a lapsed subscriber.
   Whether it exists, what it costs and who it targets are dashboard settings.
-- The SDK dismisses the first paywall with `PaywallCloseReason.forNextPaywall` and presents the offer itself (`PaywallViewController.dismiss`).
-  The first registration's handler still receives that dismissal as `.declined`, which the gate reads as `dismissedWithoutPurchase`, so the gate has already begun its native fallback underneath while the offer is on screen.
-- This is read from the SuperwallKit source (`PaywallViewController.dismiss`, `PaywallCloseReason`, `PublicPresentation.register`) and held by the tests of the gate, not exercised against a live decline campaign: the campaign is the captain's to build, so confirm the hand-off on a device once it exists.
-- The offer is not registered with Ascend, so its presentation has no telemetry owner: `paywall_*` events and a recorded transaction context are not produced for it by the app.
-  Superwall's own paywall events, which already flow to Mixpanel, are the source for the paywall versus decline-offer split.
-  A purchase made in the offer is still made through `RevenueCatPurchaseController` and verified like any other; the entitlement arriving routes the app to Home.
-- Who is handled how when both paywalls are closed:
+- The SDK dismisses the first paywall with `PaywallCloseReason.forNextPaywall` and presents the offer itself, through the first registration's own state publisher (`Superwall.internallyHandleImplicitTrigger` reuses `lastPresentationItems.statePublisher`).
+  So the offer reports to the handler Ascend registered, and the presenter treats a `forNextPaywall` dismissal as `.followOnPaywallOpening`: nothing has ended, the registration stays, and the gate waits behind the opening watchdog rather than starting its native fallback.
+  This is generic: any paywall the dashboard chains onto a registered placement is owned the same way, with no gift-specific code.
+- Because the offer is owned by the same attempt, it behaves like the first paywall: `paywall_shown`, `paywall_transaction_*`, `paywall_restore_completed` and `paywall_dismissed` fire for it, carry its `paywall_name` and `paywall_identifier`, and say `placement=paywall_decline` and `source=decline_offer` where the first paywall says `placement=app_access_gate` and `source=access_gate`.
+  Those are Ascend's own `PaywallAnalyticsEvent` events; Superwall's events do not reach Mixpanel.
+  A `delete_account` control on the offer works as it does on the first paywall.
+- Ownership and SDK ordering are read from the SuperwallKit 4.17.0 source and held by the tests of the presenter and the gate, not exercised against a live decline campaign: the campaign is the captain's to build, so confirm the hand-off on a device once it exists.
+- A climber Apple has not finished charging can never be sold to twice.
+  An Ask to Buy or a charge RevenueCat cannot confirm, on either paywall or the native fallback, writes `PendingPurchaseHoldStore` where the purchase executes, and the gate then refuses to open a paywall or list plans - across a closed paywall and a relaunch - showing `Do not purchase again` with Check access, Restore, Manage and support.
+  Access arriving or signing out ends the hold.
+  A restore that finds nothing ends an Ask to Buy hold, because a declined request reads the same as an undecided one and must not stay locked; it never ends a hold on a charge.
+- When both paywalls are closed:
   the offer closes without a further offer (the SDK does not chain from `paywall_decline`), and the climber is left on the gate's native fallback - `No purchase was made. Choose a plan below.` - with the Yearly and Lifetime plans, Restore, Terms, Privacy, support, Sign out and Delete account.
-  If Superwall cannot load at all, the same fallback opens after the 8-second opening deadline (`Plans took too long to open. Choose a plan below.`).
+  If Superwall cannot load at all, the same fallback opens after the 8-second opening deadline (`Plans took too long to open. Choose a plan below.`), and the same deadline covers an offer that never opens.
   Nobody is stranded and nobody reaches the app without `app_access`.
-
-One Superwall user attribute is set, so an audience can be tuned in the dashboard without a build:
-
-- `onboarding_flow_version` (`v3`) while a climber's onboarding pass is still open, written when the gate presents and removed when no pass is running.
-  It names no one.
-  The app does not know whether a climber never held access or lapsed, so it sends no access history; the Superwall and RevenueCat dashboards hold that.
 
 The welcome product, `ascend_yearly_welcome` (`ascend_staging_yearly_welcome` in Debug and Staging, `ASCEND_REVENUECAT_WELCOME_PRODUCT_ID`):
 
@@ -234,7 +233,7 @@ Every environment that points at its own vendor projects needs the same logical 
 - Its own annual subscription and Lifetime non-consumable - `ascend_yearly` and `ascend_lifetime` in production, `ascend_staging_yearly` and `ascend_staging_lifetime` in staging - plus the monthly subscription while it stays on sale, and the welcome product once the decline offer is live there
 - RevenueCat entitlement `app_access`
 - RevenueCat current offering `default`
-- Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, so the `.onboardingPaywall` placement always takes its `onSkip` path in Staging even though the hard gate is live there
+- Superwall placement `app_access_gate`
 
 Staging and Release both require an active `app_access` entitlement and audit the launch catalog for their configured RevenueCat environment.
 Staging is therefore a real paywall QA surface for the hard gate, and a staging tester reaches the app by completing a sandbox purchase of `ascend_staging_yearly` or `ascend_staging_monthly` through campaign `99059`, of `ascend_staging_yearly` or `ascend_staging_lifetime` on the native fallback, or by restoring one.
@@ -279,8 +278,6 @@ These IDs identify the staging application audited on July 28, 2026, when its ke
 - Active campaign: `99059`, targeting `app_access_gate`
 - Active campaign paywall: `249435`, published, binding `ascend_staging_yearly` to `yearly` and `ascend_staging_monthly` to `monthly`
 - RevenueCat: entitlement `app_access` served through current offering `default`
-
-Staging has no `onboarding_paywall` campaign.
 
 Environment keys still determine which Superwall application each build reaches.
 Do not copy either set of IDs into another environment without first proving that it uses that application.
@@ -351,6 +348,7 @@ Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an
 ### Paywall chrome, the back control, and DELETE ACCOUNT
 
 The paywall carries one chrome control: a back arrow in the top-left that returns the climber to the last onboarding step.
+During a v3 onboarding pass there is no step behind the paywall, so the same arrow is a plain close: a decline offer fires if the dashboard has one, and the climber otherwise lands on the native fallback, never a v1 stage.
 It carries no close or X control at all.
 Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
 
@@ -424,8 +422,7 @@ Steps that name Monthly apply only to a paywall that still offers it:
 12. Confirm the only chrome control is the top-left back arrow, that it fires a `Custom action` named `back` ahead of its close action, and that no `CLOSE` node remains - see Paywall chrome, the back control, and DELETE ACCOUNT above.
 13. Confirm the footer's `DELETE ACCOUNT` control fires a `Custom action` named `delete_account` and that **no close action is chained after it** - Ascend dismisses the paywall itself for this control, and an editor close would race that dismissal.
 14. Wire the verified paywall to `app_access_gate`.
-15. Keep onboarding experiments on `onboarding_paywall`.
-16. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
+15. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
 
 ## Release Gate
 

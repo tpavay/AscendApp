@@ -435,7 +435,7 @@ private extension OnboardingAnalyticsFunnelTranscriptTests {
                 productID: "ascend_yearly",
                 entitlementID: "app_access",
                 context: RevenueCatPurchaseAnalyticsContext(
-                    placement: SuperwallPlacement.onboardingPaywall.rawValue,
+                    placement: SuperwallPlacement.appAccessGate.rawValue,
                     presentationID: "onboarding-transcript"
                 )
             )

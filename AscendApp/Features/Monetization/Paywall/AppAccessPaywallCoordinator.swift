@@ -221,6 +221,14 @@ final class AppAccessPaywallCoordinator {
             if case .restored = outcome {
                 self.phase = .accessConfirmed
                 self.statusMessage = "Access restored. Opening Ascend."
+            } else if case .notFound = outcome,
+                      self.monetizationManager.pendingPurchaseHold == .askToBuy {
+                // An undecided Ask to Buy and a declined one read the same, and a declined one must
+                // not stay locked. A charge RevenueCat has not attached looks like nothing found too,
+                // so that hold stays.
+                self.monetizationManager.releasePendingPurchaseHold()
+                self.phase = .failed
+                self.statusMessage = "Apple has no approved purchase for this account. Load plans again, restore, or contact support."
             }
         }
     }
@@ -322,6 +330,10 @@ final class AppAccessPaywallCoordinator {
     }
 
     private func presentHosted(source: String) {
+        if let hold = monetizationManager.pendingPurchaseHold {
+            showPurchaseHold(hold)
+            return
+        }
         guard let identity = monetizationManager.identityGeneration else {
             phase = .failed
             statusMessage = "Ascend is still confirming your account. Load plans again when the account check finishes."
@@ -342,6 +354,31 @@ final class AppAccessPaywallCoordinator {
         nativeLoadRevision &+= 1
         nativeLoadTask?.cancel()
         nativeLoadTask = nil
+        armOpeningWatchdog(presentationRevision: revision, presentationIdentity: identity)
+
+        monetizationManager.presentPaywall(
+            .appAccessGate,
+            params: [
+                "source": source,
+                "gate_attempt_id": presentationAttemptID as Any
+            ]
+        ) { [weak self] outcome in
+            guard let self, self.presentationRevision == revision,
+                  self.lastTerminalPresentationRevision != revision,
+                  self.monetizationManager.identityGeneration == identity else { return }
+            self.handleHostedOutcome(
+                outcome,
+                presentationRevision: revision,
+                presentationIdentity: identity
+            )
+        }
+    }
+
+    /// A paywall that never opens must not leave the climber behind a spinner with no controls.
+    private func armOpeningWatchdog(
+        presentationRevision revision: UInt,
+        presentationIdentity identity: MonetizationIdentityTransition
+    ) {
         phase = .openingHosted
         statusMessage = "Opening plans."
         watchdogTask?.cancel()
@@ -362,22 +399,16 @@ final class AppAccessPaywallCoordinator {
                 reason: .watchdogTimeout
             )
         }
+    }
 
-        monetizationManager.presentPaywall(
-            .appAccessGate,
-            params: [
-                "source": source,
-                "gate_attempt_id": presentationAttemptID as Any
-            ]
-        ) { [weak self] outcome in
-            guard let self, self.presentationRevision == revision,
-                  self.lastTerminalPresentationRevision != revision,
-                  self.monetizationManager.identityGeneration == identity else { return }
-            self.handleHostedOutcome(
-                outcome,
-                presentationRevision: revision,
-                presentationIdentity: identity
-            )
+    private func showPurchaseHold(_ hold: PendingPurchaseHold) {
+        switch hold {
+        case .askToBuy:
+            phase = .pendingApproval
+            statusMessage = "Apple is still waiting for approval or confirmation. Do not purchase again."
+        case .unconfirmedCharge:
+            phase = .verificationUnavailable
+            statusMessage = "Payment may still be processing. Do not purchase again while Ascend confirms access."
         }
     }
 
@@ -391,6 +422,14 @@ final class AppAccessPaywallCoordinator {
             watchdogTask?.cancel()
             phase = .hostedPresented
             statusMessage = nil
+        case .followOnPaywallOpening(let backTapped):
+            if backTapped {
+                recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
+            }
+            armOpeningWatchdog(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity
+            )
         case .purchased, .restored:
             watchdogTask?.cancel()
             recordGateTerminal(
@@ -416,14 +455,24 @@ final class AppAccessPaywallCoordinator {
             )
             self.presentationRevision &+= 1
             self.presentationIdentity = nil
-            phase = outcome == .pendingApproval ? .pendingApproval : .verificationUnavailable
-            statusMessage = outcome == .pendingApproval
-                ? "Apple is still waiting for approval or confirmation. Do not purchase again."
-                : "Payment may still be processing. Do not purchase again while Ascend confirms access."
+            showPurchaseHold(outcome == .pendingApproval ? .askToBuy : .unconfirmedCharge)
         case .backRequested:
+            watchdogTask?.cancel()
+            // A flow that ends at sign-in has no stage behind the gate, and the v1 stages are ones
+            // this climber never walked, so back is a plain close.
+            guard monetizationManager.onboardingFlowVersion
+                    == OnboardingAnalyticsContext.legacyFlowVersion else {
+                recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
+                beginNativeFallback(
+                    message: "No purchase was made. Choose a plan below.",
+                    presentationRevision: presentationRevision,
+                    presentationIdentity: presentationIdentity,
+                    reason: .hostedBackRequested
+                )
+                return
+            }
             // The climber asked for the onboarding step behind the paywall, not for a second one.
             // Deliberately never falls through to the native plan list.
-            watchdogTask?.cancel()
             recordGateTerminal(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
@@ -503,6 +552,20 @@ final class AppAccessPaywallCoordinator {
         presentationIdentity: MonetizationIdentityTransition,
         reason: AppAccessGateRecoveryReason
     ) {
+        // A paywall whose recovery could not reach this gate still lands here when it closes, so the
+        // plan list is refused at the door rather than at each way in.
+        if let hold = monetizationManager.pendingPurchaseHold {
+            recordGateTerminal(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                providerOutcome: hold == .askToBuy ? .pendingApproval : .verificationUnavailable,
+                recoveryPath: .hosted,
+                recoveryReason: reason,
+                entitlementActive: entitlementPresence
+            )
+            showPurchaseHold(hold)
+            return
+        }
         guard let identity = monetizationManager.identityGeneration else {
             phase = .failed
             statusMessage = "Ascend is still confirming your account. Try again when the account check finishes."
@@ -630,13 +693,11 @@ final class AppAccessPaywallCoordinator {
             phase = .nativeReady
             statusMessage = "No purchase was made. Choose a plan when you are ready."
         case .pending:
-            phase = .pendingApproval
-            statusMessage = "Apple is still waiting for approval or confirmation. Do not purchase again."
+            showPurchaseHold(.askToBuy)
         case .failed(let error):
             if let controllerError = error as? RevenueCatPurchaseControllerError,
                case .entitlementUnconfirmed = controllerError {
-                phase = .verificationUnavailable
-                statusMessage = "Payment may still be processing. Do not purchase again while Ascend confirms access."
+                showPurchaseHold(.unconfirmedCharge)
             } else {
                 phase = .nativeReady
                 statusMessage = "Checkout could not finish. Check your connection and try again."
@@ -692,7 +753,9 @@ final class AppAccessPaywallCoordinator {
         guard let userID = presentationIdentity.userID else { return }
         telemetry.track(
             OnboardingAnalyticsEvent.backTapped(
-                context: OnboardingAnalyticsEvent.paywallContext,
+                context: OnboardingAnalyticsContext.paywallHandOff(
+                    flowVersion: monetizationManager.onboardingFlowVersion
+                ),
                 inputType: "button"
             ),
             ifIdentifiedAs: userID
