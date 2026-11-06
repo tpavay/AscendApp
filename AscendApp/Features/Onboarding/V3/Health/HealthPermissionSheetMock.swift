@@ -15,6 +15,13 @@ struct HealthPermissionSheetMock: View {
     /// What the picture is called to VoiceOver, which cannot see the drawing.
     static let accessibilityDescription = "Preview of the Apple Health permission screen: tap Turn On All, then Allow"
 
+    /// How wide the phone's bezel is drawn. It sits above the sheet, so it hides anything under it.
+    static let bezelWidth: CGFloat = 6
+
+    /// How far a target's pulse spreads past its ring: exactly the room between a target inset 12
+    /// points and the bezel, so the pulse fades out as it reaches the bezel instead of sliding under it.
+    static let pulseSpread: CGFloat = 6
+
     private static let baseSize = CGSize(width: 230, height: 390)
 
     @OnboardingReduceMotion private var reduceMotion
@@ -47,7 +54,7 @@ struct HealthPermissionSheetMock: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: 38, style: .continuous)
-                .strokeBorder(Color(hex: "1E1E1E"), lineWidth: 6)
+                .strokeBorder(Color(hex: "1E1E1E"), lineWidth: Self.bezelWidth)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 38, style: .continuous)
@@ -103,7 +110,7 @@ struct HealthPermissionSheetMock: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
 
-            ringed(cornerRadius: 12) {
+            ringed {
                 Text("Turn On All")
                     .font(.system(size: 10))
                     .foregroundStyle(Color(hex: "0A84FF"))
@@ -112,7 +119,7 @@ struct HealthPermissionSheetMock: View {
                     .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
                     .background(Capsule().fill(Color(hex: "2C2C2E")))
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 12)
             .padding(.top, 10)
 
             Text("Allow \"Ascend\" to read")
@@ -149,7 +156,7 @@ struct HealthPermissionSheetMock: View {
 
             Spacer(minLength: 6)
 
-            ringed(cornerRadius: 12) {
+            ringed {
                 Text("Allow")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white)
@@ -174,13 +181,13 @@ struct HealthPermissionSheetMock: View {
     // MARK: - Pieces
 
     /// A target with an accent outline and a pulse spreading from it every 1.3 s.
-    private func ringed<Content: View>(cornerRadius: CGFloat, @ViewBuilder content: () -> Content) -> some View {
+    private func ringed<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                Capsule()
                     .strokeBorder(OnboardingV3Palette.accent, lineWidth: 1.5)
             )
-            .background(PulseRing(cornerRadius: cornerRadius, isStill: reduceMotion))
+            .background(PulseRing(isStill: reduceMotion))
     }
 
     private func numberBadge(_ number: String) -> some View {
@@ -193,18 +200,16 @@ struct HealthPermissionSheetMock: View {
     }
 }
 
-/// The ring's spreading pulse: the outline grows nine points outward and fades out, over 1.3 s, on
-/// repeat. Reduce Motion draws nothing.
+/// The ring's spreading pulse: the outline grows outward and fades out, over 1.3 s, on repeat. Reduce Motion draws nothing.
 private struct PulseRing: View {
-    let cornerRadius: CGFloat
     let isStill: Bool
 
     @State private var isSpreading = false
 
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        Capsule()
             .strokeBorder(OnboardingV3Palette.accent.opacity(0.85), lineWidth: 2)
-            .padding(isSpreading ? -9 : 0)
+            .padding(isSpreading ? -HealthPermissionSheetMock.pulseSpread : 0)
             .opacity(isStill ? 0 : isSpreading ? 0 : 0.85)
             .onAppear {
                 guard !isStill else { return }

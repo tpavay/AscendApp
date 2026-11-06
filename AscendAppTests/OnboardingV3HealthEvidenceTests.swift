@@ -247,6 +247,36 @@ struct OnboardingV3HealthEvidenceTests {
         }
     }
 
+    /// A pulse that reaches the bezel slides under it and reads as two open arcs. Reduce Motion
+    /// stills the pulse, so what is measured is the ring it spreads from: Turn On All's right edge
+    /// (the "1" sits on its left) and Allow's left edge (the "2" sits on its right).
+    @Test
+    func bothPulsesStayInsideThePhonesBezel() async throws {
+        let size = CGSize(width: 230, height: 390)
+        try await RenderedScreen.host(
+            HealthPermissionSheetMock()
+                .frame(width: size.width, height: size.height)
+                .ignoresSafeArea()
+                .environment(\.onboardingReduceMotionOverride, true),
+            size: size,
+            settle: .turns(40)
+        ) { screen in
+            let accent = RGBA(red: 134, green: 211, blue: 10, alpha: 255)
+            let (turnOnAll, allow) = try screen.withPixels(scale: 2) { pixels in
+                (
+                    pixels.bounds(in: CGRect(x: 100, y: 100, width: 130, height: 100)) { $0.isClose(to: accent, tolerance: 40) },
+                    pixels.bounds(in: CGRect(x: 0, y: 250, width: 100, height: 100)) { $0.isClose(to: accent, tolerance: 40) }
+                )
+            }
+            let turnOnAllRing = try #require(turnOnAll, "Turn On All's ring did not render")
+            let allowRing = try #require(allow, "Allow's ring did not render")
+            let spread = HealthPermissionSheetMock.pulseSpread
+            let bezel = HealthPermissionSheetMock.bezelWidth
+            #expect(turnOnAllRing.maxX + spread <= size.width - bezel, "Turn On All's pulse reaches the bezel: \(turnOnAllRing)")
+            #expect(allowRing.minX - spread >= bezel, "Allow's pulse reaches the bezel: \(allowRing)")
+        }
+    }
+
     @Test(arguments: Self.accessibilitySizes)
     func twoTapsAtAnAccessibilityTextSizeKeepsGotItReachable(size: DynamicTypeSize) async throws {
         try await RenderedScreen.host(
