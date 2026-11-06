@@ -27,7 +27,7 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// it is separable from the upload path it feeds.
     case workoutSyncRecoveryReopen = "workout_sync_recovery_reopen_enabled"
 
-    /// Holding workout uploads back while the climber holds no app access, because the rules would
+    /// Holding workout uploads back until the climber is known to hold app access, because the rules would
     /// refuse them and enough refusals stop the series. Off, a pass attempts them as it did before
     /// this hold existed - the way out if the device's reading of access is ever wrong.
     case workoutSyncAppAccessHold = "workout_sync_app_access_hold_enabled"

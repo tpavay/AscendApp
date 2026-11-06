@@ -14,7 +14,7 @@ struct WorkoutSyncAppAccessHoldTests {
 
     @MainActor
     private final class Access {
-        var isHeld = false
+        var state: WorkoutSyncCoordinator.AppAccess = .absent
     }
 
     private func makeDefaults() throws -> UserDefaults {
@@ -41,7 +41,7 @@ struct WorkoutSyncAppAccessHoldTests {
             settingReader: BaselineSettingReader(),
             userDefaults: defaults,
             buildIdentity: buildIdentity,
-            hasAppAccess: { access.isHeld }
+            appAccess: { access.state }
         )
     }
 
@@ -50,7 +50,10 @@ struct WorkoutSyncAppAccessHoldTests {
     }
 
     /// One climb whose upload the rules have refused until the series stopped.
-    private func insertStoppedClimb(in context: ModelContext) throws -> Workout {
+    private func insertStoppedClimb(
+        in context: ModelContext,
+        blockedBy category: WorkoutSyncFailureCategory = .refused
+    ) throws -> Workout {
         let modifiedAt = Date().addingTimeInterval(-2 * 60 * 60)
         let workout = Workout(
             name: "Stair Stepper",
@@ -71,7 +74,7 @@ struct WorkoutSyncAppAccessHoldTests {
         )
         entry.automaticAttemptCount = WorkoutSyncRetryPolicy.maximumAutomaticAttempts
         entry.refusalCount = WorkoutSyncRetryPolicy.refusalsBeforeStopping
-        entry.failureCategory = .refused
+        entry.failureCategory = category
         entry.lastAttemptAt = Date().addingTimeInterval(-60 * 60)
         context.insert(entry)
         try context.save()
@@ -106,7 +109,7 @@ struct WorkoutSyncAppAccessHoldTests {
         #expect(try entries(in: harness.context).isEmpty, "no attempt, no refusal, no schedule on record")
         #expect(climbs.allSatisfy { $0.remoteSyncStatus == .pendingUpsert }, "pending state survives untouched")
 
-        access.isHeld = true
+        access.state = .held
         await repository.grantAccess()
         await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
 
@@ -126,7 +129,7 @@ struct WorkoutSyncAppAccessHoldTests {
         await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
         #expect(stopped.remoteSyncStatus == .rejected)
 
-        access.isHeld = true
+        access.state = .held
         await repository.grantAccess()
         await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
 
@@ -151,7 +154,7 @@ struct WorkoutSyncAppAccessHoldTests {
         let coordinator = makeCoordinator(repository: repository, access: access, defaults: try makeDefaults())
 
         await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
-        access.isHeld = true
+        access.state = .held
         await repository.grantAccess()
         await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
 
@@ -165,13 +168,76 @@ struct WorkoutSyncAppAccessHoldTests {
         let repository = RulesLikeRepository()
         await repository.grantAccess()
         let access = Access()
-        access.isHeld = true
+        access.state = .held
         let coordinator = makeCoordinator(repository: repository, access: access, defaults: try makeDefaults())
 
         await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
 
         #expect(await repository.attemptCount() == 0, "a launch must not launder a refusal into another attempt")
         #expect(stopped.remoteSyncStatus == .rejected)
+    }
+
+    @Test
+    func aPayingClimbersOrdinaryLaunchHoldsUploadsWhileUnknownAndReopensNothing() async throws {
+        let harness = try AppleHealthImportHarness()
+        let stopped = try insertStoppedClimb(in: harness.context)
+        let pending = Workout(
+            name: "Stair Stepper",
+            duration: 1_800,
+            steps: 3_000,
+            floors: Workout.stepsToFloors(3_000),
+            source: .manual
+        )
+        pending.markPendingRemoteUpsert(ownerUserId: userId)
+        harness.context.insert(pending)
+        try harness.context.save()
+
+        let repository = RulesLikeRepository()
+        await repository.grantAccess()
+        let access = Access()
+        access.state = .unknown
+        let defaults = try makeDefaults()
+        let coordinator = makeCoordinator(repository: repository, access: access, defaults: defaults)
+
+        await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
+
+        #expect(await repository.attemptCount() == 0, "uploads wait for the answer")
+        #expect(!defaults.bool(forKey: WorkoutSyncCoordinator.appAccessHoldDefaultsKeyPrefix + userId))
+
+        access.state = .held
+        await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
+
+        #expect(pending.remoteSyncStatus == .synced, "what was waiting goes up")
+        #expect(stopped.remoteSyncStatus == .rejected, "a launch must not launder a refusal into another attempt")
+        #expect(await repository.attemptCount() == 1)
+    }
+
+    @Test(arguments: [WorkoutSyncFailureCategory.malformed, .authentication])
+    func accessArrivingLeavesASeriesStoppedForAnotherReasonStopped(category: WorkoutSyncFailureCategory) async throws {
+        let harness = try AppleHealthImportHarness()
+        let stopped = try insertStoppedClimb(in: harness.context, blockedBy: category)
+        let repository = RulesLikeRepository()
+        let access = Access()
+        let coordinator = makeCoordinator(repository: repository, access: access, defaults: try makeDefaults())
+
+        await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
+        access.state = .held
+        await repository.grantAccess()
+        await coordinator.processPendingWorkouts(modelContext: harness.context, currentUserId: userId)
+
+        #expect(await repository.attemptCount() == 0, "paying moves nothing about these")
+        #expect(stopped.remoteSyncStatus == .rejected)
+    }
+
+    @Test
+    func accessIsOnlyAbsentOnceRevenueCatHasAnsweredNo() {
+        typealias Access = WorkoutSyncCoordinator.AppAccess
+
+        #expect(Access(hasAppAccess: true, entitlementState: .unknown) == .held)
+        #expect(Access(hasAppAccess: true, entitlementState: .active(["app_access"])) == .held)
+        #expect(Access(hasAppAccess: false, entitlementState: .unknown) == .unknown)
+        #expect(Access(hasAppAccess: false, entitlementState: .inactive) == .absent)
+        #expect(Access(hasAppAccess: false, entitlementState: .active(["other"])) == .absent)
     }
 
     @Test
