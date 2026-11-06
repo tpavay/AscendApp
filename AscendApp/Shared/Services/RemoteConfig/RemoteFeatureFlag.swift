@@ -104,7 +104,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     case headphoneSessionAutoResume = "headphone_session_auto_resume_enabled"
 
     /// Logging a climb by hand - the Log it entry and the save behind it - and re-deriving a
-    /// climb's leaderboard status when it is restored or its steps, time or date change. Off, Log it is not offered and every stored status is left exactly as it is.
+    /// climb's leaderboard status when it is restored or its steps, time or date change. Off, Log
+    /// it is not offered and every stored status is left exactly as it is.
     case climbLogging = "climb_logging_enabled"
 
     /// The onboarding of 1.3.0: selling screens and setup questions before sign-in, then the paywall

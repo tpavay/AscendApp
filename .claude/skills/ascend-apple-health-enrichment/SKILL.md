@@ -20,7 +20,7 @@ Do not add a second import path behind a flag, a debug toggle, or a "just in cas
 
 ## Import in one screen
 
-- Only `stairClimbing` and `stairs` workouts, only on or after the climber's join date, one `HealthWorkoutRecord` per HealthKit workout UUID.
+- Only `stairClimbing` and `stairs` workouts, one `HealthWorkoutRecord` per HealthKit workout UUID.
 - Steps are the exact number on the workout's own statistics, never a tilde and never a second query over a time window.
   A workout with none imports with zero steps and the Add steps prompt.
 - A pass reads from a persisted anchor (`HKAnchoredObjectQueryDescriptor`), files what is new, and imports it when auto-import is on.
@@ -81,7 +81,8 @@ The Live Climb completion summary and Workout Detail render the chart when a sto
 Workout Detail may still show its remote-series restore state, because that means data exists and is arriving, not that the climb has no heart rate.
 Regression coverage: `AscendAppTests/WorkoutDetailHeartRateVisibilityTests.swift`, `AscendAppTests/LiveClimbCompletionSummaryHealthPromptEvidenceTests.swift`.
 
-**The connection has two doors and one flow.**
+**After onboarding, the connection has two doors and one flow.**
+Onboarding's screen 06 draws the same connect screen in its own chrome (`docs/apple-health-import.md`, In onboarding).
 Settings -> Integrations and the Climb sheet's Connect Health button both open `AppleHealthConnectFlowView` (connect, which opens the iOS sheet at once - there is no permission-guide screen between them, because every extra tap costs a climber - then the Import automatically or Let me choose screen; both screens end in `HealthFlowChrome`'s bottom bar, so the primary button never moves, and only the connect screen draws the close X); Integrations is still the only place that explains revoked or unavailable permissions and the only place a heart-rate check can be asked for by hand.
 Do not grow a third door, and do not re-introduce a per-climb status enum for a view to render - the previous narration API (`Phase`, `phase(for:)`, `offersConnectionPrompt`, `FetchResult`, `fetchNow`, `connectAndFetch`) was deleted once every surface that consumed it was.
 The card reads `appleHealthConnectionState` and drives `requestAppleHealthAuthorizationIfNeeded` then `refreshPendingEnrichment(isUserInitiated:)`.
