@@ -360,7 +360,7 @@ The paywall carries one chrome control: a back arrow in the top-left.
 While no `paywall_decline` campaign is live, it returns the climber to the last onboarding step, except during a v3 onboarding pass, which has no step behind the paywall: there the arrow is a plain close that lands on the native fallback, never a v1 stage.
 Once a `paywall_decline` campaign is live, the close chained after `back` opens the decline offer for everyone, a lapsed subscriber and a climber in a v1 pass included: Ascend neither dismisses the offer nor reopens a step, and it records no `onboarding_back_tapped` for that tap.
 A v1 climber losing the way back is accepted because the campaign is published together with the v3 launch, when the old onboarding stops being the path for new climbers.
-It carries no close or X control at all.
+The paywall carries no close or X control at all.
 Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
 
 Two controls on the paywall are custom actions rather than plain closes: the back arrow (`back`) and the footer's `DELETE ACCOUNT` (`delete_account`).

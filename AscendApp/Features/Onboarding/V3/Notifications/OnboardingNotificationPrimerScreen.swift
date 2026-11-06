@@ -3,7 +3,7 @@ import SwiftUI
 /// Screen 12: what Ascend will send, shown as the notifications themselves, before iOS is asked.
 ///
 /// The examples are the real sends, so the ask is specific: a nudge short of the weekly target
-/// (only for a climber who set one), new gear, a new climb, and before a trial ends. TURN ON goes
+/// (only for a climber who set one), new gear, and a new climb. TURN ON goes
 /// through ``ClimbDropNotificationState``; Not now declines without asking iOS.
 struct OnboardingNotificationPrimerScreen: View {
     let coordinator: OnboardingV3Coordinator

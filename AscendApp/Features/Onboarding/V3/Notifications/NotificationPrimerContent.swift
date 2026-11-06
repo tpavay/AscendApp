@@ -24,9 +24,9 @@ struct NotificationPrimerExample: Equatable, Identifiable, Sendable {
 ///
 /// The primer promises only what Ascend sends. The weekly-target nudge exists only for a climber
 /// who set a target, so without one its example and its clause leave the screen. The design's
-/// "That's it." is gone because it is untrue next to the climb-drop and champion pushes, and the
-/// design's trial example is replaced by the climb-drop one because whether a paywall offers a
-/// trial is a Superwall setting.
+/// "That's it." is gone because it is untrue next to the climb-drop and champion pushes. The
+/// design's trial example is replaced by the climb-drop one, and nothing here mentions a trial,
+/// because whether a paywall offers one is a Superwall setting and no trial reminder is scheduled.
 struct NotificationPrimerContent: Equatable, Sendable {
     static let headlineLead = ["We'll keep you"]
     static let headlineAccent = ["on track."]
@@ -61,8 +61,8 @@ struct NotificationPrimerContent: Equatable, Sendable {
 
     static func body(hasTarget: Bool) -> String {
         hasTarget ?
-            "A nudge when you're short of your weekly target, when new gear drops, when new climbs open, and before any trial ends." :
-            "A nudge when new gear drops, when new climbs open, and before any trial ends."
+            "A nudge when you're short of your weekly target, when new gear drops, and when new climbs open." :
+            "A nudge when new gear drops and when new climbs open."
     }
 
     // MARK: - Examples

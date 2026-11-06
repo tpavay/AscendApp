@@ -205,9 +205,10 @@ They are only read while a dispatch is unfinished, so a completed drop's receipt
 
 ## Gear drops and the reminders the onboarding primer promises
 
-The 1.3.0 onboarding primer (screen 12) promises four nudges.
+The 1.3.0 onboarding primer (screen 12) promises three nudges: climb drops, new gear and the weekly target.
 Climb drops are the sweep above.
-The other three each have one owner, and each sits behind its own Remote Config switch (`docs/remote-config-kill-switches.md`).
+The other two are in this table with the trial-ending reminder, which is built but not promised because it does not fire yet.
+Each has one owner and sits behind its own Remote Config switch (`docs/remote-config-kill-switches.md`).
 
 | Nudge | Owner | Where it runs | Switch |
 |---|---|---|---|
