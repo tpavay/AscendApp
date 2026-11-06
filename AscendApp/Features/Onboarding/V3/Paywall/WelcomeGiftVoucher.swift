@@ -47,14 +47,18 @@ struct WelcomeGiftVoucher: View {
                 // its last letters. 12 more keeps it clear at every text size.
                 .padding(.trailing, copy.stamp == nil ? 0 : 56)
 
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(offer.price)
-                    .paywallText(.black, size: 76, tracking: -0.04, relativeTo: .largeTitle)
-                    .minimumScaleFactor(0.4)
-                    .lineLimit(1)
+            // Side by side the two squeeze each other until "/year" breaks after its slash, so the
+            // unit drops under the price once the pair is wider than the voucher.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    price
+                    unit
+                }
 
-                Text("/year")
-                    .paywallText(.extraBold, size: 18, relativeTo: .headline)
+                VStack(alignment: .leading, spacing: 0) {
+                    price
+                    unit
+                }
             }
 
             (Text(offer.regularPrice).strikethrough() + Text(" · your price, every year"))
@@ -66,6 +70,19 @@ struct WelcomeGiftVoucher: View {
         .padding(.top, 24)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var price: some View {
+        Text(offer.price)
+            .paywallText(.black, size: 76, tracking: -0.04, relativeTo: .largeTitle)
+            .minimumScaleFactor(0.4)
+            .lineLimit(1)
+    }
+
+    private var unit: some View {
+        Text("/year")
+            .paywallText(.extraBold, size: 18, relativeTo: .headline)
+            .lineLimit(1)
     }
 
     private var perforation: some View {

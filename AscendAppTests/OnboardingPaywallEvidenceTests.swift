@@ -669,6 +669,99 @@ struct OnboardingPaywallEvidenceTests {
         }
     }
 
+    /// Once wrapped, a line shorter than the widest has to stay centred under the centred headline.
+    /// The tree holds no alignment, so this reads where the last line's ink sits inside the text's frame.
+    @Test(arguments: [CGFloat(375), 402], [DynamicTypeSize.accessibility3, .accessibility5])
+    func theClosedGiftCentresItsWrappedSubline(width: CGFloat, textSize: DynamicTypeSize) async throws {
+        let fixture = await fixture(startingAt: .exitGift)
+
+        try await RenderedScreen.host(
+            OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel())
+                .environment(\.dynamicTypeSize, textSize),
+            size: CGSize(width: width, height: 2400),
+            settle: .turns(40)
+        ) { screen in
+            _ = try await screen.copy(until: { $0.contains("tap to open") })
+            try await Task.sleep(for: .seconds(1.2))
+
+            let subline = try #require(try await screen.frame(ofElementLabelled: "A better price, just for you."))
+            let lastLine = CGRect(x: subline.minX, y: subline.maxY - subline.height * 0.2, width: subline.width, height: subline.height * 0.2)
+            let ink = try #require(try screen.withPixels(scale: 2) { pixels in
+                pixels.bounds(in: lastLine) { $0.luminance > 110 }
+            })
+            #expect(ink.width < subline.width * 0.8, "the subline \(subline) should wrap to a shorter last line here, drawn at \(ink)")
+            #expect(abs(ink.midX - subline.midX) <= 6, "the last line \(ink) is off the centre of \(subline)")
+        }
+    }
+
+    /// The open gift scrolls at a large text size, and a hosted render draws no status bar, so this
+    /// states the safe area and reads the band it covers: the voucher is there just below the band, and
+    /// none of it is inside.
+    @Test(arguments: UnlockSurfacesEvidenceTests.phoneShapes)
+    func theOpenGiftNeverScrollsTheVoucherUnderTheStatusBar(phone: UnlockSurfacesEvidenceTests.PhoneShape) async throws {
+        let fixture = await fixture(startingAt: .exitGift, giftAlreadySeen: true)
+        let controller = UIHostingController(
+            rootView: OnboardingV3FlowView(coordinator: fixture.coordinator)
+                .environment(\.onboardingPaywallModel, fixture.model)
+                .environment(AuthenticationViewModel())
+                .environment(\.dynamicTypeSize, .accessibility5)
+        )
+
+        try await RenderedScreen.host(controller, size: phone.size, settle: .turns(40)) { screen in
+            let own = screen.window.safeAreaInsets
+            controller.additionalSafeAreaInsets = UIEdgeInsets(top: phone.top - own.top, left: 0, bottom: phone.bottom - own.bottom, right: 0)
+            try await screen.settle(.turns(20))
+            try #require(controller.view.safeAreaInsets.top == phone.top)
+
+            _ = try await screen.copy(until: { $0.contains("welcome offer") })
+            try await Task.sleep(for: .seconds(1.5))
+
+            let page = try #require(screen.root.descendants(of: UIScrollView.self).first { !$0.bounds.isEmpty })
+            #expect(page.contentSize.height > page.bounds.height - page.adjustedContentInset.top - page.adjustedContentInset.bottom, "the gift should scroll at this size")
+            // The voucher starts 44 points down the page, so 120 leaves it straddling the page's top.
+            page.setContentOffset(CGPoint(x: 0, y: 120 - page.adjustedContentInset.top), animated: false)
+            try await screen.settle()
+            try await Task.sleep(for: .seconds(0.3))
+
+            let isVoucherLime: (RGBA) -> Bool = { $0.green > 120 && $0.green > $0.red && Int($0.green) - Int($0.blue) > 60 }
+            let (underStatusBar, belowIt) = try screen.withPixels { pixels in
+                (
+                    pixels.count(in: CGRect(x: 0, y: 0, width: phone.size.width, height: phone.top), where: isVoucherLime),
+                    pixels.count(in: CGRect(x: 0, y: phone.top + 10, width: phone.size.width, height: 40), where: isVoucherLime)
+                )
+            }
+            #expect(belowIt > 0, "the voucher should sit just below the status bar after this scroll")
+            #expect(underStatusBar == 0, "\(underStatusBar) voucher pixels are under the \(phone.top) pt status bar")
+            try screen.photograph(named: "onboarding-v3-gift-open-scrolled-\(Int(phone.size.height))")
+        }
+    }
+
+    /// The voucher alone, because the fine print below it also reads "/year". A unit split after its
+    /// slash reads back as "/ year" across the two lines. OCR reads a whole one as anything from
+    /// "/year" to "lyear", so this only asserts the split's absence.
+    @Test(arguments: [CGFloat(375), 402], [DynamicTypeSize.large, .xxxLarge, .accessibility1, .accessibility3, .accessibility5])
+    func theVoucherKeepsThePriceAndItsUnitWhole(width: CGFloat, textSize: DynamicTypeSize) async throws {
+        let offer = try #require(await fixture(startingAt: .exitGift).model.giftOffer)
+
+        try await RenderedScreen.host(
+            ZStack(alignment: .top) {
+                Color.black
+                WelcomeGiftVoucher(offer: offer, copy: WelcomeGiftCopy(offer))
+                    .padding(.horizontal, 26)
+                    .padding(.top, 44)
+            }
+            .environment(\.dynamicTypeSize, textSize),
+            size: CGSize(width: width, height: 1600)
+        ) { screen in
+            let drawn = try await screen.recognizedText(scale: 2)
+            #expect(drawn.contains(offer.price), "the price did not draw whole: \(drawn)")
+            #expect(!drawn.contains("/ year"), "the unit split from its slash: \(drawn)")
+            try screen.photograph(named: "onboarding-v3-voucher-unit-\(Int(width))-\(textSize)")
+        }
+    }
+
     /// The stamp hangs over the voucher's top-right corner, and a label that just fits on one line ran
     /// under it. The tree still holds the whole label, so this reads pixels: the strip beside the stamp,
     /// on the rows the label starts on, carries no ink. The stamp's own shadow there is far from black.

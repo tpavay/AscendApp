@@ -117,6 +117,16 @@ struct OnboardingExitGiftScreen: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.hidden)
+            // A scroll view draws its content on past the top safe area, which puts the voucher
+            // behind the clock. The fade stays clear of the stamp, the highest thing at rest.
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 8)
+                    Color.black
+                }
+                .ignoresSafeArea(edges: .bottom)
+            }
         }
         .animation(reduceMotion ? .easeInOut(duration: 0.3) : nil, value: isOpen)
     }
@@ -141,6 +151,7 @@ struct OnboardingExitGiftScreen: View {
 
             Text("A better price, just for you.")
                 .onboardingSecondary()
+                .multilineTextAlignment(.center)
                 .onboardingEntrance(index: 2)
         }
     }
