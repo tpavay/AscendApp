@@ -27,8 +27,7 @@ struct OnboardingPaywallEvidenceTests {
         purchaseResult: PurchaseResult = .cancelled,
         restoredState: MonetizationEntitlementState? = nil,
         pending: PendingPurchaseHold? = nil,
-        storeHasPlans: Bool = true,
-        fadeNeverEnds: Bool = false
+        storeHasPlans: Bool = true
     ) async -> Fixture {
         let suite = "onboarding-paywall-evidence-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -38,12 +37,7 @@ struct OnboardingPaywallEvidenceTests {
         if giftAlreadySeen {
             store.update { $0.welcomeGiftFirstShownAt = Date() }
         }
-        let stoppedClock = ContinuousClock.now
-        let coordinator = OnboardingV3Coordinator(
-            store: store,
-            startingAt: step,
-            now: { fadeNeverEnds ? stoppedClock : .now }
-        )
+        let coordinator = OnboardingV3Coordinator(store: store, startingAt: step)
 
         let configuration = MonetizationConfiguration(infoDictionary: [
             MonetizationConfiguration.revenueCatYearlyProductIDInfoKey: "yearly",
