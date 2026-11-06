@@ -116,6 +116,21 @@ struct PersonalizedClimbPaceServiceTests {
         )
     }
 
+    @Test
+    func aClimbWithNoStepsLeavesItsMinutesOutOfThePace() {
+        let imported = Workout(duration: 40 * 60, steps: 0, floors: 0, source: .appleHealth)
+        let history = [workout(steps: 4_000, minutes: 40), imported, imported, imported]
+
+        #expect(PersonalizedClimbPaceService.allTimeAverageSPM(workouts: history) == 100)
+        #expect(PersonalizedClimbPaceService.allTimeAverageSPM(workouts: [imported]) == nil)
+        #expect(
+            PersonalizedClimbPaceService.allTimeAverageSPM(
+                workouts: [workout(steps: 1_000, minutes: 10), workout(steps: 0, minutes: 10)]
+            ) == 50,
+            "a live climb's zero is a measurement"
+        )
+    }
+
     private func workout(steps: Int, minutes: Double) -> Workout {
         Workout(duration: minutes * 60, steps: steps, floors: steps / 16, source: .headphoneMotion)
     }

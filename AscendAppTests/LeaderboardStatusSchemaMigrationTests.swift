@@ -18,8 +18,10 @@ struct LeaderboardStatusSchemaMigrationTests {
 
     @Test
     func theLiveSchemaIsTheOneTheStageEndsAt() {
-        #expect(AscendLocalStore.currentSchema is AscendSchemaV6.Type)
-        #expect(AscendMigrationPlan.schemas.last is AscendSchemaV6.Type)
+        // Later stages chain on from V6, so this suite's own step is the one before the last.
+        #expect(AscendMigrationPlan.schemas.contains { $0 == AscendSchemaV6.self })
+        #expect(AscendLocalStore.currentSchema is AscendSchemaV7.Type)
+        #expect(AscendMigrationPlan.schemas.last is AscendSchemaV7.Type)
         #expect(AscendMigrationPlan.stages.count == AscendMigrationPlan.schemas.count - 1)
     }
 

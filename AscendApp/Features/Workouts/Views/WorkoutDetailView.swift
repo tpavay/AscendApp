@@ -429,7 +429,7 @@ struct WorkoutDetailView: View {
     /// it is not on them. A live climb says nothing: it needs no explaining.
     @ViewBuilder
     private var provenanceFooter: some View {
-        if workout.origin == .manual {
+        if let footnote = workout.origin.detailFootnote {
             VStack(spacing: 10) {
                 if workout.exceedsPaceCeiling {
                     Text(LoggedClimbCopy.savedOffTheBoardsNote(stepsPerMinute: workout.stepsPerMinute ?? 0))
@@ -440,7 +440,7 @@ struct WorkoutDetailView: View {
                         .accessibilityIdentifier("workout-detail-off-the-boards")
                 }
 
-                Text("Logged by hand")
+                Text(footnote)
                     .font(.montserratMedium(size: 12))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
             }
@@ -555,12 +555,14 @@ struct WorkoutDetailView: View {
 
     @ViewBuilder
     private func menuContent(_ derived: WorkoutDetailDerivedContent) -> some View {
-        Button(action: {
-            seedShareStandingFromStore()
-            showingShareWorkoutView = true
-        }) {
-            Label("Share", systemImage: "square.and.arrow.up")
-        }
+        WorkoutDetailShareOrAddStepsAction(
+            isMissingSteps: workout.isMissingSteps,
+            share: {
+                seedShareStandingFromStore()
+                showingShareWorkoutView = true
+            },
+            addSteps: { showingEditWorkout = true }
+        )
 
         Button(action: copyWorkoutText) {
             Label("Copy Workout Text", systemImage: "doc.on.doc")
@@ -1036,6 +1038,9 @@ struct WorkoutDetailView: View {
 
         var shouldProcessRemoteDeletion = false
 
+        // A removed imported climb must never import again, in either mode. The ledger row changes
+        // in the same save that deletes the climb.
+        HealthWorkoutLedger(modelContext: modelContext).markSkippedForDeletedClimbs([workout])
         modelContext.delete(workout)
         do {
             let deletedSnapshot = LeaderboardWorkoutSnapshot(workout: workout)

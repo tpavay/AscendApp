@@ -39,6 +39,9 @@ final class HomeDashboardViewModel {
     /// Consecutive weeks with a climb, the same figure Profile shows, and whether this
     /// week already counts toward it.
     var weeklyStreak: WeeklyStreak = .none
+    /// This week against the climber's weekly target. Nil when they set none, which is what keeps
+    /// the ring off Home for a climber who skipped it.
+    var weeklyTargetProgress: WeeklyTargetProgress?
 
     private let leaderboardRepository: LeaderboardRepository
     private let leaderboardSessionCache: LeaderboardSessionCache
@@ -63,6 +66,7 @@ final class HomeDashboardViewModel {
     func refreshLocalData(
         modelContext: ModelContext,
         workouts: [Workout],
+        weeklyTarget: WeeklyTarget? = nil,
         referenceDate: Date = Date()
     ) {
         let completedClimbCount = Self.fetchCompletedClimbCount(modelContext: modelContext)
@@ -95,6 +99,15 @@ final class HomeDashboardViewModel {
         let streak = WeeklyStreak.current(climbDates: workouts.map(\.date), referenceDate: referenceDate)
         if weeklyStreak != streak {
             weeklyStreak = streak
+        }
+
+        let targetProgress = WeeklyTargetProgress.current(
+            target: weeklyTarget,
+            climbDates: workouts.map(\.date),
+            referenceDate: referenceDate
+        )
+        if weeklyTargetProgress != targetProgress {
+            weeklyTargetProgress = targetProgress
         }
     }
 
@@ -424,6 +437,10 @@ final class HomeDashboardViewModel {
                 totalDuration: totalDuration,
                 stepsPerMinute: stepsPerMinute,
                 typedWorkouts: existing?.publishedTypedWorkouts(
+                    describingSteps: totalSteps,
+                    workouts: totalWorkouts
+                ),
+                importedWorkouts: existing?.publishedImportedWorkouts(
                     describingSteps: totalSteps,
                     workouts: totalWorkouts
                 ),

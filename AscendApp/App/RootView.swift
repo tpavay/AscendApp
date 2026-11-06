@@ -25,6 +25,7 @@ struct RootView: View {
         startingAt: PreAuthPurchaseLedger().resumeStep ?? .welcome
     )
     @State private var onboardingV3RouteLatch = OnboardingV3RouteLatch()
+    @State private var onboardingV3HandOff: OnboardingV3SignInHandOff?
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
     @State private var isShowingGateAccountDeletion = false
@@ -149,6 +150,7 @@ struct RootView: View {
         .onChange(of: authVM.user?.uid) { previousUid, currentUid in
             if previousUid != nil, currentUid == nil {
                 LocalReminderCoordinator.shared.sessionEnded()
+                onboardingV3Coordinator.sessionEnded()
             }
             // The sheet belongs to the session that opened it, or it re-presents itself unprompted
             // over the next climber's gate. But deletion ends the session at the auth step, several
@@ -167,6 +169,7 @@ struct RootView: View {
             )
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             completePostAuthOnboardingIfRemoteProfileExists()
+            runOnboardingV3HandOffAfterSignIn()
             scheduleAuthenticatedSessionWork()
         }
         // A purchase completing mid-session flips this through RevenueCat's customer-info stream
@@ -456,6 +459,8 @@ struct RootView: View {
         // behind a screen the climber cannot leave. The lockout refuses the binary, not just its UI.
         guard !appVersionGateState.isUpdateRequired else { return }
 
+        retryOnboardingV3Answers()
+
         let expectedUserId = authVM.user?.uid
 
         authenticatedBootstrapCoordinator.schedule {
@@ -474,6 +479,51 @@ struct RootView: View {
                 synchronizePushDevice: { await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded() },
                 isCurrentSession: { isCurrentAuthenticatedSession(expectedUserId) }
             ).run()
+        }
+    }
+
+    /// What the onboarding v3 hand-off needs, built once. A no-op until a climber signs in at the end
+    /// of the flow: with the switch off nothing sets the intent, holds a purchase or leaves answers,
+    /// and a target set in Settings is the service's to deliver, not the hand-off's.
+    @MainActor
+    private func onboardingV3HandOffService() -> OnboardingV3SignInHandOff {
+        if let onboardingV3HandOff { return onboardingV3HandOff }
+
+        let postAuthOnboardingCoordinator = postAuthOnboardingCoordinator
+        let onboardingV3Coordinator = onboardingV3Coordinator
+        let handOff = OnboardingV3SignInHandOff.live(
+            markPostSignInOnboardingComplete: {
+                postAuthOnboardingCoordinator.markCurrentUserComplete()
+                onboardingV3Coordinator.finish()
+            }
+        )
+        onboardingV3HandOff = handOff
+        return handOff
+    }
+
+    @MainActor
+    private func runOnboardingV3HandOffAfterSignIn() {
+        guard let user = authVM.user else { return }
+
+        let handOff = onboardingV3HandOffService()
+        handOff.closeFlowIfIntended()
+
+        let userId = user.uid
+        let email = user.email
+        Task { @MainActor in
+            await handOff.runAfterSignIn(userId: userId, email: email)
+        }
+    }
+
+    @MainActor
+    private func retryOnboardingV3Answers() {
+        guard let user = authVM.user else { return }
+
+        let handOff = onboardingV3HandOffService()
+        let userId = user.uid
+        let email = user.email
+        Task { @MainActor in
+            await handOff.retryPendingAnswers(userId: userId, email: email)
         }
     }
 
@@ -524,6 +574,9 @@ struct RootView: View {
                 debugLog("Workout hydration failed: \(error)")
             }
             guard isCurrentAuthenticatedSession(currentUserId) else { return }
+            if WorkoutHydrationService.hasRestoredWorkouts(for: currentUserId) {
+                AppleHealthImportService.shared.confirmCloudClimbsRestored(for: currentUserId)
+            }
 
             // Restoring routines is independent of workouts, so a failure on
             // either side must not take the other down with it.
@@ -563,6 +616,9 @@ struct RootView: View {
             // before the leaderboard rebuild because enrichment only ever adds metrics that
             // rebuild already reads.
             AppleHealthEnrichmentService.shared.resumeTracking(modelContext: modelContext)
+            // Import rides the same chain for the same reason: it writes climbs through
+            // `WorkoutMutationHandler`, so it must not run under a lockout or a deletion.
+            AppleHealthImportService.shared.resume(modelContext: modelContext)
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
                 modelContext: modelContext,

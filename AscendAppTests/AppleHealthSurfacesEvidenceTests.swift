@@ -6,13 +6,15 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Reviewer-facing proof that Apple Health workout import is gone from every surface a climber can
-/// reach, and that Apple Health enrichment survived the removal (#437).
+/// Reviewer-facing proof of what Apple Health is for in Ascend, read back off the surfaces a climber
+/// reaches: what the permission sheet asks for, what the Climb sheet and the Integrations card
+/// offer, and that heart-rate enrichment still attaches to a climb Ascend recorded.
 ///
-/// Logging a climb by hand came back in 1.3.0, so the words that policed it - "log", "logged",
-/// "logging", "manual" - no longer fail a surface, and the Home start sheet is now expected to
-/// offer it. Importing has not: "import" still fails every surface here until Apple Health import
-/// ships, and this suite is the one that has to be re-read the day it does.
+/// This suite began as the proof that Apple Health workout import was gone (#437), and the
+/// surfaces and the sentence it checks have changed with the product: logging by hand returned in
+/// 1.3.0 and importing stair workouts from Health returned right after it. What it still polices
+/// is the boundary that came back with them - Ascend reads, it never writes, and a surface never
+/// promises tracking.
 ///
 /// Every surface here is the shipped view, not a stand-in, hosted in a live window through
 /// `RenderedScreen`, and every claim about copy is read back off the screen's accessibility tree
@@ -23,34 +25,42 @@ import UIKit
 /// Photographs are written to `ASCEND_EVIDENCE_DIR` when it is set and not taken otherwise.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
-struct ManualLoggingAndImportRemovalEvidenceTests {
-    /// Words that would mean the removal is incomplete, checked as whole words so "Manage" cannot
-    /// read as "manual" and "Imported" cannot hide inside a longer token.
+struct AppleHealthSurfacesEvidenceTests {
+    /// Words no Apple Health surface may use, checked as whole words. Ascend ranks stair stepper
+    /// workouts; it is not a tracker, and importing a workout does not make it one.
     private static let forbiddenWords: Set<String> = [
-        "import", "imports", "imported", "importing",
         "tracker", "tracking",
     ]
 
     // MARK: - The permission prompt
 
     /// The requested read set is the only place a climber is ever shown what Ascend takes from
-    /// Health, and iOS builds that sheet from exactly this set. Workouts, steps and resting energy
-    /// were all on it before; none of the three is used by enrichment (#353).
-    @Test("Health asks only for what enrichment writes back onto a climb")
-    func healthPromptRequestsOnlyEnrichmentReadTypes() throws {
+    /// Health, and iOS builds that sheet from exactly this set: the workouts import reads, the
+    /// numbers on their own statistics, and the heart rate and energy enrichment attaches.
+    @Test("Health asks for the stair workouts import reads and what enrichment attaches, and writes nothing")
+    func healthPromptRequestsExactlyTheImportAndEnrichmentReadSet() throws {
         let requested = HealthKitAuthorizationClient.shared.readTypes
         let identifiers = Set(requested.map(\.identifier)).sorted()
 
         #expect(
             identifiers == [
+                HKObjectType.workoutType().identifier,
+                HKQuantityTypeIdentifier.stepCount.rawValue,
+                HKQuantityTypeIdentifier.heartRate.rawValue,
+                HKQuantityTypeIdentifier.activeEnergyBurned.rawValue,
+            ].sorted(),
+            "Ascend asks Health for \(identifiers). Workouts, steps, heart rate and active energy are the whole set."
+        )
+        #expect(requested.contains(HKObjectType.workoutType()))
+
+        // Enrichment is judged against its own pair, so a climber connected before import returned
+        // is not turned into `revoked` and does not stop getting heart rate.
+        let enrichment = Set(HealthKitAuthorizationClient.shared.enrichmentReadTypes.map(\.identifier)).sorted()
+        #expect(
+            enrichment == [
                 HKQuantityTypeIdentifier.activeEnergyBurned.rawValue,
                 HKQuantityTypeIdentifier.heartRate.rawValue,
-            ].sorted(),
-            "Ascend asks Health for \(identifiers). Enrichment writes back heart rate and calories and nothing else."
-        )
-        #expect(
-            requested.contains(HKObjectType.workoutType()) == false,
-            "requesting workoutType() is the permission that made importing someone else's workout possible"
+            ].sorted()
         )
 
         // The sentence iOS prints above that same sheet.
@@ -67,26 +77,30 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
         If it does not match AscendApp/Info.plist, the target's \
         INFOPLIST_KEY_NSHealthShareUsageDescription build setting is overriding the file.
         """
-        #expect(!lowercased.contains("import"), "The Health prompt still promises importing: \"\(usageDescription)\". \(overrideHint)")
-        #expect(
-            !lowercased.contains("resting energy"),
-            "The Health prompt still names resting energy, which Ascend no longer requests: \"\(usageDescription)\". \(overrideHint)"
-        )
-        #expect(
-            !lowercased.contains("step"),
-            "The Health prompt still names steps, which Ascend no longer requests: \"\(usageDescription)\". \(overrideHint)"
-        )
         // The prompt must name exactly what the read set above asks for, so the sentence and the
         // requested types cannot drift apart.
-        #expect(lowercased.contains("heart rate"), "The Health prompt no longer names heart rate: \"\(usageDescription)\". \(overrideHint)")
-        #expect(lowercased.contains("active energy"), "The Health prompt no longer names active energy: \"\(usageDescription)\". \(overrideHint)")
+        for named in ["workouts", "steps", "heart rate", "active energy"] {
+            #expect(lowercased.contains(named), "The Health prompt no longer names \(named): \"\(usageDescription)\". \(overrideHint)")
+        }
+        #expect(
+            !lowercased.contains("flights climbed"),
+            "The Health prompt names flights climbed, which Ascend does not request: \"\(usageDescription)\". \(overrideHint)"
+        )
+        #expect(
+            !lowercased.contains("resting energy"),
+            "The Health prompt names resting energy, which Ascend does not request: \"\(usageDescription)\". \(overrideHint)"
+        )
+        #expect(
+            lowercased.contains("never writes"),
+            "The Health prompt no longer says Ascend never writes to Health: \"\(usageDescription)\". \(overrideHint)"
+        )
 
         // The write-permission string is merged from the same build settings, so it drifts the same
-        // way. Ascend never writes to Health, but while the key ships it may not promise importing.
+        // way. Ascend never writes to Health, but while the key ships it must say the same thing.
         if let updateDescription = Bundle.main.object(forInfoDictionaryKey: "NSHealthUpdateUsageDescription") as? String {
             #expect(
-                !updateDescription.lowercased().contains("import"),
-                "NSHealthUpdateUsageDescription still promises importing: \"\(updateDescription)\". \(overrideHint)"
+                updateDescription == usageDescription,
+                "NSHealthUpdateUsageDescription drifted from NSHealthShareUsageDescription: \"\(updateDescription)\". \(overrideHint)"
             )
         }
 
@@ -101,41 +115,47 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
             \(identifiers.map { "  - \($0)" }.joined(separator: "\n"))
 
             Requested share types: (none)
-            workoutType() requested: \(requested.contains(HKObjectType.workoutType()))
             """,
             named: "health-permission-request.txt"
         )
     }
 
-    /// The climbs list used to offer "Manual Entry" and "Imported Workout" as source filters. A
-    /// climber can log a climb by hand again, so that one filters for something real; an imported
-    /// workout is still not something Ascend can produce.
-    @Test("The climbs-list source filter offers only a source Ascend can still produce")
+    /// The climbs list offers a source filter for every way a climb can arrive: the headphones,
+    /// Apple Health, or typed in by hand. The provider placeholders nothing ever produced are not
+    /// offered.
+    @Test("The climbs-list source filter offers only a source Ascend can produce")
     func climbsListFilterOffersOnlyProducibleSources() {
-        #expect(WorkoutSource.filterOptions == [.headphoneMotion, .manual])
+        #expect(WorkoutSource.filterOptions == [.headphoneMotion, .appleHealth, .manual])
     }
 
     // MARK: - The screens
 
-    /// Hosts every surface that used to carry a logging or import affordance, and reads the copy
-    /// back off its accessibility tree.
-    @Test("No climber-facing surface offers manual logging or an Apple Health import")
-    func climberFacingSurfacesPromiseNoLoggingOrImport() async throws {
+    /// Hosts every surface that carries a Health affordance, and reads the copy back off its
+    /// accessibility tree.
+    @Test("The Climb sheet and the Integrations card offer Health import and promise no tracking")
+    func climberFacingSurfacesOfferImportAndPromiseNoTracking() async throws {
         let snapshot = HealthKitSyncStateSnapshot.capture()
         let statusSnapshot = HealthKitAuthorizationClient.shared.authorizationRequestStatus
+        let importStatusSnapshot = HealthKitAuthorizationClient.shared.importAuthorizationRequestStatus
         defer {
             snapshot.restore()
             HealthKitAuthorizationClient.shared.authorizationRequestStatus = statusSnapshot
+            HealthKitAuthorizationClient.shared.importAuthorizationRequestStatus = importStatusSnapshot
         }
 
         let container = try Self.makeContainer()
 
-        // Home -> START. "Log Manual Workout" was the fourth row; logging came back as the
-        // ALREADY CLIMBED? section under the three ways to climb.
+        // Home -> START. Logging and importing are the ALREADY CLIMBED? section under the three
+        // ways to climb, and the Health button says which of its three states the climber is in.
         let startText = try await Self.hostedCopy(
-            HomeStartActionSheet(onSelect: { _ in }, onLogIt: {})
+            HomeStartActionSheet(onSelect: { _ in }, onLogIt: {}, healthEntry: .viewImports(badge: 2))
                 .frame(width: 402),
             photographedAs: "01-home-start-sheet"
+        ) { $0.contains("just climb") }
+        let connectText = try await Self.hostedCopy(
+            HomeStartActionSheet(onSelect: { _ in }, onLogIt: {}, healthEntry: .connect)
+                .frame(width: 402),
+            photographedAs: "01b-home-start-sheet-not-connected"
         ) { $0.contains("just climb") }
 
         // Climbs tab, nothing recorded yet. Used to read "Tap the + button to log your first workout".
@@ -160,6 +180,7 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
         // The same screen once Health is connected: the promise that survived the removal.
         HealthKitSyncState.hasRequestedAuthorization = true
         HealthKitAuthorizationClient.shared.authorizationRequestStatus = .unnecessary
+        HealthKitAuthorizationClient.shared.importAuthorizationRequestStatus = .unnecessary
         let connectedText = try await Self.hostedCopy(
             Self.integrationsScreenBody(container: container),
             photographedAs: "04-apple-health-card-connected"
@@ -180,6 +201,7 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
 
         let surfaces: [(name: String, text: String)] = [
             ("01-home-start-sheet", startText),
+            ("01b-home-start-sheet-not-connected", connectText),
             ("02-climbs-empty-state", emptyText),
             ("03-apple-health-card-never-connected", neverConnectedText),
             ("04-apple-health-card-connected", connectedText),
@@ -196,10 +218,13 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
 
         // The screens are actually the screens, not blanks that trivially contain no bad words.
         #expect(startText.contains("just climb"))
-        #expect(startText.contains("race a landmark"))
+        #expect(startText.contains("climb a landmark"))
         #expect(startText.contains("run a routine"))
         #expect(startText.contains("already climbed"))
         #expect(startText.contains("log it"))
+        #expect(startText.contains("view imports"))
+        #expect(connectText.contains("connect health"))
+        #expect(!connectText.contains("view imports"))
 
         #expect(emptyText.contains("no climbs yet"))
 
@@ -207,6 +232,7 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
         // described as attaching heart rate to a climb the climber ran in Ascend.
         #expect(neverConnectedText.contains("apple health"))
         #expect(neverConnectedText.contains("connect"))
+        #expect(neverConnectedText.contains("stair stepper workouts"))
         #expect(neverConnectedText.contains("heart rate"))
 
         #expect(connectedText.contains("connected"))
@@ -259,7 +285,7 @@ struct ManualLoggingAndImportRemovalEvidenceTests {
                     )
                 ]),
                 attemptStore: AppleHealthEnrichmentAttemptStore(
-                    defaults: UserDefaults(suiteName: "ManualLoggingAndImportRemovalEvidenceTests")!,
+                    defaults: UserDefaults(suiteName: "AppleHealthSurfacesEvidenceTests")!,
                     key: "test.enrichmentRetry.\(UUID().uuidString)"
                 )
             )

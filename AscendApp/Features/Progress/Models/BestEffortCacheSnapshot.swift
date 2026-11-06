@@ -114,6 +114,9 @@ struct BestEffortCacheSnapshot {
 
     private func rankedEffort(from entry: BestEffortCacheEntry) -> RankedBestEffort? {
         guard let workout = workoutsByID[entry.workoutID] else { return nil }
+        // A climb with no step count is unfinished, and a record badge on it would celebrate a
+        // climb the climber has not completed the record of. It earns its badge once steps are in.
+        guard !workout.isMissingSteps else { return nil }
         return entry.rankedEffort(using: workout)
     }
 }

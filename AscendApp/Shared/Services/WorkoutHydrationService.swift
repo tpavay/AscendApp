@@ -116,6 +116,13 @@ enum WorkoutHydrationService {
         return changedCount
     }
 
+    /// Whether this climber's climbs have come back from the cloud in this process: the initial
+    /// merge fetched every remote climb and saved it. Anything that must not create a climb the
+    /// cloud already holds - Apple Health import's first pass on a device - waits for this.
+    static func hasRestoredWorkouts(for userId: String) -> Bool {
+        hydratedUserIdsThisSession.contains(userId)
+    }
+
     /// Clears per-process initial-merge tracking. A reinstall starts from a cold process, while
     /// later hydration passes in the same process retry pending sidecars without overwriting local
     /// edits. Tests use this to simulate a fresh launch. Not called by the app.

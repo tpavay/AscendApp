@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftData
 import SwiftUI
 
@@ -13,6 +14,9 @@ struct LogClimbView: View {
     @State private var viewModel: LogClimbViewModel
     @State private var activeSheet: OptionalSheet?
     @State private var savedWorkout: Workout?
+    @State private var pickedItems: [PhotosPickerItem] = []
+    @State private var isPhotoPickerPresented = false
+    @State private var mediaAlertMessage: String?
 
     init(lastClimb: LastClimbPreset?) {
         self.init(viewModel: LogClimbViewModel(lastClimb: lastClimb))
@@ -29,9 +33,17 @@ struct LogClimbView: View {
         case effort
         case heartRate
         case note
-        case photo
 
         var id: String { rawValue }
+
+        init(_ field: LogClimbOptionalField) {
+            switch field {
+            case .effort: self = .effort
+            case .heartRate: self = .heartRate
+            case .note: self = .note
+            case .photo: preconditionFailure("Photos are picked in place, never in a sheet")
+            }
+        }
     }
 
     var body: some View {
@@ -45,19 +57,38 @@ struct LogClimbView: View {
                         amountCard
                         timeCard
                         verdictMessage
-                        optionalSection
+                        LogClimbOptionalSection(
+                            viewModel: viewModel,
+                            onAddPhoto: { isPhotoPickerPresented = true },
+                            onOpen: { activeSheet = OptionalSheet($0) }
+                        )
                     }
+                    .disabled(viewModel.isSaving)
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
                     .padding(.bottom, 12)
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                // With the keypad up and a pace note showing, the second row of OPTIONAL buttons
+                // can sit past the fold; a fade says it scrolls instead of showing a button cut
+                // off at the keypad.
+                .mask(alignment: .top) {
+                    VStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 16)
+                    }
+                }
 
                 VStack(spacing: 12) {
-                    LogClimbKeypad(
-                        onDigit: { viewModel.press(digit: $0) },
-                        onDelete: { viewModel.pressDelete() }
-                    )
+                    if viewModel.focusedField != nil {
+                        LogClimbKeypad(
+                            onDigit: { viewModel.press(digit: $0) },
+                            onDelete: { viewModel.pressDelete() }
+                        )
+                        .disabled(viewModel.isSaving)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                     saveButton
                 }
                 .padding(.horizontal, 16)
@@ -74,9 +105,31 @@ struct LogClimbView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .sheet(item: $activeSheet) { sheet in
+        .sheet(item: $activeSheet, onDismiss: { viewModel.optionalInputFinished() }) { sheet in
             sheetContent(for: sheet)
         }
+        .photosPicker(
+            isPresented: $isPhotoPickerPresented,
+            selection: $pickedItems,
+            maxSelectionCount: viewModel.remainingPhotoSlots,
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: pickedItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await addPicked(items) }
+        }
+        .alert(
+            "Media Limit Reached",
+            isPresented: Binding(
+                get: { mediaAlertMessage != nil },
+                set: { if !$0 { mediaAlertMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(mediaAlertMessage ?? "")
+        }
+        .animation(.easeOut(duration: 0.2), value: viewModel.focusedField)
         .trackOnce(screen: .logClimb)
     }
 
@@ -91,6 +144,7 @@ struct LogClimbView: View {
 
             HStack {
                 Button {
+                    viewModel.close()
                     dismiss()
                 } label: {
                     Image(systemName: "xmark")
@@ -110,7 +164,7 @@ struct LogClimbView: View {
 
     // MARK: - Chips
 
-    /// One row, never stacked: a second row of chips pushes the OPTIONAL chips under the keypad
+    /// One row, never stacked: a second row of chips pushes the OPTIONAL buttons under the keypad
     /// once the pace warning shows, so the Same as chip shrinks to fit beside the date instead.
     private var chipRow: some View {
         HStack(spacing: 10) {
@@ -187,7 +241,7 @@ struct LogClimbView: View {
 
             HStack(spacing: 2) {
                 Text(viewModel.amountDisplay.isEmpty ? "0" : viewModel.amountDisplay)
-                    .font(.montserratBold(size: 46))
+                    .font(.montserratBold(size: isFocused ? 46 : 30))
                     .foregroundStyle(viewModel.amountDisplay.isEmpty ? .white.opacity(0.28) : .white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
@@ -250,14 +304,14 @@ struct LogClimbView: View {
 
                     HStack(spacing: 2) {
                         Text(viewModel.timeDisplay)
-                            .font(.montserratBold(size: 34))
+                            .font(.montserratBold(size: isFocused ? 36 : 30))
                             .foregroundStyle(viewModel.isTimeEmpty ? .white.opacity(0.28) : .white)
                             .monospacedDigit()
 
                         if isFocused {
                             Rectangle()
                                 .fill(Color.accent)
-                                .frame(width: 3, height: 30)
+                                .frame(width: 3, height: 32)
                                 .accessibilityHidden(true)
                         }
                     }
@@ -318,74 +372,6 @@ struct LogClimbView: View {
         }
     }
 
-    // MARK: - Optional
-
-    private var optionalSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("OPTIONAL")
-                .font(.montserratBold(size: 12))
-                .tracking(1.6)
-                .foregroundStyle(.white.opacity(0.55))
-
-            HStack(spacing: 8) {
-                optionalChip(
-                    title: "Effort",
-                    value: viewModel.details.effortRating.map { "\(Int($0))/5" },
-                    sheet: .effort
-                )
-                optionalChip(
-                    title: "Heart rate",
-                    value: viewModel.details.averageHeartRate.map { "\($0)" },
-                    sheet: .heartRate
-                )
-                optionalChip(
-                    title: "Note",
-                    value: viewModel.details.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : "Added",
-                    sheet: .note
-                )
-                optionalChip(
-                    title: "Photo",
-                    value: viewModel.selectedPhotos.isEmpty ? nil : "\(viewModel.selectedPhotos.count)",
-                    sheet: .photo
-                )
-            }
-        }
-    }
-
-    private func optionalChip(title: String, value: String?, sheet: OptionalSheet) -> some View {
-        Button {
-            activeSheet = sheet
-        } label: {
-            HStack(spacing: 4) {
-                if value == nil {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color.accent)
-                }
-                Text(value.map { "\(title) \($0)" } ?? title)
-                    .font(.montserratBold(size: 12))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 42)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(value == nil ? Color.clear : Color.accent.opacity(0.16))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(
-                                value == nil ? Color.white.opacity(0.14) : Color.accent.opacity(0.6),
-                                lineWidth: 1
-                            )
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(value.map { "\(title), \($0)" } ?? "Add \(title)")
-    }
-
     // MARK: - Save
 
     private var saveButton: some View {
@@ -409,7 +395,7 @@ struct LogClimbView: View {
             } label: {
                 Group {
                     if viewModel.isSaving {
-                        ProgressView().tint(.black)
+                        ProgressView().tint(.white)
                     } else {
                         Text("SAVE CLIMB")
                             .font(.montserratBold(size: 15))
@@ -428,6 +414,22 @@ struct LogClimbView: View {
             .disabled(!canSave)
             .accessibilityLabel("Save climb")
         }
+    }
+
+    // MARK: - Photos
+
+    private func addPicked(_ items: [PhotosPickerItem]) async {
+        viewModel.mediaPreparationDidStart()
+        let limits = viewModel.photoLimitContext
+        let outcome = await SelectedMediaPreparationService.prepareItems(
+            items,
+            currentMediaCount: limits.mediaCount,
+            currentVideoCount: limits.videoCount
+        )
+        viewModel.mediaPreparationDidFinish(adding: outcome.wasCancelled ? [] : outcome.items)
+        mediaAlertMessage = outcome.alertMessage
+        pickedItems = []
+        viewModel.optionalInputFinished()
     }
 
     // MARK: - Sheets
@@ -452,12 +454,6 @@ struct LogClimbView: View {
         case .note:
             LogClimbNoteSheet(note: $viewModel.details.note)
                 .appSheetStyle(.fraction(0.6))
-        case .photo:
-            LogClimbPhotoSheet(
-                selectedPhotos: $viewModel.selectedPhotos,
-                highlightedPhotoId: $viewModel.highlightedPhotoId
-            )
-            .appSheetStyle(.fitted())
         }
     }
 }
@@ -466,7 +462,7 @@ struct LogClimbView: View {
 /// result screen cannot drift apart.
 enum LoggedClimbCopy {
     /// The note under a climb that has not been saved yet and will stay off the leaderboards.
-    /// Two lines at most, so the OPTIONAL chips under it stay clear of the keypad.
+    /// Two lines at most, so the OPTIONAL buttons under it stay clear of the keypad.
     static var offTheBoardsNote: String {
         let ceiling = Int(ClimbPacePolicy.leaderboardCeilingStepsPerMinute).formatted()
         return "Over \(ceiling) steps a minute. This climb will not count on leaderboards."

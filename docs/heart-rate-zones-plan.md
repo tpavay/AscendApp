@@ -153,9 +153,10 @@ How this plan collides with existing CLAUDE.md / project skill rules and the cod
 1. **Watch companion vs. the no-HealthKit-writes rule.** Per the `ascend-live-climbs` skill, the
    live-session background-execution helper "must not write HealthKit workouts or request new
    Health permissions." A watchOS `HKWorkoutSession` *writes a workout to Health by design*.
-   Different component, so not a direct contradiction - and since #437 there is no import facade
-   for it to collide with: Ascend never reads a foreign `HKWorkout`, so a watch-written workout
-   cannot re-enter as a separate session. What it *would* do is publish `heartRate` and
+   Different component, so not a direct contradiction. Since 1.3.0 Ascend imports stair
+   `HKWorkout`s (`docs/apple-health-import.md`), but an imported workout that overlaps an Ascend
+   live climb is never a second climb, so a watch-written workout cannot re-enter as a separate
+   session. What it *would* do is publish `heartRate` and
    `activeEnergyBurned` samples inside the climb's own window, which is exactly what enrichment
    reads - so the risk to design for is Ascend's own writes being read back as enrichment, not a
    duplicate import. See `ascend-apple-health-enrichment`.

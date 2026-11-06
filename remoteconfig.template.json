@@ -154,12 +154,26 @@
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off hides Log it and refuses saving a typed climb, and stops re-deriving a climb's leaderboard status on restore or a steps/time edit; stored statuses and saved climbs are left untouched."
     },
+    "onboarding_answers_profile_write_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops writing birthday, gender, height, weight and city given before sign-in to the profile, plus the target save and Health import after it. They wait on the device for the switch; sign-out drops them."
+    },
+    "weekly_target_writes_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops writing the weekly target (weekly_target_days) to the user record; a change stays on the device, marked unsynced, and goes up when the switch returns."
+    },
     "onboarding_v3_enabled": {
       "defaultValue": {
         "value": "false"
       },
       "valueType": "BOOLEAN",
-      "description": "Rollout switch, ships off. On shows signed-out climbers the 1.3.0 onboarding before sign-in; off keeps the earlier flow whole. Routing and display only; it writes nothing."
+      "description": "Rollout switch, ships off. On shows signed-out climbers the 1.3.0 onboarding before sign-in; off keeps the earlier flow whole. Routing and display only; the profile write has its own switch."
     },
     "weekly_target_reminder_enabled": {
       "defaultValue": {
@@ -188,6 +202,13 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off skips the paywall and welcome gift in the 1.3.0 onboarding, which then ends at sign-in; the paywall after sign-in sells instead. Nothing is bought or stored before sign-in while off."
+    },
+    "apple_health_import_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off stops finding, importing and announcing Apple Health stair workouts, and the background wake for new ones; workouts already found and climbs already imported are untouched, and import resumes from the same anchor."
     }
   },
   "parameterGroups": {},

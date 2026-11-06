@@ -41,6 +41,21 @@ struct HomeThisWeekLineTests {
     }
 
     @Test
+    func aWeekOfClimbsWithNoStepsNamesNoStepsFigure() {
+        let today = WeekConfiguration.calendar().startOfDay(for: Date())
+        let imported = Workout(name: "Climb", date: today, duration: 1_500, steps: 0, floors: 0, source: .appleHealth)
+        func line(_ workouts: [Workout]) -> String {
+            HomeThisWeekLine.lineText(
+                for: WeekActivitySummaryCalculator(workouts: workouts, firstWeekday: WeekConfiguration.mondayFirstWeekday).calculate()
+            )
+        }
+
+        #expect(line([imported]) == "1 climb")
+        #expect(line([imported, workout(on: today, steps: 750, minutes: 10)]) == "2 climbs · 750 steps", "known steps still total")
+        #expect(line([workout(on: today, steps: 0, minutes: 10)]) == "1 climb · 0 steps", "a live climb's zero is a measurement")
+    }
+
+    @Test
     func compactFormatsReadAtAGlance() {
         #expect(WeekActivityFormat.compactValue(750) == "750")
         #expect(WeekActivityFormat.compactValue(7_000) == "7k")

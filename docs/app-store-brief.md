@@ -55,10 +55,11 @@ First Ascent slot. This is the core retention loop.
 - **First Ascents** — permanent "world first" prestige per climb
 - **Best Efforts** — a personal record book (most steps, longest climb, highest avg SPM…)
 - **Routines** — open-ended guided interval sessions (a peer feature to climbs)
-- **Apple Health (optional)** - enriches a climb performed in Ascend. The exact read set lives
-  in `CLAUDE.md` under "What Ascend Is NOT"; take it from there for any listing or disclosure
-  copy. Manual workout logging and Apple Health workout import were removed on 2026-08-08
-  (#437), so neither is a feature to sell.
+- **Apple Health (optional)** - enriches a climb performed in Ascend, and since 1.3.0 imports
+  stair stepper workouts (`docs/apple-health-import.md`). The exact read set lives in
+  `CLAUDE.md` under "What Ascend Is NOT"; take it from there for any listing or disclosure
+  copy. Logging by hand and Apple Health import returned in 1.3.0 as secondary paths, never
+  sold as the way Ascend works (`docs/app-store-ranked-repositioning-proposal.md`).
 - **Share sheet** — Presets cards and transparent stat stickers: copy a card or a
   sticker anywhere, hold a sticker to save it, or send a card to a Story
 

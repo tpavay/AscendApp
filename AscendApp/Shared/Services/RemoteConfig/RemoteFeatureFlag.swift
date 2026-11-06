@@ -105,9 +105,10 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
 
     /// The pre-sign-in onboarding of 1.3.0: selling screens, setup questions and the paywall before
     /// sign-in. Off, a signed-out climber gets the flow that shipped before it, whole. Display and
-    /// routing only - it writes nothing, and the answers it collects stay on the device until a
-    /// later switch-gated step sends them. Unlike a kill switch it ships off, because it is a
-    /// rollout and not a path that must keep running (`docs/remote-config-kill-switches.md`).
+    /// routing only - it writes nothing, and the answers it collects stay on the device until
+    /// ``onboardingAnswersProfileWrite`` lets the post-sign-in hand-off send them. Unlike a kill
+    /// switch it ships off, because it is a rollout and not a path that must keep running
+    /// (`docs/remote-config-kill-switches.md`).
     case onboardingV3 = "onboarding_v3_enabled"
 
     /// Scheduling the local weekly-target nudge. Off, nothing new is scheduled and the pending nudge
@@ -133,6 +134,24 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// follows sign-in today does the selling. A kill switch like the rest: it ships on, because the
     /// whole flow is already dark behind ``onboardingV3``.
     case preAuthPaywall = "preauth_paywall_enabled"
+
+    /// Importing stair workouts from Apple Health as climbs: the discovery pass, the automatic
+    /// import, the Imports screen's import actions and the observer that wakes the app for a new
+    /// workout. Off, every workout already found stays where it is and nothing new is imported or
+    /// announced; turning it back on resumes from the same anchor, so no workout is lost.
+    case appleHealthImport = "apple_health_import_enabled"
+
+    /// Writing the answers a climber gave before signing in - birthday, gender, height, weight and
+    /// city - to their profile right after sign-in, and the days-a-week target save and Health
+    /// history import that follow that write. Off, the answers stay on the device exactly as given
+    /// and the next hand-off with the switch on writes them. Nothing is dropped unless the climber
+    /// signs out, which drops them so the next account on the phone cannot receive them.
+    case onboardingAnswersProfileWrite = "onboarding_answers_profile_write_enabled"
+
+    /// Writing the climber's weekly target (`weekly_target_days`) to their private user record.
+    /// Off, a change stays on the device, marked unsynced, and goes up when the switch returns;
+    /// the target itself keeps working because the device's copy is the one Home reads.
+    case weeklyTargetWrites = "weekly_target_writes_enabled"
 
     var key: String { rawValue }
 
@@ -209,6 +228,12 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Lets the server push announce a new gear event. Ships off. Read by the Cloud Function, not the app."
         case .preAuthPaywall:
             return "Sells before sign-in: the paywall and welcome gift in the 1.3.0 onboarding. Off ends it at sign-in."
+        case .appleHealthImport:
+            return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
+        case .onboardingAnswersProfileWrite:
+            return "Writes the answers given before sign-in to the profile right after sign-in."
+        case .weeklyTargetWrites:
+            return "Writes the weekly target to the climber's user record; off keeps it on the device."
         }
     }
 }

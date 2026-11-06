@@ -34,6 +34,7 @@ export {
   onPublicIdentityPropagationJobWritten,
   onPublicProfileIdentityWritten,
 } from "./publicIdentityPropagation";
+export {publishCityClimberCounts} from "./publicCityClimberCounts";
 export {
   registerPushDevice,
   sendClimbDropNotification,

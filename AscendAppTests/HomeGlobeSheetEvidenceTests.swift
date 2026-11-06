@@ -328,6 +328,16 @@ struct HomeGlobeSheetEvidenceTests {
             attemptStore: AppleHealthEnrichmentAttemptStore(),
             sessionWorkGate: AuthenticatedBootstrapCoordinator()
         )
+        // Import is pointed at a device with no Health and nobody signed in, so the hosted Home
+        // reads no Health, offers no import entry and aims no process-wide writer at the store.
+        let importReader = FakeHealthWorkoutReader()
+        importReader.isHealthDataAvailable = false
+        let importService = AppleHealthImportService(
+            reader: importReader,
+            authorization: EvidenceHealthAuthorization(),
+            sessionWorkGate: AuthenticatedBootstrapCoordinator(),
+            currentUserID: { nil }
+        )
         // Hydrated with no blocks, so the rows show the names the server sent rather
         // than the masked identity an unhydrated block list shows.
         let moderationStore = ModerationStore(repository: EmptyHomeModerationRepository())
@@ -339,6 +349,7 @@ struct HomeGlobeSheetEvidenceTests {
             todayActivity: todayActivity,
             globeViewModel: globeViewModel,
             enrichmentService: enrichmentService,
+            importService: importService,
             detent: detent,
             makeJustClimbSession: makeJustClimbSession,
             sessionRegistry: sessionRegistry
@@ -544,6 +555,7 @@ private struct HostedHomeScreen: View {
     let todayActivity: HomeTodayActivityViewModel
     let globeViewModel: GlobeViewModel
     let enrichmentService: AppleHealthEnrichmentService
+    let importService: AppleHealthImportService
     let detent: BrowseSheetDetent
     let makeJustClimbSession: HomeView.JustClimbSessionFactory
     /// A registry nothing else writes into: the globe these suites measure stands down only for a
@@ -560,6 +572,7 @@ private struct HostedHomeScreen: View {
                 todayActivity: todayActivity,
                 globeViewModel: globeViewModel,
                 enrichmentService: enrichmentService,
+                importService: importService,
                 initialSheetDetent: detent,
                 makeJustClimbSession: makeJustClimbSession,
                 sessionRegistry: sessionRegistry

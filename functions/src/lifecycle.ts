@@ -652,8 +652,9 @@ function normalizeAppleHealthIntegrationChanged(
     throw invalidArgument("Unsupported Apple Health integration status.");
   }
   // Optional, not defaulted: Apple Health auto-import was removed from the app
-  // on 2026-08-08, so current builds omit this field while released binaries
-  // still send it, and the backend has to satisfy both contracts at once
+  // on 2026-08-08 and its 1.3.0 return keeps the setting on the device, so
+  // current builds omit this field while older released binaries still send
+  // it, and the backend has to satisfy both contracts at once
   // (docs/backend-contract-compatibility.md). Absent means "this client has no
   // such concept", which is not the same claim as auto-import being off.
   const fieldNotes: LifecycleFieldNote[] = [];

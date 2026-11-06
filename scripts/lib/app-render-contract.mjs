@@ -206,12 +206,14 @@ export function isTrustedSyntheticRecord(data) {
  * The origin a leaderboard row's source icon reads.
  *
  * Mirrors `FirestoreLeaderboardStats.origin`: one typed climb in the period makes
- * the row typed, and a row written before the server counted them reads as live.
+ * the row typed, then one imported from Apple Health makes it a Health row, and a
+ * row written before the server counted them reads as live.
  * @param {object} data Stored document fields.
- * @return {"live"|"manual"} The origin.
+ * @return {"live"|"manual"|"healthImport"} The origin.
  */
 function renderedOrigin(data) {
-  return (numberValue(data?.typedWorkouts) ?? 0) > 0 ? "manual" : "live";
+  if ((numberValue(data?.typedWorkouts) ?? 0) > 0) return "manual";
+  return (numberValue(data?.importedWorkouts) ?? 0) > 0 ? "healthImport" : "live";
 }
 
 /**

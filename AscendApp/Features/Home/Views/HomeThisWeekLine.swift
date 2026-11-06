@@ -35,9 +35,11 @@ struct HomeThisWeekLine: View {
         firstWeekday: WeekConfiguration.mondayFirstWeekday
     ).calculate()
 
-    /// "0 climbs · 0 steps" on a quiet week: the zeros are the fact, stated as zeros.
+    /// "0 climbs · 0 steps" on a quiet week: the zeros are the fact, stated as zeros. A week whose
+    /// climbs have yet to be given steps has no fact to state, so it names only the climbs.
     static func lineText(for summary: WeekActivitySummary) -> String {
         let climbs = "\(summary.weekWorkoutCount) \(summary.weekWorkoutCount == 1 ? "climb" : "climbs")"
+        guard !summary.weekStepsAreUnknown else { return climbs }
         let steps = "\(WeekActivityFormat.compactValue(summary.weekTotalValue)) steps"
         return "\(climbs) · \(steps)"
     }

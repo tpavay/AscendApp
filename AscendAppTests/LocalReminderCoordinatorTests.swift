@@ -26,6 +26,17 @@ private final class StoredAnswer {
     var isOn = true
 }
 
+/// What the account would answer, so a read after a write sees what the write carried.
+@MainActor
+private final class AccountTarget {
+    var target: WeeklyTarget?
+}
+
+@MainActor
+private final class ProfileReads {
+    var count = 0
+}
+
 /// The weekly nudge follows the week the climber is actually having: this week's climbs, read from
 /// the store, change what it says and when it fires.
 @MainActor
@@ -204,6 +215,144 @@ struct LocalReminderCoordinatorTests {
 
         await waitUntil { !center.pending.isEmpty }
         #expect(center.pending == Set(LocalReminderPlan.weeklyTargetIdentifiers))
+    }
+
+    private func settings(telling reminders: LocalReminderCoordinator) throws -> WeeklyTargetService {
+        let suite = "local-reminder-settings-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let account = AccountTarget()
+        return WeeklyTargetService(
+            store: WeeklyTargetStore(userDefaults: defaults),
+            isWriteEnabled: { true },
+            readRemote: { _ in account.target },
+            writeRemote: { _, target in account.target = target },
+            onTargetChange: { _, target in reminders.weeklyTargetChanged(to: target) },
+            queue: WeeklyTargetSyncQueue()
+        )
+    }
+
+    /// The hand-off run on the real weekly-target service, as the foreground retry runs it.
+    private func handOff(
+        store: PreAuthOnboardingStore,
+        service: WeeklyTargetService,
+        profileReads: ProfileReads = ProfileReads()
+    ) -> OnboardingV3SignInHandOff {
+        OnboardingV3SignInHandOff(
+            seams: .init(
+                completePurchaseTransfer: {},
+                clearPurchaseLedger: {},
+                isProfileWriteEnabled: { true },
+                readProfile: { _ in
+                    profileReads.count += 1
+                    return nil
+                },
+                writeProfile: { _, _, _ in },
+                recordProfileStepFailure: { _ in },
+                importHealthHistory: { _ in false },
+                markPostSignInOnboardingComplete: {},
+                deviceWeeklyTarget: { service.localTarget(for: $0)?.days },
+                saveWeeklyTarget: { userId, days in await service.save(WeeklyTarget(days: days), for: userId) },
+                reconcileWeeklyTarget: { await service.reconcile(for: $0) }
+            ),
+            store: store
+        )
+    }
+
+    /// With the rollout off nothing has handed anything off, and the foreground retry used to treat
+    /// this target as undelivered, delete it, and leave the next reconcile with no target.
+    @Test
+    func aTargetSetInSettingsSurvivesTheForegroundRetryAndKeepsTheNudge() async throws {
+        #expect(!RemoteFeatureFlagStore(snapshot: .shippedDefaults).isEnabled(.onboardingV3))
+        let center = CoordinatorRecordingCenter()
+        let store = try answersStore(target: nil)
+        store.update { $0.usualClimbMinutes = nil }
+        let reminders = coordinator(center: center, store: store, now: monday)
+        reminders.configure(modelContext: try context())
+        let service = try settings(telling: reminders)
+        await service.save(WeeklyTarget(days: 4), for: "alice")
+
+        let profileReads = ProfileReads()
+        let outcome = await handOff(store: store, service: service, profileReads: profileReads)
+            .retryPendingAnswers(userId: "alice", email: nil)
+        await reminders.reconcile()
+
+        #expect(outcome == .complete)
+        #expect(profileReads.count == 0, "a foreground costs no read for a target nobody has to deliver")
+        #expect(store.answers().weeklyTargetDays == 4)
+        #expect(center.pending == Set(LocalReminderPlan.weeklyTargetIdentifiers))
+    }
+
+    @Test
+    func aTargetChosenBeforeSignInReachesTheServiceAndKeepsTheNudge() async throws {
+        let center = CoordinatorRecordingCenter()
+        let store = try answersStore(target: 4)
+        let reminders = coordinator(center: center, store: store, now: monday)
+        reminders.configure(modelContext: try context())
+        let service = try settings(telling: reminders)
+
+        let outcome = await handOff(store: store, service: service)
+            .runAfterSignIn(userId: "alice", email: nil)
+        await reminders.reconcile()
+
+        #expect(outcome == .complete)
+        #expect(service.localTarget(for: "alice")?.days == 4)
+        #expect(store.answers().weeklyTargetDays == 4)
+        #expect(center.pending == Set(LocalReminderPlan.weeklyTargetIdentifiers))
+    }
+
+    @Test
+    func clearingTheTargetInSettingsStopsTheNudge() async throws {
+        let center = CoordinatorRecordingCenter()
+        let store = try answersStore(target: 3)
+        let reminders = coordinator(center: center, store: store, now: monday)
+        reminders.configure(modelContext: try context())
+        await reminders.reconcile()
+        #expect(!center.pending.isEmpty)
+
+        try await settings(telling: reminders).save(nil, for: "alice")
+
+        await waitUntil { center.pending.isEmpty }
+        #expect(center.pending.isEmpty)
+        await reminders.reconcile()
+        #expect(center.pending.isEmpty, "no later reconcile re-arms a nudge for a cleared target")
+        #expect(store.answers().weeklyTargetDays == nil)
+    }
+
+    @Test
+    func settingTheTargetInSettingsReachesTheNudge() async throws {
+        let center = CoordinatorRecordingCenter()
+        let store = try answersStore(target: nil)
+        let reminders = coordinator(center: center, store: store, now: monday)
+        reminders.configure(modelContext: try context())
+        await reminders.reconcile()
+        #expect(center.pending.isEmpty)
+
+        try await settings(telling: reminders).save(WeeklyTarget(days: 3), for: "alice")
+
+        await waitUntil { !center.pending.isEmpty }
+        #expect(center.pending == Set(LocalReminderPlan.weeklyTargetIdentifiers))
+        #expect(store.answers().weeklyTargetDays == 3)
+    }
+
+    /// One climb already meets a target of one, so only the changed target can arm this week's nudge.
+    @Test
+    func changingTheTargetInSettingsReachesTheNudge() async throws {
+        let center = CoordinatorRecordingCenter()
+        let store = try answersStore(target: 1)
+        let modelContext = try context()
+        climb(on: 2, in: modelContext)
+        try modelContext.save()
+        let reminders = coordinator(center: center, store: store, now: monday)
+        reminders.configure(modelContext: modelContext)
+        await reminders.reconcile()
+        #expect(!center.pending.contains(LocalReminderPlan.thisWeekIdentifier))
+
+        try await settings(telling: reminders).save(WeeklyTarget(days: 3), for: "alice")
+
+        await waitUntil { center.pending.contains(LocalReminderPlan.thisWeekIdentifier) }
+        #expect(center.pending.contains(LocalReminderPlan.thisWeekIdentifier))
+        #expect(store.answers().weeklyTargetDays == 3)
     }
 
     @Test

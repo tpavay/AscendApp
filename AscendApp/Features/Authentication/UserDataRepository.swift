@@ -23,6 +23,8 @@ struct UserDisplayNameData: Sendable {
     let locationRegion: String?
     let onboardingFirstClimbId: String?
     let joinedAt: Date?
+    /// Days a week the climber chose to climb, or nil when they skipped it.
+    let weeklyTarget: WeeklyTarget?
 
     init(_ data: [String: Any]?) {
         self.firstName = data?["firstName"] as? String
@@ -63,6 +65,7 @@ struct UserDisplayNameData: Sendable {
         } else {
             self.joinedAt = nil
         }
+        self.weeklyTarget = (data?["weekly_target_days"] as? NSNumber).flatMap { WeeklyTarget(days: $0.intValue) }
     }
 
     var age: Int? {
@@ -97,6 +100,10 @@ struct UserDisplayNameData: Sendable {
         }
         return displayName
     }
+}
+
+enum WeeklyTargetWriteError: Error {
+    case accountRecordMissing
 }
 
 final class UserDataRepository: Sendable {
@@ -494,6 +501,20 @@ final class UserDataRepository: Sendable {
                 onboardingFirstClimbId: climbId
             )
         }
+    }
+
+    /// Sets or clears the climber's weekly target on their private user record. It is never
+    /// mirrored publicly, and a missing record is not created for it: the target waits on the
+    /// device until the record exists (`WeeklyTargetService`).
+    func updateWeeklyTarget(userId: String, target: WeeklyTarget?) async throws {
+        let userRef = db.collection("users").document(userId)
+        let document = try await userRef.getDocument()
+        guard document.exists else { throw WeeklyTargetWriteError.accountRecordMissing }
+
+        try await userRef.setData([
+            "weekly_target_days": target.map { $0.days as Any } ?? FieldValue.delete(),
+            "lastUpdated": FieldValue.serverTimestamp()
+        ], merge: true)
     }
 
     private func updateUserAndPublicProfile(

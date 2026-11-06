@@ -271,6 +271,7 @@ test("a row counts only the typed climbs it was built from", () => {
   const weekly = rows.find((row) => row.timeFrame === "weekly");
   assert.equal(weekly?.aggregate.totalWorkouts, 3);
   assert.equal(weekly?.aggregate.typedWorkouts, 1);
+  assert.equal(weekly?.aggregate.importedWorkouts, 1);
 });
 
 // One policy, stated once. `isValidWorkoutSource` in `firestore.rules` decides
@@ -461,6 +462,7 @@ test("one honest session lands on every board window", () => {
     totalDuration: 1800,
     stepsPerMinute: 100,
     typedWorkouts: 0,
+    importedWorkouts: 0,
   });
   assert.equal(weekly?.periodKey, "2026-W31");
   assert.equal(
