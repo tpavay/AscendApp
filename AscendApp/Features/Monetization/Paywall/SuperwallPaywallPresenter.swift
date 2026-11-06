@@ -501,11 +501,14 @@ private extension SuperwallPaywallPresenter {
         track(event, identity: owner.identity)
     }
 
-    private func track(
-        _ event: any TelemetryEvent,
-        presentationID: String?
+    /// A paywall the dashboard chains onto a registered placement reports the SDK's own trigger as
+    /// its placement, and `SuperwallEventRelay` is what reports it.
+    private func trackPaywallEvent(
+        _ event: PaywallAnalyticsEvent,
+        context: PaywallAnalyticsContext
     ) {
-        guard let owner = telemetryOwner(for: presentationID) else { return }
+        guard SuperwallPlacement(rawValue: context.placement) != nil,
+              let owner = telemetryOwner(for: context.presentationID) else { return }
         track(event, owner: owner)
     }
 }
@@ -631,6 +634,13 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
     }
 
     func handleSuperwallEvent(withInfo eventInfo: SuperwallEventInfo) {
+        if let record = SuperwallEventRelay.record(
+            for: SuperwallEventObjc(event: eventInfo.event),
+            params: eventInfo.params
+        ) {
+            telemetry.track(record)
+        }
+
         switch eventInfo.event {
         case .transactionStart(let product, let paywallInfo):
             handleTransactionStarted(
@@ -640,24 +650,24 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
 
         case .transactionComplete(_, let product, let transactionType, let paywallInfo):
             let context = PaywallAnalyticsContext(paywallInfo: paywallInfo)
-            track(
-                PaywallAnalyticsEvent.transactionCompleted(
+            trackPaywallEvent(
+                .transactionCompleted(
                     context: context,
                     productID: product.productIdentifier,
                     transactionType: transactionType.description
                 ),
-                presentationID: context.presentationID
+                context: context
             )
 
         case .transactionFail(let error, let paywallInfo):
             let context = PaywallAnalyticsContext(paywallInfo: paywallInfo)
-            track(
-                PaywallAnalyticsEvent.transactionFailed(
+            trackPaywallEvent(
+                .transactionFailed(
                     context: context,
                     errorType: error.analyticsType,
                     productID: error.analyticsProductID
                 ),
-                presentationID: context.presentationID
+                context: context
             )
 
         case .transactionAbandon(let product, let paywallInfo):
@@ -668,12 +678,12 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
 
         case .transactionRestore(let restoreType, let paywallInfo):
             let context = PaywallAnalyticsContext(paywallInfo: paywallInfo)
-            track(
-                PaywallAnalyticsEvent.restoreCompleted(
+            trackPaywallEvent(
+                .restoreCompleted(
                     context: context,
                     restoreType: restoreType.analyticsType
                 ),
-                presentationID: context.presentationID
+                context: context
             )
 
         default:
@@ -688,7 +698,8 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
     }
 
     func handlePaywallShown(context: PaywallAnalyticsContext) {
-        guard let presentationID = context.presentationID,
+        guard SuperwallPlacement(rawValue: context.placement) != nil,
+              let presentationID = context.presentationID,
               let owner = telemetryOwner(for: presentationID),
               shownPresentationIDs.insert(presentationID).inserted else {
             return
@@ -697,18 +708,14 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
             PaywallAnalyticsEvent.shown(context: context),
             owner: owner
         )
-        guard SuperwallPlacement(rawValue: context.placement) != nil,
-              let userID = owner.identity?.userID else {
+        guard let userID = owner.identity?.userID else {
             return
         }
         recordLifecyclePaywallShown(context.placement, userID)
     }
 
     func handlePaywallDismissed(context: PaywallAnalyticsContext) {
-        track(
-            PaywallAnalyticsEvent.dismissed(context: context),
-            presentationID: context.presentationID
-        )
+        trackPaywallEvent(.dismissed(context: context), context: context)
         guard SuperwallPlacement(rawValue: context.placement) != nil,
               let userID = telemetryOwner(for: context.presentationID)?.identity?.userID else {
             return
@@ -728,22 +735,16 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
             identity: owner.identity,
             productID: productID
         )
-        track(
-            PaywallAnalyticsEvent.transactionStarted(
-                context: context,
-                productID: productID
-            ),
-            owner: owner
+        trackPaywallEvent(
+            .transactionStarted(context: context, productID: productID),
+            context: context
         )
     }
 
     func handleTransactionAbandoned(context: PaywallAnalyticsContext, productID: String) {
-        track(
-            PaywallAnalyticsEvent.transactionAbandoned(
-                context: context,
-                productID: productID
-            ),
-            presentationID: context.presentationID
+        trackPaywallEvent(
+            .transactionAbandoned(context: context, productID: productID),
+            context: context
         )
     }
 }

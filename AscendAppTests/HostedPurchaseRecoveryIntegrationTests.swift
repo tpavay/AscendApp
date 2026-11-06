@@ -333,7 +333,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
     }
 
     @Test
-    func theOfferFunnelIsReadableAndSaysWhichPaywallItWas() async {
+    func theGateKeepsItsOwnPaywallEventsAndTheOfferEmitsNoneWhileStayingOwned() async {
         let harness = makeHarness()
         harness.openHostedPresentation()
         #expect(harness.presenter.handlePresentationFromHandler(
@@ -345,24 +345,157 @@ struct HostedPurchaseRecoveryIntegrationTests {
 
         harness.presenter.handleTransactionStarted(
             context: harness.offerContext,
-            productID: "ascend_staging_yearly_welcome"
+            productID: harness.productID
         )
         harness.presenter.handleTransactionAbandoned(
             context: harness.offerContext,
-            productID: "ascend_staging_yearly_welcome"
+            productID: harness.productID
         )
         harness.presenter.handlePaywallDismissed(context: harness.offerContext)
 
-        let shown = harness.sink.records.filter { $0.name == "paywall_shown" }
-        #expect(shown.map { $0.parameters["source"] } == [.string("access_gate"), .string("decline_offer")])
-        #expect(shown.last?.parameters["placement"] == .string("paywall_decline"))
-        #expect(shown.last?.parameters["paywall_name"] == .string("Decline Offer"))
+        let paywallEvents = harness.sink.records.filter { $0.name.hasPrefix("paywall_") && $0.name != "paywall_reached" }
+        #expect(paywallEvents.map(\.name) == ["paywall_shown"])
+        #expect(paywallEvents.first?.parameters["placement"] == .string("app_access_gate"))
+        #expect(harness.contextStore.takeContext(for: harness.productID)?.analytics.presentationID == "offer-presentation")
+    }
 
-        for name in ["paywall_transaction_started", "paywall_transaction_abandoned", "paywall_dismissed"] {
-            let record = harness.sink.records.first { $0.name == name }
-            #expect(record?.parameters["source"] == .string("decline_offer"), "\(name)")
-            #expect(record?.parameters["paywall_identifier"] == .string("offer-paywall"), "\(name)")
+    @Test
+    func theRelayForwardsTheTenFunnelEventsWithOnlyTheAllowedPropertiesAndDropsTheRest() {
+        let expected: [SuperwallEventObjc: String] = [
+            .paywallOpen: "sw_paywall_open",
+            .paywallClose: "sw_paywall_close",
+            .paywallDecline: "sw_paywall_decline",
+            .transactionStart: "sw_transaction_start",
+            .transactionComplete: "sw_transaction_complete",
+            .transactionFail: "sw_transaction_fail",
+            .transactionAbandon: "sw_transaction_abandon",
+            .transactionRestore: "sw_transaction_restore",
+            .subscriptionStart: "sw_subscription_start",
+            .freeTrialStart: "sw_free_trial_start"
+        ]
+        let params: [String: Any] = [
+            "paywall_name": "Decline Offer",
+            "paywall_identifier": "offer-paywall",
+            "presented_by_event_name": "paywall_decline",
+            "product_id": "ascend_yearly_welcome",
+            "presentation_id": "offer-presentation",
+            "app_transaction_id": "not-for-analytics",
+            "error_message": "not-for-analytics"
+        ]
+
+        for event in SuperwallEventObjc.allCases {
+            let record = SuperwallEventRelay.record(for: event, params: params)
+            #expect(record?.name == expected[event])
+            guard expected[event] != nil else { continue }
+            #expect(record?.parameters == [
+                "paywall_name": .string("Decline Offer"),
+                "paywall_identifier": .string("offer-paywall"),
+                "placement": .string("paywall_decline"),
+                "product_id": .string("ascend_yearly_welcome"),
+                "presentation_id": .string("offer-presentation")
+            ])
         }
+    }
+
+    @Test
+    func anEventOutsideTheFunnelReachesNoAnalyticsThroughTheDelegate() {
+        let harness = makeHarness()
+
+        harness.presenter.handleSuperwallEvent(
+            withInfo: SuperwallEventInfo(event: .appOpen, params: ["paywall_name": "Gate"])
+        )
+
+        #expect(harness.sink.records.contains { $0.name.hasPrefix("sw_") } == false)
+    }
+
+    // MARK: - RevenueCat throws after Apple has answered
+
+    @Test
+    func anErrorAfterANewVerifiedTransactionHoldsAndRecoversOnEitherPaywall() async {
+        let harness = makeHarness(transactionIDs: [nil, 77])
+        harness.openHostedPresentation()
+        harness.closeFirstPaywallForOffer()
+        harness.openOffer()
+        harness.presenter.handleTransactionStarted(
+            context: harness.offerContext,
+            productID: harness.productID
+        )
+
+        let execution = await harness.executor.executePurchaseWithContext(
+            productID: harness.productID
+        ) {
+            throw NSError(domain: ErrorCode.errorDomain, code: ErrorCode.networkError.rawValue)
+        }
+        _ = await harness.controller.resolveHostedExecution(execution)
+
+        #expect(harness.manager.pendingPurchaseHold == .unconfirmedCharge)
+        #expect(harness.coordinator.phase == .verificationUnavailable)
+        #expect(harness.dismissal.count == 1)
+    }
+
+    @Test
+    func anErrorWithNoTransactionOrOnlyAnOldOneIsAnOrdinaryFailureWithNoHold() async {
+        let scripts: [[UInt64?]] = [[nil, nil], [55, 55]]
+        for script in scripts {
+            let harness = makeHarness(transactionIDs: script)
+
+            let execution = await harness.executor.executePurchaseWithContext(
+                productID: harness.productID
+            ) {
+                throw NSError(domain: ErrorCode.errorDomain, code: ErrorCode.networkError.rawValue)
+            }
+
+            guard case .failed(let error) = execution.result else {
+                Issue.record("Expected the original failure")
+                continue
+            }
+            #expect(!(error is RevenueCatPurchaseControllerError))
+            #expect(harness.manager.pendingPurchaseHold == nil)
+        }
+    }
+
+    // MARK: - Back in a legacy pass with a decline campaign live
+
+    @Test
+    func aV1BackWithADeclineCampaignLiveReturnsToTheStageAndDismissesTheOfferOnArrival() async {
+        var reopenCount = 0
+        let harness = makeHarness(onRequestOnboardingBack: {
+            reopenCount += 1
+            return true
+        })
+        harness.openHostedPresentation()
+        harness.presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back.rawValue)
+
+        harness.closeFirstPaywallForOffer()
+
+        #expect(reopenCount == 1)
+        #expect(harness.coordinator.phase != .openingHosted)
+        let back = harness.sink.records.filter { $0.name == "onboarding_back_tapped" }
+        #expect(back.count == 1)
+        #expect(back.first?.parameters["flow_version"] == .string("v1"))
+
+        await harness.presenter.drainPresentationOperationsForTesting()
+        let dismissalsBeforeOffer = harness.dismissal.count
+        #expect(harness.presenter.handlePresentationFromHandler(
+            revision: harness.presenterRevision,
+            context: harness.offerContext
+        ) == false)
+        await harness.presenter.drainPresentationOperationsForTesting()
+        #expect(harness.dismissal.count == dismissalsBeforeOffer + 1)
+        #expect(reopenCount == 1)
+    }
+
+    @Test
+    func aV1BackThatCouldNotReopenCountsNoBackAndOffersNoPlans() {
+        let harness = makeHarness(onRequestOnboardingBack: { false })
+        harness.openHostedPresentation()
+        harness.presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back.rawValue)
+
+        harness.closeFirstPaywallForOffer()
+
+        #expect(harness.coordinator.phase == .backUnavailable)
+        #expect(harness.coordinator.showsPurchaseControls == false)
+        #expect(harness.sink.records.contains { $0.name == "onboarding_back_tapped" } == false)
     }
 
     @Test
@@ -562,7 +695,9 @@ struct HostedPurchaseRecoveryIntegrationTests {
     private func makeHarness(
         identityMatchesPurchase: Bool = true,
         watchdogFires: Bool = false,
-        onRequestAccountDeletion: (@MainActor () -> Void)? = nil
+        onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
+        onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
+        transactionIDs: [UInt64?] = []
     ) -> HostedHarness {
         let identity = MonetizationIdentityTransition(revision: 41, userID: "hosted-user")
         let contextStore = PaywallTransactionContextStore()
@@ -570,6 +705,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
         let telemetry = makeTestTelemetry(sink: sink)
         telemetry.setUserId("hosted-user")
         let router = HostedRecoveryRouterBox()
+        let transactionLookups = ScriptedTransactionLookups(transactionIDs)
         let executor = RevenueCatPurchaseExecutor(
             telemetry: telemetry,
             transactionContextStore: contextStore,
@@ -578,7 +714,8 @@ struct HostedPurchaseRecoveryIntegrationTests {
             refreshEntitlementState: { .refreshed(.inactive) },
             currentIdentityGeneration: { identityMatchesPurchase ? identity : nil },
             adoptEntitlementState: { _, candidate in candidate == identity },
-            holdPendingPurchase: { router.manager?.holdPendingPurchase($0) }
+            holdPendingPurchase: { router.manager?.holdPendingPurchase($0) },
+            latestTransactionID: { _ in transactionLookups.next() }
         )
         let controller = RevenueCatPurchaseController(
             executor: executor,
@@ -618,6 +755,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
                     restorer: { manager }
                 ),
                 telemetry: telemetry,
+                onRequestOnboardingBack: onRequestOnboardingBack,
                 onRequestAccountDeletion: onRequestAccountDeletion,
                 sleep: { @Sendable _ in
                     guard !watchdogFires else { return }
@@ -775,6 +913,19 @@ private final class HostedHarness {
     }
 
     var registrations: [String] { registrationRecorder.placements }
+}
+
+@MainActor
+private final class ScriptedTransactionLookups {
+    private var remaining: [UInt64?]
+
+    init(_ transactionIDs: [UInt64?]) {
+        remaining = transactionIDs
+    }
+
+    func next() -> UInt64? {
+        remaining.isEmpty ? nil : remaining.removeFirst()
+    }
 }
 
 @MainActor

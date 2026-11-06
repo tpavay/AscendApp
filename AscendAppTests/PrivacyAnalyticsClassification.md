@@ -37,12 +37,22 @@ Event parameters are not scanned, which is why they are inventoried here.
 | Other Diagnostic Data | `app_build_version`, `os_version`, `device_type`, `period_start_unix`, `period_end_unix`, `exception_type`, `exception_code`, `signal`, `termination_reason`, `has_virtual_memory_region_info`, `has_exception_reason`, `exception_name`, `exception_class`, `exception_message`, `fingerprint` | `app_crash_diagnostic` (`AppCrashDiagnosticSummary`), one per `MXCrashDiagnostic` iOS hands the app on the launch after a crash. The build, OS and device model come from the diagnostic's own metadata; the exception numbers and the signal are integers; `termination_reason` and `exception_message` are the system's text about the crash, bounded to 100 characters, and `fingerprint` is a SHA-256 of those same facts. It describes the process that died - no account, no climb, nothing about another climber |
 | Other Diagnostic Data | `failure_class`, `error_domain`, `error_code`, `forced`, `retry_recovered`, `access_reconcile_attempted`, `resolution`, `network`, `launch_age`, `foreground_age` | `leaderboard_refresh_failed`, emitted when a leaderboard load did not get the server's standings on the first ask. Closed enums, booleans, an `NSError` domain and integer code, the kind of network link (`wifi`, `cellular`, `wired`, `other`, `none`), and two banded process ages. It never carries error text, a network name, an address, or anything about another climber; its `metric` and `time_frame` are the same board selectors `leaderboard_viewed` already sends |
 
+## Superwall event relay
+
+`SuperwallEventRelay` forwards a fixed set of Superwall SDK events to analytics through the telemetry facade, from `SuperwallPaywallPresenter.handleSuperwallEvent`.
+
+| Data type | Events | Properties |
+| --- | --- | --- |
+| Purchase History | `sw_paywall_open`, `sw_paywall_close`, `sw_paywall_decline`, `sw_transaction_start`, `sw_transaction_complete`, `sw_transaction_fail`, `sw_transaction_abandon`, `sw_transaction_restore`, `sw_subscription_start`, `sw_free_trial_start` | `paywall_name`, `paywall_identifier`, `placement`, `product_id`, `presentation_id` |
+
+Those five properties are an allowlist and name a paywall, a product and a presentation, never a person.
+Every other SDK param is dropped, including `app_transaction_id`.
+
 ## Parameters whose classification depends on the call site
 
 - `selected_value` on `leaderboard_filter_changed` is **Health** when `filter_type` is `body_weight`, **Other Data Types** when it is `age_group`, and **Coarse Location** when it is `location`.
 - `answer_id` and `answer_count` on `onboarding_question_answered` are **Fitness** for the `stair_stepper_baseline`, `exercise_level`, `goal`, `motivation`, and `plan` questions, and **Other Data Types** for the `notifications` and `first_climb` questions.
 - `outcome` is **Fitness** on `live_climb_attempt_saved`, and **Purchase History** on every `revenuecat_purchase_*` and `revenuecat_restore_*` terminal event.
-- `source` is **Purchase History** on every `paywall_*` event built by `PaywallAnalyticsEvent`, where it is `access_gate` for a paywall Ascend registered and `decline_offer` for one the Superwall dashboard chained onto it, and it is the raw call-site label on `paywall_reached` and `onboarding_paywall_reached`.
 - `session_type` is **Fitness** on workout and routine events, and **Product Interaction** on `app_session_started`.
 - `entitlement_active` is **Purchase History**, and it is logged only where the entitlement answer was actually resolved: `revenuecat_purchase_completed`, `revenuecat_restore_completed`, and `revenuecat_restore_not_found`. `revenuecat_restore_failed` omits it deliberately - an unresolved restore is not evidence of a lapsed subscription.
 - `error_type` on every `revenuecat_purchase_failed`, `revenuecat_restore_failed` and `paywall_transaction_failed` is a **Purchase History** value drawn from the closed `RevenueCatAnalyticsErrorType` set. It is never raw error text, so it stays low-cardinality and carries no vendor or account detail.

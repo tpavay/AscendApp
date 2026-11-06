@@ -116,14 +116,21 @@ The decline offer is Superwall's, with no Ascend code:
 - The SDK dismisses the first paywall with `PaywallCloseReason.forNextPaywall` and presents the offer itself, through the first registration's own state publisher (`Superwall.internallyHandleImplicitTrigger` reuses `lastPresentationItems.statePublisher`).
   So the offer reports to the handler Ascend registered, and the presenter treats a `forNextPaywall` dismissal as `.followOnPaywallOpening`: nothing has ended, the registration stays, and the gate waits behind the opening watchdog rather than starting its native fallback.
   This is generic: any paywall the dashboard chains onto a registered placement is owned the same way, with no gift-specific code.
-- Because the offer is owned by the same attempt, it behaves like the first paywall: `paywall_shown`, `paywall_transaction_*`, `paywall_restore_completed` and `paywall_dismissed` fire for it, carry its `paywall_name` and `paywall_identifier`, and say `placement=paywall_decline` and `source=decline_offer` where the first paywall says `placement=app_access_gate` and `source=access_gate`.
-  Those are Ascend's own `PaywallAnalyticsEvent` events; Superwall's events do not reach Mixpanel.
-  A `delete_account` control on the offer works as it does on the first paywall.
-- Ownership and SDK ordering are read from the SuperwallKit 4.17.0 source and held by the tests of the presenter and the gate, not exercised against a live decline campaign: the campaign is the captain's to build, so confirm the hand-off on a device once it exists.
-- A climber Apple has not finished charging can never be sold to twice.
-  An Ask to Buy or a charge RevenueCat cannot confirm, on either paywall or the native fallback, writes `PendingPurchaseHoldStore` where the purchase executes, and the gate then refuses to open a paywall or list plans - across a closed paywall and a relaunch - showing `Do not purchase again` with Check access, Restore, Manage and support.
+- Because the offer is owned by the same attempt, its purchases are verified and recovered like the first paywall's, and a `delete_account` control on it works.
+  That ownership exists for money safety and routing only: the app emits no `paywall_shown`, `paywall_transaction_*` or `paywall_dismissed` for the offer.
+- Analytics comes from two places, and neither is automatic.
+  Revenue events (`sw_trial_start`, `sw_subscription_start`, `sw_renewal`, `sw_intro_offer_*` and so on, by product) come from Superwall's Mixpanel integration, which requires the App Store Connect connection on the Superwall side.
+  Paywall funnel events come from `SuperwallEventRelay`, which forwards Superwall's SDK events from `handleSuperwallEvent` as `sw_paywall_open`, `sw_paywall_close`, `sw_paywall_decline`, `sw_transaction_start`, `sw_transaction_complete`, `sw_transaction_fail`, `sw_transaction_abandon`, `sw_transaction_restore`, `sw_subscription_start` and `sw_free_trial_start`, with one rule for every paywall.
+  Read the split from their `placement` (`app_access_gate` or `paywall_decline`), `paywall_name` and `paywall_identifier`.
+  Ascend's `paywall_*` events still fire for the access gate for continuity; they overlap the relay and can be retired after launch.
+- Ownership, SDK ordering and the `sw_*` property keys are read from the SuperwallKit 4.17.0 source and held by the tests of the presenter and the gate, not exercised against a live decline campaign: the campaign is the captain's to build, so confirm the hand-off on a device once it exists.
+- The gate stops selling once Ascend can see a charge it has not confirmed.
+  An Ask to Buy, a purchase RevenueCat completed without confirming the entitlement, or a purchase RevenueCat threw an error for while StoreKit shows a new verified transaction for that product writes `PendingPurchaseHoldStore` where the purchase executes.
+  "New" means a transaction id different from the one StoreKit held before the purchase, so a lapsed subscriber's old transaction does not lock them, and an error with no new transaction is an ordinary failure with no hold.
+  While a hold stands the gate refuses to open a paywall or list plans - across a closed paywall and a relaunch - showing `Do not purchase again` with Check access, Restore, Manage and support.
   Access arriving or signing out ends the hold.
   A restore that finds nothing ends an Ask to Buy hold, because a declined request reads the same as an undecided one and must not stay locked; it never ends a hold on a charge.
+  What this does not guarantee: signing out ends the hold, and StoreKit can only answer for this device's Apple ID, so a charge StoreKit has not yet recorded when the error arrives reads as no charge.
 - When both paywalls are closed:
   the offer closes without a further offer (the SDK does not chain from `paywall_decline`), and the climber is left on the gate's native fallback - `No purchase was made. Choose a plan below.` - with the Yearly and Lifetime plans, Restore, Terms, Privacy, support, Sign out and Delete account.
   If Superwall cannot load at all, the same fallback opens after the 8-second opening deadline (`Plans took too long to open. Choose a plan below.`), and the same deadline covers an offer that never opens.
@@ -349,6 +356,9 @@ Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an
 
 The paywall carries one chrome control: a back arrow in the top-left that returns the climber to the last onboarding step.
 During a v3 onboarding pass there is no step behind the paywall, so the same arrow is a plain close: a decline offer fires if the dashboard has one, and the climber otherwise lands on the native fallback, never a v1 stage.
+In a v1 pass the arrow still returns to the last onboarding step when a `paywall_decline` campaign is live.
+The close chained after `back` always reaches the SDK's decline check, and no client call stops it, so the offer can begin to appear before the gate dismisses it on arrival: `sw_paywall_open` and `sw_paywall_decline` fire for that back and the offer can be seen briefly.
+Removing that flash needs a dashboard change, because v3 depends on the same chained close.
 It carries no close or X control at all.
 Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
 

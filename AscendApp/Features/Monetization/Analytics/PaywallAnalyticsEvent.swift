@@ -46,16 +46,9 @@ struct PaywallAnalyticsContext: Sendable, Hashable {
         self.dismissReason = String(describing: paywallInfo.closeReason).nilIfBlank
     }
 
-    /// A paywall the dashboard chains onto a registered placement reports the SDK's own trigger as
-    /// its placement (`paywall_decline`), never a name Ascend registers.
-    var source: String {
-        SuperwallPlacement(rawValue: placement) == nil ? "decline_offer" : "access_gate"
-    }
-
     var parameters: [String: TelemetryValue] {
         var parameters: [String: TelemetryValue] = [
             "placement": .string(placement),
-            "source": .string(source),
             "paywall_identifier": .string(paywallIdentifier),
             "paywall_name": .string(paywallName),
             "presented_by": .string(presentedBy),

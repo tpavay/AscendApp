@@ -96,6 +96,9 @@ final class RevenueCatPurchaseController: PurchaseController {
             },
             holdPendingPurchase: { hold in
                 coordinator().holdPendingPurchase(hold)
+            },
+            latestTransactionID: { productID in
+                await RevenueCatPurchaseExecutor.storeKitLatestTransactionID(productID: productID)
             }
         )
         self.restoreService = restoreService ?? .shared

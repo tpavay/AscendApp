@@ -623,7 +623,6 @@ final class PaywallPresenterSpy: PaywallPresenting {
     private(set) var registeredSource: String?
     private(set) var registrations: [SuperwallPlacement] = []
     private(set) var subscriptionStatuses: [Set<String>] = []
-    /// Every attribute write in order; a `nil` value is a removal.
     private var outcomeHandler: (@MainActor (PaywallPresentationOutcome) -> Void)?
 
     init(isConfigured: Bool = true) {

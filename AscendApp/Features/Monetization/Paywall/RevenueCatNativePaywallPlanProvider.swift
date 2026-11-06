@@ -45,6 +45,9 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
             },
             holdPendingPurchase: { hold in
                 coordinator().holdPendingPurchase(hold)
+            },
+            latestTransactionID: { productID in
+                await RevenueCatPurchaseExecutor.storeKitLatestTransactionID(productID: productID)
             }
         )
     }
