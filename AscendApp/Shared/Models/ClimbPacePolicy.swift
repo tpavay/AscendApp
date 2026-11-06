@@ -93,18 +93,38 @@ enum ClimbPacePolicy {
         return .withinCeiling
     }
 
+    /// Whether a climb began before its climber's account did.
+    ///
+    /// Leaderboards count from the day a climber joins, so it is fair for everyone: a climb nobody
+    /// measured that started earlier is history. It fills the climber's own records, streak and
+    /// personal bests and never a board. `accountCreatedAt` is Firebase Auth's creation time, the
+    /// clock the server ranks against (`startedBeforeAccount` in `functions/src/leaderboardStats.ts`),
+    /// and `SharedTestVectors/pre-join-unmeasured-climb-vector.json` holds the two to the same
+    /// answers. A device that does not know the date cannot judge, so it says no and leaves the
+    /// verdict to the server, which treats an account it cannot date as before every climb.
+    static func startedBeforeAccount(_ startedAt: Date, accountCreatedAt: Date?) -> Bool {
+        guard let accountCreatedAt else { return false }
+        return startedAt < accountCreatedAt
+    }
+
     /// What this device concludes about a climb's leaderboard standing.
     ///
     /// A live climb keeps today's behaviour: every one is `eligible` here, and the 220 gate plus
     /// the server's own derivation are what bound it. Anything else is judged on pace, and a climb
     /// with no steps has none - it is an entry still waiting for its number, and the server will
-    /// not count it either (`parseEligibleWorkout`).
+    /// not count it either (`parseEligibleWorkout`). A climb from before the account is off the
+    /// boards whatever its pace, and stays there when its steps are edited.
     static func leaderboardStatus(
         origin: ClimbOrigin,
         steps: Int,
-        duration: TimeInterval
+        duration: TimeInterval,
+        startedAt: Date? = nil,
+        accountCreatedAt: Date? = nil
     ) -> LeaderboardStatus {
         guard origin != .live else { return .eligible }
+        if let startedAt, startedBeforeAccount(startedAt, accountCreatedAt: accountCreatedAt) {
+            return .excluded
+        }
         guard stepsPerMinute(steps: steps, duration: duration) != nil else { return .excluded }
         return verdict(steps: steps, duration: duration).leaderboardStatus
     }

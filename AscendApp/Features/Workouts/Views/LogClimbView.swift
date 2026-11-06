@@ -473,6 +473,10 @@ enum LoggedClimbCopy {
         "\(paceOverLimit(stepsPerMinute)), so this climb stays off the leaderboards. Edit the steps or time and it ranks."
     }
 
+    /// The note on a saved climb dated before the climber joined, which is off the leaderboards
+    /// whatever its pace: leaderboards count from the day a climber joins.
+    static let savedBeforeJoiningNote = "This climb is from before you joined, so it stays off the leaderboards. It still counts for your history and personal bests."
+
     private static func paceOverLimit(_ stepsPerMinute: Double) -> String {
         let pace = Int(stepsPerMinute.rounded()).formatted()
         let ceiling = Int(ClimbPacePolicy.leaderboardCeilingStepsPerMinute).formatted()

@@ -141,6 +141,13 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// announced; turning it back on resumes from the same anchor, so no workout is lost.
     case appleHealthImport = "apple_health_import_enabled"
 
+    /// The one-time backfill of stair workouts Apple Health held before the climber joined, which
+    /// they asked for on onboarding's "We found your climbs". Off, nothing older than the join date
+    /// is filed or imported and the workouts it found stay on the device; the next run with the
+    /// switch on brings in whatever is still waiting. It sits beside ``appleHealthImport``, which
+    /// still gates every climb it creates.
+    case appleHealthHistoryImport = "apple_health_history_import_enabled"
+
     /// Writing the answers a climber gave before signing in - birthday, gender, height, weight and
     /// city - to their profile right after sign-in, and the days-a-week target save and Health
     /// history import that follow that write. Off, the answers stay on the device exactly as given
@@ -230,6 +237,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Shows the paywall and welcome gift of the 1.3.0 onboarding after sign-in. Off shows the app-access paywall instead."
         case .appleHealthImport:
             return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
+        case .appleHealthHistoryImport:
+            return "Imports the Apple Health stair workouts from before the climber joined, once, as off-board history."
         case .onboardingAnswersProfileWrite:
             return "Writes the answers given before sign-in to the profile right after sign-in."
         case .weeklyTargetWrites:

@@ -1,0 +1,69 @@
+{
+  "description": "Canonical test vector for the join-date rule on a climb Ascend did not measure: leaderboards count from the day a climber joins, so a typed or imported climb that started before the account was created is history. It fills the climber's own records, streak and personal bests and never a board. The same cases pin the Swift implementation (ClimbPacePolicy.leaderboardStatus with accountCreatedAt, AscendApp/Shared/Models/ClimbPacePolicy.swift) and the TypeScript derivation (parseEligibleWorkout and startedBeforeAccount in functions/src/leaderboardStats.ts). A live climb is measured by Ascend's own sensor and can never predate the account, so it is never asked. accountCreatedAt is Firebase Auth's creation time; startedAt is the workout's start. deviceLeaderboardStatus is what ClimbPacePolicy.leaderboardStatus stores; serverCountsOnLeaderboards is whether parseEligibleWorkout derives the climb into a standing. The pace ceiling is not under test here (SharedTestVectors/climb-pace-policy-vector.json owns it), so every case is inside it.",
+  "accountCreatedAt": "2026-09-10T12:00:00Z",
+  "cases": [
+    {
+      "name": "an imported climb from before the account is history",
+      "source": "apple_health",
+      "startedAt": "2026-08-01T07:00:00Z",
+      "steps": 3000,
+      "durationSeconds": 1800,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "a typed climb dated before the account is history",
+      "source": "manual",
+      "startedAt": "2026-09-09T12:00:00Z",
+      "steps": 3000,
+      "durationSeconds": 1800,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "a climb one second before the account is history",
+      "source": "apple_health",
+      "startedAt": "2026-09-10T11:59:59Z",
+      "steps": 3000,
+      "durationSeconds": 1800,
+      "deviceLeaderboardStatus": "excluded",
+      "serverCountsOnLeaderboards": false
+    },
+    {
+      "name": "a climb that starts the moment the account does counts",
+      "source": "apple_health",
+      "startedAt": "2026-09-10T12:00:00Z",
+      "steps": 3000,
+      "durationSeconds": 1800,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": true
+    },
+    {
+      "name": "an imported climb after the account counts",
+      "source": "apple_health",
+      "startedAt": "2026-10-01T07:00:00Z",
+      "steps": 3000,
+      "durationSeconds": 1800,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": true
+    },
+    {
+      "name": "a typed climb after the account counts",
+      "source": "manual",
+      "startedAt": "2026-10-01T07:00:00Z",
+      "steps": 3000,
+      "durationSeconds": 1800,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": true
+    },
+    {
+      "name": "a live climb is never history",
+      "source": "headphone_motion",
+      "startedAt": "2026-08-01T07:00:00Z",
+      "steps": 3000,
+      "durationSeconds": 1800,
+      "deviceLeaderboardStatus": "eligible",
+      "serverCountsOnLeaderboards": true
+    }
+  ]
+}

@@ -413,12 +413,30 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             return nil
         }
 
+        if case .discovered(let record) = try file(snapshot, ledger: ledger) {
+            return record
+        }
+        return nil
+    }
+
+    /// What filing a workout in the ledger found.
+    private enum Filing {
+        /// A workout the ledger had never met, now waiting to be imported.
+        case discovered(HealthWorkoutRecord)
+        /// A workout still waiting from an earlier pass.
+        case alreadyWaiting(HealthWorkoutRecord)
+        /// Nothing to import: it already is a climb, or an Ascend live climb covers it.
+        case settled
+    }
+
+    /// The ledger half of discovery, shared by the pass and the history backfill so one workout is
+    /// recognised the same way whichever of them meets it first.
+    private func file(_ snapshot: HealthWorkoutSnapshot, ledger: HealthWorkoutLedger) throws -> Filing {
         let uuid = snapshot.uuid.uuidString
         if let existing = try ledger.record(forUUID: uuid) {
-            if existing.state == .notImported {
-                existing.updateMeasurements(from: snapshot)
-            }
-            return nil
+            guard existing.state == .notImported else { return .settled }
+            existing.updateMeasurements(from: snapshot)
+            return .alreadyWaiting(existing)
         }
 
         let record = HealthWorkoutRecord(snapshot: snapshot, discoveredAt: now())
@@ -429,17 +447,98 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             record.importedWorkoutID = climb.id
             record.resolvedAt = now()
             ledger.modelContext.insert(record)
-            return nil
+            return .settled
         }
         if try ledger.overlappingLiveClimb(start: snapshot.startDate, end: snapshot.endDate) != nil {
             record.state = .overlapsLiveClimb
             record.resolvedAt = now()
             ledger.modelContext.insert(record)
-            return nil
+            return .settled
         }
 
         ledger.modelContext.insert(record)
-        return record
+        return .discovered(record)
+    }
+
+    // MARK: - History
+
+    /// Brings in the stair workouts Health held before this climber joined, once, because the
+    /// climber asked for them on screen 07a ("ADD TO MY HISTORY").
+    ///
+    /// The pass reads from the join date on, so this is the only way older workouts arrive. They
+    /// go through the same ledger and the same import path as any other workout, as `.appleHealth`
+    /// climbs, and arrive off the boards (`HealthImportedClimb.makeWorkout`): they fill history,
+    /// personal bests and streaks and never a leaderboard, which the server agrees with from
+    /// Auth's creation time (`startedBeforeAccount`). A workout already imported or skipped is left
+    /// as it is, so this never files one twice and never brings back one the climber removed.
+    ///
+    /// It never touches the pass's anchor, announces nothing and opens nothing: the climber saw
+    /// the screen that promised it.
+    ///
+    /// - Parameter workoutIDs: The workouts 07a showed, which is all the climber agreed to. Nil
+    ///   means every pre-join stair workout Health holds.
+    /// - Returns: Whether the history landed. False means something deferred it - the switch, a
+    ///   gate the pass shares, a failed read or save - and nothing was lost: running it again
+    ///   files and imports whatever is still waiting.
+    @discardableResult
+    func importHistory(before joinDate: Date, matching workoutIDs: Set<String>? = nil) async -> Bool {
+        guard RemoteFeatureGate.allows(
+            .appleHealthHistoryImport,
+            path: "AppleHealthImportService.importHistory",
+            store: featureFlags
+        ) else {
+            return false
+        }
+        // The same gates as a pass, and the same wait for the cloud restore: a climb restored from
+        // the account is the only thing that stops its own workout importing a second time.
+        guard canImport, let modelContext, let userID = currentUserID(),
+              cloudRestoreConfirmedUserID == userID else {
+            return false
+        }
+
+        let found: HealthWorkoutChanges
+        do {
+            found = try await reader.changes(since: nil, startingOnOrAfter: .distantPast)
+        } catch {
+            AppDiagnosticsRecorder.shared.record(
+                "apple_health_history_read_failed",
+                level: .warning,
+                details: ["error": String(describing: type(of: error))]
+            )
+            return false
+        }
+        guard !Task.isCancelled, currentUserID() == userID, canImport else { return false }
+
+        let ledger = HealthWorkoutLedger(modelContext: modelContext)
+        var waiting: [HealthWorkoutRecord] = []
+        do {
+            for snapshot in found.added where snapshot.startDate < joinDate {
+                guard AppleHealthImportPolicy.isImportableDuration(snapshot.duration),
+                      workoutIDs?.contains(snapshot.uuid.uuidString) ?? true else {
+                    continue
+                }
+                switch try file(snapshot, ledger: ledger) {
+                case .discovered(let record), .alreadyWaiting(let record):
+                    waiting.append(record)
+                case .settled:
+                    break
+                }
+            }
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            AppDiagnosticsRecorder.shared.record(
+                "apple_health_history_ledger_save_failed",
+                level: .error,
+                details: ["error": String(describing: type(of: error))]
+            )
+            return false
+        }
+
+        let records = waiting
+        _ = await trackingRequestedImport { await self.importRecords(records, announcing: []) }
+        refreshDerivedState()
+        return records.allSatisfy { $0.state != .notImported }
     }
 
     // MARK: - Importing
@@ -523,7 +622,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
                 continue
             }
 
-            let workout = HealthImportedClimb.makeWorkout(from: record)
+            let workout = HealthImportedClimb.makeWorkout(from: record, accountCreatedAt: joinDate())
             modelContext.insert(workout)
             let announces = announced.contains(record.workoutUUID)
             record.state = .imported

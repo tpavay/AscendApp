@@ -12,11 +12,14 @@ import Foundation
 enum HealthImportedClimb {
     static let workoutName = "Stair Stepper"
 
-    static func makeWorkout(from record: HealthWorkoutRecord) -> Workout {
-        makeWorkout(from: HealthWorkoutSnapshot(record: record))
+    static func makeWorkout(from record: HealthWorkoutRecord, accountCreatedAt: Date? = nil) -> Workout {
+        makeWorkout(from: HealthWorkoutSnapshot(record: record), accountCreatedAt: accountCreatedAt)
     }
 
-    static func makeWorkout(from snapshot: HealthWorkoutSnapshot) -> Workout {
+    /// `accountCreatedAt` is what makes a workout from before the climber joined arrive off the
+    /// boards: history fills their own records and streak and never a leaderboard
+    /// (`ClimbPacePolicy.startedBeforeAccount`).
+    static func makeWorkout(from snapshot: HealthWorkoutSnapshot, accountCreatedAt: Date? = nil) -> Workout {
         let steps = AppleHealthImportPolicy.importableSteps(snapshot.steps, duration: snapshot.duration) ?? 0
 
         let workout = Workout(
@@ -36,7 +39,9 @@ enum HealthImportedClimb {
         workout.leaderboardStatus = ClimbPacePolicy.leaderboardStatus(
             origin: .healthImport,
             steps: steps,
-            duration: snapshot.duration
+            duration: snapshot.duration,
+            startedAt: snapshot.startDate,
+            accountCreatedAt: accountCreatedAt
         )
         return workout
     }

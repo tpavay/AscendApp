@@ -8,7 +8,8 @@ Live headphone climbs stay the main way to climb.
 ## What counts
 
 Only `HKWorkoutActivityType.stairClimbing` and `.stairs` workouts are read.
-Only workouts that start on or after the climber's join date (Firebase Auth `creationDate`) are ever filed.
+Only workouts that start on or after the climber's join date (Firebase Auth `creationDate`) are filed by the pass.
+Older ones arrive only through the one-time history backfill below, and only when the climber asked for it.
 A workout shorter than a second or longer than a day is not a climb and is never filed.
 Everything else in Health is somebody else's data and is never read.
 
@@ -114,6 +115,18 @@ For each workout a non-history pass imports automatically:
   That sheet is reached from those two doors only.
   Everywhere else an imported climb opens the full climb summary.
 
+## The history backfill
+
+Onboarding's "We found your climbs" (07a) shows what Health already holds, and "ADD TO MY HISTORY" promises those older workouts become history.
+The pass never reaches them, so `AppleHealthImportService.importHistory(before:matching:)` does, once, after sign-in.
+
+- Before sign-in nothing is filed. 07a only reads: `HealthHistorySummary.load(using:)` is one `changes(since: nil, startingOnOrAfter: .distantPast)` over the stair workouts, and the anchor it returns is dropped. The only thing left behind is `PreAuthOnboardingAnswers.foundHealthWorkoutIDs` on the device, which the button sets and the sign-in hand-off (`OnboardingV3SignInHandOff.importHealthHistory`) reads. Declining Health, or finding no workouts, clears it.
+- `importHistory` files the workouts whose start is before the join date and whose identifier is in that list, through the same ledger (`file(_:ledger:)`, shared with the pass) and the same `importRecords` choke point, so a workout is recognised the same way whichever meets it first, `apple_health_import_enabled` still gates every climb it creates, and a workout already imported or skipped is left alone. It never touches the pass's anchor, announces nothing, and opens nothing.
+- It waits for what the first pass waits for: Health connected, the ownership gate, and the cloud restore (`confirmCloudClimbsRestored`), because a climb the account already holds is the only thing that stops its own workout importing twice. It returns false when anything defers it, the sign-in hand-off keeps the identifiers, and the next launch or foreground runs it again.
+- `apple_health_history_import_enabled` is its own kill switch (`docs/remote-config-kill-switches.md`).
+- The climbs arrive `.excluded`. History fills the climber's own history, personal bests and streak (`Workout.canHoldRecords` is false only for an over-pace climb or one with no steps), and never a leaderboard: leaderboards count from the day a climber joins, so it is fair for everyone. The server agrees from Auth's creation time (`startedBeforeAccount` in `functions/src/leaderboardStats.ts`), the device agrees through `ClimbPacePolicy.startedBeforeAccount`, so editing the steps of a history climb never puts it on a board, and `SharedTestVectors/pre-join-unmeasured-climb-vector.json` holds the two to the same answers. The rule covers every unmeasured climb, typed or imported, and an account Auth cannot date ranks none of them.
+- A history workout with no steps follows the Add steps handling above unchanged.
+
 ## The observer
 
 `HealthKitWorkoutReader` registers an `HKObserverQuery` on the workout type and calls `enableBackgroundDelivery(for:frequency: .immediate)`.
@@ -156,8 +169,6 @@ These belong to the third piece:
 
 - The overlap merge with a live climb and the Apple Health added-minutes prompt (HANDOFF 5.2).
 - The Settings screens: How you track, Apple Health connected or off, Import older workouts.
-- Importing workouts older than the join date.
-- Onboarding wording and a Health step in onboarding itself.
 
 ## Testing without a device
 
@@ -175,4 +186,15 @@ The flow has two Ascend screens, Connect and the import choice.
 Both end in `HealthFlowChrome`'s bottom bar, which always reserves the secondary slot under the primary button, so the primary button sits in the same place on both.
 Only the Connect screen draws the close X, 6 points under the safe area's top and 16 from the leading edge.
 The import choice draws no control at the top and starts its content 40 points lower than Connect's.
-The Ascend tile on the connect screen is the real `AppIconInternalAccent` mark, and the dotted line between the tiles is one static dashed stroke with nothing animating.
+The Ascend tile on the connect screen is the real `AppIconInternalAccent` mark.
+The tiles pop in and the dotted line between them flows from Health toward Ascend, one 12 point step every 0.4 seconds (the design's 24 points in 0.8), which Reduce Motion holds still.
+
+## In onboarding
+
+`AppleHealthConnectView` is also onboarding's screen 06, in `Chrome.onboarding`: the progress header replaces the X, the quiet link says "I don't track workouts", and the one-line hint is left out because the next screen shows the sheet.
+The two chromes track `.onboardingHealthConnect` and `.healthConnectLater`.
+06b ("Two taps and you're set") shows a drawn picture of Apple's sheet with the four types of `readTypes` and "access", never "update"; its "GOT IT" is the request, through `AppleHealthConnectViewModel.requestAccessOnly()`, the same `HealthKitAuthorizationClient` request without the discovery and the import choice, because there is no account to file in yet and onboarding connects with auto-import on.
+The picture follows iOS 26's own sheet, captured from the simulator: Allow is at the bottom, under Turn On All and the four switches, so the step reads "Tap Allow at the bottom" (the handoff's "in the top right" was the older sheet, and is the wording the connect flow already dropped on 2026-11-02).
+The system's sentence above the switches still reads "access and update your Health data" on the real sheet because the Info.plist declares `NSHealthUpdateUsageDescription` beside the share string; the drawn picture says "access", which is what Ascend does.
+After the sheet it reads the history and routes: workouts found go to 07a, none (or a failed read) go to 07b.
+`HealthPermissionSheetMock.categories` has to change with `readTypes`.

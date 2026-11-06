@@ -37,12 +37,15 @@ struct HealthFlowCloseControl: View {
 }
 
 extension View {
-    /// Draws the flow's close X in its one place.
-    func healthFlowCloseControl(action: @escaping () -> Void) -> some View {
+    /// Draws the flow's close X in its one place. Onboarding's copy of the Connect screen draws
+    /// its progress header there instead and passes `isShown: false`.
+    func healthFlowCloseControl(action: @escaping () -> Void, isShown: Bool = true) -> some View {
         overlay(alignment: .topLeading) {
-            HealthFlowCloseControl(action: action)
-                .padding(.leading, HealthFlowChrome.leadingInset)
-                .padding(.top, HealthFlowChrome.topInset)
+            if isShown {
+                HealthFlowCloseControl(action: action)
+                    .padding(.leading, HealthFlowChrome.leadingInset)
+                    .padding(.top, HealthFlowChrome.topInset)
+            }
         }
     }
 }
