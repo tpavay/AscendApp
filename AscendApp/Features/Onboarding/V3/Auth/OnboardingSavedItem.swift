@@ -19,6 +19,9 @@ struct OnboardingSavedItem: Equatable, Identifiable {
     let subtitle: String
     /// What the mark says instead of its glyph: the profile row's initials, once a name was typed.
     var initials: String?
+    /// The picture the mark draws instead of the initials or the glyph: the profile row's photo,
+    /// once one was picked and while it is still on the device.
+    var photoURL: URL?
 
     var id: Kind { kind }
 }
@@ -26,14 +29,17 @@ struct OnboardingSavedItem: Equatable, Identifiable {
 /// Builds the list from the answers. A row for something the climber skipped is absent, never
 /// shown as done: the list is a record of what they gave, not a promise of what they could have.
 enum OnboardingSavedItems {
+    /// - Parameter photoURL: where the picked photo is on the device, if there is one
+    ///   (`OnboardingV3Coordinator.profilePhotoURL`); the answers only name its file.
     static func make(
         from answers: PreAuthOnboardingAnswers,
+        photoURL: URL? = nil,
         now: Date = .now,
         calendar: Calendar = .current
     ) -> [OnboardingSavedItem] {
         var items = [climbs(answers)]
         if let history = healthHistory(answers) { items.append(history) }
-        if let profile = profile(answers, now: now, calendar: calendar) { items.append(profile) }
+        if let profile = profile(answers, photoURL: photoURL, now: now, calendar: calendar) { items.append(profile) }
         items.append(OnboardingSavedItem(
             kind: .boards,
             title: "Your spot on the boards",
@@ -67,6 +73,7 @@ enum OnboardingSavedItems {
 
     private static func profile(
         _ answers: PreAuthOnboardingAnswers,
+        photoURL: URL?,
         now: Date,
         calendar: Calendar
     ) -> OnboardingSavedItem? {
@@ -87,7 +94,10 @@ enum OnboardingSavedItems {
             kind: .profile,
             title: title,
             subtitle: subtitle,
-            initials: name == nil ? nil : ProfileSetupDraft.initials(of: nameParts)
+            initials: name == nil ? nil : ProfileSetupDraft.initials(of: nameParts),
+            // A photo the answers name but the device no longer holds draws nothing: the row
+            // falls back to the initials or the glyph, the way the profile would.
+            photoURL: answers.profilePhotoFileName == nil ? nil : photoURL
         )
     }
 

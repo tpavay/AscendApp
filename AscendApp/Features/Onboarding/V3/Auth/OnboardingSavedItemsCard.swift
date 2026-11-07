@@ -64,7 +64,7 @@ private struct OnboardingSavedItemRow: View {
     }
 
     private var mark: some View {
-        OnboardingSavedItemMark(kind: item.kind, initials: item.initials)
+        OnboardingSavedItemMark(kind: item.kind, initials: item.initials, photoURL: item.photoURL)
             .frame(width: Self.markSize, height: Self.markSize)
     }
 
@@ -97,24 +97,41 @@ private struct OnboardingSavedItemRow: View {
 
 /// The glyph for each kind. The climbs and the profile carry the full accent, the rest a tint of it,
 /// the way the design weights the list.
+///
+/// The profile row is a picture of the climber, so it is a `ClimberAvatar`: the photo picked on the
+/// profile screen when there is one, else the typed name's initials on the accent, else the
+/// generic person on the accent, exactly as the design draws the three states.
 private struct OnboardingSavedItemMark: View {
     let kind: OnboardingSavedItem.Kind
     let initials: String?
+    let photoURL: URL?
 
     var body: some View {
-        ZStack {
-            shape.fill(isEmphasised ? OnboardingV3Palette.accent : OnboardingV3Palette.accent.opacity(0.14))
+        Group {
+            if kind == .profile {
+                ClimberAvatar(
+                    userId: nil,
+                    isCurrentUser: true,
+                    photoURL: photoURL,
+                    placeholder: .initials(
+                        initials ?? "",
+                        fill: OnboardingV3Palette.accent,
+                        foreground: Color.black,
+                        fontSize: 15
+                    ),
+                    size: 44,
+                    showsChampionMark: false
+                )
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(isEmphasised ? OnboardingV3Palette.accent : OnboardingV3Palette.accent.opacity(0.14))
 
-            Group {
-                if let initials {
-                    Text(initials)
-                        .font(.custom("Montserrat-Bold", fixedSize: 15))
-                } else {
                     Image(systemName: symbol)
                         .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(isEmphasised ? Color.black : OnboardingV3Palette.accent)
                 }
             }
-            .foregroundStyle(isEmphasised ? Color.black : OnboardingV3Palette.accent)
         }
         .accessibilityHidden(true)
     }
@@ -126,18 +143,11 @@ private struct OnboardingSavedItemMark: View {
         }
     }
 
-    private var shape: AnyShape {
-        switch kind {
-        case .profile: AnyShape(Circle())
-        case .climbs, .healthHistory, .boards: AnyShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-    }
-
     private var symbol: String {
         switch kind {
         case .climbs: "stairs"
         case .healthHistory: "chart.bar.fill"
-        case .profile: "person.fill"
+        case .profile: PublicClimberIdentity.genericAvatarSystemName
         case .boards: "crown.fill"
         }
     }

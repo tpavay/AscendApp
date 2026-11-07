@@ -29,6 +29,15 @@ The decline offer a climber meets when they close that paywall is a second Super
 Signing in at the end of that flow marks post-sign-in onboarding complete, so the resolver's first-time path below does not run for that climber, while "Already have an account? Sign in" on the first screen gets normal routing.
 `OnboardingV3SignInHandOff` owns what carries over to the account and in what order.
 `OnboardingV3Step` owns its screens and branches, and `docs/remote-config-kill-switches.md` (Rollouts, which ship off) owns how the switch behaves.
+`OnboardingV3FlowView`'s switch is the whole map of the flow: fifteen real screens, no stub or placeholder view, each built from the coordinator alone.
+The sign-in screen's saved-items list says back what the flow collected: the profile row leads with the typed name and draws the picked photo (through `ClimberAvatar`, from `OnboardingV3Coordinator.profilePhotoURL`), else the initials, else the generic person.
+
+## Walking the v3 flow on a simulator or a test phone
+- The switch ships off, so a dev or staging build opens the old landing screen until the device carries the Debug-only override: Debug Tools -> `Replay New Onboarding From Welcome` sets it (and signs out), or write `onboardingV3.debugForcesFlow` = true into the app's own preferences file (`<container>/Library/Preferences/<bundle id>.plist`) before launch; `simctl spawn defaults write <bundle id>` lands in the simulator's shared domain and the app does not read it on a fresh container.
+- The flow only shows to a signed-out climber. A reinstalled app restores the Keychain session, so sign out first or the launch goes straight to the account's route.
+- One phone, several accounts: the Debug replay resets the answers, not the local store, so the next account signing in meets `Account data mismatch` (the ownership guard working as designed). A new account per run needs a fresh install; a returning climber needs a remote profile that `isCompletePostAuthProfile` accepts (display name, age, gender, weight, city and country) or the legacy post-auth questions resume.
+- The Debug build has no vendor keys, so the paywall after sign-in is the gate's native fallback and `Force App Access Gate` is the only way to see it; Staging shows the real Superwall `app_access_gate` paywall. The decline offer is a second Superwall campaign that is not published on staging until the launch, so closing the first paywall there lands on the native plan list, and no purchase completes on a simulator without a sandbox Apple Account.
+- The dev project's deployed `firestore.rules` drift behind `develop` (lanes deploy their own); a hand-off write such as `weekly_target_days` that silently stays `weeklyTarget.unsynced` on the device is the first sign. Deploy the union before reading a missing field as a defect.
 
 ## Required profile capture
 - Post-auth onboarding collects declared demographics when that stage is enabled. It never asks for a name.

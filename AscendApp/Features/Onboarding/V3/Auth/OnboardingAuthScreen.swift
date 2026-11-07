@@ -20,7 +20,7 @@ struct OnboardingAuthScreen: View {
     init(coordinator: OnboardingV3Coordinator) {
         self.coordinator = coordinator
         _mode = State(initialValue: OnboardingAuthMode(arrivedFrom: coordinator.previousStep))
-        savedItems = OnboardingSavedItems.make(from: coordinator.answers)
+        savedItems = OnboardingSavedItems.make(from: coordinator.answers, photoURL: coordinator.profilePhotoURL)
     }
 
     private var isDisabled: Bool { authVM.authenticationState.isAuthenticating }

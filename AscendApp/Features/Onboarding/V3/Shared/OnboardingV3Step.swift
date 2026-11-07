@@ -29,8 +29,8 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
 
     var analyticsID: String { rawValue }
 
-    /// What the screen is, for the stub, accessibility and debugging. Never shown by a real screen,
-    /// which owns its own copy.
+    /// What the screen is, for accessibility and debugging. Never shown by a screen, which owns its
+    /// own copy.
     var title: String {
         switch self {
         case .welcome: "Welcome"
@@ -45,7 +45,7 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .profileSetup: "Set up your profile"
         case .claimCity: "Claim your city"
         case .weeklyTarget: "How many days a week?"
-        case .thisMonthEvent: "This month's live event"
+        case .thisMonthEvent: "This month's event"
         case .notificationPrimer: "We'll keep you on track"
         case .auth: "Save every climb"
         }
