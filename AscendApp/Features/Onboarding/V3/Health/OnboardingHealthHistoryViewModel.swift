@@ -42,7 +42,7 @@ final class OnboardingHealthHistoryViewModel {
               !summary.isEmpty else {
             state = .nothing
             if coordinator.step == .healthHistory {
-                coordinator.update { $0.foundHealthWorkoutIDs = [] }
+                coordinator.update { $0.clearFoundHealthHistory() }
                 coordinator.go(to: .usualClimb)
             }
             return
@@ -58,7 +58,7 @@ final class OnboardingHealthHistoryViewModel {
         guard case .found(let summary) = state else { return }
 
         coordinator.update {
-            $0.foundHealthWorkoutIDs = summary.workoutIDs
+            $0.recordFoundHealthHistory(summary)
             $0.usualClimbSteps = summary.usualClimb?.steps
             $0.usualClimbMinutes = summary.usualClimb?.minutes
         }

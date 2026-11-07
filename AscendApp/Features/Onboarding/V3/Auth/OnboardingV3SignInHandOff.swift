@@ -172,7 +172,7 @@ final class OnboardingV3SignInHandOff {
         let imported = await seams.importHealthHistory(answers)
         store.update {
             $0 = $0.droppingHandedOffAnswers
-            if imported { $0.foundHealthWorkoutIDs = [] }
+            if imported { $0.clearFoundHealthHistory() }
         }
         return .complete
     }
