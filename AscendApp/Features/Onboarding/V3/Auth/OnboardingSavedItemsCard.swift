@@ -58,7 +58,7 @@ private struct OnboardingSavedItemRow: View {
                 }
             }
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(item.title), \(item.subtitle)")
     }

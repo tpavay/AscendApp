@@ -24,6 +24,10 @@ struct OnboardingAuthScreen: View {
 
     private var isDisabled: Bool { authVM.authenticationState.isAuthenticating }
 
+    /// How far the pinned actions fade the content scrolling under them, and the gap the content
+    /// keeps above them so a list that fits is never under the fade.
+    private static let fadeHeight: CGFloat = 20
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -37,6 +41,18 @@ struct OnboardingAuthScreen: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             actions
                 .background(OnboardingV3Palette.background)
+                // On a phone too short for the whole list, the rows run under the buttons: the
+                // fade is the cue that they scroll. On a phone that fits, it covers only black.
+                .overlay(alignment: .top) {
+                    LinearGradient(
+                        colors: [OnboardingV3Palette.background.opacity(0), OnboardingV3Palette.background],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: Self.fadeHeight)
+                    .offset(y: -Self.fadeHeight)
+                    .allowsHitTesting(false)
+                }
         }
         .onAppear {
             // A mark left by an attempt that never finished must not close the flow for a later
@@ -86,13 +102,13 @@ struct OnboardingAuthScreen: View {
                     .onboardingEntrance(index: 0)
 
                 OnboardingHeadline(["Save every"], accentLines: ["climb."])
-                    .padding(.bottom, 14)
+                    .padding(.bottom, 12)
                     .onboardingEntrance(index: 1)
 
                 Text("Everything you do in Ascend saves to your account and follows you to any phone. Without one, none of it is kept.")
                     .onboardingSecondary()
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 22)
+                    .padding(.bottom, 20)
                     .onboardingEntrance(index: 2)
 
                 OnboardingSavedItemsCard(items: savedItems)
@@ -111,7 +127,7 @@ struct OnboardingAuthScreen: View {
         }
         .padding(.horizontal, 24)
         .padding(.top, 20)
-        .padding(.bottom, 12)
+        .padding(.bottom, Self.fadeHeight)
     }
 
     private var actions: some View {
