@@ -35,11 +35,19 @@ struct OnboardingAuthEvidenceTests {
     private static let appleButton = "Continue with Apple"
 
     /// The design's left state: Apple Health history added, the climber card filled in, a city and
-    /// a target.
-    private static func everythingGiven() -> PreAuthOnboardingAnswers {
+    /// a target. The screen reads the real clock, so the birthday is thirty years back from today.
+    private static func everythingGiven() throws -> PreAuthOnboardingAnswers {
+        let calendar = Calendar(identifier: .gregorian)
+        let thirtyYearsAgo = try #require(calendar.date(byAdding: .year, value: -30, to: .now))
+        let birthday = calendar.dateComponents([.year, .month, .day], from: thirtyYearsAgo)
+
         var answers = PreAuthOnboardingAnswers()
         answers.gender = .man
-        answers.birthday = PreAuthOnboardingBirthday(year: 1996, month: 3, day: 9)
+        answers.birthday = PreAuthOnboardingBirthday(
+            year: try #require(birthday.year),
+            month: try #require(birthday.month),
+            day: try #require(birthday.day)
+        )
         answers.heightCm = 180
         answers.weightKg = 80
         answers.city = PreAuthOnboardingCity(city: "Denver", region: "CO", countryCode: "US", countryName: "United States")
@@ -138,7 +146,7 @@ struct OnboardingAuthEvidenceTests {
 
     @Test(arguments: Self.phones)
     func everythingGivenListsTheHistoryAndTheProfileBetweenTheTwoThingsEveryAccountGets(phone: PhoneShape) async throws {
-        try await host(screen(from: .notificationPrimer, answers: Self.everythingGiven()), on: phone) { hosted in
+        try await host(screen(from: .notificationPrimer, answers: try Self.everythingGiven()), on: phone) { hosted in
             let copy = try await hosted.copy()
             #expect(copy.contains("last step"), "\(copy)")
             #expect(copy.contains("save every climb."), "\(copy)")
@@ -186,9 +194,72 @@ struct OnboardingAuthEvidenceTests {
         }
     }
 
+    /// Scrolls the content through the band above the buttons and counts the lit pixels on two
+    /// lines across it: the fade's last line, where a drawn fade has hidden almost everything, and
+    /// a line just above the fade, which shows whatever is passing whether a fade is drawn or not.
+    private static func litPixelsAboveTheButtons(on screen: HostedScreen) async throws -> (fadesLastLine: Int, aboveTheFade: Int) {
+        let apple = try #require(try await frames(on: screen, of: [appleButton])[appleButton])
+        let actionsTop = apple.minY - 12
+        let width = screen.bounds.width
+        let scrollView = try #require(firstScrollView(in: screen.window))
+        let start = -scrollView.adjustedContentInset.top
+        let end = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+        try #require(end > start, "the content has to scroll for the sweep to mean anything")
+
+        var fadesLastLine = 0
+        var aboveTheFade = 0
+        for offset in stride(from: start, through: end, by: 6) {
+            scrollView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
+            try await screen.settle(.turns(2))
+            try screen.withPixels { pixels in
+                fadesLastLine += pixels.count(in: CGRect(x: 0, y: actionsTop - 1, width: width, height: 1)) { !$0.isNearBlack }
+                aboveTheFade += pixels.count(in: CGRect(x: 0, y: actionsTop - 23, width: width, height: 1)) { !$0.isNearBlack }
+            }
+        }
+        return (fadesLastLine, aboveTheFade)
+    }
+
+    @Test
+    func theListFadesUnderTheButtonsWhenItRunsUnderThem() async throws {
+        let phone = Self.smallestPhone
+        try await host(screen(from: .notificationPrimer, answers: try Self.everythingGiven()), on: phone) { hosted in
+            let lit = try await Self.litPixelsAboveTheButtons(on: hosted)
+            #expect(lit.aboveTheFade > 0, "the sweep passed nothing lit, so it proves nothing")
+            #expect(lit.fadesLastLine == 0, "\(lit.fadesLastLine) lit pixels came through the fade")
+        }
+    }
+
+    @Test
+    func returningModeNeverFadesEvenWhenItsCopyRunsUnderTheButtons() async throws {
+        try await RenderedScreen.host(screen(from: .welcome), size: CGSize(width: 375, height: 420), settle: .turns(40)) { hosted in
+            let lit = try await Self.litPixelsAboveTheButtons(on: hosted)
+            #expect(lit.fadesLastLine > 0, "the copy passed under the buttons with a fade over it")
+        }
+    }
+
+    /// The overflow read against a real scroll view with a real bottom inset: the third height fits
+    /// the container and overflows only because of what the inset takes from it.
+    @Test(arguments: [(300.0, false), (900.0, true), (720.0, true)])
+    func theOverflowReadCountsTheRoomTheButtonsTake(contentHeight: Double, expected: Bool) async throws {
+        var reported: Bool?
+        let probe = ScrollView {
+            Color.clear.frame(height: contentHeight)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: 100)
+        }
+        .onScrollGeometryChange(for: Bool.self, of: OnboardingAuthScreen.contentRunsUnderActions) { _, runsUnder in
+            reported = runsUnder
+        }
+
+        try await RenderedScreen.host(probe, size: CGSize(width: 400, height: 800), settle: .turns(12)) { _ in
+            #expect(reported ?? false == expected)
+        }
+    }
+
     @Test
     func nothingOnTheScreenTakesTypedInput() async throws {
-        try await RenderedScreen.host(screen(from: .notificationPrimer, answers: Self.everythingGiven()), size: Self.smallestPhone.size, settle: .turns(40)) { hosted in
+        try await RenderedScreen.host(screen(from: .notificationPrimer, answers: try Self.everythingGiven()), size: Self.smallestPhone.size, settle: .turns(40)) { hosted in
             _ = try await hosted.copy()
             func inputs(in view: UIView) -> Int {
                 let own = (view is UITextField || view is UITextView || view is UISearchBar) ? 1 : 0
@@ -200,7 +271,7 @@ struct OnboardingAuthEvidenceTests {
 
     @Test
     func returningModeFromTheFirstScreenShowsNoList() async throws {
-        try await RenderedScreen.host(screen(from: .welcome, answers: Self.everythingGiven()), size: Self.smallestPhone.size, settle: .turns(40)) { hosted in
+        try await RenderedScreen.host(screen(from: .welcome, answers: try Self.everythingGiven()), size: Self.smallestPhone.size, settle: .turns(40)) { hosted in
             let copy = try await hosted.copy()
             #expect(copy.contains("welcome back"), "\(copy)")
             #expect(copy.contains("keep climbing"), "\(copy)")
@@ -217,7 +288,7 @@ struct OnboardingAuthEvidenceTests {
     @Test
     func everyControlStaysReachableAtAnAccessibilityTextSize() async throws {
         try await RenderedScreen.host(
-            screen(from: .notificationPrimer, answers: Self.everythingGiven()).environment(\.dynamicTypeSize, .accessibility3),
+            screen(from: .notificationPrimer, answers: try Self.everythingGiven()).environment(\.dynamicTypeSize, .accessibility3),
             size: Self.smallestPhone.size,
             settle: .turns(40)
         ) { hosted in

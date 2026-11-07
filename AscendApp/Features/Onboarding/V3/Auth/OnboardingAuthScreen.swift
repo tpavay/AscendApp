@@ -13,6 +13,7 @@ struct OnboardingAuthScreen: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var mode: OnboardingAuthMode
     @State private var isShowingInternalQA = false
+    @State private var contentRunsUnderActions = false
     /// Read once: the answers cannot change while this screen is up.
     private let savedItems: [OnboardingSavedItem]
 
@@ -28,6 +29,13 @@ struct OnboardingAuthScreen: View {
     /// keeps above them so a list that fits is never under the fade.
     private static let fadeHeight: CGFloat = 20
 
+    /// Whether the content is taller than the room the pinned actions leave it, read from a scroll
+    /// view whose bottom content inset is those actions.
+    nonisolated static func contentRunsUnderActions(_ geometry: ScrollGeometry) -> Bool {
+        geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom
+            > geometry.containerSize.height
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -42,17 +50,22 @@ struct OnboardingAuthScreen: View {
             actions
                 .background(OnboardingV3Palette.background)
                 // On a phone too short for the whole list, the rows run under the buttons: the
-                // fade is the cue that they scroll. On a phone that fits, it covers only black.
+                // fade is the cue that they scroll.
                 .overlay(alignment: .top) {
-                    LinearGradient(
-                        colors: [OnboardingV3Palette.background.opacity(0), OnboardingV3Palette.background],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: Self.fadeHeight)
-                    .offset(y: -Self.fadeHeight)
-                    .allowsHitTesting(false)
+                    if mode == .saveEveryClimb, contentRunsUnderActions {
+                        LinearGradient(
+                            colors: [OnboardingV3Palette.background.opacity(0), OnboardingV3Palette.background],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: Self.fadeHeight)
+                        .offset(y: -Self.fadeHeight)
+                        .allowsHitTesting(false)
+                    }
                 }
+        }
+        .onScrollGeometryChange(for: Bool.self, of: Self.contentRunsUnderActions) { _, runsUnder in
+            contentRunsUnderActions = runsUnder
         }
         .onAppear {
             // A mark left by an attempt that never finished must not close the flow for a later
