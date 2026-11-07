@@ -8,7 +8,7 @@ description: Use when working on Ascend profiles - own vs other-user profile sur
 ## Profile Demographics
 - `users/{uid}` stores separate `firstName` and `lastName` fields plus declared demographics.
   Public identity composes both fields into `displayName` at the validated publication boundary.
-  Onboarding never requires the name - sign-in resolves it and writes it without asking, Settings -> Edit Profile is where it is changed, and the v3 flow's optional profile screen (08) may take one that only replaces the `CHANGE ME` placeholder. `docs/onboarding-design-guide.md` (`Name - Resolved, Never Asked`) owns that contract.
+  Onboarding never requires the name - sign-in resolves it and writes it without asking, Settings -> Edit Profile is where it is changed, and the v3 flow's optional profile screen (08) may take one that outranks the provider's name and `CHANGE ME` on an account with no stored real name. `docs/onboarding-design-guide.md` (`Name - Resolved, Never Asked`) owns that contract.
   A legacy record with only `displayName` remains untouched until the climber supplies both parts in Edit Profile - never split, infer, or backfill it.
   Gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
 - **Age is derived, never stored fresh.**

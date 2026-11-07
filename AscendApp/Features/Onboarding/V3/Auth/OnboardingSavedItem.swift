@@ -70,7 +70,7 @@ enum OnboardingSavedItems {
         now: Date,
         calendar: Calendar
     ) -> OnboardingSavedItem? {
-        guard answers.carriesProfileAnswers else { return nil }
+        guard answers.carriesWritableProfileAnswers else { return nil }
 
         // `writableName` is what sign-in publishes, so a name the policy refuses is never said back.
         let nameParts = answers.writableName.map { [$0.firstName, $0.lastName].filter { !$0.isEmpty } } ?? []

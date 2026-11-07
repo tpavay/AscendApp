@@ -53,8 +53,8 @@ final class OnboardingV3SignInHandOff {
     struct Seams {
         var isProfileWriteEnabled: @MainActor () -> Bool
         /// Returns once this sign-in has resolved the account's name. The fill is planned after it,
-        /// so a typed name replaces the placeholder instead of racing it, and a name the provider
-        /// supplied wins every time.
+        /// so a typed name lands on an account that resolution left without one, or over a
+        /// placeholder already there, and a name the account already carried wins every time.
         var signInNameSettled: @MainActor () async -> Void
         var readProfile: @MainActor (_ userId: String) async throws -> UserDisplayNameData?
         var writeProfile: @MainActor (_ userId: String, _ email: String?, _ fill: OnboardingProfileFill) async throws -> Void

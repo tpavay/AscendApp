@@ -795,19 +795,94 @@ struct OnboardingProfileSetupTests {
         #expect(account.name == .init(firstName: "Tyler", lastName: "Pavay"))
     }
 
-    @Test
-    func aNameTheProviderSuppliedWinsWheneverItLands() async {
-        let provider = OnboardingProfileFill.Name(firstName: "Ava", lastName: "Mills")
-        let account = FakeAccount()
-        let adoption = Task { @MainActor in
+    private static let providerName = OnboardingProfileFill.Name(firstName: "Ava", lastName: "Mills")
+
+    /// Sign-in's name resolution against the fake account, through the real rule, after the round
+    /// trip that makes it land later than the hand-off starts.
+    private func adoption(
+        for account: FakeAccount,
+        answers: PreAuthOnboardingAnswers
+    ) -> Task<Void, Never> {
+        let supplied = SignInSuppliedIdentity(
+            providerUserID: "google-1",
+            firstName: Self.providerName.firstName,
+            lastName: Self.providerName.lastName,
+            email: nil
+        )
+        let decision = SuppliedNameAdoption.decide(
+            supplied: supplied,
+            storedName: account.name == nil ? .absent : .present,
+            typedNamePending: answers.writableName != nil
+        )
+        return Task { @MainActor in
             for _ in 0..<20 { await Task.yield() }
-            account.name = provider
+            switch decision {
+            case .write(let firstName, let lastName):
+                account.name = .init(firstName: firstName, lastName: lastName)
+            case .writePlaceholder:
+                account.name = Self.placeholderName
+            case .discard, .retryLater, .leaveForTypedName:
+                break
+            }
         }
-        let (handOff, _) = handOff(answers: answersWithName(), account: account) { await adoption.value }
+    }
 
+    private func signIn(
+        answers: PreAuthOnboardingAnswers,
+        account: FakeAccount
+    ) async -> PreAuthOnboardingStore {
+        let adoption = adoption(for: account, answers: answers)
+        let (handOff, store) = handOff(answers: answers, account: account) { await adoption.value }
         #expect(await handOff.runAfterSignIn(userId: "u1", email: nil) == .complete)
+        return store
+    }
 
-        #expect(account.name == provider)
+    @Test
+    func aTypedNameOutranksTheProvidersOnAFreshAccount() async {
+        let account = FakeAccount()
+
+        let store = await signIn(answers: answersWithName(), account: account)
+
+        #expect(account.name == .init(firstName: "Tyler", lastName: "Pavay"))
+        #expect(store.answers().firstName == nil)
+    }
+
+    @Test
+    func oneTypedNameOutranksTheProvidersOnAFreshAccount() async {
+        var answers = PreAuthOnboardingAnswers()
+        answers.firstName = "Tyler"
+        let account = FakeAccount()
+
+        _ = await signIn(answers: answers, account: account)
+
+        #expect(account.name == .init(firstName: "Tyler", lastName: ""))
+    }
+
+    @Test
+    func aStoredRealNameOutranksATypedOne() async {
+        let stored = OnboardingProfileFill.Name(firstName: "Jo", lastName: "Reyes")
+        let account = FakeAccount()
+        account.name = stored
+
+        let store = await signIn(answers: answersWithName(), account: account)
+
+        #expect(account.name == stored)
+        #expect(store.answers().firstName == nil)
+    }
+
+    @Test
+    func theProviderFillsOnlyWhenNothingWasTyped() async {
+        var noName = PreAuthOnboardingAnswers()
+        noName.gender = .woman
+        let untyped = FakeAccount()
+        _ = await signIn(answers: noName, account: untyped)
+        #expect(untyped.name == Self.providerName)
+
+        var refused = PreAuthOnboardingAnswers()
+        refused.firstName = "Fuck"
+        let refusedAccount = FakeAccount()
+        _ = await signIn(answers: refused, account: refusedAccount)
+        #expect(refusedAccount.name == Self.providerName, "a refused name is no name")
     }
 
     @Test

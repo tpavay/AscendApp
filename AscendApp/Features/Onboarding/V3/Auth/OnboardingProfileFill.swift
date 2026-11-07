@@ -83,9 +83,8 @@ struct OnboardingProfileFill: Equatable, Sendable {
         return fill
     }
 
-    /// Whether the account has no name worth keeping: none at all, or the placeholder sign-in
-    /// writes when nobody supplied one. A name the climber typed on 08 replaces that placeholder
-    /// and nothing else - a profile that already carries a real name keeps it.
+    /// Whether the account has no name worth keeping: none at all, or a placeholder an earlier
+    /// sign-in wrote when nobody supplied one. A profile that already carries a real name keeps it.
     private static func hasNoRealName(_ existing: UserDisplayNameData?) -> Bool {
         guard let existing else { return true }
         guard let resolved = existing.resolvedDisplayName else { return true }
@@ -120,10 +119,16 @@ struct OnboardingProfileFill: Equatable, Sendable {
 }
 
 extension PreAuthOnboardingAnswers {
-    /// Whether the climber gave an answer that belongs on a profile.
+    /// Whether the climber gave an answer that belongs on a profile, a name the policy refuses
+    /// included: the hand-off is what clears that from the device.
     var carriesProfileAnswers: Bool {
+        carriesWritableProfileAnswers || firstName != nil || lastName != nil
+    }
+
+    /// Whether any answer will actually reach the profile.
+    var carriesWritableProfileAnswers: Bool {
         birthday != nil || gender != nil || heightCm != nil || weightKg != nil || city != nil ||
-            firstName != nil || lastName != nil || profilePhotoFileName != nil
+            writableName != nil || profilePhotoFileName != nil
     }
 
     /// The typed name, when `DisplayNamePolicy` accepts the board name it makes. One half is a whole

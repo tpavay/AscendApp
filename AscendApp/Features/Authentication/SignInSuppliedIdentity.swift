@@ -171,9 +171,10 @@ enum StoredProfileName: Equatable, Sendable {
 /// Decides what to do with a name a provider supplied.
 ///
 /// One rule for every provider, and it always terminates in a name: the profile
-/// Ascend already holds, else whatever this sign-in supplied, else
-/// `SignInNamePlaceholder`. Apple and Google both hand back a name, so a
-/// per-provider branch would only be two things to drift apart.
+/// Ascend already holds, else what the climber typed on onboarding's profile
+/// screen, else whatever this sign-in supplied, else `SignInNamePlaceholder`.
+/// Apple and Google both hand back a name, so a per-provider branch would only be
+/// two things to drift apart.
 ///
 /// Nothing here asks the climber anything. The name step was removed from
 /// onboarding with this rule, because a rule that always produces a name leaves
@@ -183,6 +184,11 @@ enum StoredProfileName: Equatable, Sendable {
 /// re-derived inside an auth callback nobody can run in a test.
 enum SuppliedNameAdoption {
     enum Decision: Equatable {
+        /// The account has no name and the climber typed one before signing in, which
+        /// the onboarding hand-off writes once this has settled. It is the one writer
+        /// of a typed name, because one half is a whole name there and not here. Any
+        /// capture stays until a name lands.
+        case leaveForTypedName
         /// Resolution step 2. The provider gave a usable name and the account has
         /// none, so it is written without ever being put to the climber.
         case write(firstName: String, lastName: String)
@@ -206,7 +212,8 @@ enum SuppliedNameAdoption {
 
     static func decide(
         supplied: SignInSuppliedIdentity?,
-        storedName: StoredProfileName
+        storedName: StoredProfileName,
+        typedNamePending: Bool = false
     ) -> Decision {
         switch storedName {
         case .present:
@@ -214,6 +221,7 @@ enum SuppliedNameAdoption {
         case .unreadable:
             return .retryLater
         case .absent:
+            if typedNamePending { return .leaveForTypedName }
             guard let adoptable = supplied?.adoptableName else { return .writePlaceholder }
             return .write(firstName: adoptable.firstName, lastName: adoptable.lastName)
         }

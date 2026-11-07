@@ -481,6 +481,7 @@ extension AuthenticationViewModel {
     ///
     /// Resolution always terminates: a profile that already carries a name keeps
     /// it (step 1, and what a climber who deleted and reinstalled lands on), else
+    /// a name typed before sign-in, which the onboarding hand-off writes, else
     /// whatever the provider supplied at this sign-in (step 2), else
     /// `SignInNamePlaceholder` (step 3). Only a profile that could not be *read*
     /// is left alone, and only until the next launch can read it. There is no
@@ -517,7 +518,14 @@ extension AuthenticationViewModel {
             storedName = .unreadable
         }
 
-        switch SuppliedNameAdoption.decide(supplied: suppliedIdentity, storedName: storedName) {
+        switch SuppliedNameAdoption.decide(
+            supplied: suppliedIdentity,
+            storedName: storedName,
+            typedNamePending: typedNamePending
+        ) {
+        case .leaveForTypedName:
+            return false
+
         case .write(let firstName, let lastName):
             guard await writeResolvedName(firstName: firstName, lastName: lastName) else {
                 return false
@@ -547,6 +555,13 @@ extension AuthenticationViewModel {
         case .retryLater:
             return false
         }
+    }
+
+    /// A name typed on onboarding's profile screen that the hand-off is going to write. With its
+    /// switch off the hand-off writes nothing, so sign-in has to resolve a name without it.
+    private var typedNamePending: Bool {
+        RemoteFeatureFlagStore.shared.isEnabled(.onboardingAnswersProfileWrite) &&
+            PreAuthOnboardingStore().answers().writableName != nil
     }
 
     /// Writes a resolved name and reports a failure where production can see it.

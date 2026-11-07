@@ -141,9 +141,8 @@ struct OnboardingAuthTests {
         #expect(withGender.initials == nil)
 
         refused.gender = nil
-        let alone = try #require(items(refused).first { $0.kind == .profile })
-        #expect(alone.title == "Your details")
-        #expect(alone.initials == nil)
+        #expect(!items(refused).contains { $0.kind == .profile }, "nothing of theirs will be saved")
+        #expect(refused.carriesProfileAnswers, "the hand-off still clears it from the device")
     }
 
     @Test
