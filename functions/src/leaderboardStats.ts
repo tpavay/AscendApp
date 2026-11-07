@@ -26,11 +26,10 @@
  * exceed 220 steps per minute (the same line for a climb typed in or brought
  * in as for one Ascend's own sensor measured), cannot run longer than a day,
  * and a period's sessions cannot total more wall clock than the period
- * contains - so
- * a forged standing is now bounded by what a human could conceivably have
- * climbed instead of by the range of a 64-bit integer. Closing the remainder
- * means building the evidence path (attestation and per-workout provenance),
- * which is a separate piece of work.
+ * contains - so a forged standing is now bounded by what a human could
+ * conceivably have climbed instead of by the range of a 64-bit integer. Closing
+ * the remainder means building the evidence path (attestation and per-workout
+ * provenance), which is a separate piece of work.
  *
  * WHERE THE ENVELOPE DOES NOT REACH. The wall-clock bound is real for daily,
  * weekly, monthly and yearly, whose windows are fixed calendar spans the

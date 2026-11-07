@@ -3,11 +3,12 @@ import Foundation
 /// The automatic plausibility check for a climb Ascend did not measure itself.
 ///
 /// A live climb is read off the headphones' motion sensor and keeps its own gate
-/// (`WorkoutPlausibilityPolicy`, 220 steps/min, the same number as this ceiling). A climb the climber typed in has no sensor behind
-/// it, so its pace is the evidence, and this is the whole of the pace check; the one other rule is
-/// the join date (``startedBeforeAccount(_:accountCreatedAt:)``). There is no
-/// report button, no review queue and no hold on a top placing - the number decides, and it runs
-/// at exactly two moments: when the climb is saved, and when its steps, time or date change.
+/// (`WorkoutPlausibilityPolicy`, 220 steps/min, the same number as this ceiling). A climb the
+/// climber typed in has no sensor behind it, so its pace is the evidence, and this is the whole of
+/// the pace check; the one other rule is the join date
+/// (``startedBeforeAccount(_:accountCreatedAt:)``). There is no report button, no review queue and
+/// no hold on a top placing - the number decides, and it runs at exactly two moments: when the
+/// climb is saved, and when its steps, time or date change.
 ///
 /// Pace is average steps per minute. Two thresholds cut it into three outcomes:
 ///
