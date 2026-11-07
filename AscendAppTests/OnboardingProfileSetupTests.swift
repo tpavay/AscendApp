@@ -34,10 +34,11 @@ struct OnboardingProfileSetupTests {
     // MARK: - The leaderboard row
 
     @Test
-    func anEmptyProfileReadsAsTheAppsDefaultNameAndShowsNoSubline() {
+    func anEmptyProfileReadsAsTheNameSignInPublishesAndShowsNoSubline() {
         let empty = draft()
+        #expect(SignInNamePlaceholder.boardName == "CHANGE ME")
 
-        #expect(empty.displayName == "Change me")
+        #expect(empty.displayName == "CHANGE ME")
         #expect(empty.initials == "CM")
         #expect(empty.subline(on: date(2026, 11, 4), calendar: calendar) == nil, "hidden while nothing is set")
         #expect(empty.birthdayRowText(calendar: calendar, locale: english) == nil)
@@ -63,7 +64,7 @@ struct OnboardingProfileSetupTests {
         #expect(typing.initials == "P")
 
         typing.lastName = "   "
-        #expect(typing.displayName == "Change me", "spaces are not a name")
+        #expect(typing.displayName == "CHANGE ME", "spaces are not a name")
         #expect(typing.initials == "CM")
     }
 
@@ -79,12 +80,12 @@ struct OnboardingProfileSetupTests {
         typing.firstName = "Fuck"
         #expect(typing.boardName == nil)
         #expect(typing.isNameRefused)
-        #expect(typing.displayName == "Change me", "a refused name is never previewed as accepted")
+        #expect(typing.displayName == "CHANGE ME", "a refused name is never previewed as accepted")
         #expect(typing.initials == "CM")
 
         typing.firstName = ""
         #expect(!typing.isNameRefused, "nothing typed is nothing refused")
-        #expect(typing.displayName == "Change me")
+        #expect(typing.displayName == "CHANGE ME")
     }
 
     @Test

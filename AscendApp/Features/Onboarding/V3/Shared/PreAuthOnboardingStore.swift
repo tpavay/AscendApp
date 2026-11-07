@@ -62,8 +62,8 @@ struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
     var usualClimbSteps: Int?
     var usualClimbMinutes: Int?
 
-    /// Typed on 08 and written to the profile's first and last name fields after sign-in. Never
-    /// written when either half is blank, because the board name is composed from both.
+    /// Typed on 08 and written to the profile's first and last name fields after sign-in. One half
+    /// is a whole name: the board name is composed from whichever halves are there.
     var firstName: String?
     var lastName: String?
     /// The photo picked on 08, as a file name inside ``OnboardingProfilePhotoStore``. The picture

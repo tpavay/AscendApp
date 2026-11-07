@@ -9,11 +9,6 @@ struct ProfileSetupDraft: Equatable, Sendable {
     /// The ages the screen accepts: 13 is the floor the privacy policy states.
     static let ageRange = 13...99
 
-    /// What the app already shows for an account with no name, which is the whole point of the
-    /// preview: this is you right now, so fix it.
-    static let placeholderName = "Change me"
-    static let placeholderInitials = "CM"
-
     var firstName = "" {
         didSet { refreshBoardName() }
     }
@@ -62,15 +57,18 @@ struct ProfileSetupDraft: Equatable, Sendable {
         boardName == nil && !(trimmedFirstName.isEmpty && trimmedLastName.isEmpty)
     }
 
-    /// Exactly what sign-in will publish: the typed name, or the app's default name.
+    /// What this climber publishes as: the typed name, or the name an account with none is given,
+    /// which is the whole point of the preview: this is you right now, so fix it.
     var displayName: String {
-        boardName ?? Self.placeholderName
+        boardName ?? SignInNamePlaceholder.boardName
     }
 
-    /// The first letter of each name, or `CM` for the default name.
+    /// The first letter of each part of the name on the row.
     var initials: String {
-        guard boardName != nil else { return Self.placeholderInitials }
-        return [trimmedFirstName, trimmedLastName]
+        let parts = boardName == nil
+            ? [SignInNamePlaceholder.firstName, SignInNamePlaceholder.lastName]
+            : [trimmedFirstName, trimmedLastName]
+        return parts
             .compactMap { $0.first.map { String($0).uppercased() } }
             .joined()
     }
