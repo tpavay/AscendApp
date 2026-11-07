@@ -14,8 +14,8 @@ enum WorkoutInputValidation {
 
     /// Whether the edited totals are inside the envelope the climb's origin is held to: the 220
     /// steps/min sensor gate for a live climb, and for one the climber typed in the refusal line
-    /// in `ClimbPacePolicy` - a climb between that gate and the leaderboard ceiling is saved, not
-    /// refused.
+    /// in `ClimbPacePolicy` - a climb above the leaderboard ceiling and under that line is saved,
+    /// not refused.
     static func isValidWorkoutTotals(
         origin: ClimbOrigin = .live,
         stepsValue: String,

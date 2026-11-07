@@ -113,9 +113,9 @@ struct LogClimbEvidenceTests {
                 .environment(AuthenticationViewModel())
                 .modelContainer(try Self.container())
         ) { screen in
-            let copy = try await screen.copy { $0.contains("over 200 steps a minute") }
+            let copy = try await screen.copy { $0.contains("over 220 steps a minute") }
 
-            #expect(copy.contains("over 200 steps a minute. this climb will not count on leaderboards."), "\(copy)")
+            #expect(copy.contains("over 220 steps a minute. this climb will not count on leaderboards."), "\(copy)")
             #expect(viewModel.canSave(now: Self.now), "the climb is allowed to save")
 
             // The warning must not push the first row of OPTIONAL buttons under the keypad: the
@@ -371,7 +371,7 @@ struct LogClimbEvidenceTests {
         ) { screen in
             let copy = try await screen.copy { $0.contains("off the leaderboards") }
 
-            #expect(copy.contains("250 steps a minute is over the 200 limit"), "\(copy)")
+            #expect(copy.contains("250 steps a minute is over the 220 limit"), "\(copy)")
             #expect(copy.contains("edit the steps or time and it ranks"), "\(copy)")
             try screen.photograph(named: "log-climb-07-result-off-the-boards")
         }

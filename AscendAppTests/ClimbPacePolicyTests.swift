@@ -5,7 +5,7 @@ import Testing
 
 /// The automatic plausibility check on a climb Ascend did not measure.
 ///
-/// The boundaries are the product: a typed climb at exactly 200 steps a minute ranks, one step
+/// The boundaries are the product: a typed climb at exactly 220 steps a minute ranks, one step
 /// more is saved and kept off the boards, and 300 is refused. The shared vector pins the same
 /// cases against the server derivation and the Firestore rules, so the number the phone shows and
 /// the number the board ranks on cannot drift apart.
@@ -79,19 +79,20 @@ struct ClimbPacePolicyTests {
 
     @Test
     func aClimbAtExactlyTheCeilingRanks() {
-        // 6,000 steps in 30 minutes is 200 a minute.
-        #expect(ClimbPacePolicy.verdict(steps: 6_000, duration: 1_800) == .withinCeiling)
+        // 6,600 steps in 30 minutes is 220 a minute, the same line a live climb is held to.
+        #expect(ClimbPacePolicy.verdict(steps: 6_600, duration: 1_800) == .withinCeiling)
+        #expect(ClimbPacePolicy.leaderboardCeilingStepsPerMinute == WorkoutPlausibilityPolicy.maximumAverageStepsPerMinute)
     }
 
     @Test
     func aClimbOneStepOverTheCeilingIsSavedAndKeptOffTheBoards() {
-        let verdict = ClimbPacePolicy.verdict(steps: 6_001, duration: 1_800)
+        let verdict = ClimbPacePolicy.verdict(steps: 6_601, duration: 1_800)
 
         guard case .aboveCeiling(let pace) = verdict else {
             Issue.record("expected aboveCeiling, got \(verdict)")
             return
         }
-        #expect(pace > 200 && pace < 201)
+        #expect(pace > 220 && pace < 221)
         #expect(verdict.isSaveable)
         #expect(verdict.leaderboardStatus == .excluded)
     }
@@ -251,16 +252,16 @@ struct ClimbPacePolicyTests {
         let workout = Workout(
             name: "Stair Stepper",
             duration: 1_800,
-            steps: 6_001,
-            floors: Workout.stepsToFloors(6_001),
+            steps: 6_601,
+            floors: Workout.stepsToFloors(6_601),
             source: .manual
         )
         #expect(workout.refreshLeaderboardStatus())
         #expect(workout.leaderboardStatus == .excluded)
         #expect(workout.exceedsPaceCeiling)
 
-        workout.steps = 6_000
-        workout.floors = Workout.stepsToFloors(6_000)
+        workout.steps = 6_600
+        workout.floors = Workout.stepsToFloors(6_600)
         #expect(workout.refreshLeaderboardStatus())
         #expect(workout.leaderboardStatus == .eligible)
         #expect(!workout.exceedsPaceCeiling)

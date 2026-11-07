@@ -58,7 +58,7 @@ struct AppleHealthImportServiceTests {
     @Test
     func theAutomaticPlausibilityCheckJudgesAnImportOnItsPace() async throws {
         let harness = try AppleHealthImportHarness()
-        let withinCeiling = harness.addWorkout(daysAgo: 1, steps: 6_000, minutes: 30)      // 200 a minute
+        let withinCeiling = harness.addWorkout(daysAgo: 1, steps: 6_600, minutes: 30)      // 220 a minute
         let aboveCeiling = harness.addWorkout(daysAgo: 2, steps: 7_500, minutes: 30)       // 250 a minute
         let absurd = harness.addWorkout(daysAgo: 3, steps: 12_000, minutes: 30)            // 400 a minute
         await harness.service.syncNow()

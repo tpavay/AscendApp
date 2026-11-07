@@ -23,9 +23,10 @@
  * device: there is no App Check attestation and no server-side sensor
  * ingestion, so the server holds no evidence a determined client could not
  * manufacture. What it does hold is a physical envelope - a session cannot
- * exceed 220 steps per minute (200 for a climb typed in or brought in rather
- * than measured by Ascend's own sensor), cannot run longer than a day, and a
- * period's sessions cannot total more wall clock than the period contains - so
+ * exceed 220 steps per minute (the same line for a climb typed in or brought
+ * in as for one Ascend's own sensor measured), cannot run longer than a day,
+ * and a period's sessions cannot total more wall clock than the period
+ * contains - so
  * a forged standing is now bounded by what a human could conceivably have
  * climbed instead of by the range of a 64-bit integer. Closing the remainder
  * means building the evidence path (attestation and per-workout provenance),
@@ -114,7 +115,8 @@ export const MAX_AVERAGE_STEPS_PER_MINUTE = 220;
  * still rank. A live climb is bounded by what the headphone detector can
  * physically report (a 0.3 second minimum between peaks, about 200 a minute)
  * and by the 220 above; a typed or imported climb has no sensor behind it, so
- * its pace is the only evidence there is and it is held to a tighter line.
+ * its pace is the only evidence there is. It is held to the same 220 as a live
+ * climb (it was 200 until 2026-11-06), so no origin has a looser line.
  *
  * Mirrors `ClimbPacePolicy.leaderboardCeilingStepsPerMinute` on the device,
  * and `SharedTestVectors/climb-pace-policy-vector.json` holds the two to the
@@ -126,7 +128,7 @@ export const MAX_AVERAGE_STEPS_PER_MINUTE = 220;
  * `leaderboardStatus` is a local SwiftData column on the climber's phone that
  * is never synced, so no workout document carries one for this to trust.
  */
-export const MAX_UNMEASURED_AVERAGE_STEPS_PER_MINUTE = 200;
+export const MAX_UNMEASURED_AVERAGE_STEPS_PER_MINUTE = 220;
 export const MAX_WORKOUT_DURATION_SECONDS = 24 * 60 * 60;
 
 /**

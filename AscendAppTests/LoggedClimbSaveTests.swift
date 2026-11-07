@@ -168,7 +168,7 @@ struct LoggedClimbSaveTests {
 
         let workout = try #require(
             LoggedClimbService.makeWorkout(
-                input: input(steps: 6_000, seconds: 1_800, date: reference),
+                input: input(steps: 6_600, seconds: 1_800, date: reference),
                 details: LoggedClimbDetails(),
                 now: reference
             )
@@ -180,12 +180,12 @@ struct LoggedClimbSaveTests {
             referenceDate: reference
         )
         var weekly = try #require(try service.getLocalStats(for: Self.userId, timeFrame: .weekly))
-        #expect(weekly.totalSteps == 6_000)
+        #expect(weekly.totalSteps == 6_600)
 
         // Edit up past the ceiling: the snapshot before and after differ in whether they count.
         let before = LeaderboardWorkoutSnapshot(workout: workout)
-        workout.steps = 6_300
-        workout.floors = Workout.stepsToFloors(6_300)
+        workout.steps = 6_900
+        workout.floors = Workout.stepsToFloors(6_900)
         #expect(workout.refreshLeaderboardStatus())
         let after = LeaderboardWorkoutSnapshot(workout: workout)
         _ = try service.applyMutationImpact(
@@ -251,14 +251,14 @@ struct LoggedClimbSaveTests {
     func withLoggingSwitchedOffAnEditLeavesTheStoredStatusAsItIs() throws {
         let workout = try #require(
             LoggedClimbService.makeWorkout(
-                input: input(steps: 6_000, seconds: 1_800),
+                input: input(steps: 6_600, seconds: 1_800),
                 details: LoggedClimbDetails(),
                 now: Self.now
             )
         )
         #expect(workout.leaderboardStatus == .eligible)
 
-        workout.steps = 6_300
+        workout.steps = 6_900
         #expect(workout.refreshLeaderboardStatus(featureFlags: storeWithLoggingOff()) == false)
         #expect(workout.leaderboardStatus == .eligible)
 

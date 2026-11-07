@@ -3,7 +3,7 @@ import Foundation
 /// The automatic plausibility check for a climb Ascend did not measure itself.
 ///
 /// A live climb is read off the headphones' motion sensor and keeps its own gate
-/// (`WorkoutPlausibilityPolicy`, 220 steps/min). A climb the climber typed in has no sensor behind
+/// (`WorkoutPlausibilityPolicy`, 220 steps/min, the same number as this ceiling). A climb the climber typed in has no sensor behind
 /// it, so its pace is the evidence, and this is the whole of the pace check; the one other rule is
 /// the join date (``startedBeforeAccount(_:accountCreatedAt:)``). There is no
 /// report button, no review queue and no hold on a top placing - the number decides, and it runs
@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Pace is average steps per minute. Two thresholds cut it into three outcomes:
 ///
-/// - **Within the ceiling** (up to and including 200): counts everywhere.
+/// - **Within the ceiling** (up to and including 220): counts everywhere.
 /// - **Above the ceiling, below absurd**: the climb is saved and counts for history, streak and
 ///   goals, and stays off leaderboards and the Best Efforts that feed them. Editing the steps or
 ///   time re-runs the check and puts it on or takes it off.
@@ -20,16 +20,17 @@ import Foundation
 ///
 /// The ceiling is above the machines and well above the measured climbers. StairMaster's fastest
 /// console setting is 190 steps/min (`SPMMappingService.levelToSPM`), and the fastest of the 104
-/// production climbs measured when this was set (2026-10-30) averaged 127. 200 keeps a margin
-/// over the machine's top setting so an honest, hard climb is never excluded, while still sitting
-/// far below what a fabricated number would need to be to take a board.
+/// production climbs measured on 2026-10-30 averaged 127. It was 200 until the captain matched it
+/// to the live sensor gate on 2026-11-06: one ceiling for every climb, so a typed or imported
+/// climb is held to the same line as one the headphones measured, and an honest, hard climb is
+/// never excluded.
 ///
 /// The server applies the same two numbers again - `functions/src/leaderboardStats.ts` for the
 /// ceiling and `isPhysicallyPossibleClimb` in `firestore.rules` for the absurd bound - and
 /// `SharedTestVectors/climb-pace-policy-vector.json` holds all three to the same answers.
 enum ClimbPacePolicy {
     /// The fastest average cadence a climb Ascend did not measure can carry and still rank.
-    static let leaderboardCeilingStepsPerMinute: Double = 200
+    static let leaderboardCeilingStepsPerMinute: Double = 220
 
     /// The average cadence at which a save is refused outright.
     ///

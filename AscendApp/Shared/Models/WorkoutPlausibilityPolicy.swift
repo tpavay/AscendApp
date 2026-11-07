@@ -30,7 +30,7 @@ enum WorkoutPlausibilityPolicy {
     ///
     /// A live climb keeps the 220 steps/min sensor gate. A climb nobody measured is held to the
     /// looser refusal line in `ClimbPacePolicy` instead, because the band between its leaderboard
-    /// ceiling and that line is climbs Ascend saves and keeps off the boards: refusing them here
+    /// ceiling (also 220) and that line is climbs Ascend saves and keeps off the boards: refusing them here
     /// would park a climb the climber was told was saved in `rejected` sync, forever.
     static func hasPlausibleTotals(_ workout: Workout) -> Bool {
         hasPlausibleTotals(

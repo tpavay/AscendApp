@@ -72,7 +72,7 @@ A workout with no step count imports with zero steps, which `Workout.isMissingSt
 Steps that fail the unsaveable test in `AppleHealthImportPolicy.importableSteps` (300 steps a minute, or more than 120,000) are dropped to missing: a typed save is refused there, an import cannot be, and a climb the cloud would refuse on every sync is worse than one asking for its number.
 
 Imported climbs go through `ClimbPacePolicy` and the join-date rule exactly like a typed climb.
-Up to 200 steps a minute ranks, 200 to 300 is saved and kept off leaderboards and the Best Efforts that feed them, and the server re-derives eligibility from `source`, `steps` and `durationSeconds` and never reads the device's verdict.
+Up to 220 steps a minute ranks, 220 to 300 is saved and kept off leaderboards and the Best Efforts that feed them, and the server re-derives eligibility from `source`, `steps` and `durationSeconds` and never reads the device's verdict.
 A change to steps, time or date, edited here or restored from the cloud, re-runs the check, and nothing else does.
 There is no report button, no review queue, and no hold on a top placing.
 

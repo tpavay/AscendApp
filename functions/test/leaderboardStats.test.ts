@@ -321,8 +321,8 @@ test("editing a typed climb across the ceiling moves it on and off the board",
       durationSeconds: 1800,
     });
 
-    assert.ok(parseEligibleWorkout("w1", typed(6000)));
-    assert.equal(parseEligibleWorkout("w1", typed(6001)), null);
+    assert.ok(parseEligibleWorkout("w1", typed(220 * 30)));
+    assert.equal(parseEligibleWorkout("w1", typed(220 * 30 + 1)), null);
   });
 
 test("a typed climb the device calls eligible still has to pass the server",
