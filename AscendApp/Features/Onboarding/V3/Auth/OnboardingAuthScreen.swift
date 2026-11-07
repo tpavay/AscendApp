@@ -1,22 +1,25 @@
 import FirebaseCore
 import SwiftUI
 
-/// Screen 13: sign in. The step after setup and before the paywall, so every purchase is made by an
-/// account, and also where "Already have an account? Sign in" lands.
+/// Sign in: the last step of the flow, before the paywall, so every purchase is made by an account.
+/// Also where "Already have an account? Sign in" lands.
 ///
 /// Apple and Google are the only two ways in, and nothing on this screen takes typed input: the
-/// climber's row on the board is a picture of where they will stand, never a field. The name comes
-/// from the sign-in itself (`SuppliedNameAdoption`).
+/// list under the headline is a record of what the flow collected and what saves the moment the
+/// climber signs in, never a field. The name comes from the sign-in itself (`SuppliedNameAdoption`).
 struct OnboardingAuthScreen: View {
     let coordinator: OnboardingV3Coordinator
 
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var mode: OnboardingAuthMode
     @State private var isShowingInternalQA = false
+    /// Read once: the answers cannot change while this screen is up.
+    private let savedItems: [OnboardingSavedItem]
 
     init(coordinator: OnboardingV3Coordinator) {
         self.coordinator = coordinator
         _mode = State(initialValue: OnboardingAuthMode(arrivedFrom: coordinator.previousStep))
+        savedItems = OnboardingSavedItems.make(from: coordinator.answers)
     }
 
     private var isDisabled: Bool { authVM.authenticationState.isAuthenticating }
@@ -30,7 +33,7 @@ struct OnboardingAuthScreen: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         // The sign-in buttons are the screen's one job, so they stay on screen at the smallest
-        // phone and at the largest text size while the board above them scrolls.
+        // phone and at the largest text size while the list above them scrolls.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             actions
                 .background(OnboardingV3Palette.background)
@@ -68,28 +71,31 @@ struct OnboardingAuthScreen: View {
                 guard InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID) else {
                     return
                 }
-                if mode == .claimSpot { OnboardingV3HandOffIntent().set() }
+                if mode == .saveEveryClimb { OnboardingV3HandOffIntent().set() }
                 isShowingInternalQA = true
             }
     }
 
     private var copy: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             switch mode {
-            case .claimSpot:
-                Text("Almost there")
+            case .saveEveryClimb:
+                Text("Last step")
                     .onboardingKicker()
+                    .padding(.bottom, 10)
                     .onboardingEntrance(index: 0)
 
-                OnboardingHeadline(["Claim your", "spot on the", "board."], size: 31)
+                OnboardingHeadline(["Save every"], accentLines: ["climb."])
+                    .padding(.bottom, 14)
                     .onboardingEntrance(index: 1)
 
-                OnboardingAuthBoardCard()
-                    .onboardingEntrance(index: 2)
-
-                Text("Your records, streak and gear stay with you on any device.")
+                Text("Everything you do in Ascend saves to your account and follows you to any phone. Without one, none of it is kept.")
                     .onboardingSecondary()
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 22)
+                    .onboardingEntrance(index: 2)
+
+                OnboardingSavedItemsCard(items: savedItems)
                     .onboardingEntrance(index: 3)
 
             case .returning:
@@ -98,7 +104,7 @@ struct OnboardingAuthScreen: View {
 
                 Text("Your records, streak and gear are waiting.")
                     .onboardingBody()
-                    .padding(.top, 6)
+                    .padding(.top, 18)
                     .fixedSize(horizontal: false, vertical: true)
                     .onboardingEntrance(index: 1)
             }
@@ -142,7 +148,7 @@ struct OnboardingAuthScreen: View {
                 .tint(OnboardingV3Palette.accent)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                // The pinned buttons may not grow until the board has no room; the legal line stays
+                // The pinned buttons may not grow until the list has no room; the legal line stays
                 // readable at the largest sizes the rest of the screen offers it.
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
@@ -165,7 +171,7 @@ struct OnboardingAuthScreen: View {
         authVM.errorMessage = nil
         let authVM = authVM
         let intent = OnboardingV3HandOffIntent()
-        if mode == .claimSpot { intent.set() }
+        if mode == .saveEveryClimb { intent.set() }
 
         Task { @MainActor in
             await attempt()

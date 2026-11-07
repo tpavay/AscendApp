@@ -47,12 +47,13 @@ struct OnboardingV3HealthTests {
     @Test
     func aNoClearsWhateverTheClimberAskedToBringInOnTheWayHere() {
         let store = makeStore()
-        store.update { $0.foundHealthWorkoutIDs = ["a", "b"] }
+        store.update { $0.recordFoundHealthHistory(workoutIDs: ["a", "b"], knownSteps: 6_000) }
         let flow = coordinator(at: .healthConnect, store: store)
 
         OnboardingHealthConnectScreen.declineHealth(flow)
 
         #expect(store.answers().foundHealthWorkoutIDs.isEmpty, "a no is a no")
+        #expect(store.answers().foundHealthKnownSteps == nil)
     }
 
     // MARK: - 06b
@@ -174,6 +175,7 @@ struct OnboardingV3HealthTests {
 
         let answers = store.answers()
         #expect(Set(answers.foundHealthWorkoutIDs) == [first.uuid.uuidString, second.uuid.uuidString])
+        #expect(answers.foundHealthKnownSteps == 8_000, "the sign-in screen says the total back")
         #expect(answers.usualClimbSteps == 4_000)
         #expect(answers.usualClimbMinutes == 45)
         #expect(flow.step == .climberCard)
@@ -193,6 +195,7 @@ struct OnboardingV3HealthTests {
 
         #expect(store.answers().usualClimbSteps == nil)
         #expect(store.answers().usualClimbMinutes == 41)
+        #expect(store.answers().foundHealthKnownSteps == nil)
     }
 
     @Test

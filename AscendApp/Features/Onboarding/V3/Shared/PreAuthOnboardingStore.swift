@@ -77,9 +77,31 @@ struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
     /// runs after sign-in does not read them a second time.
     var foundHealthWorkoutIDs: [String] = []
 
+    /// The steps those workouts report between them, which the sign-in screen says back next to
+    /// their count. Nil when none of them reported steps, and nothing without the identifiers:
+    /// ``recordFoundHealthHistory(workoutIDs:knownSteps:)`` and ``clearFoundHealthHistory()`` keep
+    /// the two together.
+    var foundHealthKnownSteps: Int?
+
     /// When the climber reached the end of the flow. Present means the flow is finished and the
     /// app moves on to whatever follows it.
     var completedAt: Date?
+}
+
+extension PreAuthOnboardingAnswers {
+    /// Records the history the climber asked to bring in on 07a: the workouts they were shown and
+    /// the steps those workouts report.
+    mutating func recordFoundHealthHistory(workoutIDs: [String], knownSteps: Int) {
+        foundHealthWorkoutIDs = workoutIDs
+        foundHealthKnownSteps = knownSteps > 0 ? knownSteps : nil
+    }
+
+    /// Leaves nothing to import: a no to Health, a read that found nothing, a history that landed,
+    /// or a sign-out.
+    mutating func clearFoundHealthHistory() {
+        foundHealthWorkoutIDs = []
+        foundHealthKnownSteps = nil
+    }
 }
 
 /// The one place pre-sign-in answers live, grown from the older `PreAuthOnboardingSurveyStore`

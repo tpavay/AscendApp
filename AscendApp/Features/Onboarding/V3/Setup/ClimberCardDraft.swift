@@ -94,10 +94,15 @@ struct ClimberCardDraft: Equatable, Sendable {
 
     /// The age the birthday gives on `date`, when it is one the card accepts.
     func age(on date: Date = .now, calendar deviceCalendar: Calendar = .current) -> Int? {
-        guard let birthday,
-              let stored = ProfileBirthday(rawValue: String(format: "%04d-%02d-%02d", birthday.year, birthday.month, birthday.day)),
-              let age = stored.age(on: date, calendar: Self.gregorian(from: deviceCalendar)),
-              Self.ageRange.contains(age) else { return nil }
+        birthday.flatMap { Self.age(of: $0, on: date, calendar: deviceCalendar) }
+    }
+
+    /// The age `birthday` gives on `date`, when it is one the card accepts. The one rule for every
+    /// screen that says an age back from the answers.
+    static func age(of birthday: PreAuthOnboardingBirthday, on date: Date = .now, calendar deviceCalendar: Calendar = .current) -> Int? {
+        guard let stored = ProfileBirthday(rawValue: String(format: "%04d-%02d-%02d", birthday.year, birthday.month, birthday.day)),
+              let age = stored.age(on: date, calendar: gregorian(from: deviceCalendar)),
+              ageRange.contains(age) else { return nil }
         return age
     }
 

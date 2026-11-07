@@ -45,7 +45,7 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .weeklyTarget: "How many days a week?"
         case .thisMonthEvent: "This month's live event"
         case .notificationPrimer: "We'll keep you on track"
-        case .auth: "Claim your spot on the board"
+        case .auth: "Save every climb"
         }
     }
 

@@ -1,11 +1,10 @@
 import FirebaseFirestore
 import Foundation
 import Testing
-import UIKit
 @testable import AscendApp
 
-/// Screen 13 and what happens when the climber signs in at the end of the flow: the example board,
-/// the two modes, the profile fill, and every route's hand-off.
+/// The sign-in screen and what happens when the climber signs in at the end of the flow: the list
+/// of what saves, the two modes, the profile fill, and every route's hand-off.
 @MainActor
 struct OnboardingAuthTests {
     private static let now = Date(timeIntervalSince1970: 1_793_793_600) // Wed 2026-11-04 12:00 UTC
@@ -17,41 +16,111 @@ struct OnboardingAuthTests {
         return defaults
     }
 
-    // MARK: - The example board
+    // MARK: - What saves
 
-    @Test
-    func theBoardIsThreeFixedExampleClimbersInOrder() {
-        let climbers = OnboardingAuthExampleClimber.weeklyTopThree
-
-        #expect(climbers.map(\.rank) == [1, 2, 3])
-        #expect(climbers.map(\.name) == ["Mason D.", "Noah R.", "Ava M."])
-        #expect(climbers.map(\.steps) == ["38,891", "12,335", "9,720"])
+    private func items(_ answers: PreAuthOnboardingAnswers) -> [OnboardingSavedItem] {
+        OnboardingSavedItems.make(from: answers, now: Self.now, calendar: Calendar(identifier: .gregorian))
     }
 
     @Test
-    func everyExampleClimberHasAnAvatarTheAppAlreadyShips() {
-        for climber in OnboardingAuthExampleClimber.weeklyTopThree {
-            #expect(UIImage(named: climber.avatarImageName) != nil, "\(climber.avatarImageName)")
-        }
+    func aClimberWhoSkippedEverythingSeesTheTwoThingsEveryAccountGets() {
+        let items = items(PreAuthOnboardingAnswers())
+
+        #expect(items.map(\.kind) == [.climbs, .boards])
+        #expect(items[0].title == "Every climb from today")
+        #expect(items[0].subtitle == "Steps, time, streak and new bests")
+        #expect(items[1].title == "Your spot on the boards")
+        #expect(items[1].subtitle == "Leaderboards and live climbs")
+    }
+
+    @Test
+    func everythingTheClimberGaveFillsTheListInTheDesignsOrder() {
+        var answers = fullAnswers()
+        answers.weeklyTargetDays = 4
+        answers.recordFoundHealthHistory(workoutIDs: (0..<214).map { "w\($0)" }, knownSteps: 698_240)
+        answers.gender = .man
+        answers.birthday = PreAuthOnboardingBirthday(year: 1996, month: 3, day: 9)
+
+        let items = items(answers)
+
+        #expect(items.map(\.kind) == [.climbs, .healthHistory, .profile, .boards])
+        #expect(items[0].subtitle == "Steps, time, streak and new bests \u{00B7} 4 days a week")
+        #expect(items[1].title == "214 past climbs \u{00B7} 698,240 steps")
+        #expect(items[1].subtitle == "From Apple Health, with past bests")
+        #expect(items[2].title == "M \u{00B7} 30")
+        #expect(items[2].subtitle == "Your profile \u{00B7} Denver")
+    }
+
+    @Test
+    func theHistoryRowCountsOneClimbAndLeavesStepsOutWhenNoneWereReported() {
+        var answers = PreAuthOnboardingAnswers()
+        answers.recordFoundHealthHistory(workoutIDs: ["w1"], knownSteps: 0)
+
+        let history = items(answers).first { $0.kind == .healthHistory }
+        #expect(history?.title == "1 past climb")
+        #expect(answers.foundHealthKnownSteps == nil)
+    }
+
+    @Test
+    func aHistoryTheClimberTookBackHasNoRow() {
+        var answers = PreAuthOnboardingAnswers()
+        answers.recordFoundHealthHistory(workoutIDs: ["w1", "w2"], knownSteps: 5_000)
+        answers.clearFoundHealthHistory()
+
+        #expect(answers.foundHealthKnownSteps == nil)
+        #expect(!items(answers).contains { $0.kind == .healthHistory })
+    }
+
+    @Test
+    func theProfileRowSaysOnlyWhatTheCardHoldsAndNamesNobody() {
+        var woman = PreAuthOnboardingAnswers()
+        woman.gender = .woman
+        #expect(items(woman).first { $0.kind == .profile }?.title == "F")
+        #expect(items(woman).first { $0.kind == .profile }?.subtitle == "Your profile")
+
+        var quiet = PreAuthOnboardingAnswers()
+        quiet.gender = .preferNotToSay
+        quiet.heightCm = 170
+        #expect(items(quiet).first { $0.kind == .profile }?.title == "Your climber card")
+
+        var cityOnly = PreAuthOnboardingAnswers()
+        cityOnly.city = PreAuthOnboardingCity(city: "Denver", region: "CO", countryCode: "US", countryName: "United States")
+        let city = items(cityOnly).first { $0.kind == .profile }
+        #expect(city?.title == "Your climber card")
+        #expect(city?.subtitle == "Your profile \u{00B7} Denver")
+
+        var tooYoung = PreAuthOnboardingAnswers()
+        tooYoung.birthday = PreAuthOnboardingBirthday(year: 2020, month: 1, day: 1)
+        #expect(items(tooYoung).first { $0.kind == .profile }?.title == "Your climber card", "an age the card refuses is not said back")
+    }
+
+    @Test
+    func aTargetTheRulesRefuseIsNotSaidBack() {
+        var answers = PreAuthOnboardingAnswers()
+        answers.weeklyTargetDays = 9
+        #expect(items(answers)[0].subtitle == "Steps, time, streak and new bests")
+
+        answers.weeklyTargetDays = 1
+        #expect(items(answers)[0].subtitle == "Steps, time, streak and new bests \u{00B7} 1 day a week")
     }
 
     // MARK: - Modes
 
     @Test
-    func theSignInOpensInReturningModeFromTheFirstScreenAndTheClaimSpotModeFromTheSetupScreens() {
+    func theSignInOpensInReturningModeFromTheFirstScreenAndTheSaveEveryClimbModeFromTheSetupScreens() {
         #expect(OnboardingAuthMode(arrivedFrom: .welcome) == .returning)
-        #expect(OnboardingAuthMode(arrivedFrom: .notificationPrimer) == .claimSpot)
-        #expect(OnboardingAuthMode(arrivedFrom: nil) == .claimSpot)
+        #expect(OnboardingAuthMode(arrivedFrom: .notificationPrimer) == .saveEveryClimb)
+        #expect(OnboardingAuthMode(arrivedFrom: nil) == .saveEveryClimb)
     }
 
     @Test
-    func walkingTheFlowEndsInClaimSpotAndTheFirstScreensLinkEndsInReturning() {
+    func walkingTheFlowEndsInSaveEveryClimbAndTheFirstScreensLinkEndsInReturning() {
         let store = PreAuthOnboardingStore(userDefaults: defaults())
 
         let walked = OnboardingV3Coordinator(store: store, startingAt: .notificationPrimer)
         walked.advance()
         #expect(walked.step == .auth)
-        #expect(OnboardingAuthMode(arrivedFrom: walked.previousStep) == .claimSpot)
+        #expect(OnboardingAuthMode(arrivedFrom: walked.previousStep) == .saveEveryClimb)
 
         let linked = OnboardingV3Coordinator(store: store)
         linked.go(to: .auth)
@@ -372,13 +441,14 @@ struct OnboardingAuthTests {
     @Test
     func healthHistoryAloneIsStillImportedWhenThereAreNoProfileAnswers() async {
         var answers = PreAuthOnboardingAnswers()
-        answers.foundHealthWorkoutIDs = ["w1", "w2"]
+        answers.recordFoundHealthHistory(workoutIDs: ["w1", "w2"], knownSteps: 8_000)
         let harness = Harness(defaults: defaults(), answers: answers)
 
         #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .complete)
         #expect(harness.recorder.events == ["health"])
         #expect(harness.recorder.importedAnswers.first?.foundHealthWorkoutIDs == ["w1", "w2"])
         #expect(harness.store.answers().foundHealthWorkoutIDs.isEmpty)
+        #expect(harness.store.answers().foundHealthKnownSteps == nil, "the steps leave with the workouts")
     }
 
     @Test
@@ -497,7 +567,7 @@ struct OnboardingAuthTests {
     func theNextAccountOnThePhoneNeverReceivesAnotherClimbersDeferredAnswers() async {
         var answers = fullAnswers()
         answers.weeklyTargetDays = 4
-        answers.foundHealthWorkoutIDs = ["w1"]
+        answers.recordFoundHealthHistory(workoutIDs: ["w1"], knownSteps: 2_000)
         answers.usualClimbSteps = 1_800
         answers.completedAt = Self.now
         let harness = Harness(defaults: defaults(), answers: answers)
@@ -517,6 +587,7 @@ struct OnboardingAuthTests {
         #expect(harness.recorder.events == ["reconcileTarget"])
         #expect(flow.answers.gender == nil, "no setup screen prefills the last climber's answers")
         #expect(flow.answers.foundHealthWorkoutIDs.isEmpty)
+        #expect(flow.answers.foundHealthKnownSteps == nil)
         #expect(flow.isFinished, "signing out does not restart the flow")
     }
 

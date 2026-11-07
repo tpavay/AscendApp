@@ -20,7 +20,7 @@ struct OnboardingHealthConnectScreen: View {
     /// "Skip": on to the usual-climb question, and whatever a climber who walked
     /// the Health branch and came back asked to bring in is left behind, so a no here is a no.
     static func declineHealth(_ coordinator: OnboardingV3Coordinator) {
-        coordinator.update { $0.foundHealthWorkoutIDs = [] }
+        coordinator.update { $0.clearFoundHealthHistory() }
         coordinator.go(to: .usualClimb)
     }
 }

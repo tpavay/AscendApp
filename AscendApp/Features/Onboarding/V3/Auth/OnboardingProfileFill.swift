@@ -119,7 +119,7 @@ extension PreAuthOnboardingAnswers {
     /// theirs, so the next account on this phone cannot receive it.
     var droppingSessionAnswers: PreAuthOnboardingAnswers {
         var kept = droppingHandedOffAnswers
-        kept.foundHealthWorkoutIDs = []
+        kept.clearFoundHealthHistory()
         kept.weeklyTargetDays = nil
         return kept
     }

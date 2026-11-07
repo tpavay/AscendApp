@@ -51,7 +51,7 @@ final class OnboardingHealthPermissionViewModel {
             // None found, or a read that failed - never reported as a history. A climber with
             // nothing to find loses nothing by the question, and nothing they were shown earlier
             // is left behind to be imported.
-            coordinator.update { $0.foundHealthWorkoutIDs = [] }
+            coordinator.update { $0.clearFoundHealthHistory() }
             coordinator.go(to: .usualClimb)
         }
     }
