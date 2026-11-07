@@ -95,8 +95,8 @@ struct OnboardingV3KitTests {
 
     @Test
     func theBranchesMeetAgainAtTheClimberCard() {
-        #expect(OnboardingV3Step.healthHistory.primaryDestination == .climberCard)
-        #expect(OnboardingV3Step.usualClimb.primaryDestination == .climberCard)
+        #expect(OnboardingV3Step.healthHistory.primaryDestination == .profileSetup)
+        #expect(OnboardingV3Step.usualClimb.primaryDestination == .profileSetup)
         #expect(OnboardingV3Step.healthConnect.alternateExits.map(\.destination) == [.usualClimb])
     }
 
@@ -115,7 +115,7 @@ struct OnboardingV3KitTests {
         let expected: [OnboardingV3Step: Double?] = [
             .welcome: nil, .goHarder: 38, .getBetter: 55, .somethingToChase: 67, .countMethods: 75,
             .healthConnect: 81, .healthPermission: 81, .healthHistory: 86, .usualClimb: 86,
-            .climberCard: 90, .claimCity: 93, .weeklyTarget: 95, .thisMonthEvent: 97,
+            .profileSetup: 90, .claimCity: 93, .weeklyTarget: 95, .thisMonthEvent: 97,
             .notificationPrimer: 98, .auth: nil
         ]
 
@@ -179,7 +179,7 @@ struct OnboardingV3KitTests {
 
         coordinator.go(to: .usualClimb)
         coordinator.advance()
-        #expect(coordinator.step == .climberCard)
+        #expect(coordinator.step == .profileSetup)
 
         coordinator.back()
         #expect(coordinator.step == .usualClimb)

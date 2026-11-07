@@ -34,7 +34,7 @@ struct OnboardingAuthEvidenceTests {
     private static let boardsRow = "Your spot on the boards, Leaderboards and live climbs"
     private static let appleButton = "Continue with Apple"
 
-    /// The design's left state: Apple Health history added, the climber card filled in, a city and
+    /// The design's left state: Apple Health history added, the profile filled in, a city and
     /// a target. The screen reads the real clock, so the birthday is thirty years back from today.
     private static func everythingGiven() throws -> PreAuthOnboardingAnswers {
         let calendar = Calendar(identifier: .gregorian)
@@ -42,6 +42,8 @@ struct OnboardingAuthEvidenceTests {
         let birthday = calendar.dateComponents([.year, .month, .day], from: thirtyYearsAgo)
 
         var answers = PreAuthOnboardingAnswers()
+        answers.firstName = "Sam"
+        answers.lastName = "Rivera"
         answers.gender = .man
         answers.birthday = PreAuthOnboardingBirthday(
             year: try #require(birthday.year),
@@ -160,14 +162,14 @@ struct OnboardingAuthEvidenceTests {
             #expect(!copy.contains("claim your"), "the old headline is gone: \(copy)")
             #expect(!copy.contains("your name here"), "no name prompt: \(copy)")
             if phone.fitsTheWholeList {
-                #expect(copy.contains("m · 30, your profile · denver"), "\(copy)")
+                #expect(copy.contains("sam rivera · m · 30, your profile · denver"), "\(copy)")
                 #expect(copy.contains("your spot on the boards, leaderboards and live climbs"), "\(copy)")
             }
             try hosted.photograph(named: "onboarding-v3-auth-everything-given-\(phone.suffix)")
             try await Self.expectTheListReachable(on: hosted, phone: phone, lastRow: Self.boardsRow)
             if !phone.fitsTheWholeList {
                 let scrolled = try await hosted.copy()
-                #expect(scrolled.contains("m · 30, your profile · denver"), "\(scrolled)")
+                #expect(scrolled.contains("sam rivera · m · 30, your profile · denver"), "\(scrolled)")
                 try hosted.photograph(named: "onboarding-v3-auth-everything-given-\(phone.suffix)-scrolled")
             }
         }

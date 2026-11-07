@@ -166,7 +166,7 @@
         "value": "true"
       },
       "valueType": "BOOLEAN",
-      "description": "Kill switch. Off stops writing birthday, gender, height, weight and city given before sign-in to the profile, plus the target save and Health import after it. They wait on the device for the switch; sign-out drops them."
+      "description": "Kill switch. Off stops writing typed name, photo, birthday, gender, height, weight and city given before sign-in to the profile, plus the target save and Health import after it. They wait on the device for the switch; sign-out drops them."
     },
     "weekly_target_writes_enabled": {
       "defaultValue": {

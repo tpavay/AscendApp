@@ -357,4 +357,31 @@ struct SignInSuppliedIdentityTests {
         // rendering, so the placeholder has nothing to overwrite.
         #expect(SignInNamePlaceholder.boardName == "CHANGE ME")
     }
+
+    /// A name typed before sign-in outranks the provider's and the placeholder, and only a stored
+    /// name outranks it. An unreadable profile still decides nothing.
+    @Test
+    func aPendingTypedNameLeavesAnAccountWithNoNameForTheHandOff() {
+        let provider = SignInSuppliedIdentity(providerUserID: "p", firstName: "Ava", lastName: "Mills", email: nil)
+
+        for supplied in [provider, nil] {
+            #expect(
+                SuppliedNameAdoption.decide(supplied: supplied, storedName: .absent, typedNamePending: true)
+                    == .leaveForTypedName
+            )
+            #expect(
+                SuppliedNameAdoption.decide(supplied: supplied, storedName: .present, typedNamePending: true)
+                    == .discard
+            )
+            #expect(
+                SuppliedNameAdoption.decide(supplied: supplied, storedName: .unreadable, typedNamePending: true)
+                    == .retryLater
+            )
+        }
+
+        #expect(
+            SuppliedNameAdoption.decide(supplied: provider, storedName: .absent, typedNamePending: false)
+                == .write(firstName: "Ava", lastName: "Mills")
+        )
+    }
 }

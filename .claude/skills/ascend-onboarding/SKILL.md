@@ -32,6 +32,7 @@ Signing in at the end of that flow marks post-sign-in onboarding complete, so th
 
 ## Required profile capture
 - Post-auth onboarding collects declared demographics when that stage is enabled. It never asks for a name.
+  The v3 flow's pre-sign-in profile screen (08) is the one place with optional name fields, plus a photo; it is skippable and gates nothing.
   The name is resolved without asking - see the `Name - Resolved, Never Asked` section of `docs/onboarding-design-guide.md`, which owns that contract.
   `ascend-profile` owns the full demographics contract - the stored birthday, the derived age and its bounds, and the gender raw values.
 

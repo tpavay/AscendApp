@@ -52,6 +52,10 @@ final class OnboardingV3SignInHandOff {
     /// the network, RevenueCat or the Health store.
     struct Seams {
         var isProfileWriteEnabled: @MainActor () -> Bool
+        /// Returns once this sign-in has resolved the account's name. The fill is planned after it,
+        /// so a typed name lands on an account that resolution left without one, or over a
+        /// placeholder already there, and a name the account already carried wins every time.
+        var signInNameSettled: @MainActor () async -> Void
         var readProfile: @MainActor (_ userId: String) async throws -> UserDisplayNameData?
         var writeProfile: @MainActor (_ userId: String, _ email: String?, _ fill: OnboardingProfileFill) async throws -> Void
         /// Reports a profile read or write that failed for a reason time will not clear.
@@ -74,6 +78,9 @@ final class OnboardingV3SignInHandOff {
         var reconcileWeeklyTarget: @MainActor (_ userId: String) async -> Void
     }
 
+    /// The account the answers were read for is no longer the signed-in one.
+    struct SessionEnded: Error {}
+
     enum Outcome: Equatable {
         /// The profile has the answers, or there were none to write.
         case complete
@@ -85,16 +92,19 @@ final class OnboardingV3SignInHandOff {
     private let seams: Seams
     private let store: PreAuthOnboardingStore
     private let intent: OnboardingV3HandOffIntent
+    private let photos: OnboardingProfilePhotoStore
     private var isRunningProfileStep = false
 
     init(
         seams: Seams,
         store: PreAuthOnboardingStore = PreAuthOnboardingStore(),
-        intent: OnboardingV3HandOffIntent = OnboardingV3HandOffIntent()
+        intent: OnboardingV3HandOffIntent = OnboardingV3HandOffIntent(),
+        photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore()
     ) {
         self.seams = seams
         self.store = store
         self.intent = intent
+        self.photos = photos
     }
 
     /// Closes post-sign-in onboarding when this sign-in came from the end of the flow. Synchronous
@@ -149,6 +159,7 @@ final class OnboardingV3SignInHandOff {
         var accountHasTarget = false
         do {
             if answers.carriesProfileAnswers || target != nil {
+                await seams.signInNameSettled()
                 let existing = try await seams.readProfile(userId)
                 let fill = OnboardingProfileFill.plan(answers: answers, existing: existing)
                 if !fill.isEmpty {
@@ -174,6 +185,9 @@ final class OnboardingV3SignInHandOff {
             $0 = $0.droppingHandedOffAnswers
             if imported { $0.clearFoundHealthHistory() }
         }
+        // The picked photo has been uploaded, or the account already had one. Either way it is
+        // done with the device.
+        photos.remove()
         return .complete
     }
 
@@ -181,16 +195,79 @@ final class OnboardingV3SignInHandOff {
     /// answers. A refusal or anything unexpected repeats on every foreground until someone sees it,
     /// and neither caller shows the climber anything.
     private static func isWorthReporting(_ error: any Error) -> Bool {
-        !(error is ProfilePublicationError) && ServerReadFailureClass.classify(error) != .unreachable
+        !(error is ProfilePublicationError) && !(error is SessionEnded) && ServerReadFailureClass.classify(error) != .unreachable
     }
 }
 
 // MARK: - Live wiring
 
 extension OnboardingV3SignInHandOff {
+    /// Writes a fill through the services the rest of the app uses: demographics, then the typed
+    /// name, then the photo. Each lands on its own, so a photo that cannot upload yet leaves the
+    /// name and demographics written; the retry plans from the profile as it now stands and carries
+    /// only what is still missing. The session hears about a name and a photo as each lands, so the
+    /// screens that read it show them without a relaunch.
+    @MainActor
+    static func writeProfile(
+        _ fill: OnboardingProfileFill,
+        userId: String,
+        email: String?,
+        session: AuthenticationViewModel,
+        photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore()
+    ) async throws {
+        func requireSameSession() throws {
+            guard session.user?.uid == userId else { throw SessionEnded() }
+        }
+
+        try requireSameSession()
+
+        if fill.hasDemographics {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: userId,
+                email: email,
+                birthday: fill.birthday,
+                gender: fill.gender,
+                weightKg: fill.weightKg,
+                heightCm: fill.heightCm,
+                locationCity: fill.city?.city,
+                locationCountry: fill.city?.countryCode,
+                locationRegion: fill.city?.region
+            )
+        }
+
+        if let name = fill.name {
+            let boardName = try await UserDataRepository.shared.updateTypedProfileName(
+                userId: userId,
+                email: email,
+                firstName: name.firstName,
+                lastName: name.lastName
+            )
+            try requireSameSession()
+            await session.adoptWrittenName(boardName)
+        }
+
+        // A photo that is no longer on the device cannot be retried, so it is skipped here and the
+        // hand-off's cleanup drops the answer that named it.
+        if let data = try photos.data(for: fill.photoFileName) {
+            try ProfilePublicationError.requireConnection()
+
+            let filename = "users/\(userId)/profile_pictures/\(UUID().uuidString).jpg"
+            let uploadedURL = try await FirebasePhotoRepository().upload(data, filename: filename)
+            try await UserDataRepository.shared.updateProfilePictureURL(
+                userId: userId,
+                profilePictureURL: uploadedURL.absoluteString
+            )
+            try requireSameSession()
+            session.adoptWrittenProfilePicture(uploadedURL)
+        }
+    }
+}
+
+extension OnboardingV3SignInHandOff {
     /// The hand-off against the real services. `OnboardingAuthTests` pins that every route calls
     /// these seams, in order.
     static func live(
+        session: AuthenticationViewModel,
         markPostSignInOnboardingComplete: @escaping @MainActor () -> Void,
         importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool
     ) -> OnboardingV3SignInHandOff {
@@ -199,21 +276,14 @@ extension OnboardingV3SignInHandOff {
                 isProfileWriteEnabled: {
                     RemoteFeatureFlagStore.shared.isEnabled(.onboardingAnswersProfileWrite)
                 },
+                signInNameSettled: {
+                    await session.profileLoadSettled()
+                },
                 readProfile: { userId in
                     try await UserDataRepository.shared.getUserFromFirestore(userId: userId)
                 },
                 writeProfile: { userId, email, fill in
-                    try await UserDataRepository.shared.updateOnboardingDemographics(
-                        userId: userId,
-                        email: email,
-                        birthday: fill.birthday,
-                        gender: fill.gender,
-                        weightKg: fill.weightKg,
-                        heightCm: fill.heightCm,
-                        locationCity: fill.city?.city,
-                        locationCountry: fill.city?.countryCode,
-                        locationRegion: fill.city?.region
-                    )
+                    try await Self.writeProfile(fill, userId: userId, email: email, session: session)
                 },
                 recordProfileStepFailure: { error in
                     TelemetryManager.shared.recordError(

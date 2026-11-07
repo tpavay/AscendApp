@@ -241,6 +241,7 @@ struct LocalReminderCoordinatorTests {
         OnboardingV3SignInHandOff(
             seams: .init(
                 isProfileWriteEnabled: { true },
+                signInNameSettled: {},
                 readProfile: { _ in
                     profileReads.count += 1
                     return nil

@@ -89,6 +89,7 @@ class AuthenticationViewModel {
             user = currentUser
             photoURL = currentUser.photoURL
             authenticationState = .restoringSession
+            profileLoadGate.holdUntilFirstAuthCallback()
         }
 
         if observesFirebaseAuth {
@@ -96,10 +97,13 @@ class AuthenticationViewModel {
         }
     }
     private var authStateHandle: AuthStateDidChangeListenerHandle?
+    private let profileLoadGate = ProfileLoadGate()
 
     func registerAuthStateHandler() {
         if authStateHandle == nil {
             authStateHandle = Auth.auth().addStateDidChangeListener({ auth, user in
+                defer { self.profileLoadGate.authCallbackArrived() }
+
                 self.user = user
                 self.photoURL = user?.photoURL ?? URL(string: "")
 
@@ -146,7 +150,7 @@ class AuthenticationViewModel {
                     )
 
                     // Handle Firestore operations in background
-                    Task {
+                    self.profileLoadGate.track(Task {
                         // The name the provider supplied is written before anything
                         // reads the profile back, so the account already carries one
                         // by the time onboarding resolves - with no screen asking.
@@ -187,7 +191,7 @@ class AuthenticationViewModel {
                             // Log the outcome for debugging
                             TelemetryManager.shared.log(.authProfileLoaded)
                         }
-                    }
+                    })
                 } else {
                     let monetizationTransition = self.monetizationIdentityManager.prepareIdentityReset()
 
@@ -477,6 +481,7 @@ extension AuthenticationViewModel {
     ///
     /// Resolution always terminates: a profile that already carries a name keeps
     /// it (step 1, and what a climber who deleted and reinstalled lands on), else
+    /// a name typed before sign-in, which the onboarding hand-off writes, else
     /// whatever the provider supplied at this sign-in (step 2), else
     /// `SignInNamePlaceholder` (step 3). Only a profile that could not be *read*
     /// is left alone, and only until the next launch can read it. There is no
@@ -513,7 +518,14 @@ extension AuthenticationViewModel {
             storedName = .unreadable
         }
 
-        switch SuppliedNameAdoption.decide(supplied: suppliedIdentity, storedName: storedName) {
+        switch SuppliedNameAdoption.decide(
+            supplied: suppliedIdentity,
+            storedName: storedName,
+            typedNamePending: typedNamePending
+        ) {
+        case .leaveForTypedName:
+            return false
+
         case .write(let firstName, let lastName):
             guard await writeResolvedName(firstName: firstName, lastName: lastName) else {
                 return false
@@ -543,6 +555,13 @@ extension AuthenticationViewModel {
         case .retryLater:
             return false
         }
+    }
+
+    /// A name typed on onboarding's profile screen that the hand-off is going to write. With its
+    /// switch off the hand-off writes nothing, so sign-in has to resolve a name without it.
+    private var typedNamePending: Bool {
+        RemoteFeatureFlagStore.shared.isEnabled(.onboardingAnswersProfileWrite) &&
+            PreAuthOnboardingStore().answers().writableName != nil
     }
 
     /// Writes a resolved name and reports a failure where production can see it.
@@ -743,6 +762,25 @@ extension AuthenticationViewModel {
         let failure = errorMessage
         errorMessage = nil
         return didSucceed ? nil : (failure ?? fallback)
+    }
+
+    /// Returns once this session's name has been resolved and the profile read back, so a write
+    /// made after it can neither race the placeholder nor be overwritten by that read.
+    func profileLoadSettled() async {
+        await profileLoadGate.settled()
+    }
+
+    /// Brings the session up to a name already written to the profile outside this view model.
+    func adoptWrittenName(_ boardName: String) async {
+        displayName = boardName
+        hasRemoteDisplayName = true
+        forgetSuppliedIdentity()
+        try? await authenticationService.updateUserDisplayName(displayName: boardName)
+    }
+
+    /// Brings the session up to a photo already written to the profile outside this view model.
+    func adoptWrittenProfilePicture(_ url: URL) {
+        customProfilePictureURL = url
     }
 
     var displayPhotoURL: URL? {

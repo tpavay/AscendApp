@@ -560,6 +560,8 @@ Ascend resolves the name instead, on one provider-agnostic path, first hit wins,
 2. Whatever the provider supplied at this sign-in - Apple's once-only credential, or the display name Google supplies on every sign-in.
 3. The placeholder first name `CHANGE`, last name `ME`.
 
+A name typed on the v3 flow's pre-sign-in profile screen ranks between steps 1 and 2, on an account with no stored name - see the carve-out below.
+
 `SuppliedNameAdoption.decide` is the single pure rule, and `AscendApp/Features/Authentication/SignInSuppliedIdentity.swift` owns it.
 Deliberately not a per-provider branch: two branches are two things to drift.
 
@@ -573,6 +575,17 @@ Behavior:
   That split is how the display name Google and Firebase hand back on every sign-in is consumed.
 - A profile that already resolves to a name is never overwritten, legacy `displayName`-only records included.
   Resolution writes only when the profile carries no name at all.
+
+The one carve-out is the pre-sign-in profile screen of the v3 flow (08, `OnboardingProfileSetupScreen`, behind `onboarding_v3_enabled`), which offers optional First name and Last name fields beside a photo, gender, birthday, height and weight.
+It is not the rejected step: Skip and Continue both pass with the fields empty, and nothing waits on them.
+What a climber types is held on the device and written after sign-in by the hand-off, which fills blanks only - it replaces a `CHANGE ME` placeholder and never a real name the account already carries.
+A typed name outranks the provider's on an account with no stored name, because the screen shows the climber exactly that name: resolution sees one pending, writes nothing, and leaves it to the hand-off, which runs only after resolution has settled.
+A stored real name still wins, so a returning climber keeps theirs, and the provider's name fills only when nothing usable was typed.
+With `onboarding_answers_profile_write_enabled` off the hand-off cannot write, so resolution ignores a typed name and the provider's name or the placeholder lands; a real name landing that way then outranks the typed one when the switch comes back.
+One half is a whole name here: the row previews it and the hand-off publishes it alone, with the other stored field empty.
+A name `DisplayNamePolicy` refuses gets an inline hint, the row keeps the default name, and it is left out rather than blocking the rest, so the provider's name or the placeholder resolves instead.
+A photo picked there waits on the device the same way and is uploaded through the existing profile photo path under `users/{uid}/profile_pictures/`, for an account that has none.
+Do not make either field required, and do not add a name screen anywhere else.
 
 The opening post-auth screen carries the sign-out control, because it is the only route from onboarding back to the sign-in screen for a climber who signed into the wrong account.
 

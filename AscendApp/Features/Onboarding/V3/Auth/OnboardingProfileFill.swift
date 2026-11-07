@@ -13,9 +13,24 @@ struct OnboardingProfileFill: Equatable, Sendable {
     var weightKg: Double?
     var heightCm: Double?
     var city: PreAuthOnboardingCity?
+    /// The name typed on 08, only when it makes a board name the rules accept.
+    var name: Name?
+    /// The picked photo's file name in ``OnboardingProfilePhotoStore``, for an account with none.
+    var photoFileName: String?
+
+    /// A half the climber left empty is stored empty, which is how a profile holds no name part.
+    struct Name: Equatable, Sendable {
+        var firstName: String
+        var lastName: String
+    }
+
+    /// Whether anything in the fill is a demographic, which `updateOnboardingDemographics` writes.
+    var hasDemographics: Bool {
+        birthday != nil || gender != nil || weightKg != nil || heightCm != nil || city != nil
+    }
 
     var isEmpty: Bool {
-        birthday == nil && gender == nil && weightKg == nil && heightCm == nil && city == nil
+        !hasDemographics && name == nil && photoFileName == nil
     }
 
     /// The bounds `firestore.rules` and the profile editors share.
@@ -52,12 +67,29 @@ struct OnboardingProfileFill: Equatable, Sendable {
             fill.heightCm = height
         }
 
+        if hasNoRealName(existing), let name = answers.writableName {
+            fill.name = name
+        }
+
+        if existing?.profilePictureURL?.isEmpty ?? true, let photo = answers.profilePhotoFileName {
+            fill.photoFileName = photo
+        }
+
         let existingCity = existing?.locationCity?.trimmingCharacters(in: .whitespacesAndNewlines)
         if existingCity?.isEmpty ?? true {
             fill.city = answers.city.flatMap(writableCity)
         }
 
         return fill
+    }
+
+    /// Whether the account has no name worth keeping: none at all, or a placeholder an earlier
+    /// sign-in wrote when nobody supplied one. A profile that already carries a real name keeps it.
+    private static func hasNoRealName(_ existing: UserDisplayNameData?) -> Bool {
+        guard let existing else { return true }
+        guard let resolved = existing.resolvedDisplayName else { return true }
+
+        return resolved == SignInNamePlaceholder.boardName
     }
 
     private static func profileBirthday(_ birthday: PreAuthOnboardingBirthday) -> ProfileBirthday? {
@@ -87,9 +119,26 @@ struct OnboardingProfileFill: Equatable, Sendable {
 }
 
 extension PreAuthOnboardingAnswers {
-    /// Whether the climber gave an answer that belongs on a profile.
+    /// Whether the climber gave an answer that belongs on a profile, a name the policy refuses
+    /// included: the hand-off is what clears that from the device.
     var carriesProfileAnswers: Bool {
-        birthday != nil || gender != nil || heightCm != nil || weightKg != nil || city != nil
+        carriesWritableProfileAnswers || firstName != nil || lastName != nil
+    }
+
+    /// Whether any answer will actually reach the profile.
+    var carriesWritableProfileAnswers: Bool {
+        birthday != nil || gender != nil || heightCm != nil || weightKg != nil || city != nil ||
+            writableName != nil || profilePhotoFileName != nil
+    }
+
+    /// The typed name, when `DisplayNamePolicy` accepts the board name it makes. One half is a whole
+    /// name; a name the policy refuses is left out rather than blocking the rest.
+    var writableName: OnboardingProfileFill.Name? {
+        let first = (firstName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = (lastName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (try? DisplayNamePolicy.typedBoardName(firstName: first, lastName: last)) != nil else { return nil }
+
+        return OnboardingProfileFill.Name(firstName: first, lastName: last)
     }
 
     /// Whether the answers themselves show work for the hand-off: one that belongs on a profile, the
@@ -107,6 +156,9 @@ extension PreAuthOnboardingAnswers {
         var kept = self
         kept.usualClimbSteps = nil
         kept.usualClimbMinutes = nil
+        kept.firstName = nil
+        kept.lastName = nil
+        kept.profilePhotoFileName = nil
         kept.gender = nil
         kept.birthday = nil
         kept.heightCm = nil

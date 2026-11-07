@@ -378,6 +378,44 @@ final class UserDataRepository: Sendable {
             firstName: firstName,
             lastName: lastName
         )
+        try await publishProfileName(
+            userId: userId,
+            email: email,
+            firstName: firstName,
+            lastName: lastName,
+            displayName: displayName
+        )
+    }
+
+    /// Writes a name typed on onboarding's profile screen, where either half may be empty, and
+    /// returns the board name it published.
+    func updateTypedProfileName(
+        userId: String,
+        email: String? = nil,
+        firstName: String,
+        lastName: String
+    ) async throws -> String {
+        let displayName = try DisplayNamePolicy.typedBoardName(
+            firstName: firstName,
+            lastName: lastName
+        )
+        try await publishProfileName(
+            userId: userId,
+            email: email,
+            firstName: firstName,
+            lastName: lastName,
+            displayName: displayName
+        )
+        return displayName
+    }
+
+    private func publishProfileName(
+        userId: String,
+        email: String?,
+        firstName: String,
+        lastName: String,
+        displayName: String
+    ) async throws {
         try await updateUserAndPublicProfile(
             userId: userId,
             email: email,

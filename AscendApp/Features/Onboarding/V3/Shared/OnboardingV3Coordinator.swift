@@ -9,7 +9,7 @@ import SwiftUI
 /// Screens never decide the next step themselves. A primary action calls ``advance()``, an
 /// alternate exit calls ``go(to:)``, and the coordinator keeps the trail so back returns to the
 /// screen the climber came from rather than to the previous number - the Health branch and the
-/// usual-climb branch both land on the climber card, and back from there has to remember which.
+/// usual-climb branch both land on the profile screen, and back from there has to remember which.
 @MainActor
 @Observable
 final class OnboardingV3Coordinator {
@@ -27,15 +27,18 @@ final class OnboardingV3Coordinator {
     private var trail: [OnboardingV3Step] = []
 
     @ObservationIgnored private let store: PreAuthOnboardingStore
+    @ObservationIgnored private let photos: OnboardingProfilePhotoStore
     @ObservationIgnored private let now: () -> ContinuousClock.Instant
     @ObservationIgnored private var transitionEnd: ContinuousClock.Instant?
 
     init(
         store: PreAuthOnboardingStore = PreAuthOnboardingStore(),
+        photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore(),
         startingAt step: OnboardingV3Step = .welcome,
         now: @escaping () -> ContinuousClock.Instant = { .now }
     ) {
         self.store = store
+        self.photos = photos
         self.now = now
         self.step = step
         answers = store.answers()
@@ -113,6 +116,7 @@ final class OnboardingV3Coordinator {
     /// account nor a prefilled setup screen receives them. The flow stays finished if it was.
     func sessionEnded() {
         answers = store.update { $0 = $0.droppingSessionAnswers }
+        photos.remove()
     }
 
     #if DEBUG || STAGING
@@ -120,6 +124,7 @@ final class OnboardingV3Coordinator {
     /// coordinator, after the store was cleared.
     func restartFromWelcome() {
         store.clear()
+        photos.remove()
         answers = store.answers()
         trail = []
         lastShownProgress = nil
@@ -172,7 +177,7 @@ struct OnboardingV3FlowView: View {
         case .healthPermission: OnboardingHealthPermissionScreen(coordinator: coordinator)
         case .healthHistory: OnboardingHealthHistoryScreen(coordinator: coordinator)
         case .usualClimb: OnboardingUsualClimbScreen(coordinator: coordinator)
-        case .climberCard: OnboardingClimberCardScreen(coordinator: coordinator)
+        case .profileSetup: OnboardingProfileSetupScreen(coordinator: coordinator)
         case .claimCity: OnboardingClaimCityScreen(coordinator: coordinator)
         case .weeklyTarget: OnboardingWeeklyTargetScreen(coordinator: coordinator)
         case .thisMonthEvent: OnboardingThisMonthEventScreen(coordinator: coordinator)

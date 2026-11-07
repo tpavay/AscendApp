@@ -65,7 +65,7 @@ struct OnboardingV3KitEvidenceTests {
     @Test
     func theSkipAndTheCloseVariantRender() async throws {
         try await RenderedScreen.host(
-            OnboardingV3FlowView(coordinator: coordinator(startingAt: .climberCard)),
+            OnboardingV3FlowView(coordinator: coordinator(startingAt: .profileSetup)),
             size: Self.smallestPhone,
             settle: .turns(30)
         ) { screen in

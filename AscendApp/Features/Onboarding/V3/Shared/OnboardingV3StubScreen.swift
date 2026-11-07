@@ -24,7 +24,7 @@ struct OnboardingV3StubScreen: View {
             if showsHeader {
                 OnboardingProgressHeader(
                     step: step,
-                    onSkip: step == .climberCard || step == .claimCity ? { coordinator.advance() } : nil
+                    onSkip: step == .profileSetup || step == .claimCity ? { coordinator.advance() } : nil
                 )
                 .padding(.top, 9)
             } else if showsWordmark {

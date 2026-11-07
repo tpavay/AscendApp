@@ -2,6 +2,7 @@ import FirebaseAuth
 import Foundation
 import SwiftUI
 import Testing
+import UIKit
 @testable import AscendApp
 
 /// Screens 07b, 08, 09, 10 and 11 on screen, at the smallest phone and at an accessibility text
@@ -62,66 +63,249 @@ struct OnboardingV3SetupEvidenceTests {
 
     // MARK: - 08
 
+    private func profileScreen(
+        _ coordinator: OnboardingV3Coordinator,
+        photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore(directory: FileManager.default.temporaryDirectory.appending(path: "profile-evidence-\(UUID().uuidString)"))
+    ) -> some View {
+        ZStack {
+            OnboardingV3Palette.background.ignoresSafeArea()
+            OnboardingProfileSetupScreen(coordinator: coordinator, system: .imperial, photos: photos)
+        }
+        .environment(\.onboardingV3Coordinator, coordinator)
+    }
+
     @Test(arguments: [nil, Self.accessibilitySize])
-    func theClimberCardShowsEveryTileAndTheSettingsFooter(size: DynamicTypeSize?) async throws {
-        let coordinator = coordinator(at: .climberCard) {
-            $0.gender = .woman
-            $0.heightCm = 177.8
-            $0.weightKg = 79.4
-            $0.birthday = PreAuthOnboardingBirthday(year: 1996, month: 3, day: 14)
-        }
-        let screen = OnboardingClimberCardScreen(coordinator: coordinator, system: .imperial)
-        try await host(
-            ZStack { OnboardingV3Palette.background.ignoresSafeArea(); screen }
-                .environment(\.onboardingV3Coordinator, coordinator),
-            size: size,
-            name: "climber-card"
-        ) { copy in
-            #expect(copy.contains("set up your climber card."), "\(copy)")
-            #expect(copy.contains("your climber card, joined today"), "\(copy)")
-            #expect(copy.contains("gender female, age 30, height 5'10\", weight 175 lb"), "\(copy)")
-            #expect(copy.contains("change any of it in settings."), "\(copy)")
+    func theEmptyProfileScreenShowsTheDefaultNameAndEveryRowNotSet(size: DynamicTypeSize?) async throws {
+        let coordinator = coordinator(at: .profileSetup)
+        try await host(profileScreen(coordinator), size: size, name: "profile-setup") { copy in
+            #expect(copy.contains("set up your profile."), "\(copy)")
+            #expect(copy.contains("this is how you show up on every leaderboard and live climb."), "\(copy)")
+            #expect(copy.contains("change me"), "\(copy)")
+            #expect(copy.contains("first name"), "\(copy)")
+            #expect(copy.contains("last name"), "\(copy)")
+            // A compact-height phone at an accessibility size scrolls the rows below the name fields under a fade.
+            if size == nil {
+                #expect(copy.contains("birthday"), "\(copy)")
+                #expect(copy.contains("not set"), "\(copy)")
+            }
+            #expect(copy.contains("all optional. change any of it in settings."), "\(copy)")
             #expect(copy.contains("skip"), "one skip: \(copy)")
-            #expect(!copy.contains("hide"), "\(copy)")
+            #expect(!copy.contains("climber card"), "\(copy)")
+            #expect(!copy.contains("race"), "\(copy)")
         }
     }
 
     @Test
-    func anEmptyCardDrawsNoDashCharacter() async throws {
-        let coordinator = coordinator(at: .climberCard)
-        let screen = OnboardingClimberCardScreen(coordinator: coordinator, system: .imperial)
-        try await host(
-            ZStack { OnboardingV3Palette.background.ignoresSafeArea(); screen }
-                .environment(\.onboardingV3Coordinator, coordinator),
-            size: nil,
-            name: "climber-card-empty"
-        ) { copy in
-            #expect(!copy.contains("\u{2014}"), "\(copy)")
-            #expect(!copy.contains(" - "), "\(copy)")
+    func aFilledProfileReadsBackOnTheRowAndTheLeaderboardLine() async throws {
+        let coordinator = coordinator(at: .profileSetup) {
+            $0.firstName = "Tyler"
+            $0.lastName = "Pavay"
+            $0.gender = .man
+            $0.heightCm = 177.8
+            $0.birthday = PreAuthOnboardingBirthday(year: 1996, month: 6, day: 14)
+        }
+        try await host(profileScreen(coordinator), size: nil, name: "profile-setup-filled") { copy in
+            #expect(copy.contains("tyler pavay"), "\(copy)")
+            #expect(copy.contains("5'10\""), "\(copy)")
+            #expect(!copy.contains("change me"), "\(copy)")
         }
     }
 
-    /// The wheel's own label replaces anything drawn over it in the accessibility tree, so only
-    /// the pixels can show a caption colliding with the year column. Tall enough to hold the wheel.
     @Test
-    func anUntouchedBirthdayWheelHasNothingDrawnOverItAndLeavesTheBirthdayUnset() async throws {
-        let coordinator = coordinator(at: .climberCard)
-        let screen = OnboardingClimberCardScreen(coordinator: coordinator, system: .imperial)
+    func aRefusedNameSaysSoAndTheRowKeepsTheDefault() async throws {
+        let coordinator = coordinator(at: .profileSetup) { $0.firstName = "Fuck" }
+        try await host(profileScreen(coordinator), size: nil, name: "profile-setup-refused-name") { copy in
+            #expect(copy.contains("that name can't go on a leaderboard. pick another."), "\(copy)")
+            #expect(copy.contains("change me"), "\(copy)")
+        }
+    }
+
+    private func firstTextField(in view: UIView) -> UITextField? {
+        if let field = view as? UITextField { return field }
+        return view.subviews.lazy.compactMap { firstTextField(in: $0) }.first
+    }
+
+    /// The footer rides up on the keyboard, so left in place it covered the name field and its hint.
+    @Test
+    func typingANameTakesTheFooterAwayUntilTheFieldLetsGo() async throws {
+        let coordinator = coordinator(at: .profileSetup) { $0.firstName = "Fuck" }
+        try await RenderedScreen.host(onPhone(profileScreen(coordinator), top: 59, bottom: 34), size: Self.iPhone16, settle: .turns(40)) { screen in
+            let footnote = "all optional. change any of it in settings."
+            let opening = try await screen.copy { $0.contains(footnote) }
+            #expect(opening.contains("continue"), "\(opening)")
+
+            let field = try #require(firstTextField(in: screen.window))
+            #expect(field.becomeFirstResponder())
+            let typing = try await screen.copy { !$0.contains(footnote) }
+            #expect(!typing.contains("continue"), "\(typing)")
+            #expect(typing.contains("that name can't go on a leaderboard. pick another."), "\(typing)")
+
+            field.resignFirstResponder()
+            let done = try await screen.copy { $0.contains(footnote) }
+            #expect(done.contains("continue"), "\(done)")
+        }
+    }
+
+    /// The order a real SE goes through: the field is on screen, takes focus, and only then does the
+    /// keyboard and its predictive bar leave 407 pt. iOS scrolls only the focused field clear of the
+    /// keys, and the hint's second line sat behind them.
+    @Test
+    func aRefusedNameScrollsItsHintClearOfTheKeyboard() async throws {
+        let aboveTheKeyboard: CGFloat = 407
+        let coordinator = coordinator(at: .profileSetup) { $0.firstName = "Fuck" }
+        try await RenderedScreen.host(onPhone(profileScreen(coordinator), top: 20, bottom: 0), size: Self.smallestPhone, settle: .turns(40)) { screen in
+            let field = try #require(firstTextField(in: screen.window))
+            #expect(field.becomeFirstResponder())
+            screen.window.frame.size.height = aboveTheKeyboard
+
+            var hint = try await screen.frame(ofElementLabelled: "that name can't go")
+            for _ in 0..<40 where (hint?.maxY ?? .infinity) > aboveTheKeyboard {
+                try await screen.settle(.turns(1))
+                hint = try await screen.frame(ofElementLabelled: "that name can't go")
+            }
+            let frame = try #require(hint)
+            #expect(frame.maxY <= aboveTheKeyboard, "\(frame)")
+        }
+    }
+
+    private static let iPhone16 = CGSize(width: 393, height: 852)
+    /// The padding under the body in `OnboardingSetupLayout`: the last row has to clear the footnote
+    /// by this much or the body overflows, scrolls and draws its fade over the row.
+    private static let bodyBottomPadding: CGFloat = 20
+
+    /// The whole phone, with its own status bar and home indicator instead of the host's.
+    private func onPhone(_ screen: some View, top: CGFloat, bottom: CGFloat) -> some View {
+        screen
+            .safeAreaPadding(.top, top)
+            .safeAreaPadding(.bottom, bottom)
+            .ignoresSafeArea()
+    }
+
+    /// The iPhone 16 and its filled twin, beside the SE ones above, at the height its insets really
+    /// leave: the screen fits without scrolling, because the rows all sit above the footnote.
+    @Test(arguments: [false, true])
+    func theIPhone16FitsEveryRowAboveTheFootnote(filled: Bool) async throws {
+        let coordinator = coordinator(at: .profileSetup) {
+            guard filled else { return }
+            $0.firstName = "Tyler"
+            $0.lastName = "Pavay"
+            $0.gender = .man
+            $0.heightCm = 177.8
+            $0.birthday = PreAuthOnboardingBirthday(year: 1996, month: 6, day: 14)
+        }
+        try await RenderedScreen.host(onPhone(profileScreen(coordinator), top: 59, bottom: 34), size: Self.iPhone16, settle: .turns(40)) { screen in
+            for row in ["Birthday", "Height", "Weight"] {
+                let frame = try #require(try await screen.frame(ofElementLabelled: row))
+                let footnote = try #require(try await screen.text(containing: "all optional")?.frame)
+                #expect(frame.maxY + Self.bodyBottomPadding <= footnote.minY, "\(row) \(frame) footnote \(footnote)")
+            }
+            try screen.photograph(named: "onboarding-v3-profile-setup-iphone16-\(filled ? "filled" : "empty")")
+        }
+    }
+
+    /// The screen fits with no scrolling at the handoff's size. On its own 390 x 844 canvas, with the
+    /// insets that phone has, every row sits above the footnote that sits above CONTINUE. A
+    /// compact-height phone is the one that scrolls, under a fade.
+    @Test
+    func everyRowSitsAboveTheFootnoteOnTheDesignsCanvas() async throws {
+        let coordinator = coordinator(at: .profileSetup)
         try await RenderedScreen.host(
-            ZStack { OnboardingV3Palette.background.ignoresSafeArea(); screen }
-                .environment(\.onboardingV3Coordinator, coordinator),
-            size: CGSize(width: 402, height: 1300),
+            onPhone(profileScreen(coordinator), top: 47, bottom: 34),
+            size: CGSize(width: 390, height: 844),
             settle: .turns(40)
         ) { screen in
-            let drawn = try await screen.recognizedText(scale: 2).lowercased()
-            #expect(drawn.contains("birthday"), "\(drawn)")
-            #expect(!drawn.contains("scroll to set"), "\(drawn)")
-            try screen.photograph(named: "onboarding-v3-climber-card-untouched-wheel")
+            let weight = try #require(try await screen.frame(ofElementLabelled: "Weight"))
+            let footnote = try #require(try await screen.text(containing: "all optional")?.frame)
+            #expect(weight.maxY + Self.bodyBottomPadding <= footnote.minY, "weight \(weight) footnote \(footnote)")
 
-            try activateAccessibilityElement(labelled: "CONTINUE", in: screen.window)
-            try await screen.settle()
-            #expect(coordinator.step == .claimCity)
-            #expect(coordinator.answers.birthday == nil)
+            let title = try #require(try await screen.text(containing: "set up your")?.frame)
+            let header = try #require(try await screen.frame(ofElementLabelled: "Back"))
+            #expect(title.minY >= header.maxY, "the title clears the back button: \(title) \(header)")
+            try screen.photograph(named: "onboarding-v3-profile-setup-design-canvas")
+        }
+    }
+
+    private func sheetHost<Content: View>(_ sheet: Content, name: String, check: @MainActor (String) -> Void = { _ in }) async throws {
+        try await RenderedScreen.host(
+            sheet.environment(\.colorScheme, .dark),
+            size: CGSize(width: 390, height: 460),
+            settle: .turns(40)
+        ) { screen in
+            let copy = try await screen.copy()
+            check(copy)
+            try screen.photograph(named: "onboarding-v3-profile-sheet-\(name)")
+        }
+    }
+
+    @Test
+    func theHeightSheetOpensAtTheStoredHeightWithItsFrameCopy() async throws {
+        try await sheetHost(
+            ProfileHeightSheet(initialCentimeters: 177.8, system: .imperial, onUnitChange: { _ in }, onDone: { _ in }),
+            name: "height"
+        ) { copy in
+            #expect(copy.contains("height"), "\(copy)")
+            #expect(copy.contains("done"), "\(copy)")
+            #expect(copy.contains("profile only, for comparing. not on leaderboards."), "\(copy)")
+        }
+    }
+
+    private func scrollView(in view: UIView) -> UIScrollView? {
+        (view as? UIScrollView) ?? view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+    }
+
+    /// Reads the marks as drawn, not as modelled. Only a foot's long tick reaches this far left of
+    /// the ruler's edge, so a bright pixel at the pointer's height means a foot mark is under it.
+    /// 71 inches opens one row short of 6 ft; moving the real scroll view on one row, which is what
+    /// a finger dragging up does, brings the 6 ft tick to the pointer from above.
+    @Test
+    func theDrawnMarkUnderThePointerFollowsTheScrollOneRowAtATime() async throws {
+        let ruler = HeightRulerView(system: .imperial, value: .constant(71))
+        try await RenderedScreen.host(
+            ruler.background(Color.black).environment(\.colorScheme, .dark),
+            size: CGSize(width: 390, height: 460),
+            settle: .turns(40)
+        ) { screen in
+            let scroller = try #require(scrollView(in: screen.root))
+            let strip = scroller.convert(scroller.bounds, to: nil)
+            let longTickOnly = CGRect(x: strip.maxX - 40, y: strip.midY - 1, width: 6, height: 2)
+            let brightPixels = {
+                try screen.withPixels { pixels in pixels.count(in: longTickOnly) { $0.red > 150 } }
+            }
+
+            #expect(try brightPixels() == 0, "71 inches is no foot mark")
+            try screen.photograph(named: "onboarding-v3-height-ruler-71")
+
+            scroller.setContentOffset(
+                CGPoint(x: 0, y: scroller.contentOffset.y + HeightRulerView.rowHeight),
+                animated: false
+            )
+            try await Task.sleep(for: .milliseconds(200))
+
+            #expect(try brightPixels() > 0, "one row on is 72 inches, the 6 ft mark")
+            try screen.photograph(named: "onboarding-v3-height-ruler-72")
+        }
+    }
+
+    @Test
+    func theWeightSheetOpensAtTheStoredWeightWithItsFrameCopy() async throws {
+        try await sheetHost(
+            ProfileWeightSheet(initialKilograms: 79.37866, system: .imperial, onUnitChange: { _ in }, onDone: { _ in }),
+            name: "weight"
+        ) { copy in
+            #expect(copy.contains("weight"), "\(copy)")
+            #expect(copy.contains("done"), "\(copy)")
+            #expect(copy.contains("profile only, for comparing. not on leaderboards."), "\(copy)")
+        }
+    }
+
+    @Test
+    func theBirthdaySheetSaysOnlyTheAgeShows() async throws {
+        try await sheetHost(
+            ProfileBirthdaySheet(initial: nil, onDone: { _ in }),
+            name: "birthday"
+        ) { copy in
+            #expect(copy.contains("birthday"), "\(copy)")
+            #expect(copy.contains("only your age shows. never the date."), "\(copy)")
         }
     }
 

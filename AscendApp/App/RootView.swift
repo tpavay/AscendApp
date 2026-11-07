@@ -511,6 +511,7 @@ struct RootView: View {
         let postAuthOnboardingCoordinator = postAuthOnboardingCoordinator
         let onboardingV3Coordinator = onboardingV3Coordinator
         let handOff = OnboardingV3SignInHandOff.live(
+            session: authVM,
             markPostSignInOnboardingComplete: {
                 postAuthOnboardingCoordinator.markCurrentUserComplete()
                 onboardingV3Coordinator.finish()

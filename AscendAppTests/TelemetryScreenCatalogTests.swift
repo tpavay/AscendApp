@@ -32,7 +32,7 @@ struct TelemetryScreenCatalogTests {
         "onboarding_health_permission": "OnboardingHealthPermissionScreen",
         "onboarding_health_history": "OnboardingHealthHistoryScreen",
         "onboarding_usual_climb": "OnboardingUsualClimbScreen",
-        "onboarding_climber_card": "OnboardingClimberCardScreen",
+        "onboarding_climber_card": "OnboardingProfileSetupScreen",
         "onboarding_claim_city": "OnboardingClaimCityScreen",
         "onboarding_weekly_target": "OnboardingWeeklyTargetScreen",
         "onboarding_this_month_event": "OnboardingThisMonthEventScreen",
