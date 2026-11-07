@@ -52,39 +52,48 @@ struct OnboardingProfileSetupScreen: View {
             step: .profileSetup,
             onSkip: { Self.skip(coordinator, photos: photos) },
             horizontalPadding: 20,
-            fadesWhenScrollable: true,
+            fadesWhenScrollable: focus == nil,
             topPadding: isCompactHeight ? 8 : 14
         ) {
-            VStack(alignment: .leading, spacing: isCompactHeight ? 10 : 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    OnboardingHeadline(["Set up your"], accentLines: ["profile."], size: isCompactHeight ? 26 : 30)
+            ScrollViewReader { scroller in
+                VStack(alignment: .leading, spacing: isCompactHeight ? 10 : 14) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        OnboardingHeadline(["Set up your"], accentLines: ["profile."], size: isCompactHeight ? 26 : 30)
 
-                    Text("This is how you show up on every leaderboard and live climb.")
-                        .font(.custom("Montserrat-Medium", size: 14, relativeTo: .subheadline))
-                        .foregroundStyle(OnboardingV3Palette.secondary)
-                        .lineSpacing(14 * 0.4)
+                        Text("This is how you show up on every leaderboard and live climb.")
+                            .font(.custom("Montserrat-Medium", size: 14, relativeTo: .subheadline))
+                            .foregroundStyle(OnboardingV3Palette.secondary)
+                            .lineSpacing(14 * 0.4)
+                    }
+                    .padding(.horizontal, 4)
+                    .onboardingEntrance(index: 0)
+
+                    preview
+                        .onboardingEntrance(index: 1)
+
+                    identityGroup
+                        .onboardingEntrance(index: 2)
+
+                    bodyGroup
+                        .onboardingEntrance(index: 3)
                 }
-                .padding(.horizontal, 4)
-                .onboardingEntrance(index: 0)
-
-                preview
-                    .onboardingEntrance(index: 1)
-
-                identityGroup
-                    .onboardingEntrance(index: 2)
-
-                bodyGroup
-                    .onboardingEntrance(index: 3)
+                .task(id: focus != nil && draft.isNameRefused) {
+                    await revealRefusedHint(with: scroller)
+                }
             }
         } footer: {
-            VStack(spacing: 10) {
-                Text("All optional. Change any of it in Settings.")
-                    .font(.custom("Montserrat-SemiBold", size: 12.5, relativeTo: .footnote))
-                    .foregroundStyle(OnboardingV3Palette.footnote)
-                    .multilineTextAlignment(.center)
+            // The footer and the fade ride up on the keyboard and would cover the field being typed
+            // in and its refused-name hint, so both stand down until the keyboard's Done or a drag.
+            if focus == nil {
+                VStack(spacing: 10) {
+                    Text("All optional. Change any of it in Settings.")
+                        .font(.custom("Montserrat-SemiBold", size: 12.5, relativeTo: .footnote))
+                        .foregroundStyle(OnboardingV3Palette.footnote)
+                        .multilineTextAlignment(.center)
 
-                Button("Continue", action: continueTapped)
-                    .buttonStyle(.onboardingPrimary)
+                    Button("Continue", action: continueTapped)
+                        .buttonStyle(.onboardingPrimary)
+                }
             }
         }
         .onGeometryChange(for: Bool.self) { proxy in
@@ -149,6 +158,18 @@ struct OnboardingProfileSetupScreen: View {
         photoURL = url
     }
 
+    /// iOS scrolls only the focused field clear of the keyboard, and the hint sits below it: on a
+    /// compact phone its last line stayed behind the keys. The wait lets a keyboard that is still
+    /// rising shrink the scroll view first, because the scroll is measured against that height.
+    private func revealRefusedHint(with scroller: ScrollViewProxy) async {
+        guard focus != nil, draft.isNameRefused else { return }
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+            scroller.scrollTo(Self.refusedHintID, anchor: .bottom)
+        }
+    }
+
     // MARK: - Preview
 
     private var preview: some View {
@@ -156,6 +177,8 @@ struct OnboardingProfileSetupScreen: View {
     }
 
     // MARK: - Name, gender, birthday
+
+    private static let refusedHintID = "refusedNameHint"
 
     private var identityGroup: some View {
         VStack(spacing: isCompactHeight ? 7 : 8) {
@@ -170,6 +193,7 @@ struct OnboardingProfileSetupScreen: View {
                     .foregroundStyle(OnboardingV3Palette.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 4)
+                    .id(Self.refusedHintID)
             }
 
             genderControl

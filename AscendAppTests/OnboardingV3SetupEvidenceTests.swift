@@ -2,6 +2,7 @@ import FirebaseAuth
 import Foundation
 import SwiftUI
 import Testing
+import UIKit
 @testable import AscendApp
 
 /// Screens 07b, 08, 09, 10 and 11 on screen, at the smallest phone and at an accessibility text
@@ -116,6 +117,54 @@ struct OnboardingV3SetupEvidenceTests {
         try await host(profileScreen(coordinator), size: nil, name: "profile-setup-refused-name") { copy in
             #expect(copy.contains("that name can't go on a leaderboard. pick another."), "\(copy)")
             #expect(copy.contains("change me"), "\(copy)")
+        }
+    }
+
+    private func firstTextField(in view: UIView) -> UITextField? {
+        if let field = view as? UITextField { return field }
+        return view.subviews.lazy.compactMap { firstTextField(in: $0) }.first
+    }
+
+    /// The footer rides up on the keyboard, so left in place it covered the name field and its hint.
+    @Test
+    func typingANameTakesTheFooterAwayUntilTheFieldLetsGo() async throws {
+        let coordinator = coordinator(at: .profileSetup) { $0.firstName = "Fuck" }
+        try await RenderedScreen.host(onPhone(profileScreen(coordinator), top: 59, bottom: 34), size: Self.iPhone16, settle: .turns(40)) { screen in
+            let footnote = "all optional. change any of it in settings."
+            let opening = try await screen.copy { $0.contains(footnote) }
+            #expect(opening.contains("continue"), "\(opening)")
+
+            let field = try #require(firstTextField(in: screen.window))
+            #expect(field.becomeFirstResponder())
+            let typing = try await screen.copy { !$0.contains(footnote) }
+            #expect(!typing.contains("continue"), "\(typing)")
+            #expect(typing.contains("that name can't go on a leaderboard. pick another."), "\(typing)")
+
+            field.resignFirstResponder()
+            let done = try await screen.copy { $0.contains(footnote) }
+            #expect(done.contains("continue"), "\(done)")
+        }
+    }
+
+    /// The order a real SE goes through: the field is on screen, takes focus, and only then does the
+    /// keyboard and its predictive bar leave 407 pt. iOS scrolls only the focused field clear of the
+    /// keys, and the hint's second line sat behind them.
+    @Test
+    func aRefusedNameScrollsItsHintClearOfTheKeyboard() async throws {
+        let aboveTheKeyboard: CGFloat = 407
+        let coordinator = coordinator(at: .profileSetup) { $0.firstName = "Fuck" }
+        try await RenderedScreen.host(onPhone(profileScreen(coordinator), top: 20, bottom: 0), size: Self.smallestPhone, settle: .turns(40)) { screen in
+            let field = try #require(firstTextField(in: screen.window))
+            #expect(field.becomeFirstResponder())
+            screen.window.frame.size.height = aboveTheKeyboard
+
+            var hint = try await screen.frame(ofElementLabelled: "that name can't go")
+            for _ in 0..<40 where (hint?.maxY ?? .infinity) > aboveTheKeyboard {
+                try await screen.settle(.turns(1))
+                hint = try await screen.frame(ofElementLabelled: "that name can't go")
+            }
+            let frame = try #require(hint)
+            #expect(frame.maxY <= aboveTheKeyboard, "\(frame)")
         }
     }
 
