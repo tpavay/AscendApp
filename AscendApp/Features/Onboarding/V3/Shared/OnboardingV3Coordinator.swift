@@ -106,6 +106,10 @@ final class OnboardingV3Coordinator {
 
     // MARK: - Answers
 
+    /// The photo picked on the profile screen, while it is still on the device. The answers name
+    /// the file; the picture itself lives in ``OnboardingProfilePhotoStore``.
+    var profilePhotoURL: URL? { photos.url(for: answers.profilePhotoFileName) }
+
     /// Changes the answers and persists them. Nothing here is sent anywhere; see
     /// ``PreAuthOnboardingAnswers``.
     func update(_ change: (inout PreAuthOnboardingAnswers) -> Void) {
@@ -141,9 +145,9 @@ final class OnboardingV3Coordinator {
     }
 }
 
-/// The screen for each step. Every case names the view a chunk replaces; a replacement keeps the
-/// type name and the `init(coordinator:)` signature, so this switch never changes and six chunks
-/// can land without touching one another.
+/// The screen for each step. Every screen takes only the coordinator: what it shows comes from the
+/// answers so far, and where it goes is the coordinator's to decide, so this switch is the whole
+/// map of the flow.
 struct OnboardingV3FlowView: View {
     let coordinator: OnboardingV3Coordinator
 

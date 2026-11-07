@@ -18,8 +18,8 @@ struct OnboardingAuthTests {
 
     // MARK: - What saves
 
-    private func items(_ answers: PreAuthOnboardingAnswers) -> [OnboardingSavedItem] {
-        OnboardingSavedItems.make(from: answers, now: Self.now, calendar: Calendar(identifier: .gregorian))
+    private func items(_ answers: PreAuthOnboardingAnswers, photoURL: URL? = nil) -> [OnboardingSavedItem] {
+        OnboardingSavedItems.make(from: answers, photoURL: photoURL, now: Self.now, calendar: Calendar(identifier: .gregorian))
     }
 
     @Test
@@ -129,6 +129,30 @@ struct OnboardingAuthTests {
         #expect(photo.initials == nil)
 
         #expect(!items(PreAuthOnboardingAnswers()).contains { $0.kind == .profile })
+    }
+
+    @Test
+    func aPickedPhotoTakesTheProfileRowsMarkWhileItIsOnTheDevice() throws {
+        let onDevice = URL(filePath: "/photos/photo-1.jpg")
+
+        var picked = PreAuthOnboardingAnswers()
+        picked.firstName = "Sam"
+        picked.lastName = "Rivera"
+        picked.profilePhotoFileName = "photo-1.jpg"
+        let row = try #require(items(picked, photoURL: onDevice).first { $0.kind == .profile })
+        #expect(row.photoURL == onDevice)
+        #expect(row.initials == "SR", "the initials stay behind the photo for a load that fails")
+
+        // The file named by the answers is gone from the device: the initials draw instead.
+        let gone = try #require(items(picked, photoURL: nil).first { $0.kind == .profile })
+        #expect(gone.photoURL == nil)
+        #expect(gone.initials == "SR")
+
+        // No photo was picked, so a picture the device happens to hold is not this climber's.
+        var unpicked = PreAuthOnboardingAnswers()
+        unpicked.firstName = "Sam"
+        let withoutPhoto = try #require(items(unpicked, photoURL: onDevice).first { $0.kind == .profile })
+        #expect(withoutPhoto.photoURL == nil)
     }
 
     @Test

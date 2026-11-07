@@ -44,7 +44,9 @@ struct OnboardingChoiceRow: View {
         }
         .buttonStyle(.plain)
         .animation(.easeOut(duration: 0.15), value: isSelected)
-        .accessibilityElement(children: .ignore)
+        // The button is already one element, so its children are never read apart. Ignoring them
+        // explicitly also dropped the button's activate action, which Switch Control and the
+        // hosted flow walk (`OnboardingV3FlowEvidenceTests`) both tap through.
         .accessibilityLabel("\(title), \(detail)")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
