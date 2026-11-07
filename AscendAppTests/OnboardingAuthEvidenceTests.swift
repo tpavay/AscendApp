@@ -34,7 +34,7 @@ struct OnboardingAuthEvidenceTests {
     private static let boardsRow = "Your spot on the boards, Leaderboards and live climbs"
     private static let appleButton = "Continue with Apple"
 
-    /// The design's left state: Apple Health history added, the climber card filled in, a city and
+    /// The design's left state: Apple Health history added, the profile filled in, a city and
     /// a target. The screen reads the real clock, so the birthday is thirty years back from today.
     private static func everythingGiven() throws -> PreAuthOnboardingAnswers {
         let calendar = Calendar(identifier: .gregorian)

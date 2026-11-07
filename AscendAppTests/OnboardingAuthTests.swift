@@ -72,7 +72,7 @@ struct OnboardingAuthTests {
     }
 
     @Test
-    func theProfileRowSaysOnlyWhatTheCardHoldsAndNamesNobody() {
+    func theProfileRowSaysOnlyWhatTheProfileHoldsAndNamesNobody() {
         var woman = PreAuthOnboardingAnswers()
         woman.gender = .woman
         #expect(items(woman).first { $0.kind == .profile }?.title == "F")
@@ -81,17 +81,34 @@ struct OnboardingAuthTests {
         var quiet = PreAuthOnboardingAnswers()
         quiet.gender = .preferNotToSay
         quiet.heightCm = 170
-        #expect(items(quiet).first { $0.kind == .profile }?.title == "Your climber card")
+        #expect(items(quiet).first { $0.kind == .profile }?.title == "Your details")
 
         var cityOnly = PreAuthOnboardingAnswers()
         cityOnly.city = PreAuthOnboardingCity(city: "Denver", region: "CO", countryCode: "US", countryName: "United States")
         let city = items(cityOnly).first { $0.kind == .profile }
-        #expect(city?.title == "Your climber card")
+        #expect(city?.title == "Your details")
         #expect(city?.subtitle == "Your profile \u{00B7} Denver")
 
         var tooYoung = PreAuthOnboardingAnswers()
         tooYoung.birthday = PreAuthOnboardingBirthday(year: 2020, month: 1, day: 1)
-        #expect(items(tooYoung).first { $0.kind == .profile }?.title == "Your climber card", "an age the card refuses is not said back")
+        #expect(items(tooYoung).first { $0.kind == .profile }?.title == "Your details", "an age the screen refuses is not said back")
+    }
+
+    @Test
+    func aNameOrPhotoAloneEarnsTheProfileRow() {
+        var firstNameOnly = PreAuthOnboardingAnswers()
+        firstNameOnly.firstName = "Sam"
+        #expect(items(firstNameOnly).first { $0.kind == .profile }?.title == "Your details")
+
+        var lastNameOnly = PreAuthOnboardingAnswers()
+        lastNameOnly.lastName = "Rivera"
+        #expect(items(lastNameOnly).first { $0.kind == .profile }?.title == "Your details")
+
+        var photoOnly = PreAuthOnboardingAnswers()
+        photoOnly.profilePhotoFileName = "photo.jpg"
+        #expect(items(photoOnly).first { $0.kind == .profile }?.title == "Your details")
+
+        #expect(!items(PreAuthOnboardingAnswers()).contains { $0.kind == .profile })
     }
 
     @Test

@@ -8,7 +8,7 @@ struct OnboardingSavedItem: Equatable, Identifiable {
         case climbs
         /// The Apple Health history the climber asked to bring in on 07a.
         case healthHistory
-        /// The climber card and the city, as far as they were filled in.
+        /// The profile screen and the city, as far as they were filled in.
         case profile
         /// The leaderboards and live climbs. Always.
         case boards
@@ -68,13 +68,11 @@ enum OnboardingSavedItems {
         now: Date,
         calendar: Calendar
     ) -> OnboardingSavedItem? {
-        let hasClimberCard = answers.gender != nil || answers.birthday != nil
-            || answers.heightCm != nil || answers.weightKg != nil
-        guard hasClimberCard || answers.city != nil else { return nil }
+        guard answers.carriesProfileAnswers else { return nil }
 
         let age = answers.birthday.flatMap { ProfileSetupDraft.age(of: $0, on: now, calendar: calendar) }
         let parts = [genderLetter(answers.gender), age.map { $0.formatted() }].compactMap { $0 }
-        let title = parts.isEmpty ? "Your climber card" : parts.joined(separator: " \u{00B7} ")
+        let title = parts.isEmpty ? "Your details" : parts.joined(separator: " \u{00B7} ")
 
         var subtitle = "Your profile"
         if let city = answers.city?.city.trimmingCharacters(in: .whitespacesAndNewlines), !city.isEmpty {
@@ -83,7 +81,7 @@ enum OnboardingSavedItems {
         return OnboardingSavedItem(kind: .profile, title: title, subtitle: subtitle)
     }
 
-    /// The letter the card's Male and Female chips abbreviate to. The other two answers have no
+    /// The letter the profile screen's Male and Female choices abbreviate to. The other two answers have no
     /// letter and say nothing in the title.
     private static func genderLetter(_ gender: ProfileGender?) -> String? {
         switch gender {
