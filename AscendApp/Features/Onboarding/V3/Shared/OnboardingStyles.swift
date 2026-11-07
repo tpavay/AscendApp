@@ -14,6 +14,11 @@ enum OnboardingV3Palette {
     static let cardFill = Color(hex: "0C0C0C")
     static let cardBorder = Color(hex: "1E1E1E")
     static let chipBorder = Color(hex: "262626")
+    /// The profile screen's input fields, rows and sheet frame.
+    static let fieldBorder = Color(hex: "222222")
+    static let placeholder = Color(hex: "6A6A6A")
+    static let footnote = Color(hex: "7E7E7E")
+    static let sheetFill = Color(hex: "151515")
     static let orange = Color(hex: "F0A050")
     static let accent = Color.ascendAccent
     static let gold = Color.ascendMedalGold

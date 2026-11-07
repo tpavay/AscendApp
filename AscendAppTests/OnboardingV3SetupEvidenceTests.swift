@@ -62,66 +62,119 @@ struct OnboardingV3SetupEvidenceTests {
 
     // MARK: - 08
 
+    private func profileScreen(
+        _ coordinator: OnboardingV3Coordinator,
+        photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore(directory: FileManager.default.temporaryDirectory.appending(path: "profile-evidence-\(UUID().uuidString)"))
+    ) -> some View {
+        ZStack {
+            OnboardingV3Palette.background.ignoresSafeArea()
+            OnboardingProfileSetupScreen(coordinator: coordinator, system: .imperial, photos: photos)
+        }
+        .environment(\.onboardingV3Coordinator, coordinator)
+    }
+
     @Test(arguments: [nil, Self.accessibilitySize])
-    func theClimberCardShowsEveryTileAndTheSettingsFooter(size: DynamicTypeSize?) async throws {
-        let coordinator = coordinator(at: .climberCard) {
-            $0.gender = .woman
-            $0.heightCm = 177.8
-            $0.weightKg = 79.4
-            $0.birthday = PreAuthOnboardingBirthday(year: 1996, month: 3, day: 14)
-        }
-        let screen = OnboardingClimberCardScreen(coordinator: coordinator, system: .imperial)
-        try await host(
-            ZStack { OnboardingV3Palette.background.ignoresSafeArea(); screen }
-                .environment(\.onboardingV3Coordinator, coordinator),
-            size: size,
-            name: "climber-card"
-        ) { copy in
-            #expect(copy.contains("set up your climber card."), "\(copy)")
-            #expect(copy.contains("your climber card, joined today"), "\(copy)")
-            #expect(copy.contains("gender female, age 30, height 5'10\", weight 175 lb"), "\(copy)")
-            #expect(copy.contains("change any of it in settings."), "\(copy)")
+    func theEmptyProfileScreenShowsTheDefaultNameAndEveryRowNotSet(size: DynamicTypeSize?) async throws {
+        let coordinator = coordinator(at: .profileSetup)
+        try await host(profileScreen(coordinator), size: size, name: "profile-setup") { copy in
+            #expect(copy.contains("set up your profile."), "\(copy)")
+            #expect(copy.contains("this is how you show up on every leaderboard and live climb."), "\(copy)")
+            #expect(copy.contains("change me"), "\(copy)")
+            #expect(copy.contains("first name"), "\(copy)")
+            #expect(copy.contains("last name"), "\(copy)")
+            // The rows below the name fields sit below the fold at an accessibility size; the scroll reaches them.
+            if size == nil {
+                #expect(copy.contains("birthday"), "\(copy)")
+                #expect(copy.contains("not set"), "\(copy)")
+            }
+            #expect(copy.contains("all optional. change any of it in settings."), "\(copy)")
             #expect(copy.contains("skip"), "one skip: \(copy)")
-            #expect(!copy.contains("hide"), "\(copy)")
+            #expect(!copy.contains("climber card"), "\(copy)")
+            #expect(!copy.contains("race"), "\(copy)")
         }
     }
 
     @Test
-    func anEmptyCardDrawsNoDashCharacter() async throws {
-        let coordinator = coordinator(at: .climberCard)
-        let screen = OnboardingClimberCardScreen(coordinator: coordinator, system: .imperial)
-        try await host(
-            ZStack { OnboardingV3Palette.background.ignoresSafeArea(); screen }
-                .environment(\.onboardingV3Coordinator, coordinator),
-            size: nil,
-            name: "climber-card-empty"
-        ) { copy in
-            #expect(!copy.contains("\u{2014}"), "\(copy)")
-            #expect(!copy.contains(" - "), "\(copy)")
+    func aFilledProfileReadsBackOnTheRowAndTheLeaderboardLine() async throws {
+        let coordinator = coordinator(at: .profileSetup) {
+            $0.firstName = "Tyler"
+            $0.lastName = "Pavay"
+            $0.gender = .man
+            $0.heightCm = 177.8
+            $0.birthday = PreAuthOnboardingBirthday(year: 1996, month: 6, day: 14)
+        }
+        try await host(profileScreen(coordinator), size: nil, name: "profile-setup-filled") { copy in
+            #expect(copy.contains("tyler pavay"), "\(copy)")
+            #expect(copy.contains("5'10\""), "\(copy)")
+            #expect(!copy.contains("change me"), "\(copy)")
         }
     }
 
-    /// The wheel's own label replaces anything drawn over it in the accessibility tree, so only
-    /// the pixels can show a caption colliding with the year column. Tall enough to hold the wheel.
+    /// The design fits one screen with no scrolling. On the design's own 390 x 844 canvas every row
+    /// sits above the footnote that sits above CONTINUE, so nothing is reached by scrolling.
     @Test
-    func anUntouchedBirthdayWheelHasNothingDrawnOverItAndLeavesTheBirthdayUnset() async throws {
-        let coordinator = coordinator(at: .climberCard)
-        let screen = OnboardingClimberCardScreen(coordinator: coordinator, system: .imperial)
+    func everyRowSitsAboveTheFootnoteOnTheDesignsCanvas() async throws {
+        let coordinator = coordinator(at: .profileSetup)
         try await RenderedScreen.host(
-            ZStack { OnboardingV3Palette.background.ignoresSafeArea(); screen }
-                .environment(\.onboardingV3Coordinator, coordinator),
-            size: CGSize(width: 402, height: 1300),
+            profileScreen(coordinator),
+            size: CGSize(width: 390, height: 844),
             settle: .turns(40)
         ) { screen in
-            let drawn = try await screen.recognizedText(scale: 2).lowercased()
-            #expect(drawn.contains("birthday"), "\(drawn)")
-            #expect(!drawn.contains("scroll to set"), "\(drawn)")
-            try screen.photograph(named: "onboarding-v3-climber-card-untouched-wheel")
+            let weight = try #require(try await screen.frame(ofElementLabelled: "Weight"))
+            let footnote = try #require(try await screen.text(containing: "all optional")?.frame)
+            #expect(weight.maxY <= footnote.minY, "weight \(weight) footnote \(footnote)")
 
-            try activateAccessibilityElement(labelled: "CONTINUE", in: screen.window)
-            try await screen.settle()
-            #expect(coordinator.step == .claimCity)
-            #expect(coordinator.answers.birthday == nil)
+            let title = try #require(try await screen.text(containing: "set up your")?.frame)
+            let header = try #require(try await screen.frame(ofElementLabelled: "Back"))
+            #expect(title.minY >= header.maxY, "the title clears the back button: \(title) \(header)")
+            try screen.photograph(named: "onboarding-v3-profile-setup-design-canvas")
+        }
+    }
+
+    private func sheetHost<Content: View>(_ sheet: Content, name: String, check: @MainActor (String) -> Void = { _ in }) async throws {
+        try await RenderedScreen.host(
+            sheet.environment(\.colorScheme, .dark),
+            size: CGSize(width: 390, height: 460),
+            settle: .turns(40)
+        ) { screen in
+            let copy = try await screen.copy()
+            check(copy)
+            try screen.photograph(named: "onboarding-v3-profile-sheet-\(name)")
+        }
+    }
+
+    @Test
+    func theHeightSheetOpensAtTheStoredHeightWithItsFrameCopy() async throws {
+        try await sheetHost(
+            ProfileHeightSheet(initialCentimeters: 177.8, system: .imperial, onUnitChange: { _ in }, onDone: { _ in }),
+            name: "height"
+        ) { copy in
+            #expect(copy.contains("height"), "\(copy)")
+            #expect(copy.contains("done"), "\(copy)")
+            #expect(copy.contains("profile only, for comparing. not on leaderboards."), "\(copy)")
+        }
+    }
+
+    @Test
+    func theWeightSheetOpensAtTheStoredWeightWithItsFrameCopy() async throws {
+        try await sheetHost(
+            ProfileWeightSheet(initialKilograms: 79.37866, system: .imperial, onUnitChange: { _ in }, onDone: { _ in }),
+            name: "weight"
+        ) { copy in
+            #expect(copy.contains("weight"), "\(copy)")
+            #expect(copy.contains("done"), "\(copy)")
+            #expect(copy.contains("profile only, for comparing. not on leaderboards."), "\(copy)")
+        }
+    }
+
+    @Test
+    func theBirthdaySheetSaysOnlyTheAgeShows() async throws {
+        try await sheetHost(
+            ProfileBirthdaySheet(initial: nil, onDone: { _ in }),
+            name: "birthday"
+        ) { copy in
+            #expect(copy.contains("birthday"), "\(copy)")
+            #expect(copy.contains("only your age shows. never the date."), "\(copy)")
         }
     }
 

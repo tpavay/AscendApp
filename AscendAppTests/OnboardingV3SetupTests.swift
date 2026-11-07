@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import AscendApp
 
-/// The decisions behind screens 07b, 08, 09 and 11, with no view: usual-climb answers, the climber
-/// card's age, ranges and steps, the city count's key and copy, and which version of the monthly
-/// event shows on which day.
+/// The decisions behind screens 07b, 09, 10 and 11, with no view: usual-climb answers, the city
+/// count's key and copy, and which version of the monthly event shows on which day. Screen 08 is
+/// `OnboardingProfileSetupTests`.
 @MainActor
 struct OnboardingV3SetupTests {
     private let utc = TimeZone(secondsFromGMT: 0) ?? .gmt
@@ -39,162 +39,6 @@ struct OnboardingV3SetupTests {
         #expect(Set(UsualClimbChoice.allCases.map { "\($0.steps)/\($0.minutes)" }).count == UsualClimbChoice.allCases.count)
         #expect(UsualClimbChoice.stored(steps: 3_260, minutes: 41) == nil, "a Health history's usual climb lights no row")
         #expect(UsualClimbChoice.stored(steps: nil, minutes: nil) == nil)
-    }
-
-    // MARK: - 08
-
-    private func draft(system: MeasurementSystem = .imperial) -> ClimberCardDraft {
-        ClimberCardDraft(answers: PreAuthOnboardingAnswers(), system: system)
-    }
-
-    @Test
-    func aBirthdayGivesTheAgeOnTheDayItIsReached() {
-        var card = draft()
-        card.birthday = PreAuthOnboardingBirthday(year: 1998, month: 11, day: 5)
-
-        #expect(card.age(on: date(2026, 11, 4), calendar: calendar) == 27)
-        #expect(card.age(on: date(2026, 11, 5), calendar: calendar) == 28)
-    }
-
-    @Test
-    func agesOutsideThirteenToNinetyNineGiveNoAge() {
-        var card = draft()
-        card.birthday = PreAuthOnboardingBirthday(year: 2016, month: 1, day: 1)
-        #expect(card.age(on: date(2026, 11, 4), calendar: calendar) == nil, "ten is under the floor")
-
-        card.birthday = PreAuthOnboardingBirthday(year: 1900, month: 1, day: 1)
-        #expect(card.age(on: date(2026, 11, 4), calendar: calendar) == nil)
-
-        card.birthday = PreAuthOnboardingBirthday(year: 2013, month: 11, day: 4)
-        #expect(card.age(on: date(2026, 11, 4), calendar: calendar) == 13, "thirteen today is the youngest")
-    }
-
-    @Test
-    func theWheelOffersOnlyBirthdaysThatGiveAnAcceptedAge() {
-        let today = date(2026, 11, 4)
-        let range = ClimberCardDraft.birthdayRange(on: today, calendar: calendar)
-
-        var youngest = draft()
-        youngest.setBirthday(from: range.upperBound, calendar: calendar)
-        #expect(youngest.age(on: today, calendar: calendar) == 13)
-
-        var oldest = draft()
-        oldest.setBirthday(from: range.lowerBound, calendar: calendar)
-        #expect(oldest.age(on: today, calendar: calendar) == 99)
-    }
-
-    /// A phone in Thailand or set to the Japanese calendar still stores 1993, or the rules refuse
-    /// the write, or the age check drops a birthday the climber chose.
-    @Test(arguments: [Calendar.Identifier.buddhist, .japanese])
-    func aBirthdayIsGregorianWhateverCalendarThePhoneUses(identifier: Calendar.Identifier) throws {
-        var device = Calendar(identifier: identifier)
-        device.timeZone = utc
-        let today = date(2026, 11, 4)
-        let born = date(1993, 3, 15)
-
-        var card = draft()
-        card.setBirthday(from: born, calendar: device)
-
-        #expect(card.birthday == PreAuthOnboardingBirthday(year: 1993, month: 3, day: 15))
-        #expect(card.age(on: today, calendar: device) == 33)
-        #expect(card.birthdayDate(calendar: device) == born)
-
-        let range = ClimberCardDraft.birthdayRange(on: today, calendar: device)
-        #expect(range == ClimberCardDraft.birthdayRange(on: today, calendar: calendar))
-        #expect(ClimberCardDraft.wheelStart(on: today, calendar: device) == ClimberCardDraft.wheelStart(on: today, calendar: calendar))
-    }
-
-    @Test
-    func heightStepsAnInchAndStartsFromSixtySevenWhenNothingIsSet() {
-        var card = draft()
-        card.stepHeight(1)
-        #expect(card.heightText == "5'7\"")
-        card.stepHeight(1)
-        #expect(card.heightText == "5'8\"")
-        card.stepHeight(-1); card.stepHeight(-1)
-        #expect(card.heightText == "5'6\"")
-    }
-
-    @Test
-    func heightAndWeightStopAtTheirRanges() {
-        var card = draft()
-        for _ in 0..<80 { card.stepHeight(1) }
-        #expect(card.heightText == "7'6\"", "90 inches is the ceiling")
-        for _ in 0..<80 { card.stepHeight(-1) }
-        #expect(card.heightText == "4'0\"", "48 inches is the floor")
-
-        for _ in 0..<400 { card.stepWeight(1) }
-        #expect(card.weightText == "400 lb")
-        for _ in 0..<400 { card.stepWeight(-1) }
-        #expect(card.weightText == "80 lb")
-    }
-
-    @Test
-    func unitsFollowThePhonesMeasurementSystem() {
-        var metric = draft(system: .metric)
-        metric.stepHeight(1)
-        metric.stepWeight(1)
-        #expect(metric.heightText == "170 cm")
-        #expect(metric.weightText == "72 kg")
-        #expect(metric.heightCm == 170)
-        #expect(metric.weightKg == 72)
-
-        var imperial = draft(system: .imperial)
-        imperial.stepWeight(1)
-        #expect(imperial.weightText == "160 lb")
-        #expect(abs((imperial.weightKg ?? 0) - 72.57) < 0.05, "stored in kilograms")
-    }
-
-    @Test
-    func aStoredValueReadsTheSameInEitherSystem() {
-        var answers = PreAuthOnboardingAnswers()
-        answers.heightCm = 177.8
-        answers.weightKg = 79.37866
-        #expect(ClimberCardDraft(answers: answers, system: .imperial).heightText == "5'10\"")
-        #expect(ClimberCardDraft(answers: answers, system: .imperial).weightText == "175 lb")
-        #expect(ClimberCardDraft(answers: answers, system: .metric).heightText == "178 cm")
-    }
-
-    @Test
-    func theGenderTileNamesEachChoiceAndHidesNothingButPrivate() {
-        var card = draft()
-        #expect(card.genderTileText == nil, "nothing preselected")
-        card.gender = .man
-        #expect(card.genderTileText == "Male")
-        card.gender = .woman
-        #expect(card.genderTileText == "Female")
-        card.gender = .nonBinary
-        #expect(card.genderTileText == "Other")
-        card.gender = .preferNotToSay
-        #expect(card.genderTileText == "Private")
-        #expect(ClimberCardDraft.genderChoices.map(\.title) == ["Male", "Female", "Other", "Prefer not to say"])
-    }
-
-    @Test
-    func continuingWritesTheCardAndAnEmptyCardWritesNothing() {
-        var answers = PreAuthOnboardingAnswers()
-        draft().apply(to: &answers)
-        #expect(answers == PreAuthOnboardingAnswers())
-
-        var card = draft()
-        card.gender = .woman
-        card.birthday = PreAuthOnboardingBirthday(year: 1990, month: 6, day: 15)
-        card.stepHeight(1)
-        card.apply(to: &answers)
-        #expect(answers.gender == .woman)
-        #expect(answers.birthday == PreAuthOnboardingBirthday(year: 1990, month: 6, day: 15))
-        #expect(answers.heightCm != nil)
-        #expect(answers.weightKg == nil)
-    }
-
-    @Test
-    func aTapOnTheChosenChipClearsItAgain() {
-        var answers = PreAuthOnboardingAnswers()
-        answers.gender = .man
-        var card = ClimberCardDraft(answers: answers, system: .imperial)
-        card.gender = nil
-        card.apply(to: &answers)
-        #expect(answers.gender == nil)
     }
 
     // MARK: - 09
@@ -261,29 +105,9 @@ struct OnboardingV3SetupTests {
         let suite = "onboarding-v3-skip-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         defaults.removePersistentDomain(forName: suite)
-        let coordinator = OnboardingV3Coordinator(store: PreAuthOnboardingStore(userDefaults: defaults), startingAt: .climberCard)
+        let coordinator = OnboardingV3Coordinator(store: PreAuthOnboardingStore(userDefaults: defaults), startingAt: .profileSetup)
         coordinator.update(configure)
         return coordinator
-    }
-
-    @Test
-    func goingBackToTheClimberCardAndSkippingClearsItsEarlierAnswers() {
-        let coordinator = coordinator {
-            $0.gender = .woman
-            $0.birthday = PreAuthOnboardingBirthday(year: 1990, month: 6, day: 15)
-            $0.heightCm = 170
-            $0.weightKg = 70
-            $0.usualClimbSteps = 1_800
-        }
-
-        OnboardingClimberCardScreen.skip(coordinator)
-
-        #expect(coordinator.answers.gender == nil)
-        #expect(coordinator.answers.birthday == nil)
-        #expect(coordinator.answers.heightCm == nil)
-        #expect(coordinator.answers.weightKg == nil)
-        #expect(coordinator.answers.usualClimbSteps == 1_800, "other screens' answers stay")
-        #expect(coordinator.step == .claimCity)
     }
 
     @Test

@@ -574,6 +574,13 @@ Behavior:
 - A profile that already resolves to a name is never overwritten, legacy `displayName`-only records included.
   Resolution writes only when the profile carries no name at all.
 
+The one carve-out is the pre-sign-in profile screen of the v3 flow (08, `OnboardingProfileSetupScreen`, behind `onboarding_v3_enabled`), which offers optional First name and Last name fields beside a photo, gender, birthday, height and weight.
+It is not the rejected step: Skip and Continue both pass with the fields empty, nothing waits on them, and the resolution above is untouched.
+What a climber types is held on the device and written after sign-in by the hand-off, which fills blanks only - it replaces the `CHANGE ME` placeholder sign-in writes and never a name the account already carries.
+Half a name, or a name `DisplayNamePolicy` refuses, is left out rather than blocking the rest.
+A photo picked there waits on the device the same way and is uploaded through the existing profile photo path under `users/{uid}/profile_pictures/`, for an account that has none.
+Do not make either field required, and do not add a name screen anywhere else.
+
 The opening post-auth screen carries the sign-out control, because it is the only route from onboarding back to the sign-in screen for a climber who signed into the wrong account.
 
 ### 20. Required Demographics

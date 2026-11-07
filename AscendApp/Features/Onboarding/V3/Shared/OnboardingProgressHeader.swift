@@ -17,7 +17,7 @@ enum OnboardingProgressTable {
         case .countMethods: 75
         case .healthConnect, .healthPermission: 81
         case .healthHistory, .usualClimb: 86
-        case .climberCard: 90
+        case .profileSetup: 90
         case .claimCity: 93
         case .weeklyTarget: 95
         case .thisMonthEvent: 97
@@ -175,7 +175,7 @@ extension EnvironmentValues {
 #Preview("Progress header") {
     VStack(spacing: 30) {
         OnboardingProgressHeader(step: .goHarder)
-        OnboardingProgressHeader(step: .climberCard, onSkip: {})
+        OnboardingProgressHeader(step: .profileSetup, onSkip: {})
         OnboardingProgressHeader(onClose: {})
     }
     .frame(maxHeight: .infinity, alignment: .top)

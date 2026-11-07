@@ -178,7 +178,7 @@ struct OnboardingV3HealthTests {
         #expect(answers.foundHealthKnownSteps == 8_000, "the sign-in screen says the total back")
         #expect(answers.usualClimbSteps == 4_000)
         #expect(answers.usualClimbMinutes == 45)
-        #expect(flow.step == .climberCard)
+        #expect(flow.step == .profileSetup)
     }
 
     @Test
@@ -274,10 +274,10 @@ struct OnboardingV3HealthTests {
         await history.load(coordinator: flow)
         history.addToHistory(coordinator: flow)
 
-        #expect(flow.step == .climberCard)
+        #expect(flow.step == .profileSetup)
         #expect(store.answers().foundHealthWorkoutIDs == [first.uuid.uuidString])
         #expect(OnboardingV3Step.healthConnect.primaryDestination == .healthPermission)
-        #expect(OnboardingV3Step.healthHistory.primaryDestination == .climberCard)
+        #expect(OnboardingV3Step.healthHistory.primaryDestination == .profileSetup)
     }
 
     // MARK: - The hand-off

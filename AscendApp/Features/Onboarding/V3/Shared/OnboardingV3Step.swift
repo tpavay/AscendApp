@@ -18,7 +18,9 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
     case healthPermission = "health_permission"
     case healthHistory = "health_history"
     case usualClimb = "usual_climb"
-    case climberCard = "climber_card"
+    /// 08. The raw value is the analytics `step_id` and keeps its first name: the screen was the
+    /// climber card before it was the profile screen, and a funnel reads a step by this id.
+    case profileSetup = "climber_card"
     case claimCity = "claim_city"
     case weeklyTarget = "weekly_target"
     case thisMonthEvent = "this_month_event"
@@ -40,7 +42,7 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .healthPermission: "Two taps and you're set"
         case .healthHistory: "We found your climbs"
         case .usualClimb: "How long is a usual climb?"
-        case .climberCard: "Set up your climber card"
+        case .profileSetup: "Set up your profile"
         case .claimCity: "Claim your city"
         case .weeklyTarget: "How many days a week?"
         case .thisMonthEvent: "This month's live event"
@@ -54,7 +56,7 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
     ///
     /// The two Health steps and the usual-climb step form one branch: connecting walks
     /// `healthConnect -> healthPermission -> healthHistory`, and everything that leaves Health
-    /// behind lands on `usualClimb`. Both ends meet again at `climberCard`.
+    /// behind lands on `usualClimb`. Both ends meet again at `profileSetup`.
     var primaryDestination: OnboardingV3Step? {
         switch self {
         case .welcome: .goHarder
@@ -64,9 +66,9 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
         case .countMethods: .healthConnect
         case .healthConnect: .healthPermission
         case .healthPermission: .healthHistory
-        case .healthHistory: .climberCard
-        case .usualClimb: .climberCard
-        case .climberCard: .claimCity
+        case .healthHistory: .profileSetup
+        case .usualClimb: .profileSetup
+        case .profileSetup: .claimCity
         case .claimCity: .weeklyTarget
         case .weeklyTarget: .thisMonthEvent
         case .thisMonthEvent: .notificationPrimer

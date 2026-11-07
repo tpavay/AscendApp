@@ -85,16 +85,19 @@ final class OnboardingV3SignInHandOff {
     private let seams: Seams
     private let store: PreAuthOnboardingStore
     private let intent: OnboardingV3HandOffIntent
+    private let photos: OnboardingProfilePhotoStore
     private var isRunningProfileStep = false
 
     init(
         seams: Seams,
         store: PreAuthOnboardingStore = PreAuthOnboardingStore(),
-        intent: OnboardingV3HandOffIntent = OnboardingV3HandOffIntent()
+        intent: OnboardingV3HandOffIntent = OnboardingV3HandOffIntent(),
+        photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore()
     ) {
         self.seams = seams
         self.store = store
         self.intent = intent
+        self.photos = photos
     }
 
     /// Closes post-sign-in onboarding when this sign-in came from the end of the flow. Synchronous
@@ -174,6 +177,9 @@ final class OnboardingV3SignInHandOff {
             $0 = $0.droppingHandedOffAnswers
             if imported { $0.clearFoundHealthHistory() }
         }
+        // The picked photo has been uploaded, or the account already had one. Either way it is
+        // done with the device.
+        photos.remove()
         return .complete
     }
 
@@ -186,6 +192,56 @@ final class OnboardingV3SignInHandOff {
 }
 
 // MARK: - Live wiring
+
+extension OnboardingV3SignInHandOff {
+    /// Writes a fill through the services the rest of the app uses: demographics, then the typed
+    /// name, then the photo. Each lands on its own, so a photo that cannot upload yet leaves the
+    /// name and demographics written; the retry plans from the profile as it now stands and carries
+    /// only what is still missing.
+    @MainActor
+    static func writeProfile(
+        _ fill: OnboardingProfileFill,
+        userId: String,
+        email: String?,
+        photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore()
+    ) async throws {
+        if fill.hasDemographics {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: userId,
+                email: email,
+                birthday: fill.birthday,
+                gender: fill.gender,
+                weightKg: fill.weightKg,
+                heightCm: fill.heightCm,
+                locationCity: fill.city?.city,
+                locationCountry: fill.city?.countryCode,
+                locationRegion: fill.city?.region
+            )
+        }
+
+        if let name = fill.name {
+            try await UserDataRepository.shared.updateProfileName(
+                userId: userId,
+                email: email,
+                firstName: name.firstName,
+                lastName: name.lastName
+            )
+        }
+
+        // A photo that is no longer on the device cannot be retried, so it is skipped here and the
+        // hand-off's cleanup drops the answer that named it.
+        if let data = photos.data(for: fill.photoFileName) {
+            try ProfilePublicationError.requireConnection()
+
+            let filename = "users/\(userId)/profile_pictures/\(UUID().uuidString).jpg"
+            let uploadedURL = try await FirebasePhotoRepository().upload(data, filename: filename)
+            try await UserDataRepository.shared.updateProfilePictureURL(
+                userId: userId,
+                profilePictureURL: uploadedURL.absoluteString
+            )
+        }
+    }
+}
 
 extension OnboardingV3SignInHandOff {
     /// The hand-off against the real services. `OnboardingAuthTests` pins that every route calls
@@ -203,17 +259,7 @@ extension OnboardingV3SignInHandOff {
                     try await UserDataRepository.shared.getUserFromFirestore(userId: userId)
                 },
                 writeProfile: { userId, email, fill in
-                    try await UserDataRepository.shared.updateOnboardingDemographics(
-                        userId: userId,
-                        email: email,
-                        birthday: fill.birthday,
-                        gender: fill.gender,
-                        weightKg: fill.weightKg,
-                        heightCm: fill.heightCm,
-                        locationCity: fill.city?.city,
-                        locationCountry: fill.city?.countryCode,
-                        locationRegion: fill.city?.region
-                    )
+                    try await Self.writeProfile(fill, userId: userId, email: email)
                 },
                 recordProfileStepFailure: { error in
                     TelemetryManager.shared.recordError(

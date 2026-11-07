@@ -72,7 +72,7 @@ enum OnboardingSavedItems {
             || answers.heightCm != nil || answers.weightKg != nil
         guard hasClimberCard || answers.city != nil else { return nil }
 
-        let age = answers.birthday.flatMap { ClimberCardDraft.age(of: $0, on: now, calendar: calendar) }
+        let age = answers.birthday.flatMap { ProfileSetupDraft.age(of: $0, on: now, calendar: calendar) }
         let parts = [genderLetter(answers.gender), age.map { $0.formatted() }].compactMap { $0 }
         let title = parts.isEmpty ? "Your climber card" : parts.joined(separator: " \u{00B7} ")
 
