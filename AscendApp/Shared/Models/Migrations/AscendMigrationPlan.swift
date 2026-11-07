@@ -45,7 +45,7 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
     /// Lightweight, and every existing row defaults to `eligible`. Most were recorded by a live
     /// sensor flow, but a store may still hold pre-#443 `manual`, `apple_health` or `hevy` rows,
     /// and those default to `eligible` too even where `ClimbPacePolicy` would exclude them - a
-    /// zero-step row, or one between 200 and 220 steps a minute. That is accepted: the column only
+    /// zero-step row, or one over 220 steps a minute. That is accepted: the column only
     /// drives the device's own screens and optimistic overlay, the server derives standings from
     /// the workout's own evidence regardless of what the device stores, and such rows exist only in
     /// TestFlight-era stores. Nothing is interpreted per record, which is the only kind of work

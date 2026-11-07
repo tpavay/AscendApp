@@ -889,13 +889,13 @@ service cloud.firestore {
     //   5 steps per second (300/min). The 24-hour StairMaster record is 111,285 steps, an average
     //   of 77/min, and no human sustains four times that. `leaderboardStats` applies the real
     //   filters - 220/min for a climb Ascend's own sensor measured (MAX_AVERAGE_STEPS_PER_MINUTE)
-    //   and 200/min for one the climber typed in or brought in
+    //   and the same 220/min for one the climber typed in or brought in
     //   (MAX_UNMEASURED_AVERAGE_STEPS_PER_MINUTE) - and this sits above both on purpose. A rejected
     //   write is a permanently unsyncable climb, so the rule refuses only what is impossible and
     //   leaves the judgement call to the function that can afford to be wrong.
     //
     //   The line is exactly where the app refuses to save a typed climb at all
-    //   (`ClimbPacePolicy.absurdStepsPerMinute`, 300/min): everything between the 200 ceiling and
+    //   (`ClimbPacePolicy.absurdStepsPerMinute`, 300/min): everything between the 220 ceiling and
     //   that line is a climb the climber is told is saved and kept off the boards, so every one of
     //   them has to reach the cloud. It was 4 steps a second (240/min) before hand-logged climbs
     //   returned, which would have stranded the 240-300 band in `rejected` sync forever.

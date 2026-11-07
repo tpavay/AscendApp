@@ -71,7 +71,7 @@ struct PreJoinUnmeasuredClimbVectorTests {
         let before = try Self.date("2026-08-01T07:00:00Z")
 
         #expect(ClimbPacePolicy.leaderboardStatus(origin: .manual, steps: 3_000, duration: 1_800, startedAt: before, accountCreatedAt: created) == .excluded)
-        #expect(ClimbPacePolicy.leaderboardStatus(origin: .manual, steps: 6_001, duration: 1_800, startedAt: before, accountCreatedAt: created) == .excluded)
+        #expect(ClimbPacePolicy.leaderboardStatus(origin: .manual, steps: 6_601, duration: 1_800, startedAt: before, accountCreatedAt: created) == .excluded)
     }
 
     @Test
