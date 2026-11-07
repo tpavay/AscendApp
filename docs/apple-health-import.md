@@ -122,8 +122,8 @@ The pass never reaches them, so `AppleHealthImportService.importHistory(matching
 
 - Before sign-in nothing is filed.
   07a only reads: `HealthHistorySummary.load(using:)` is one `changes(since: nil, startingOnOrAfter: .distantPast)` over the stair workouts, and the anchor it returns is dropped.
-  The only thing left behind is `PreAuthOnboardingAnswers.foundHealthWorkoutIDs` on the device, which the button sets and the sign-in hand-off (`OnboardingV3SignInHandOff.importHealthHistory`) reads.
-  Declining Health, or finding no workouts, clears it.
+  The only things left behind are `PreAuthOnboardingAnswers.foundHealthWorkoutIDs` on the device, which the button sets and the sign-in hand-off (`OnboardingV3SignInHandOff.importHealthHistory`) reads, and `foundHealthKnownSteps`, the total the sign-in screen's list says back beside their count.
+  Declining Health, or finding no workouts, clears both.
 - `importHistory` files the workouts whose start is before the join date and whose identifier is in that list, through the same ledger (`file(_:ledger:)`, shared with the pass) and the same `importRecords` choke point, so a workout is recognised the same way whichever meets it first, `apple_health_import_enabled` still gates every climb it creates, and a workout already imported or skipped is left alone.
   It never touches the pass's anchor, announces nothing, and opens nothing.
 - It waits for what the first pass waits for: Health connected, the ownership gate, and the cloud restore (`confirmCloudClimbsRestored`), because a climb the account already holds is the only thing that stops its own workout importing twice.
