@@ -141,7 +141,14 @@ private struct OnboardingSavedItemMark: View {
     answers.birthday = PreAuthOnboardingBirthday(year: 1996, month: 3, day: 9)
     answers.city = PreAuthOnboardingCity(city: "Denver", region: "CO", countryCode: "US", countryName: "United States")
     answers.weeklyTargetDays = 4
-    answers.recordFoundHealthHistory(workoutIDs: (0..<214).map { "w\($0)" }, knownSteps: 698_240)
+    answers.recordFoundHealthHistory(HealthHistorySummary(
+        workoutIDs: (0..<214).map { "w\($0)" },
+        totalDuration: 0,
+        workoutsWithSteps: 214,
+        knownSteps: 698_240,
+        bestHourSteps: nil,
+        usualClimb: nil
+    ))
 
     return VStack(spacing: 24) {
         OnboardingSavedItemsCard(items: OnboardingSavedItems.make(from: answers))

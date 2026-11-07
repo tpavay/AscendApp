@@ -47,7 +47,7 @@ struct OnboardingV3HealthTests {
     @Test
     func aNoClearsWhateverTheClimberAskedToBringInOnTheWayHere() {
         let store = makeStore()
-        store.update { $0.recordFoundHealthHistory(workoutIDs: ["a", "b"], knownSteps: 6_000) }
+        store.update { $0.recordFoundHealthHistory(.reportedByEveryWorkout(workoutIDs: ["a", "b"], knownSteps: 6_000)) }
         let flow = coordinator(at: .healthConnect, store: store)
 
         OnboardingHealthConnectScreen.declineHealth(flow)
@@ -196,6 +196,28 @@ struct OnboardingV3HealthTests {
         #expect(store.answers().usualClimbSteps == nil)
         #expect(store.answers().usualClimbMinutes == 41)
         #expect(store.answers().foundHealthKnownSteps == nil)
+    }
+
+    @Test
+    func theSignInRowLeavesOutAStepsTotalOnlyAMinorityOfTheWorkoutsReported() async throws {
+        let reader = FakeHealthWorkoutReader()
+        reader.workouts = [
+            workout(daysAgo: 100, steps: 3_000),
+            workout(daysAgo: 110, steps: nil),
+            workout(daysAgo: 120, steps: nil)
+        ]
+        let store = makeStore()
+        let flow = coordinator(at: .healthHistory, store: store)
+        let viewModel = historyViewModel(reader)
+
+        await viewModel.load(coordinator: flow)
+        viewModel.addToHistory(coordinator: flow)
+
+        let answers = store.answers()
+        #expect(answers.foundHealthWorkoutIDs.count == 3, "every workout still imports")
+        #expect(answers.foundHealthKnownSteps == nil)
+        let history = OnboardingSavedItems.make(from: answers).first { $0.kind == .healthHistory }
+        #expect(history?.title == "3 past climbs")
     }
 
     @Test

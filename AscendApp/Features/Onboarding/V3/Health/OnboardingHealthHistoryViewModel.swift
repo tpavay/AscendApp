@@ -58,7 +58,7 @@ final class OnboardingHealthHistoryViewModel {
         guard case .found(let summary) = state else { return }
 
         coordinator.update {
-            $0.recordFoundHealthHistory(workoutIDs: summary.workoutIDs, knownSteps: summary.knownSteps)
+            $0.recordFoundHealthHistory(summary)
             $0.usualClimbSteps = summary.usualClimb?.steps
             $0.usualClimbMinutes = summary.usualClimb?.minutes
         }

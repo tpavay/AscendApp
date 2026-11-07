@@ -78,9 +78,9 @@ struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
     var foundHealthWorkoutIDs: [String] = []
 
     /// The steps those workouts report between them, which the sign-in screen says back next to
-    /// their count. Nil when none of them reported steps, and nothing without the identifiers:
-    /// ``recordFoundHealthHistory(workoutIDs:knownSteps:)`` and ``clearFoundHealthHistory()`` keep
-    /// the two together.
+    /// their count. Nil when fewer than half of them report steps, because a minority's total beside
+    /// the full count reads as the total for all of them, and nothing without the identifiers:
+    /// ``recordFoundHealthHistory(_:)`` and ``clearFoundHealthHistory()`` keep the two together.
     var foundHealthKnownSteps: Int?
 
     /// When the climber reached the end of the flow. Present means the flow is finished and the
@@ -89,11 +89,11 @@ struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
 }
 
 extension PreAuthOnboardingAnswers {
-    /// Records the history the climber asked to bring in on 07a: the workouts they were shown and
-    /// the steps those workouts report.
-    mutating func recordFoundHealthHistory(workoutIDs: [String], knownSteps: Int) {
-        foundHealthWorkoutIDs = workoutIDs
-        foundHealthKnownSteps = knownSteps > 0 ? knownSteps : nil
+    /// Records the history the climber asked to bring in on 07a: the workouts they were shown and,
+    /// under the rule 07a's headline keeps, the steps those workouts report.
+    mutating func recordFoundHealthHistory(_ summary: HealthHistorySummary) {
+        foundHealthWorkoutIDs = summary.workoutIDs
+        foundHealthKnownSteps = summary.leadsWithSteps ? summary.knownSteps : nil
     }
 
     /// Leaves nothing to import: a no to Health, a read that found nothing, a history that landed,

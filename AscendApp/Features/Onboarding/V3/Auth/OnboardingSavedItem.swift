@@ -53,7 +53,7 @@ enum OnboardingSavedItems {
         guard count > 0 else { return nil }
 
         var title = count == 1 ? "1 past climb" : "\(count.formatted()) past climbs"
-        if let steps = answers.foundHealthKnownSteps, steps > 0 {
+        if let steps = answers.foundHealthKnownSteps {
             title += " \u{00B7} \(steps.formatted()) steps"
         }
         return OnboardingSavedItem(

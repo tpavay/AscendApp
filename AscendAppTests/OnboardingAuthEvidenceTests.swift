@@ -52,7 +52,7 @@ struct OnboardingAuthEvidenceTests {
         answers.weightKg = 80
         answers.city = PreAuthOnboardingCity(city: "Denver", region: "CO", countryCode: "US", countryName: "United States")
         answers.weeklyTargetDays = 4
-        answers.recordFoundHealthHistory(workoutIDs: (0..<214).map { "w\($0)" }, knownSteps: 698_240)
+        answers.recordFoundHealthHistory(.reportedByEveryWorkout(workoutIDs: (0..<214).map { "w\($0)" }, knownSteps: 698_240))
         return answers
     }
 

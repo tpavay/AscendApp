@@ -37,7 +37,7 @@ struct OnboardingAuthTests {
     func everythingTheClimberGaveFillsTheListInTheDesignsOrder() {
         var answers = fullAnswers()
         answers.weeklyTargetDays = 4
-        answers.recordFoundHealthHistory(workoutIDs: (0..<214).map { "w\($0)" }, knownSteps: 698_240)
+        answers.recordFoundHealthHistory(.reportedByEveryWorkout(workoutIDs: (0..<214).map { "w\($0)" }, knownSteps: 698_240))
         answers.gender = .man
         answers.birthday = PreAuthOnboardingBirthday(year: 1996, month: 3, day: 9)
 
@@ -54,7 +54,7 @@ struct OnboardingAuthTests {
     @Test
     func theHistoryRowCountsOneClimbAndLeavesStepsOutWhenNoneWereReported() {
         var answers = PreAuthOnboardingAnswers()
-        answers.recordFoundHealthHistory(workoutIDs: ["w1"], knownSteps: 0)
+        answers.recordFoundHealthHistory(.reportedByEveryWorkout(workoutIDs: ["w1"], knownSteps: 0))
 
         let history = items(answers).first { $0.kind == .healthHistory }
         #expect(history?.title == "1 past climb")
@@ -64,7 +64,7 @@ struct OnboardingAuthTests {
     @Test
     func aHistoryTheClimberTookBackHasNoRow() {
         var answers = PreAuthOnboardingAnswers()
-        answers.recordFoundHealthHistory(workoutIDs: ["w1", "w2"], knownSteps: 5_000)
+        answers.recordFoundHealthHistory(.reportedByEveryWorkout(workoutIDs: ["w1", "w2"], knownSteps: 5_000))
         answers.clearFoundHealthHistory()
 
         #expect(answers.foundHealthKnownSteps == nil)
@@ -441,7 +441,7 @@ struct OnboardingAuthTests {
     @Test
     func healthHistoryAloneIsStillImportedWhenThereAreNoProfileAnswers() async {
         var answers = PreAuthOnboardingAnswers()
-        answers.recordFoundHealthHistory(workoutIDs: ["w1", "w2"], knownSteps: 8_000)
+        answers.recordFoundHealthHistory(.reportedByEveryWorkout(workoutIDs: ["w1", "w2"], knownSteps: 8_000))
         let harness = Harness(defaults: defaults(), answers: answers)
 
         #expect(await harness.handOff.retryPendingAnswers(userId: "u1", email: nil) == .complete)
@@ -567,7 +567,7 @@ struct OnboardingAuthTests {
     func theNextAccountOnThePhoneNeverReceivesAnotherClimbersDeferredAnswers() async {
         var answers = fullAnswers()
         answers.weeklyTargetDays = 4
-        answers.recordFoundHealthHistory(workoutIDs: ["w1"], knownSteps: 2_000)
+        answers.recordFoundHealthHistory(.reportedByEveryWorkout(workoutIDs: ["w1"], knownSteps: 2_000))
         answers.usualClimbSteps = 1_800
         answers.completedAt = Self.now
         let harness = Harness(defaults: defaults(), answers: answers)
@@ -679,5 +679,19 @@ struct OnboardingAuthTests {
         coordinator.go(to: .auth)
         #expect(coordinator.previousStep == .welcome)
         #expect(OnboardingAuthMode(arrivedFrom: coordinator.previousStep) == .returning)
+    }
+}
+
+extension HealthHistorySummary {
+    /// A history whose every workout reports its steps, or none does when the total is zero.
+    static func reportedByEveryWorkout(workoutIDs: [String], knownSteps: Int) -> HealthHistorySummary {
+        HealthHistorySummary(
+            workoutIDs: workoutIDs,
+            totalDuration: 0,
+            workoutsWithSteps: knownSteps > 0 ? workoutIDs.count : 0,
+            knownSteps: knownSteps,
+            bestHourSteps: nil,
+            usualClimb: nil
+        )
     }
 }
