@@ -64,7 +64,7 @@ private struct OnboardingSavedItemRow: View {
     }
 
     private var mark: some View {
-        OnboardingSavedItemMark(kind: item.kind)
+        OnboardingSavedItemMark(kind: item.kind, initials: item.initials)
             .frame(width: Self.markSize, height: Self.markSize)
     }
 
@@ -99,14 +99,22 @@ private struct OnboardingSavedItemRow: View {
 /// the way the design weights the list.
 private struct OnboardingSavedItemMark: View {
     let kind: OnboardingSavedItem.Kind
+    let initials: String?
 
     var body: some View {
         ZStack {
             shape.fill(isEmphasised ? OnboardingV3Palette.accent : OnboardingV3Palette.accent.opacity(0.14))
 
-            Image(systemName: symbol)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(isEmphasised ? Color.black : OnboardingV3Palette.accent)
+            Group {
+                if let initials {
+                    Text(initials)
+                        .font(.custom("Montserrat-Bold", fixedSize: 15))
+                } else {
+                    Image(systemName: symbol)
+                        .font(.system(size: 18, weight: .bold))
+                }
+            }
+            .foregroundStyle(isEmphasised ? Color.black : OnboardingV3Palette.accent)
         }
         .accessibilityHidden(true)
     }
@@ -137,6 +145,8 @@ private struct OnboardingSavedItemMark: View {
 
 #Preview("Saved items") {
     var answers = PreAuthOnboardingAnswers()
+    answers.firstName = "Sam"
+    answers.lastName = "Rivera"
     answers.gender = .man
     answers.birthday = PreAuthOnboardingBirthday(year: 1996, month: 3, day: 9)
     answers.city = PreAuthOnboardingCity(city: "Denver", region: "CO", countryCode: "US", countryName: "United States")

@@ -68,7 +68,12 @@ struct ProfileSetupDraft: Equatable, Sendable {
         let parts = boardName == nil
             ? [SignInNamePlaceholder.firstName, SignInNamePlaceholder.lastName]
             : [trimmedFirstName, trimmedLastName]
-        return parts
+        return Self.initials(of: parts)
+    }
+
+    /// The one rule for initials: the first letter of each part, uppercased.
+    static func initials(of parts: [String]) -> String {
+        parts
             .compactMap { $0.first.map { String($0).uppercased() } }
             .joined()
     }

@@ -17,6 +17,8 @@ struct OnboardingSavedItem: Equatable, Identifiable {
     let kind: Kind
     let title: String
     let subtitle: String
+    /// What the mark says instead of its glyph: the profile row's initials, once a name was typed.
+    var initials: String?
 
     var id: Kind { kind }
 }
@@ -70,15 +72,23 @@ enum OnboardingSavedItems {
     ) -> OnboardingSavedItem? {
         guard answers.carriesProfileAnswers else { return nil }
 
+        // `writableName` is what sign-in publishes, so a name the policy refuses is never said back.
+        let nameParts = answers.writableName.map { [$0.firstName, $0.lastName].filter { !$0.isEmpty } } ?? []
+        let name = nameParts.isEmpty ? nil : nameParts.joined(separator: " ")
         let age = answers.birthday.flatMap { ProfileSetupDraft.age(of: $0, on: now, calendar: calendar) }
-        let parts = [genderLetter(answers.gender), age.map { $0.formatted() }].compactMap { $0 }
+        let parts = [name, genderLetter(answers.gender), age.map { $0.formatted() }].compactMap { $0 }
         let title = parts.isEmpty ? "Your details" : parts.joined(separator: " \u{00B7} ")
 
         var subtitle = "Your profile"
         if let city = answers.city?.city.trimmingCharacters(in: .whitespacesAndNewlines), !city.isEmpty {
             subtitle += " \u{00B7} \(city)"
         }
-        return OnboardingSavedItem(kind: .profile, title: title, subtitle: subtitle)
+        return OnboardingSavedItem(
+            kind: .profile,
+            title: title,
+            subtitle: subtitle,
+            initials: name == nil ? nil : ProfileSetupDraft.initials(of: nameParts)
+        )
     }
 
     /// The letter the profile screen's Male and Female choices abbreviate to. The other two answers have no

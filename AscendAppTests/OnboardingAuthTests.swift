@@ -72,7 +72,7 @@ struct OnboardingAuthTests {
     }
 
     @Test
-    func theProfileRowSaysOnlyWhatTheProfileHoldsAndNamesNobody() {
+    func theProfileRowSaysOnlyWhatTheProfileHolds() {
         var woman = PreAuthOnboardingAnswers()
         woman.gender = .woman
         #expect(items(woman).first { $0.kind == .profile }?.title == "F")
@@ -95,20 +95,55 @@ struct OnboardingAuthTests {
     }
 
     @Test
-    func aNameOrPhotoAloneEarnsTheProfileRow() {
+    func aTypedNameLeadsTheProfileRowAndItsInitialsTakeTheMark() throws {
+        var answers = PreAuthOnboardingAnswers()
+        answers.firstName = "Sam"
+        answers.lastName = "Rivera"
+        answers.gender = .man
+        answers.birthday = PreAuthOnboardingBirthday(year: 1996, month: 3, day: 9)
+
+        let row = try #require(items(answers).first { $0.kind == .profile })
+
+        #expect(row.title == "Sam Rivera \u{00B7} M \u{00B7} 30")
+        #expect(row.initials == "SR")
+    }
+
+    @Test
+    func aNameOrPhotoAloneEarnsTheProfileRow() throws {
         var firstNameOnly = PreAuthOnboardingAnswers()
         firstNameOnly.firstName = "Sam"
-        #expect(items(firstNameOnly).first { $0.kind == .profile }?.title == "Your details")
+        let first = try #require(items(firstNameOnly).first { $0.kind == .profile })
+        #expect(first.title == "Sam")
+        #expect(first.initials == "S")
 
         var lastNameOnly = PreAuthOnboardingAnswers()
         lastNameOnly.lastName = "Rivera"
-        #expect(items(lastNameOnly).first { $0.kind == .profile }?.title == "Your details")
+        let last = try #require(items(lastNameOnly).first { $0.kind == .profile })
+        #expect(last.title == "Rivera")
+        #expect(last.initials == "R")
 
         var photoOnly = PreAuthOnboardingAnswers()
         photoOnly.profilePhotoFileName = "photo.jpg"
-        #expect(items(photoOnly).first { $0.kind == .profile }?.title == "Your details")
+        let photo = try #require(items(photoOnly).first { $0.kind == .profile })
+        #expect(photo.title == "Your details")
+        #expect(photo.initials == nil)
 
         #expect(!items(PreAuthOnboardingAnswers()).contains { $0.kind == .profile })
+    }
+
+    @Test
+    func aNameThePolicyRefusesIsNeverSaidBackOnTheProfileRow() throws {
+        var refused = PreAuthOnboardingAnswers()
+        refused.firstName = "Fuck"
+        refused.gender = .woman
+        let withGender = try #require(items(refused).first { $0.kind == .profile })
+        #expect(withGender.title == "F")
+        #expect(withGender.initials == nil)
+
+        refused.gender = nil
+        let alone = try #require(items(refused).first { $0.kind == .profile })
+        #expect(alone.title == "Your details")
+        #expect(alone.initials == nil)
     }
 
     @Test
