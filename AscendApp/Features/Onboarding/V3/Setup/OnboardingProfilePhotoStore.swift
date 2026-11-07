@@ -47,8 +47,10 @@ struct OnboardingProfilePhotoStore: Sendable {
         return FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) ? url : nil
     }
 
-    func data(for name: String?) -> Data? {
-        url(for: name).flatMap { try? Data(contentsOf: $0) }
+    /// The stored picture, or `nil` only when it is not on the device. A picture that is there but
+    /// cannot be read throws, because it can still be read later and must not be taken for gone.
+    func data(for name: String?) throws -> Data? {
+        try url(for: name).map { try Data(contentsOf: $0) }
     }
 
     /// Removes every stored picture except `kept`, so a picture picked and then walked away from

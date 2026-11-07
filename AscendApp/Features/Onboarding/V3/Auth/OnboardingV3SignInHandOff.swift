@@ -248,7 +248,7 @@ extension OnboardingV3SignInHandOff {
 
         // A photo that is no longer on the device cannot be retried, so it is skipped here and the
         // hand-off's cleanup drops the answer that named it.
-        if let data = photos.data(for: fill.photoFileName) {
+        if let data = try photos.data(for: fill.photoFileName) {
             try ProfilePublicationError.requireConnection()
 
             let filename = "users/\(userId)/profile_pictures/\(UUID().uuidString).jpg"

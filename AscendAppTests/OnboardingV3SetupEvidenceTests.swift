@@ -200,6 +200,43 @@ struct OnboardingV3SetupEvidenceTests {
         }
     }
 
+    private func scrollView(in view: UIView) -> UIScrollView? {
+        (view as? UIScrollView) ?? view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+    }
+
+    /// Reads the marks as drawn, not as modelled. Only a foot's long tick reaches this far left of
+    /// the ruler's edge, so a bright pixel at the pointer's height means a foot mark is under it.
+    /// 71 inches opens one row short of 6 ft; moving the real scroll view on one row, which is what
+    /// a finger dragging up does, brings the 6 ft tick to the pointer from above.
+    @Test
+    func theDrawnMarkUnderThePointerFollowsTheScrollOneRowAtATime() async throws {
+        let ruler = HeightRulerView(system: .imperial, value: .constant(71))
+        try await RenderedScreen.host(
+            ruler.background(Color.black).environment(\.colorScheme, .dark),
+            size: CGSize(width: 390, height: 460),
+            settle: .turns(40)
+        ) { screen in
+            let scroller = try #require(scrollView(in: screen.root))
+            let strip = scroller.convert(scroller.bounds, to: nil)
+            let longTickOnly = CGRect(x: strip.maxX - 40, y: strip.midY - 1, width: 6, height: 2)
+            let brightPixels = {
+                try screen.withPixels { pixels in pixels.count(in: longTickOnly) { $0.red > 150 } }
+            }
+
+            #expect(try brightPixels() == 0, "71 inches is no foot mark")
+            try screen.photograph(named: "onboarding-v3-height-ruler-71")
+
+            scroller.setContentOffset(
+                CGPoint(x: 0, y: scroller.contentOffset.y + HeightRulerView.rowHeight),
+                animated: false
+            )
+            try await Task.sleep(for: .milliseconds(200))
+
+            #expect(try brightPixels() > 0, "one row on is 72 inches, the 6 ft mark")
+            try screen.photograph(named: "onboarding-v3-height-ruler-72")
+        }
+    }
+
     @Test
     func theWeightSheetOpensAtTheStoredWeightWithItsFrameCopy() async throws {
         try await sheetHost(

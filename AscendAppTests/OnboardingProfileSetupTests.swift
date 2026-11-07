@@ -339,6 +339,40 @@ struct OnboardingProfileSetupTests {
         #expect(!OnboardingProfileSetupScreen.isCompact(laidOutHeight: 759 - 302, topInset: 59, bottomInset: 34 + 302))
     }
 
+    // MARK: - The ruler's direction
+
+    /// Which mark sits under the pointer, reading only what is drawn: the marks run tallest first
+    /// from where the scroll content, moved on by `scrolled`, and the mirror put them.
+    private func drawnTop(scrolled: CGFloat, range: ClosedRange<Int>) -> CGFloat {
+        (HeightRulerView.viewHeight - HeightRulerView.rowHeight) / 2 - scrolled
+            + HeightRulerView.marksOffset(scrolled: scrolled, markCount: range.count)
+    }
+
+    private func drawnMark(scrolled: CGFloat, range: ClosedRange<Int>) -> Int {
+        let top = drawnTop(scrolled: scrolled, range: range)
+        let rowsFromTop = (HeightRulerView.viewHeight / 2 - top - HeightRulerView.rowHeight / 2) / HeightRulerView.rowHeight
+        return range.upperBound - Int(rowsFromTop.rounded())
+    }
+
+    /// A finger dragging up moves the invisible list on, and it runs shortest first.
+    @Test(arguments: [ProfileMeasures.heightInchesRange, ProfileMeasures.heightCentimetersRange])
+    func draggingUpRaisesTheDrawnMarkOnePerRowAgainstTheFinger(range: ClosedRange<Int>) {
+        let row = HeightRulerView.rowHeight
+
+        for mark in range {
+            let scrolled = CGFloat(mark - range.lowerBound) * row
+            #expect(drawnMark(scrolled: scrolled, range: range) == mark, "what is drawn is what is read")
+        }
+
+        let start = 10 * row
+        let afterDragUp = start + 3 * row
+        #expect(drawnMark(scrolled: afterDragUp, range: range) == drawnMark(scrolled: start, range: range) + 3)
+        #expect(
+            drawnTop(scrolled: afterDragUp, range: range) - drawnTop(scrolled: start, range: range) == 3 * row,
+            "the marks travel down, point for point"
+        )
+    }
+
     // MARK: - Gender
 
     @Test
@@ -480,7 +514,7 @@ struct OnboardingProfileSetupTests {
         let photos = OnboardingProfilePhotoStore(directory: temporaryDirectory())
         let name = try #require(photos.save(try jpegData(width: 3_000, height: 2_000)))
 
-        let stored = try #require(photos.data(for: name))
+        let stored = try #require(try photos.data(for: name))
         let source = try #require(CGImageSourceCreateWithData(stored as CFData, nil))
         #expect(CGImageSourceGetType(source) as String? == UTType.jpeg.identifier)
 
@@ -505,6 +539,56 @@ struct OnboardingProfileSetupTests {
         #expect(photos.url(for: first) == nil)
         #expect(photos.url(for: second) != nil)
         #expect(photos.url(for: "../escape.jpg") == nil)
+    }
+
+    @Test
+    func aPhotoThatIsThereButUnreadableThrowsAndOnlyAnAbsentOneIsNil() throws {
+        let directory = temporaryDirectory()
+        let photos = OnboardingProfilePhotoStore(directory: directory)
+        #expect(try photos.data(for: "photo-gone.jpg") == nil)
+        #expect(try photos.data(for: nil) == nil)
+
+        let unreadable = "photo-unreadable.jpg"
+        try FileManager.default.createDirectory(at: directory.appending(path: unreadable), withIntermediateDirectories: true)
+
+        #expect(throws: (any Error).self) { try photos.data(for: unreadable) }
+    }
+
+    @Test
+    func aPhotoThatCannotBeReadYetDefersTheHandOffAndStaysOnTheDevice() async throws {
+        let suite = "profile-handoff-unreadable-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        defaults.removePersistentDomain(forName: suite)
+        let store = PreAuthOnboardingStore(userDefaults: defaults)
+        let directory = temporaryDirectory()
+        let photos = OnboardingProfilePhotoStore(directory: directory)
+        let unreadable = "photo-unreadable.jpg"
+        try FileManager.default.createDirectory(at: directory.appending(path: unreadable), withIntermediateDirectories: true)
+        var answers = answersWithName()
+        answers.profilePhotoFileName = unreadable
+        store.save(answers)
+
+        let handOff = OnboardingV3SignInHandOff(
+            seams: .init(
+                isProfileWriteEnabled: { true },
+                signInNameSettled: {},
+                readProfile: { _ in nil },
+                writeProfile: { _, _, fill in _ = try photos.data(for: fill.photoFileName) },
+                recordProfileStepFailure: { _ in },
+                importHealthHistory: { _ in true },
+                markPostSignInOnboardingComplete: {},
+                deviceWeeklyTarget: { _ in nil },
+                saveWeeklyTarget: { _, _ in },
+                reconcileWeeklyTarget: { _ in }
+            ),
+            store: store,
+            intent: OnboardingV3HandOffIntent(userDefaults: defaults),
+            photos: photos
+        )
+
+        #expect(await handOff.retryPendingAnswers(userId: "u1", email: nil) == .deferred)
+        #expect(store.answers().profilePhotoFileName == unreadable)
+        #expect(photos.url(for: unreadable) != nil)
     }
 
     // MARK: - What the sign-in hand-off carries

@@ -1,8 +1,12 @@
 import SwiftUI
 
-/// The height sheet's vertical ruler. Drag it up or down: up is taller. It moves with the finger,
-/// carries momentum on release, and snaps to the nearest inch (a centimetre in metric) under a
-/// fixed pointer at its middle.
+/// The height sheet's vertical ruler, tallest mark at the top, under a fixed pointer at its middle.
+/// Dragging up reads taller. It carries momentum on release and snaps to the nearest inch (a
+/// centimetre in metric).
+///
+/// Those two facts together mean the marks travel against the finger, point for point: a taller
+/// mark can only reach the pointer by moving down. So an invisible list, shortest first, takes the
+/// gesture and owns the momentum, the snapping and the position, and the marks are mirrored off it.
 ///
 /// `value` is in the ruler's own unit: inches for imperial, centimetres for metric. The ruler is
 /// rebuilt when the unit changes, so it opens at the converted value.
@@ -15,6 +19,14 @@ struct HeightRulerView: View {
     @Binding var value: Int
 
     @State private var position: Int?
+
+    /// How far the marks are moved from where the scroll content would carry them, so that the mark
+    /// under the pointer is the one the invisible list has centred.
+    ///
+    /// - Parameter scrolled: how far the list has moved on from its first, shortest mark.
+    nonisolated static func marksOffset(scrolled: CGFloat, markCount: Int) -> CGFloat {
+        2 * scrolled - CGFloat(markCount - 1) * rowHeight
+    }
 
     private var range: ClosedRange<Int> {
         switch system {
@@ -30,14 +42,16 @@ struct HeightRulerView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                // Tallest at the top, so dragging the ruler up reads a taller height.
-                ForEach(Array(range.reversed()), id: \.self) { mark in
-                    tick(for: mark)
+                ForEach(Array(range), id: \.self) { mark in
+                    Color.clear
                         .frame(height: Self.rowHeight)
                         .id(mark)
                 }
             }
             .scrollTargetLayout()
+            .overlay(alignment: .top) {
+                marks
+            }
         }
         .scrollTargetBehavior(.viewAligned)
         .scrollPosition(id: $position, anchor: .center)
@@ -78,6 +92,21 @@ struct HeightRulerView: View {
             let next = min(max(value + step, range.lowerBound), range.upperBound)
             position = next
             value = next
+        }
+    }
+
+    private var marks: some View {
+        let markCount = range.count
+
+        return VStack(spacing: 0) {
+            ForEach(Array(range.reversed()), id: \.self) { mark in
+                tick(for: mark)
+                    .frame(height: Self.rowHeight)
+            }
+        }
+        .allowsHitTesting(false)
+        .visualEffect { content, proxy in
+            content.offset(y: Self.marksOffset(scrolled: -proxy.frame(in: .scrollView).minY, markCount: markCount))
         }
     }
 
