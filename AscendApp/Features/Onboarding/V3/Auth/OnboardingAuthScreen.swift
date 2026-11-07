@@ -44,6 +44,13 @@ struct OnboardingAuthScreen: View {
             }
         }
         .scrollBounceBehavior(.basedOnSize)
+        // Nothing scrolls under the clock: a zero-height inset whose background reaches into the
+        // status bar's band, so the band stays the screen's own black.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Color.clear
+                .frame(height: 0)
+                .background(OnboardingV3Palette.background)
+        }
         // The sign-in buttons are the screen's one job, so they stay on screen at the smallest
         // phone and at the largest text size while the list above them scrolls.
         .safeAreaInset(edge: .bottom, spacing: 0) {

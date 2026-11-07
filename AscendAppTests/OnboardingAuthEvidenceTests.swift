@@ -237,6 +237,33 @@ struct OnboardingAuthEvidenceTests {
         }
     }
 
+    /// A rendered screen draws no status bar, so what the climber would see behind the clock is
+    /// whatever lights the band above the safe area while the content scrolls through it.
+    @Test
+    func scrolledContentNeverRunsUnderTheStatusBar() async throws {
+        let phone = Self.smallestPhone
+        try await host(screen(from: .notificationPrimer, answers: try Self.everythingGiven()), on: phone) { hosted in
+            let width = hosted.bounds.width
+            let scrollView = try #require(Self.firstScrollView(in: hosted.window))
+            let start = -scrollView.adjustedContentInset.top
+            let end = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+            try #require(end > start, "the content has to scroll for the sweep to mean anything")
+
+            var inStatusBar = 0
+            var belowStatusBar = 0
+            for offset in stride(from: start, through: end, by: 3) {
+                scrollView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
+                try await hosted.settle(.turns(2))
+                try hosted.withPixels { pixels in
+                    inStatusBar += pixels.count(in: CGRect(x: 0, y: 0, width: width, height: phone.top)) { !$0.isNearBlack }
+                    belowStatusBar += pixels.count(in: CGRect(x: 0, y: phone.top + 1, width: width, height: 1)) { !$0.isNearBlack }
+                }
+            }
+            #expect(belowStatusBar > 0, "the sweep passed nothing lit, so it proves nothing")
+            #expect(inStatusBar == 0, "\(inStatusBar) lit pixels ran under the status bar")
+        }
+    }
+
     /// The overflow read against a real scroll view with a real bottom inset: the third height fits
     /// the container and overflows only because of what the inset takes from it.
     @Test(arguments: [(300.0, false), (900.0, true), (720.0, true)])
