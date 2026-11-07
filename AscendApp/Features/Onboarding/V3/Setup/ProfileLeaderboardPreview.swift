@@ -14,12 +14,14 @@ struct ProfileLeaderboardPreview: View {
     @Binding var pickerItem: PhotosPickerItem?
     /// Fixes the clock for the age the birthday gives.
     var now: Date = .now
+    /// Shorter rows for a phone shorter than the design's canvas.
+    var isCompact = false
 
     var body: some View {
-        VStack(spacing: 6) {
-            PlaceholderRow(rank: "4", barWidth: 130, score: "2,410")
+        VStack(spacing: isCompact ? 4 : 6) {
+            PlaceholderRow(rank: "4", barWidth: 130, score: "2,410", height: isCompact ? 34 : 42)
             ownRow
-            PlaceholderRow(rank: "6", barWidth: 100, score: "1,980")
+            PlaceholderRow(rank: "6", barWidth: 100, score: "1,980", height: isCompact ? 34 : 42)
         }
         .accessibilityElement(children: .contain)
     }
@@ -69,7 +71,7 @@ struct ProfileLeaderboardPreview: View {
                 .accessibilityHidden(true)
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: 64)
+        .frame(minHeight: isCompact ? 58 : 64)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(
@@ -92,6 +94,7 @@ private struct PlaceholderRow: View {
     let rank: String
     let barWidth: CGFloat
     let score: String
+    let height: CGFloat
 
     var body: some View {
         HStack(spacing: 12) {
@@ -115,7 +118,7 @@ private struct PlaceholderRow: View {
                 .foregroundStyle(Color(hex: "8E8E8E"))
         }
         .padding(.horizontal, 14)
-        .frame(height: 42)
+        .frame(height: height)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(hex: "0A0A0A"))

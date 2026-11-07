@@ -110,6 +110,30 @@ struct OnboardingV3SetupEvidenceTests {
         }
     }
 
+    private static let iPhone16 = CGSize(width: 393, height: 852)
+
+    /// The iPhone 16 and its filled twin, beside the SE ones above: nothing clips there, because the
+    /// birthday, height and weight rows all sit above the footnote.
+    @Test(arguments: [false, true])
+    func theIPhone16FitsEveryRowAboveTheFootnote(filled: Bool) async throws {
+        let coordinator = coordinator(at: .profileSetup) {
+            guard filled else { return }
+            $0.firstName = "Tyler"
+            $0.lastName = "Pavay"
+            $0.gender = .man
+            $0.heightCm = 177.8
+            $0.birthday = PreAuthOnboardingBirthday(year: 1996, month: 6, day: 14)
+        }
+        try await RenderedScreen.host(profileScreen(coordinator), size: Self.iPhone16, settle: .turns(40)) { screen in
+            for row in ["Birthday", "Height", "Weight"] {
+                let frame = try #require(try await screen.frame(ofElementLabelled: row))
+                let footnote = try #require(try await screen.text(containing: "all optional")?.frame)
+                #expect(frame.maxY <= footnote.minY, "\(row) \(frame) footnote \(footnote)")
+            }
+            try screen.photograph(named: "onboarding-v3-profile-setup-iphone16-\(filled ? "filled" : "empty")")
+        }
+    }
+
     /// The design fits one screen with no scrolling. On the design's own 390 x 844 canvas every row
     /// sits above the footnote that sits above CONTINUE, so nothing is reached by scrolling.
     @Test

@@ -11,6 +11,8 @@ struct ProfileSetupRows: View {
     }
 
     let rows: [Row]
+    /// Shorter rows for a phone shorter than the design's canvas.
+    var isCompact = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,7 +36,7 @@ struct ProfileSetupRows: View {
                             .foregroundStyle(OnboardingV3Palette.placeholder)
                     }
                     .padding(.horizontal, 16)
-                    .frame(minHeight: 50)
+                    .frame(minHeight: isCompact ? 44 : 50)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

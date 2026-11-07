@@ -24,6 +24,9 @@ struct OnboardingProfileSetupScreen: View {
     @State private var photoURL: URL?
     @State private var pickerItem: PhotosPickerItem?
     @State private var sheet: Sheet?
+    /// A phone shorter than the design's 844 pt canvas gets tighter spacing and rows, so the form
+    /// needs the least scrolling it can; whatever still overflows scrolls under a fade.
+    @State private var isCompactHeight = false
     @FocusState private var focus: Field?
 
     private let photos: OnboardingProfilePhotoStore
@@ -49,11 +52,13 @@ struct OnboardingProfileSetupScreen: View {
         OnboardingSetupLayout(
             step: .profileSetup,
             onSkip: { Self.skip(coordinator, photos: photos) },
-            horizontalPadding: 20
+            horizontalPadding: 20,
+            fadesWhenScrollable: true,
+            topPadding: isCompactHeight ? 8 : 22
         ) {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: isCompactHeight ? 10 : 18) {
                 VStack(alignment: .leading, spacing: 8) {
-                    OnboardingHeadline(["Set up your"], accentLines: ["profile."], size: 30)
+                    OnboardingHeadline(["Set up your"], accentLines: ["profile."], size: isCompactHeight ? 26 : 30)
 
                     Text("This is how you show up on every leaderboard and live climb.")
                         .font(.custom("Montserrat-Medium", size: 14, relativeTo: .subheadline))
@@ -83,6 +88,7 @@ struct OnboardingProfileSetupScreen: View {
                     .buttonStyle(.onboardingPrimary)
             }
         }
+        .onGeometryChange(for: Bool.self) { $0.size.height < 760 } action: { isCompactHeight = $0 }
         .sheet(item: $sheet) { sheet in
             sheetContent(sheet)
         }
@@ -127,13 +133,13 @@ struct OnboardingProfileSetupScreen: View {
     // MARK: - Preview
 
     private var preview: some View {
-        ProfileLeaderboardPreview(draft: draft, photoURL: photoURL, pickerItem: $pickerItem, now: birthdayNow)
+        ProfileLeaderboardPreview(draft: draft, photoURL: photoURL, pickerItem: $pickerItem, now: birthdayNow, isCompact: isCompactHeight)
     }
 
     // MARK: - Name, gender, birthday
 
     private var identityGroup: some View {
-        VStack(spacing: 9) {
+        VStack(spacing: isCompactHeight ? 7 : 9) {
             HStack(spacing: 8) {
                 nameField("First name", text: $draft.firstName, field: .firstName, contentType: .givenName)
                 nameField("Last name", text: $draft.lastName, field: .lastName, contentType: .familyName)
@@ -143,7 +149,7 @@ struct OnboardingProfileSetupScreen: View {
 
             ProfileSetupRows(rows: [
                 .init(title: "Birthday", value: draft.birthdayRowText(on: birthdayNow)) { present(.birthday) }
-            ])
+            ], isCompact: isCompactHeight)
         }
     }
 
@@ -171,7 +177,7 @@ struct OnboardingProfileSetupScreen: View {
             if new.count > Self.nameLimit { text.wrappedValue = String(new.prefix(Self.nameLimit)) }
         }
         .padding(.horizontal, 16)
-        .frame(minHeight: 48)
+        .frame(minHeight: isCompactHeight ? 44 : 48)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(OnboardingV3Palette.cardFill)
@@ -197,7 +203,7 @@ struct OnboardingProfileSetupScreen: View {
                         .foregroundStyle(isSelected ? Color.black : Color.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .frame(maxWidth: .infinity, minHeight: isCompactHeight ? 36 : 40)
                         .background(
                             RoundedRectangle(cornerRadius: 11, style: .continuous)
                                 .fill(isSelected ? OnboardingV3Palette.accent : .clear)
@@ -209,7 +215,7 @@ struct OnboardingProfileSetupScreen: View {
             }
         }
         .padding(4)
-        .frame(minHeight: 48)
+        .frame(minHeight: isCompactHeight ? 44 : 48)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(OnboardingV3Palette.cardFill)
@@ -229,7 +235,7 @@ struct OnboardingProfileSetupScreen: View {
         ProfileSetupRows(rows: [
             .init(title: "Height", value: draft.heightRowText) { present(.height) },
             .init(title: "Weight", value: draft.weightRowText) { present(.weight) }
-        ])
+        ], isCompact: isCompactHeight)
     }
 
     // MARK: - Sheets
