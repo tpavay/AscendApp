@@ -14,7 +14,7 @@ import Testing
 struct PaywallPurchaseAnalyticsTranscriptTests {
     private static let productID = "ascend_yearly"
     private static let entitlementID = "app_access"
-    nonisolated private static let placement = SuperwallPlacement.onboardingPaywall.rawValue
+    nonisolated private static let placement = SuperwallPlacement.appAccessGate.rawValue
     nonisolated private static let presentationID = "pres_9f2c"
 
     @Test

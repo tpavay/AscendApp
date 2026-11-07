@@ -37,12 +37,21 @@
 # legitimately silent on progress for up to 132 s on the runner and longer
 # when the simulator still has to boot.
 #
+# `--launch-silence <seconds>` is the limit that applies until the first
+# progress line, and defaults to `--silence`. A launch is not a wedge: nothing
+# has run yet, and the first launch on a just-booted simulator has a long tail.
+# On 2026-11-06, with no test started, one job's pass 1 went 308 s without a
+# line and then passed (job 128044936368), and the next went 343 s and was
+# killed at the 300 s limit, on a binary whose next two passes launched in 84 s
+# (job 128176136468).
+#
 # `--on-stall <command>` runs BEFORE the kill, while the process is still
 # there to be inspected: memory counters and an in-flight test list mean
 # nothing once the host is gone.
 #
 # Usage:
 #   run-with-silence-watchdog.sh --silence <seconds> --log <path> \
+#       [--launch-silence <seconds>] \
 #       [--progress-pattern <grep -E regex>] [--on-stall <command>] \
 #       [--poll <seconds>] [--grace <seconds>] -- <command> [args...]
 #
@@ -54,6 +63,7 @@
 set -uo pipefail
 
 silence=""
+launch_silence=""
 log=""
 on_stall=""
 progress_pattern=""
@@ -63,6 +73,7 @@ grace=30
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --silence) silence="$2"; shift 2 ;;
+        --launch-silence) launch_silence="$2"; shift 2 ;;
         --log) log="$2"; shift 2 ;;
         --on-stall) on_stall="$2"; shift 2 ;;
         --progress-pattern) progress_pattern="$2"; shift 2 ;;
@@ -77,7 +88,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$silence" ] || [ -z "$log" ] || [ "$#" -eq 0 ]; then
-    echo "usage: run-with-silence-watchdog.sh --silence <seconds> --log <path> [--on-stall <command>] -- <command> [args...]" >&2
+    echo "usage: run-with-silence-watchdog.sh --silence <seconds> --log <path> [--launch-silence <seconds>] [--on-stall <command>] -- <command> [args...]" >&2
     exit 2
 fi
 
@@ -144,7 +155,12 @@ while kill -0 "$job" 2>/dev/null; do
 
     quiet=$((quiet + poll))
 
-    if [ "$quiet" -lt "$silence" ]; then
+    limit="$silence"
+    if [ "$last_progress" -eq 0 ] && [ -n "$launch_silence" ]; then
+        limit="$launch_silence"
+    fi
+
+    if [ "$quiet" -lt "$limit" ]; then
         continue
     fi
 

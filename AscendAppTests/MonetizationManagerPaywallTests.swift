@@ -417,14 +417,14 @@ struct MonetizationManagerPaywallTests {
         let firstIdentity = manager.prepareIdentity(.climber("user-a"))
         await manager.identify(.climber("user-a"), transition: firstIdentity)
         telemetry.setUserId("user-a")
-        manager.presentPaywall(.onboardingPaywall)
-        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.appAccessGate)
+        manager.presentPaywall(.appAccessGate)
         let reset = manager.prepareIdentityReset()
         await manager.resetIdentity(transition: reset)
         let secondIdentity = manager.prepareIdentity(.climber("user-b"))
         await manager.identify(.climber("user-b"), transition: secondIdentity)
         telemetry.setUserId("user-b")
-        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.appAccessGate)
 
         let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
 
@@ -446,10 +446,10 @@ struct MonetizationManagerPaywallTests {
         let firstIdentity = manager.prepareIdentity(.climber("user-a"))
         await manager.identify(.climber("user-a"), transition: firstIdentity)
         telemetry.setUserId("user-a")
-        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.appAccessGate)
         let repeatedIdentity = manager.prepareIdentity(.climber("user-a"))
         await manager.identify(.climber("user-a"), transition: repeatedIdentity)
-        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.appAccessGate)
 
         #expect(sink.records.filter { $0.name == "onboarding_screen_viewed" }.count == 1)
     }

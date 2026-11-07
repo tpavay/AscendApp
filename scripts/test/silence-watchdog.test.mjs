@@ -28,10 +28,11 @@ import {test} from "node:test";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const watchdog = path.resolve(here, "../ci/run-with-silence-watchdog.sh");
 
-function run({silence, poll = 1, grace = 2, onStall, progressPattern, command}) {
+function run({silence, launchSilence, poll = 1, grace = 2, onStall, progressPattern, command}) {
   const dir = mkdtempSync(path.join(tmpdir(), "silence-watchdog-"));
   const log = path.join(dir, "pass.log");
   const args = [watchdog, "--silence", String(silence), "--log", log, "--poll", String(poll), "--grace", String(grace)];
+  if (launchSilence) args.push("--launch-silence", String(launchSilence));
   if (onStall) args.push("--on-stall", onStall);
   if (progressPattern) args.push("--progress-pattern", progressPattern);
   args.push("--", "bash", "-c", command);
@@ -153,6 +154,51 @@ test("with a progress pattern, any output keeps the command alive until the firs
 
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.logText, /PROGRESS last/);
+});
+
+test("a launch silent past the silence limit survives inside the launch limit", () => {
+  // Job 128176136468: pass 1 printed nothing for 343 s before any test started
+  // and was killed as wedged, on a binary that launched in 84 s for the next pass.
+  const result = run({
+    silence: 2,
+    launchSilence: 12,
+    progressPattern: "^PROGRESS ",
+    command: 'echo "launching"; sleep 5; echo "PROGRESS first"; echo "PROGRESS last"',
+  });
+
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.logText, /PROGRESS last/);
+});
+
+test("a launch that never ends is still killed at the launch limit", () => {
+  const started = Date.now();
+  const result = run({
+    silence: 2,
+    launchSilence: 4,
+    progressPattern: "^PROGRESS ",
+    command: 'echo "launching"; sleep 300',
+  });
+  const elapsed = (Date.now() - started) / 1000;
+
+  assert.equal(result.status, 124, result.stderr);
+  assert.ok(elapsed >= 4, `killed after ${elapsed}s, before the launch limit`);
+  assert.ok(elapsed < 30, `killed in ${elapsed}s, not at the command's own 300 s`);
+  assert.match(result.stdout, /No output for \d+s while the command is still running/);
+});
+
+test("once a test event has landed the shorter silence limit applies again", () => {
+  const started = Date.now();
+  const result = run({
+    silence: 2,
+    launchSilence: 60,
+    progressPattern: "^PROGRESS ",
+    command: 'echo "PROGRESS first"; sleep 300',
+  });
+  const elapsed = (Date.now() - started) / 1000;
+
+  assert.equal(result.status, 124, result.stderr);
+  assert.ok(elapsed < 30, `killed in ${elapsed}s, not at the 60 s launch limit`);
+  assert.match(result.stdout, /No test progress for \d+s/);
 });
 
 test("with a progress pattern, steady progress is never killed", () => {

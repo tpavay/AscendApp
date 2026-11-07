@@ -122,7 +122,7 @@ struct OnboardingAnalyticsEventTests {
     @Test
     func onboardingPaywallReachedKeepsPlacementAndSource() {
         let record = OnboardingAnalyticsEvent.paywallReached(
-            placement: "onboarding_paywall",
+            placement: "app_access_gate",
             source: "post_auth_onboarding"
         ).record
 
@@ -130,7 +130,7 @@ struct OnboardingAnalyticsEventTests {
         expectStringParameter(record, "flow_id", "onboarding")
         expectStringParameter(record, "segment_id", "post_auth_onboarding")
         expectStringParameter(record, "step_id", "paywall")
-        expectStringParameter(record, "placement", "onboarding_paywall")
+        expectStringParameter(record, "placement", "app_access_gate")
         expectStringParameter(record, "source", "post_auth_onboarding")
     }
 

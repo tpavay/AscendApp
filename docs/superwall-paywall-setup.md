@@ -42,8 +42,8 @@ Until an environment's `default` offering carries its Lifetime product, every 1.
 The deploy guard reads every `ASCEND_REVENUECAT_*_PRODUCT_ID` to decide which products the server allowlist must keep (`docs/functions-secret-versions.md`), and `scripts/validate-superwall-live-artifact.mjs` reads the Yearly, Lifetime and Monthly settings to decide which products a live paywall may offer.
 Monthly is still on sale, so it stays in both sets.
 
-There is no weekly launch product, and the only discounted plan is the welcome gift described below.
-Do not add either to a Superwall campaign, Hosting content, or release checklist.
+There is no weekly launch product, and the only discounted plan is the welcome product, sold by the Superwall decline offer described below.
+Do not add a weekly product to a Superwall campaign, Hosting content, or release checklist, and do not sell the welcome product anywhere but the decline offer.
 
 ## Lifetime
 
@@ -93,52 +93,66 @@ Lifetime must never be on a live hosted paywall before Apple approves `ascend_li
 That is also why `scripts/validate-superwall-live-artifact.mjs` treats the build's product ids as an upper bound rather than an exact set: the archive that ships Lifetime has to pass against a paywall that may not offer it yet, and a paywall that drops Monthly without a release has to keep passing.
 What the validator still refuses is a paywall that offers nothing, or one that sells a product the build's backend does not trust.
 
-## Onboarding paywall and welcome gift (1.3.0)
+## Onboarding paywall and decline offer (1.3.0)
 
-The 1.3.0 onboarding (`onboarding_v3_enabled`) signs the climber in first and sells second: screens 1-12, then sign-in (13), then the paywall (14) and the welcome gift (15), then the app.
-The paywall and the gift sit behind the kill switch `onboarding_paywall_enabled`.
-Every purchase is therefore made by a signed-in account, so there is no anonymous purchase and nothing to move onto an account afterwards.
-Screen 14 is a native paywall with Yearly and, as the smaller card under it, Lifetime.
-Closing it (the X appears after three seconds) always opens the welcome gift, for as long as the climber holds no entitlement.
-The X is not drawn while the store has not published the welcome product, because nothing would be behind it.
-`AscendApp/Features/Onboarding/V3/Paywall/` owns both screens, and the native screen is the shipped design: the `onboarding_paywall` Superwall placement is kept only for purchase and restore attribution, so a campaign on it never covers the design.
+The 1.3.0 onboarding (`onboarding_v3_enabled`) signs the climber in first and sells second: screens 1-12, then sign-in (13), then the app.
+The flow ends at sign-in.
+What a climber who holds no access sees next is the app-access gate, the Superwall paywall for the `app_access_gate` placement, exactly as for every other signed-in climber without access.
+There is no native paywall and no native welcome gift: both were built (PR 675) and removed, because the captain wants everything about what shows, at what price and whether a decline offer exists to be changed in the Superwall dashboard without a build.
 
-Who sees them is decided by the entitlement, never by the order of the screens (`AppRootRouteResolver`, `AppRootRoute.onboardingPaywall`):
+Who sees the paywall is decided by the entitlement, never by the order of the screens (`AppRootRouteResolver`):
 
 - A climber who signs in at the end of the flow and already holds `app_access` goes straight to the app.
-  The route waits on `resolving` until RevenueCat answers for the account, so an active subscriber never sees the paywall or the gift.
-- A climber who signs in and holds nothing - a new account, or a lapsed subscriber - sees the paywall once the answer is in.
-  A purchase or a restore flips the entitlement and the root takes them into the app; the screens never navigate themselves.
-- The route lasts until access arrives, across relaunches: the account that signed in is stored in the onboarding answers (`PreAuthOnboardingAnswers.paywallStageUserID`), cleared when access arrives and on sign-out, and no other account matches it.
-  A relaunch before buying therefore returns to the paywall and still offers the gift.
-- The paywall carries the app-access gate's `Sign out` and `Delete account` routes (Guideline 5.1.1(v)), wired to the root's one account-deletion sheet; `LockedOutSubscriberRecoveryContractTests` and `OnboardingPaywallEvidenceTests` hold them.
-- With the kill switch off, the same climber meets the app-access gate straight after sign-in.
-- "Already have an account? Sign in" on the first screen opens the same sign-in in returning mode.
-  It never closes post-sign-in onboarding, and a lapsed subscriber who signs in that way meets the app-access gate.
+  The route waits on `resolving` until RevenueCat answers for the account, so an active subscriber never sees a paywall.
+- A climber who signs in and holds nothing - a new account, or a lapsed subscriber - meets the gate once the answer is in.
+- "Already have an account? Sign in" on the first screen opens the same sign-in in returning mode, and a lapsed subscriber who signs in that way meets the gate too.
+- Every purchase is made by a signed-in account, so there is no anonymous purchase and nothing to move onto an account afterwards.
 
-How the purchase works:
+The decline offer is Superwall's, with no Ascend code:
 
-- Purchase and restore run through the same `RevenueCatNativePaywallPlanProvider`, `RevenueCatPurchaseExecutor` and `AppAccessRestoreService` as the signed-in gate, and the executor refuses a purchase with no uid.
-- `PendingPurchaseHoldStore` remembers what Apple has not settled - an Ask to Buy, or a charge RevenueCat has not confirmed - and nothing can be bought while it does, because another product would be a second charge.
-  Access arriving (`MonetizationManager.hasAppAccess`) and signing out both release it.
-  While a hold exists the gift is not offered at all - a second offer is a second purchase - and the screen shows the waiting state with `Check my purchase`.
-- Entitlement-to-server-grant timing is the same as for every purchase: reconciliation runs after the entitlement flips (`docs/revenuecat-server-entitlement-enforcement.md`).
-- Prices, the monthly equivalent and the discount percentage come from StoreKit.
-  The percentage rounds down.
+- The app only ever registers `app_access_gate`.
+  The offer is a second campaign triggered by Superwall's built-in `paywall_decline` event, showing the welcome product's paywall, and it is shown to everyone who closes the first paywall, including a lapsed subscriber.
+  Whether it exists, what it costs and who it targets are dashboard settings.
+- The offer has no back control: its only chrome is a close, plus a close action on `No thanks`, and no back arrow.
+  A `back` action reaching Ascend from it anyway resolves as a plain close for every climber, because only a paywall Ascend registered has a step behind it: nothing reopens and no `onboarding_back_tapped` is recorded.
+- The SDK dismisses the first paywall with `PaywallCloseReason.forNextPaywall` and presents the offer itself, through the first registration's own state publisher (`Superwall.internallyHandleImplicitTrigger` reuses `lastPresentationItems.statePublisher`).
+  So the offer reports to the handler Ascend registered, and the presenter treats a `forNextPaywall` dismissal as `.followOnPaywallOpening`: nothing has ended, the registration stays, and the gate waits behind the opening watchdog rather than starting its native fallback.
+  This is generic: any paywall the dashboard chains onto a registered placement is owned the same way, with no gift-specific code.
+- Because the offer is owned by the same attempt, its purchases are verified and recovered like the first paywall's, and a `delete_account` control on it works.
+  That ownership exists for money safety and routing only: the app emits no `paywall_shown`, `paywall_transaction_*` or `paywall_dismissed` for the offer.
+- Analytics comes from two places, and neither is automatic.
+  Revenue events (`sw_trial_start`, `sw_subscription_start`, `sw_renewal`, `sw_intro_offer_*` and so on, by product) come from Superwall's Mixpanel integration, which requires the App Store Connect connection on the Superwall side.
+  Paywall funnel events come from `SuperwallEventRelay`, which forwards Superwall's SDK events from `handleSuperwallEvent` as `sw_paywall_open`, `sw_paywall_close`, `sw_paywall_decline`, `sw_transaction_start`, `sw_transaction_complete`, `sw_transaction_fail`, `sw_transaction_abandon` and `sw_transaction_restore`, with one rule for every paywall.
+  The relay leaves out the SDK's `subscriptionStart` and `freeTrialStart`, so one purchase never reaches Mixpanel under one name from two sources: `sw_transaction_complete` with its `product_id` and `placement` says where a purchase happened.
+  Read the split from their `placement` (`app_access_gate` or `paywall_decline`), `paywall_name` and `paywall_identifier`.
+  Ascend's `paywall_*` events still fire for the access gate for continuity; they overlap the relay and can be retired after launch.
+- Ownership, SDK ordering and the `sw_*` property keys are read from the SuperwallKit 4.17.0 source and held by the tests of the presenter and the gate, not exercised against a live decline campaign: the campaign is the captain's to build, so confirm the hand-off on a device once it exists.
+- The gate stops selling once Ascend can see a charge it has not confirmed.
+  An Ask to Buy, a purchase RevenueCat completed without confirming the entitlement, or a purchase RevenueCat threw an error for while StoreKit shows a new verified transaction for that product writes `PendingPurchaseHoldStore` where the purchase executes.
+  "New" means a transaction id different from the one StoreKit held before the purchase, so a lapsed subscriber's old transaction does not lock them, and an error with no new transaction is an ordinary failure with no hold.
+  While a hold stands the gate refuses to open a paywall or list plans - across a closed paywall and a relaunch - showing `Do not purchase again` with Check access, Restore, Manage and support.
+  Access arriving or signing out ends the hold.
+  A restore that finds nothing ends an Ask to Buy hold, because a declined request reads the same as an undecided one and must not stay locked; it never ends a hold on a charge.
+  What this does not guarantee: signing out ends the hold, and StoreKit can only answer for this device's Apple ID, so a charge StoreKit has not yet recorded when the error arrives reads as no charge.
+- When both paywalls are closed, by the close, `No thanks` or a stray `back`:
+  the offer closes without a further offer (the SDK does not chain from `paywall_decline`), and the climber is left on the gate's native fallback - `No purchase was made. Choose a plan below.` - with the Yearly and Lifetime plans, Restore, Terms, Privacy, support, Sign out and Delete account.
+  If Superwall cannot load at all, the same fallback opens after the 8-second opening deadline (`Plans took too long to open. Choose a plan below.`), and the same deadline covers an offer that never opens.
+  Nobody is stranded and nobody reaches the app without `app_access`.
 
 The welcome product, `ascend_yearly_welcome` (`ascend_staging_yearly_welcome` in Debug and Staging, `ASCEND_REVENUECAT_WELCOME_PRODUCT_ID`):
 
 - $9.99 a year with a 7-day free introductory offer, in the same subscription group as `ascend_yearly`, so an Apple ID holds one or the other and takes one trial.
 - Attached to `app_access` in RevenueCat, and allowlisted in `REVENUECAT_SERVER_CONFIG`; the deploy preflight requires it because the build sells it.
-- It is deliberately not in `MonetizationConfiguration.launchProductIDs`: the offering audit and the signed-in gate never offer it, and a hosted paywall may not list it.
-- Eligibility decides the gift's words.
-  Only an Apple ID StoreKit still lets take the trial reads "Plus 7 days free" and "Your first week is on us"; every other reads "$9.99 a year, locked in".
+- It is deliberately not in `MonetizationConfiguration.launchProductIDs`: the offering audit and the gate's native fallback never offer it, and only the Superwall decline offer sells it.
+  The build setting stays because `scripts/lib/functions-secret-guard.mjs` reads every `ASCEND_REVENUECAT_*_PRODUCT_ID` to hold the server allowlist to what the build sells, and the local StoreKit catalog keeps the product so the offer can be tried in a simulator.
 
 Captain-gated before production, none of it done by the build:
 
 1. Create the product in App Store Connect with its 7-day offer.
 2. Add the product to `app_access` in RevenueCat.
 3. Create and pin the new `REVENUECAT_SERVER_CONFIG` version (`docs/functions-secret-versions.md`).
+4. Build the decline offer's paywall and its `paywall_decline` campaign in Superwall, with a close and a close action on `No thanks` and no back arrow, and keep the welcome product off the first paywall.
+5. Do not publish the decline campaign before the v3 launch: publish the two together, so back only leaves the old onboarding once new climbers no longer walk it.
 
 Whether to remove the one-month introductory offer from `ascend_yearly` is a separate captain decision; this change neither requires nor performs it.
 
@@ -219,7 +233,7 @@ Both shippable configurations carry real publishable client keys, so no placehol
 `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is `YES` in Debug for local convenience and `NO` in Staging and Release.
 Changing Staging back to bypassed access requires no app code edit - see Tester-lockout recovery below for the two configuration steps it does require.
 Debug and Staging use `ascend_staging_yearly`, `ascend_staging_lifetime` and `ascend_staging_monthly`; Release uses `ascend_yearly`, `ascend_lifetime` and `ascend_monthly`.
-Each configuration also sets the welcome gift's product (see "Onboarding paywall and welcome gift (1.3.0)").
+Each configuration also sets the welcome product (see "Onboarding paywall and decline offer (1.3.0)").
 `scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key, the per-configuration access and launch-product values, and proves the preflight rejects a placeholder key, a reopened Release paywall, and either vendor test surface against a synthetic project; keep all of it aligned with any future setting move.
 Never commit the real keys to documentation or test fixtures.
 These publishable client keys are currently committed in `AscendApp.xcodeproj`.
@@ -227,10 +241,10 @@ They are intended to move into gitignored xcconfig files and CI secrets; that mi
 
 Every environment that points at its own vendor projects needs the same logical configuration:
 
-- Its own annual subscription and Lifetime non-consumable - `ascend_yearly` and `ascend_lifetime` in production, `ascend_staging_yearly` and `ascend_staging_lifetime` in staging - plus the monthly subscription while it stays on sale, and the welcome product once `onboarding_v3_enabled` is on there
+- Its own annual subscription and Lifetime non-consumable - `ascend_yearly` and `ascend_lifetime` in production, `ascend_staging_yearly` and `ascend_staging_lifetime` in staging - plus the monthly subscription while it stays on sale, and the welcome product once the decline offer is live there
 - RevenueCat entitlement `app_access`
 - RevenueCat current offering `default`
-- Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, so the `.onboardingPaywall` placement always takes its `onSkip` path in Staging even though the hard gate is live there
+- Superwall placement `app_access_gate`
 
 Staging and Release both require an active `app_access` entitlement and audit the launch catalog for their configured RevenueCat environment.
 Staging is therefore a real paywall QA surface for the hard gate, and a staging tester reaches the app by completing a sandbox purchase of `ascend_staging_yearly` or `ascend_staging_monthly` through campaign `99059`, of `ascend_staging_yearly` or `ascend_staging_lifetime` on the native fallback, or by restoring one.
@@ -275,8 +289,6 @@ These IDs identify the staging application audited on July 28, 2026, when its ke
 - Active campaign: `99059`, targeting `app_access_gate`
 - Active campaign paywall: `249435`, published, binding `ascend_staging_yearly` to `yearly` and `ascend_staging_monthly` to `monthly`
 - RevenueCat: entitlement `app_access` served through current offering `default`
-
-Staging has no `onboarding_paywall` campaign.
 
 Environment keys still determine which Superwall application each build reaches.
 Do not copy either set of IDs into another environment without first proving that it uses that application.
@@ -346,8 +358,11 @@ Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an
 
 ### Paywall chrome, the back control, and DELETE ACCOUNT
 
-The paywall carries one chrome control: a back arrow in the top-left that returns the climber to the last onboarding step.
-It carries no close or X control at all.
+The paywall carries one chrome control: a back arrow in the top-left.
+While no `paywall_decline` campaign is live, it returns the climber to the last onboarding step, except during a v3 onboarding pass, which has no step behind the paywall: there the arrow is a plain close that lands on the native fallback, never a v1 stage.
+Once a `paywall_decline` campaign is live, the arrow behaves as a plain close: the close chained after `back` opens the decline offer for everyone, a lapsed subscriber and a climber in a v1 pass included, and Ascend neither dismisses the offer nor reopens a step, and it records no `onboarding_back_tapped` for that tap.
+A v1 climber losing the way back is accepted because the campaign is published together with the v3 launch, when the old onboarding stops being the path for new climbers.
+The paywall carries no close or X control at all.
 Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
 
 Two controls on the paywall are custom actions rather than plain closes: the back arrow (`back`) and the footer's `DELETE ACCOUNT` (`delete_account`).
@@ -420,8 +435,7 @@ Steps that name Monthly apply only to a paywall that still offers it:
 12. Confirm the only chrome control is the top-left back arrow, that it fires a `Custom action` named `back` ahead of its close action, and that no `CLOSE` node remains - see Paywall chrome, the back control, and DELETE ACCOUNT above.
 13. Confirm the footer's `DELETE ACCOUNT` control fires a `Custom action` named `delete_account` and that **no close action is chained after it** - Ascend dismisses the paywall itself for this control, and an editor close would race that dismissal.
 14. Wire the verified paywall to `app_access_gate`.
-15. Keep onboarding experiments on `onboarding_paywall`.
-16. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
+15. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
 
 ## Release Gate
 

@@ -101,6 +101,16 @@ final class OnboardingFlowAnalyticsCoordinator {
         passState = state
     }
 
+    /// The flow version of the pass a climber is in the middle of. A pass that has not started, or
+    /// has already completed, belongs to no flow that is still running, so a lapsed subscriber
+    /// meeting the gate months later is not credited to the onboarding they once walked: the paywall
+    /// has always reported under the legacy flow when no pass is running.
+    var activeFlowVersion: String {
+        passState.didStart && !passState.didComplete
+            ? passState.flowVersion
+            : OnboardingAnalyticsContext.legacyFlowVersion
+    }
+
     var accessGrantProvenance: OnboardingAccessGrantProvenance {
         passState.accessGrant
     }
@@ -245,11 +255,7 @@ final class OnboardingFlowAnalyticsCoordinator {
 
         telemetry.track(
             OnboardingAnalyticsEvent.flowCompleted(
-                context: OnboardingAnalyticsContext(
-                    segmentID: OnboardingAnalyticsEvent.paywallContext.segmentID,
-                    flowVersion: state.flowVersion,
-                    stepID: OnboardingAnalyticsEvent.paywallContext.stepID
-                ),
+                context: OnboardingAnalyticsContext.paywallHandOff(flowVersion: state.flowVersion),
                 completionReason: reason
             )
         )

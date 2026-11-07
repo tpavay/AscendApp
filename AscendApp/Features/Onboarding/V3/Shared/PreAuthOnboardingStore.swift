@@ -77,16 +77,6 @@ struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
     /// runs after sign-in does not read them a second time.
     var foundHealthWorkoutIDs: [String] = []
 
-    /// When the welcome gift was first shown. The gift shows on every close of the paywall; this
-    /// only records that the climber has seen it, so a later visit opens the box without a tap.
-    var welcomeGiftFirstShownAt: Date?
-
-    /// The account that signed in at the end of the flow and has not yet reached access. While it
-    /// matches the signed-in account, the root shows the paywall and gift instead of the app-access
-    /// gate, so a relaunch before buying returns to them. Cleared when access arrives and on
-    /// sign-out; a different account never matches it.
-    var paywallStageUserID: String?
-
     /// When the climber reached the end of the flow. Present means the flow is finished and the
     /// app moves on to whatever follows it.
     var completedAt: Date?

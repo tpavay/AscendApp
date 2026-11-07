@@ -3,7 +3,8 @@ import Foundation
 struct OnboardingAnalyticsContext: Sendable, Hashable {
     static let flowID = "onboarding"
 
-    /// The onboarding of 1.3.0: selling screens and setup before sign-in, then the paywall and the welcome gift.
+    /// The onboarding of 1.3.0: selling screens and setup, then sign-in, which is where the tracked flow ends.
+    /// The paywall that follows for a climber without access is the app-access gate, a Superwall paywall.
     static let currentFlowVersion = "v3"
     /// The flow that ships while `onboarding_v3_enabled` is off. Every context the old screens
     /// build defaults to it, so switching the new flow on never relabels the old funnel.
@@ -32,9 +33,7 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "weekly_target",
         "this_month_event",
         "notification_primer",
-        "auth",
-        "paywall",
-        "exit_gift"
+        "auth"
     ]
 
     /// The v1 funnel's order, kept only while the old flow still ships behind the v3 switch.
@@ -92,6 +91,35 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         self.stepID = stepID
         stepIndex = canonicalStepIndex ?? Self.unknownStepIndex
         stepCount = Self.orderedStepIDs(forFlowVersion: flowVersion).count
+    }
+
+    private init(segmentID: String, flowVersion: String, stepID: String, stepIndex: Int, stepCount: Int) {
+        self.segmentID = segmentID
+        self.flowVersion = flowVersion
+        self.stepID = stepID
+        self.stepIndex = stepIndex
+        self.stepCount = stepCount
+    }
+
+    /// Where the paywall reports itself for a climber of `flowVersion`.
+    ///
+    /// The v1 flow ends on the paywall, so it has a position in its own list. The v3 flow ends at
+    /// sign-in: the paywall a climber without access meets next is the app-access gate, a Superwall
+    /// paywall configured in the dashboard, so it is not one of v3's steps. It still reports under the
+    /// pass that led to it, one position past the last step (`step_index` equal to `step_count`), so
+    /// a funnel filtered to `flow_version=v3` reads it as the hand-off it is without a step that
+    /// does not exist ever entering ``orderedStepIDs``.
+    static func paywallHandOff(flowVersion: String) -> OnboardingAnalyticsContext {
+        guard flowVersion != legacyFlowVersion else { return OnboardingAnalyticsEvent.paywallContext }
+
+        let count = orderedStepIDs(forFlowVersion: flowVersion).count
+        return OnboardingAnalyticsContext(
+            segmentID: OnboardingAnalyticsEvent.paywallContext.segmentID,
+            flowVersion: flowVersion,
+            stepID: OnboardingAnalyticsEvent.paywallContext.stepID,
+            stepIndex: count,
+            stepCount: count
+        )
     }
 
     static func canonicalStepIndex(
@@ -152,7 +180,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     case authStarted(provider: String)
     case authCompleted(provider: String)
     case authFailed(provider: String, reason: String)
-    case paywallReached(placement: String, source: String?)
+    case paywallReached(placement: String, source: String?, context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.paywallContext)
     case flowCompleted(context: OnboardingAnalyticsContext, completionReason: OnboardingFlowCompletionReason)
 
     var record: TelemetryRecord {
@@ -305,7 +333,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                     "reason": .string(reason)
                 ]
             )
-        case .paywallReached(let placement, let source):
+        case .paywallReached(let placement, let source, let context):
             var parameters: [String: TelemetryValue] = [
                 "placement": .string(placement)
             ]
@@ -316,7 +344,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
 
             return makeRecord(
                 name: "onboarding_paywall_reached",
-                context: Self.paywallContext,
+                context: context,
                 parameters: parameters
             )
         case .flowCompleted(let context, let completionReason):

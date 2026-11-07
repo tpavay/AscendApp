@@ -42,33 +42,21 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
             },
             adoptEntitlementState: { state, identity in
                 coordinator().adoptPurchaseEntitlementState(state, for: identity)
+            },
+            holdPendingPurchase: { hold in
+                coordinator().holdPendingPurchase(hold)
+            },
+            latestTransactionID: { productID in
+                await RevenueCatPurchaseExecutor.storeKitLatestTransactionID(productID: productID)
             }
         )
     }
 
     func loadPlans() async throws -> [NativePaywallPlan] {
-        try await loadPlans(
-            productIDs: configuration.launchProductIDs,
-            welcomeProductID: nil
-        )
-    }
-
-    /// The yearly plan, Lifetime and the welcome gift's yearly plan, for the onboarding paywall.
-    func loadOnboardingPlans() async throws -> [NativePaywallPlan] {
-        try await loadPlans(
-            productIDs: configuration.onboardingProductIDs,
-            welcomeProductID: configuration.revenueCatWelcomeProductID
-        )
-    }
-
-    private func loadPlans(
-        productIDs: [String],
-        welcomeProductID: String?
-    ) async throws -> [NativePaywallPlan] {
         guard isPurchasesConfigured() else {
             throw RevenueCatNativePaywallPlanProviderError.notConfigured
         }
-        let expectedProductIDs = Set(productIDs)
+        let expectedProductIDs = Set(configuration.launchProductIDs)
         let offerings = try? await Purchases.shared.offerings()
         let offering = offerings?.all[configuration.revenueCatOfferingID]
             ?? offerings?.current
@@ -80,7 +68,7 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
                 ($0.storeProduct.productIdentifier, PurchaseTarget.package($0))
             }
         )
-        let missingProductIDs = productIDs.filter { targets[$0] == nil }
+        let missingProductIDs = configuration.launchProductIDs.filter { targets[$0] == nil }
         let directProducts = await Purchases.shared.products(missingProductIDs)
         for product in directProducts where expectedProductIDs.contains(product.productIdentifier) {
             targets[product.productIdentifier] = .product(product)
@@ -112,8 +100,7 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
             from: productTerms,
             eligibilityByProductID: eligibilityByProductID,
             yearlyProductID: configuration.revenueCatYearlyProductID,
-            lifetimeProductID: configuration.revenueCatLifetimeProductID,
-            welcomeProductID: welcomeProductID
+            lifetimeProductID: configuration.revenueCatLifetimeProductID
         )
     }
 
@@ -164,11 +151,7 @@ final class RevenueCatNativePaywallPlanProvider: NativePaywallPlanProviding {
             localizedPrice: product.localizedPriceString,
             billing: product.productCategory == .subscription ? .subscription : .oneTime,
             renewalPeriod: product.subscriptionPeriod.map(nativePeriod(from:)),
-            freeTrialPeriod: freeTrialPeriod,
-            price: product.price,
-            localizedPricePerMonth: product.subscriptionPeriod == nil
-                ? nil
-                : product.localizedPricePerMonth
+            freeTrialPeriod: freeTrialPeriod
         )
     }
 

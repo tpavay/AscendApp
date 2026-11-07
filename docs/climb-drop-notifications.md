@@ -205,9 +205,10 @@ They are only read while a dispatch is unfinished, so a completed drop's receipt
 
 ## Gear drops and the reminders the onboarding primer promises
 
-The 1.3.0 onboarding primer (screen 12) promises four nudges.
+The 1.3.0 onboarding primer (screen 12) promises three nudges: climb drops, new gear and the weekly target.
 Climb drops are the sweep above.
-The other three each have one owner, and each sits behind its own Remote Config switch (`docs/remote-config-kill-switches.md`).
+The other two are in this table with the trial-ending reminder, which is built but not promised because it does not fire yet.
+Each has one owner and sits behind its own Remote Config switch (`docs/remote-config-kill-switches.md`).
 
 | Nudge | Owner | Where it runs | Switch |
 |---|---|---|---|
@@ -238,6 +239,6 @@ Account deletion clears the pending reminders too.
 Nothing is scheduled without a target, so a climber who skipped screen 10 never gets one.
 
 **Trial ending.** `reconcileTrialEnding(trialStartedAt:)` schedules exactly 5 days after the trial began, and a nil start schedules nothing, so no trial reminder exists without a trial that started.
-Nothing calls it yet, because `PreAuthOnboardingStore` records only that a trial started and not when, so this reminder does not fire until a later 1.3.0 step stores the start and calls it.
+Nothing calls it yet, because nothing records when a trial started: the onboarding ends at sign-in and a trial now starts inside a Superwall paywall, so this reminder does not fire until a purchase path stores the start and calls it.
 
 All local reminders also require the climber's stored notification answer to be on and iOS to deliver, each read fresh on every call, and `cancelAll()` clears everything the scheduler owns.

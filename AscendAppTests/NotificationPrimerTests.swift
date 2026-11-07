@@ -65,7 +65,7 @@ struct NotificationPrimerTests {
 
         #expect(content.examples.map(\.kind) == [.gearDrop, .climbDrop])
         #expect(!content.body.contains("target"))
-        #expect(content.body == "A nudge when new gear drops, when new climbs open, and before any trial ends.")
+        #expect(content.body == "A nudge when new gear drops and when new climbs open.")
     }
 
     @Test

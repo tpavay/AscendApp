@@ -2,6 +2,9 @@ import Foundation
 
 enum PaywallPresentationOutcome: Equatable, Sendable {
     case presented
+    /// This paywall closed so the dashboard's next one can open (a decline offer), which reports
+    /// back through the same registration. Nothing has ended yet.
+    case followOnPaywallOpening
     case purchased
     case restored
     case pendingApproval
@@ -18,7 +21,7 @@ enum PaywallPresentationOutcome: Equatable, Sendable {
 extension PaywallPresentationOutcome {
     var isTerminal: Bool {
         switch self {
-        case .presented:
+        case .presented, .followOnPaywallOpening:
             return false
         case .purchased, .restored, .pendingApproval, .verificationUnavailable,
              .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .skipped, .failed:

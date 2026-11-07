@@ -20,7 +20,6 @@ struct OnboardingV3DebugReplayTests {
         let store = PreAuthOnboardingStore(userDefaults: defaults)
         store.update {
             $0.weeklyTargetDays = 4
-            $0.paywallStageUserID = "u1"
             $0.completedAt = Date()
         }
         OnboardingV3HandOffIntent(userDefaults: defaults).set()
@@ -50,10 +49,10 @@ struct OnboardingV3DebugReplayTests {
         let coordinator = OnboardingV3Coordinator(store: store)
         coordinator.advance()
         coordinator.update { $0.weeklyTargetDays = 5 }
-        coordinator.completeSignIn(userID: "u1", showsPaywall: true)
+        coordinator.finish()
         #expect(coordinator.isFinished)
-        #expect(coordinator.step == .paywall)
-        #expect(coordinator.presentsPaywall(for: "u1"))
+        #expect(coordinator.step != .welcome)
+        #expect(coordinator.canGoBack)
 
         OnboardingV3DebugReplay(userDefaults: defaults).reset()
         coordinator.restartFromWelcome()
@@ -62,7 +61,6 @@ struct OnboardingV3DebugReplayTests {
         #expect(!coordinator.canGoBack)
         #expect(!coordinator.isFinished)
         #expect(coordinator.answers == PreAuthOnboardingAnswers())
-        #expect(!coordinator.presentsPaywall(for: "u1"))
     }
 
     @Test

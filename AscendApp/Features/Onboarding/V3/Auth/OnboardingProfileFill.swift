@@ -94,9 +94,8 @@ extension PreAuthOnboardingAnswers {
 
     /// Whether the answers themselves show work for the hand-off: one that belongs on a profile, the
     /// Health workouts found for the history import, or the usual climb, which only has to leave
-    /// the device. The flow's own bookkeeping - when it ended, which account the paywall stage
-    /// belongs to - is not one, and neither is the days-a-week target, which the hand-off judges
-    /// against the weekly-target service's copy.
+    /// the device. The flow's own bookkeeping - when it ended - is not one, and neither
+    /// is the days-a-week target, which the hand-off judges against the weekly-target service's copy.
     var carriesHandOffWork: Bool {
         carriesProfileAnswers || !foundHealthWorkoutIDs.isEmpty ||
             usualClimbSteps != nil || usualClimbMinutes != nil
@@ -122,7 +121,6 @@ extension PreAuthOnboardingAnswers {
         var kept = droppingHandedOffAnswers
         kept.foundHealthWorkoutIDs = []
         kept.weeklyTargetDays = nil
-        kept.paywallStageUserID = nil
         return kept
     }
 }

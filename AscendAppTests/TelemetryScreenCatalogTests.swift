@@ -37,8 +37,6 @@ struct TelemetryScreenCatalogTests {
         "onboarding_weekly_target": "OnboardingWeeklyTargetScreen",
         "onboarding_this_month_event": "OnboardingThisMonthEventScreen",
         "onboarding_notification_primer": "OnboardingNotificationPrimerScreen",
-        "onboarding_paywall": "OnboardingPaywallScreen",
-        "onboarding_exit_gift": "OnboardingExitGiftScreen",
         "onboarding_auth": "OnboardingAuthScreen",
         "health_connect_later": "AppleHealthConnectView",
         "home": "HomeView",

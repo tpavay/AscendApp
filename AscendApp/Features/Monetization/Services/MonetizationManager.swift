@@ -14,6 +14,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private let appAccessReconciler: any AppAccessReconciling
     private let telemetry: TelemetryManager
     private let userDefaults: UserDefaults
+    private let pendingPurchaseHoldStore: PendingPurchaseHoldStore
     private let verdictBudget: MonetizationVerdictBudget
     private let unattributedGrantSettleDelay: Duration
     private let unattributedGrantSleep: @Sendable (Duration) async throws -> Void
@@ -27,8 +28,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private var preparedIdentityTransition: MonetizationIdentityTransition?
     @ObservationIgnored
     private var paywallAttemptRevision: UInt = 0
-    /// The identity a native surface already reported reaching the paywall for.
-    private var nativePaywallReachedIdentity: MonetizationIdentityTransition?
     @ObservationIgnored
     private var activePaywallAttempt: (
         revision: UInt,
@@ -129,6 +128,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         self.telemetry = telemetry
         self.onboardingLifecycle = onboardingLifecycle
         self.userDefaults = userDefaults
+        pendingPurchaseHoldStore = PendingPurchaseHoldStore(userDefaults: userDefaults)
         self.verdictBudget = verdictBudget
         #if DEBUG
         debugForcesAppAccessPaywall = userDefaults.bool(
@@ -148,6 +148,9 @@ final class MonetizationManager: MonetizationIdentityManaging {
                 entitlementIDs = []
             }
             self.paywallPresenter.updateSubscriptionStatus(entitlementIDs: entitlementIDs)
+            if state.hasActiveEntitlement(self.configuration.revenueCatEntitlementID) {
+                self.releasePendingPurchaseHold()
+            }
             self.settleUnattributedAccessGrantIfNeeded(for: state)
         }
         entitlementService.configure(configuration: configuration)
@@ -348,12 +351,34 @@ final class MonetizationManager: MonetizationIdentityManaging {
         return true
     }
 
+    /// Which onboarding led the climber to the gate.
+    var onboardingFlowVersion: String {
+        onboardingLifecycle.activeFlowVersion
+    }
+
+    var pendingPurchaseHold: PendingPurchaseHold? {
+        pendingPurchaseHoldStore.hold()
+    }
+
+    /// Access that has already landed leaves nothing to wait for, so a verdict that loses the race
+    /// with the customer-info stream cannot lock this account's next lapse.
+    func holdPendingPurchase(_ hold: PendingPurchaseHold) {
+        guard !entitlementState.hasActiveEntitlement(configuration.revenueCatEntitlementID) else {
+            return
+        }
+        pendingPurchaseHoldStore.mark(hold)
+    }
+
+    func releasePendingPurchaseHold() {
+        pendingPurchaseHoldStore.clear()
+    }
+
     func presentPaywall(
         _ placement: SuperwallPlacement,
         params: [String: Any]? = nil,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void = { _ in }
     ) {
-        let tracksOnboardingAccess = placement == .onboardingPaywall || placement == .appAccessGate
+        let tracksOnboardingAccess = placement == .appAccessGate
         guard let presentationIdentity = identityGeneration else {
             if tracksOnboardingAccess {
                 recordOnboardingAccessGrantRequestReportedNothing()
@@ -423,37 +448,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
     }
     #endif
 
-    /// Records that a surface Ascend draws itself - the onboarding paywall - reached a climber, which
-    /// the hosted paywall's `presentPaywall` does for itself. Once per identity, because the gift
-    /// sends the climber back to the paywall and a second arrival is the same paywall. Its screen
-    /// view is the onboarding flow's own step view, so the v1 paywall screen view is not recorded.
-    ///
-    /// Every arrival asks for access, so a grant that lands later - Ask to Buy approved, a comp - is
-    /// not read as access the climber already held. Only a pass nothing has answered opens a
-    /// request: a purchase confirmed here can still be waiting on its entitlement when the climber
-    /// comes back from the gift or relaunches, and that purchase keeps its name.
-    func recordNativePaywallReached(_ placement: SuperwallPlacement) {
-        guard let identity = identityGeneration, identity.userID != nil else { return }
-
-        if onboardingLifecycle.accessGrantProvenance == .notRequested {
-            beginOnboardingAccessGrantRequest()
-        }
-
-        guard nativePaywallReachedIdentity != identity else { return }
-
-        nativePaywallReachedIdentity = identity
-        LifecycleEventRecorder.shared.recordPaywallReached(
-            placement: placement.rawValue,
-            expectedUserID: identity.userID
-        )
-        trackPaywallReached(placement, params: nil, identity: identity, recordsScreenView: false)
-    }
-
     private func trackPaywallReached(
         _ placement: SuperwallPlacement,
         params: [String: Any]?,
-        identity: MonetizationIdentityTransition,
-        recordsScreenView: Bool = true
+        identity: MonetizationIdentityTransition
     ) {
         guard let userID = identity.userID else { return }
         let source = params?["source"] as? String
@@ -473,19 +471,21 @@ final class MonetizationManager: MonetizationIdentityManaging {
             ifIdentifiedAs: userID
         )
 
-        guard placement == .onboardingPaywall || placement == .appAccessGate else { return }
+        guard placement == .appAccessGate else { return }
 
+        // The gate is where every flow hands a climber without access, so it reports under the pass
+        // that led there.
+        let context = OnboardingAnalyticsContext.paywallHandOff(flowVersion: onboardingFlowVersion)
         telemetry.track(
             OnboardingAnalyticsEvent.paywallReached(
                 placement: placement.rawValue,
-                source: source
+                source: source,
+                context: context
             ),
             ifIdentifiedAs: userID
         )
-        guard recordsScreenView else { return }
-
         OnboardingScreenViewRecorder(lifecycle: onboardingLifecycle).recordIfNeeded(
-            OnboardingAnalyticsEvent.paywallContext,
+            context,
             telemetry: telemetry,
             expectedUserID: userID
         )
@@ -556,7 +556,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
             // request without naming how access was given, so a later webhook-delayed purchase
             // still attributes.
             recordOnboardingAccessGrantRequestReportedNothing()
-        case .presented, .pendingApproval, .verificationUnavailable:
+        case .presented, .followOnPaywallOpening, .pendingApproval, .verificationUnavailable:
             // Presentation and recoverable transaction states are not access-grant results.
             // The entitlement stream remains authoritative and may still grant access later.
             break

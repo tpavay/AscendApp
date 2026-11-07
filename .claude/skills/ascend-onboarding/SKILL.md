@@ -24,7 +24,8 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
 
 That sequence, and the `Pre-auth value screens` rules below, describe the flow with `onboarding_v3_enabled` off, which is how the switch ships.
 With it on, a signed-out climber gets the 1.3.0 flow instead: selling screens, setup questions and then sign-in, with Skip on the screens the design gives one.
-A signed-in climber who holds no access then sees the onboarding paywall and the welcome gift until access arrives, across relaunches; one who already pays goes straight to the app (`docs/superwall-paywall-setup.md`).
+The flow ends at sign-in. A signed-in climber who holds no access meets the app-access gate, the Superwall paywall for the `app_access_gate` placement, like any other; one who already pays goes straight to the app.
+The decline offer a climber meets when they close that paywall is a second Superwall paywall configured in the dashboard, so the app has no screen, route or gift-specific code for it, and no native paywall is built for either (`docs/superwall-paywall-setup.md`).
 Signing in at the end of that flow marks post-sign-in onboarding complete, so the resolver's first-time path below does not run for that climber, while "Already have an account? Sign in" on the first screen gets normal routing.
 `OnboardingV3SignInHandOff` owns what carries over to the account and in what order.
 `OnboardingV3Step` owns its screens and branches, and `docs/remote-config-kill-switches.md` (Rollouts, which ship off) owns how the switch behaves.
@@ -56,7 +57,7 @@ Signing in at the end of that flow marks post-sign-in onboarding complete, so th
   Every shipped string says the same thing - "Get an Ascend alert when new climbs open", "A new landmark opens in the catalog" - and the promise is fairness at the open, not a head start before it.
   Advance notice is not available to promise: the catalogue is a static file with no unlock timestamp, so counting back from an open would take both a catalogue schema change and a client that withholds a published climb.
   `scripts/test/climb-drop-promise-contract.test.mjs` fails any surface or document that reintroduces it.
-- With `onboarding_v3_enabled` on, the primer (screen 12) also promises gear, weekly-target and trial-ending nudges; `docs/climb-drop-notifications.md` owns them.
+- With `onboarding_v3_enabled` on, the primer (screen 12) also promises gear and weekly-target nudges; `docs/climb-drop-notifications.md` owns them.
 
 ## Content discipline
 - Survey and paywall content is product-defined. Engineers should not ship onboarding screens, copy, or content beyond what product has provided mocks for.
