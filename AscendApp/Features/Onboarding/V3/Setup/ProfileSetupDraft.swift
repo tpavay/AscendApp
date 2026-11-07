@@ -14,14 +14,23 @@ struct ProfileSetupDraft: Equatable, Sendable {
     static let placeholderName = "Change me"
     static let placeholderInitials = "CM"
 
-    var firstName = ""
-    var lastName = ""
+    var firstName = "" {
+        didSet { refreshBoardName() }
+    }
+    var lastName = "" {
+        didSet { refreshBoardName() }
+    }
     var photoFileName: String?
     var gender: ProfileGender?
     var birthday: PreAuthOnboardingBirthday?
     var heightCm: Double?
     var weightKg: Double?
     var system: MeasurementSystem
+
+    /// What the typed name publishes as, or `nil` while nothing is typed or the policy refuses it.
+    /// Held rather than computed because the row reads it several times a render and screening
+    /// runs a pattern per blocked term.
+    private(set) var boardName: String?
 
     /// Read only: the city is claimed on the next step, and shows on the row once it is.
     private let cityName: String?
@@ -36,6 +45,11 @@ struct ProfileSetupDraft: Equatable, Sendable {
         weightKg = answers.weightKg
         cityName = answers.city?.city
         self.system = system
+        refreshBoardName()
+    }
+
+    private mutating func refreshBoardName() {
+        boardName = try? DisplayNamePolicy.typedBoardName(firstName: firstName, lastName: lastName)
     }
 
     // MARK: - The leaderboard row
@@ -43,16 +57,19 @@ struct ProfileSetupDraft: Equatable, Sendable {
     private var trimmedFirstName: String { firstName.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var trimmedLastName: String { lastName.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    var hasName: Bool { !trimmedFirstName.isEmpty || !trimmedLastName.isEmpty }
+    /// Something is typed and the policy refuses it, so it would never reach a leaderboard.
+    var isNameRefused: Bool {
+        boardName == nil && !(trimmedFirstName.isEmpty && trimmedLastName.isEmpty)
+    }
 
-    /// "First Last" as it is typed, or the app's default name until anything is.
+    /// Exactly what sign-in will publish: the typed name, or the app's default name.
     var displayName: String {
-        hasName ? [trimmedFirstName, trimmedLastName].filter { !$0.isEmpty }.joined(separator: " ") : Self.placeholderName
+        boardName ?? Self.placeholderName
     }
 
     /// The first letter of each name, or `CM` for the default name.
     var initials: String {
-        guard hasName else { return Self.placeholderInitials }
+        guard boardName != nil else { return Self.placeholderInitials }
         return [trimmedFirstName, trimmedLastName]
             .compactMap { $0.first.map { String($0).uppercased() } }
             .joined()
@@ -75,6 +92,16 @@ struct ProfileSetupDraft: Equatable, Sendable {
         case .nonBinary: "Other"
         case .preferNotToSay, nil: nil
         }
+    }
+
+    // MARK: - Name
+
+    /// What a name field may hold beside the other one, so the two always compose to a board name
+    /// inside `DisplayNamePolicy.maximumLength`.
+    static func cappedName(_ typed: String, beside other: String) -> String {
+        let otherName = other.trimmingCharacters(in: .whitespacesAndNewlines)
+        let taken = otherName.isEmpty ? 0 : otherName.count + 1
+        return String(typed.prefix(max(DisplayNamePolicy.maximumLength - taken, 0)))
     }
 
     // MARK: - Gender

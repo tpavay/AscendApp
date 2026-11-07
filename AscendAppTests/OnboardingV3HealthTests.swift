@@ -342,6 +342,7 @@ struct OnboardingV3HealthTests {
         let handOff = OnboardingV3SignInHandOff(
             seams: .init(
                 isProfileWriteEnabled: { true },
+                signInNameSettled: {},
                 readProfile: { _ in nil },
                 writeProfile: { _, _, _ in },
                 recordProfileStepFailure: { _ in },

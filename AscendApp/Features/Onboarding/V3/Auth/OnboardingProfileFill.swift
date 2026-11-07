@@ -13,11 +13,12 @@ struct OnboardingProfileFill: Equatable, Sendable {
     var weightKg: Double?
     var heightCm: Double?
     var city: PreAuthOnboardingCity?
-    /// The name typed on 08, both halves, only when the two make a board name the rules accept.
+    /// The name typed on 08, only when it makes a board name the rules accept.
     var name: Name?
     /// The picked photo's file name in ``OnboardingProfilePhotoStore``, for an account with none.
     var photoFileName: String?
 
+    /// A half the climber left empty is stored empty, which is how a profile holds no name part.
     struct Name: Equatable, Sendable {
         var firstName: String
         var lastName: String
@@ -122,17 +123,15 @@ extension PreAuthOnboardingAnswers {
     /// Whether the climber gave an answer that belongs on a profile.
     var carriesProfileAnswers: Bool {
         birthday != nil || gender != nil || heightCm != nil || weightKg != nil || city != nil ||
-            writableName != nil || profilePhotoFileName != nil
+            firstName != nil || lastName != nil || profilePhotoFileName != nil
     }
 
-    /// The typed name, when both halves are there and make a board name `DisplayNamePolicy` accepts.
-    /// One half, or a name the policy refuses, is left out rather than blocking the rest.
+    /// The typed name, when `DisplayNamePolicy` accepts the board name it makes. One half is a whole
+    /// name; a name the policy refuses is left out rather than blocking the rest.
     var writableName: OnboardingProfileFill.Name? {
-        guard let firstName, let lastName else { return nil }
-
-        let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let last = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard DisplayNamePolicy.composesAllowedBoardName(firstName: first, lastName: last) else { return nil }
+        let first = (firstName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = (lastName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (try? DisplayNamePolicy.typedBoardName(firstName: first, lastName: last)) != nil else { return nil }
 
         return OnboardingProfileFill.Name(firstName: first, lastName: last)
     }

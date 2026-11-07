@@ -52,6 +52,10 @@ final class OnboardingV3SignInHandOff {
     /// the network, RevenueCat or the Health store.
     struct Seams {
         var isProfileWriteEnabled: @MainActor () -> Bool
+        /// Returns once this sign-in has resolved the account's name. The fill is planned after it,
+        /// so a typed name replaces the placeholder instead of racing it, and a name the provider
+        /// supplied wins every time.
+        var signInNameSettled: @MainActor () async -> Void
         var readProfile: @MainActor (_ userId: String) async throws -> UserDisplayNameData?
         var writeProfile: @MainActor (_ userId: String, _ email: String?, _ fill: OnboardingProfileFill) async throws -> Void
         /// Reports a profile read or write that failed for a reason time will not clear.
@@ -73,6 +77,9 @@ final class OnboardingV3SignInHandOff {
         /// reads, and the account is what carries a target back onto this phone.
         var reconcileWeeklyTarget: @MainActor (_ userId: String) async -> Void
     }
+
+    /// The account the answers were read for is no longer the signed-in one.
+    struct SessionEnded: Error {}
 
     enum Outcome: Equatable {
         /// The profile has the answers, or there were none to write.
@@ -152,6 +159,7 @@ final class OnboardingV3SignInHandOff {
         var accountHasTarget = false
         do {
             if answers.carriesProfileAnswers || target != nil {
+                await seams.signInNameSettled()
                 let existing = try await seams.readProfile(userId)
                 let fill = OnboardingProfileFill.plan(answers: answers, existing: existing)
                 if !fill.isEmpty {
@@ -187,7 +195,7 @@ final class OnboardingV3SignInHandOff {
     /// answers. A refusal or anything unexpected repeats on every foreground until someone sees it,
     /// and neither caller shows the climber anything.
     private static func isWorthReporting(_ error: any Error) -> Bool {
-        !(error is ProfilePublicationError) && ServerReadFailureClass.classify(error) != .unreachable
+        !(error is ProfilePublicationError) && !(error is SessionEnded) && ServerReadFailureClass.classify(error) != .unreachable
     }
 }
 
@@ -197,14 +205,22 @@ extension OnboardingV3SignInHandOff {
     /// Writes a fill through the services the rest of the app uses: demographics, then the typed
     /// name, then the photo. Each lands on its own, so a photo that cannot upload yet leaves the
     /// name and demographics written; the retry plans from the profile as it now stands and carries
-    /// only what is still missing.
+    /// only what is still missing. The session hears about a name and a photo as each lands, so the
+    /// screens that read it show them without a relaunch.
     @MainActor
     static func writeProfile(
         _ fill: OnboardingProfileFill,
         userId: String,
         email: String?,
+        session: AuthenticationViewModel,
         photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore()
     ) async throws {
+        func requireSameSession() throws {
+            guard session.user?.uid == userId else { throw SessionEnded() }
+        }
+
+        try requireSameSession()
+
         if fill.hasDemographics {
             try await UserDataRepository.shared.updateOnboardingDemographics(
                 userId: userId,
@@ -220,12 +236,14 @@ extension OnboardingV3SignInHandOff {
         }
 
         if let name = fill.name {
-            try await UserDataRepository.shared.updateProfileName(
+            let boardName = try await UserDataRepository.shared.updateTypedProfileName(
                 userId: userId,
                 email: email,
                 firstName: name.firstName,
                 lastName: name.lastName
             )
+            try requireSameSession()
+            await session.adoptWrittenName(boardName)
         }
 
         // A photo that is no longer on the device cannot be retried, so it is skipped here and the
@@ -239,6 +257,8 @@ extension OnboardingV3SignInHandOff {
                 userId: userId,
                 profilePictureURL: uploadedURL.absoluteString
             )
+            try requireSameSession()
+            session.adoptWrittenProfilePicture(uploadedURL)
         }
     }
 }
@@ -247,6 +267,7 @@ extension OnboardingV3SignInHandOff {
     /// The hand-off against the real services. `OnboardingAuthTests` pins that every route calls
     /// these seams, in order.
     static func live(
+        session: AuthenticationViewModel,
         markPostSignInOnboardingComplete: @escaping @MainActor () -> Void,
         importHealthHistory: @escaping @MainActor (PreAuthOnboardingAnswers) async -> Bool
     ) -> OnboardingV3SignInHandOff {
@@ -255,11 +276,14 @@ extension OnboardingV3SignInHandOff {
                 isProfileWriteEnabled: {
                     RemoteFeatureFlagStore.shared.isEnabled(.onboardingAnswersProfileWrite)
                 },
+                signInNameSettled: {
+                    await session.profileLoadSettled()
+                },
                 readProfile: { userId in
                     try await UserDataRepository.shared.getUserFromFirestore(userId: userId)
                 },
                 writeProfile: { userId, email, fill in
-                    try await Self.writeProfile(fill, userId: userId, email: email)
+                    try await Self.writeProfile(fill, userId: userId, email: email, session: session)
                 },
                 recordProfileStepFailure: { error in
                     TelemetryManager.shared.recordError(

@@ -261,6 +261,7 @@ struct OnboardingAuthTests {
         func seams() -> OnboardingV3SignInHandOff.Seams {
             .init(
                 isProfileWriteEnabled: { [self] in profileWriteEnabled },
+                signInNameSettled: {},
                 readProfile: { [self] _ in
                     events.append("read")
                     if readFails { throw failure }

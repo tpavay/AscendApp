@@ -18,7 +18,7 @@ struct ProfileLeaderboardPreview: View {
     var isCompact = false
 
     var body: some View {
-        VStack(spacing: isCompact ? 4 : 6) {
+        VStack(spacing: isCompact ? 4 : 5) {
             PlaceholderRow(rank: "4", barWidth: 130, score: "2,410", height: isCompact ? 34 : 42)
             ownRow
             PlaceholderRow(rank: "6", barWidth: 100, score: "1,980", height: isCompact ? 34 : 42)
@@ -48,7 +48,7 @@ struct ProfileLeaderboardPreview: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(draft.displayName)
                     .font(.custom("Montserrat-Black", size: 16, relativeTo: .body))
-                    .foregroundStyle(draft.hasName ? Color.white : OnboardingV3Palette.skip)
+                    .foregroundStyle(draft.boardName == nil ? OnboardingV3Palette.skip : Color.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
 

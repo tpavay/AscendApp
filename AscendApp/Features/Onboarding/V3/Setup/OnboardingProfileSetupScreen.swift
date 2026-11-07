@@ -2,7 +2,8 @@ import PhotosUI
 import SwiftUI
 
 /// 08: set up your profile. A live leaderboard row of the climber's own entry, a name, a photo and
-/// four optional facts, on one screen that does not scroll. All of it is skippable.
+/// four optional facts. It fits without scrolling at the handoff's size (iPhone 15 and 16); a
+/// compact-height phone tightens it and scrolls what is left under a fade. All of it is skippable.
 ///
 /// Writes only the pre-sign-in answers on the device; the profile write waits for sign-in.
 struct OnboardingProfileSetupScreen: View {
@@ -16,35 +17,33 @@ struct OnboardingProfileSetupScreen: View {
         var id: String { rawValue }
     }
 
-    private static let nameLimit = 40
-
     let coordinator: OnboardingV3Coordinator
 
     @State private var draft: ProfileSetupDraft
     @State private var photoURL: URL?
     @State private var pickerItem: PhotosPickerItem?
     @State private var sheet: Sheet?
-    /// A phone shorter than the design's 844 pt canvas gets tighter spacing and rows, so the form
-    /// needs the least scrolling it can; whatever still overflows scrolls under a fade.
+    /// A phone shorter than the handoff's canvas gets tighter spacing and rows, so the form needs
+    /// the least scrolling it can. See ``isCompact(laidOutHeight:topInset:bottomInset:)``.
     @State private var isCompactHeight = false
     @FocusState private var focus: Field?
 
     private let photos: OnboardingProfilePhotoStore
-    private let units: ProfileUnitPreference
+    private let settings: SettingsManager
     private let birthdayNow: Date
 
     init(
         coordinator: OnboardingV3Coordinator,
         system: MeasurementSystem? = nil,
         photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore(),
-        units: ProfileUnitPreference = ProfileUnitPreference(),
+        settings: SettingsManager = .shared,
         now: Date = .now
     ) {
         self.coordinator = coordinator
         self.photos = photos
-        self.units = units
+        self.settings = settings
         birthdayNow = now
-        _draft = State(initialValue: ProfileSetupDraft(answers: coordinator.answers, system: system ?? units.system))
+        _draft = State(initialValue: ProfileSetupDraft(answers: coordinator.answers, system: system ?? settings.measurementSystem))
         _photoURL = State(initialValue: photos.url(for: coordinator.answers.profilePhotoFileName))
     }
 
@@ -54,9 +53,9 @@ struct OnboardingProfileSetupScreen: View {
             onSkip: { Self.skip(coordinator, photos: photos) },
             horizontalPadding: 20,
             fadesWhenScrollable: true,
-            topPadding: isCompactHeight ? 8 : 22
+            topPadding: isCompactHeight ? 8 : 14
         ) {
-            VStack(alignment: .leading, spacing: isCompactHeight ? 10 : 18) {
+            VStack(alignment: .leading, spacing: isCompactHeight ? 10 : 14) {
                 VStack(alignment: .leading, spacing: 8) {
                     OnboardingHeadline(["Set up your"], accentLines: ["profile."], size: isCompactHeight ? 26 : 30)
 
@@ -88,7 +87,15 @@ struct OnboardingProfileSetupScreen: View {
                     .buttonStyle(.onboardingPrimary)
             }
         }
-        .onGeometryChange(for: Bool.self) { $0.size.height < 760 } action: { isCompactHeight = $0 }
+        .onGeometryChange(for: Bool.self) { proxy in
+            Self.isCompact(
+                laidOutHeight: proxy.size.height,
+                topInset: proxy.safeAreaInsets.top,
+                bottomInset: proxy.safeAreaInsets.bottom
+            )
+        } action: {
+            isCompactHeight = $0
+        }
         .sheet(item: $sheet) { sheet in
             sheetContent(sheet)
         }
@@ -97,6 +104,18 @@ struct OnboardingProfileSetupScreen: View {
             Task { await adoptPhoto(item) }
         }
         .trackOnce(screen: .onboardingProfileSetup)
+    }
+
+    // MARK: - Height
+
+    /// The canvas the handoff was drawn on. iPhone 15 and 16 are at or above it; an SE is not.
+    static let handoffCanvasHeight: CGFloat = 844
+
+    /// Whether the phone itself is shorter than the handoff's canvas. The height comes back whole
+    /// from the laid-out height and its insets, so it is the phone's and not the room left over: the
+    /// keyboard moves points from one to the other, and must not reflow the form under a finger.
+    static func isCompact(laidOutHeight: CGFloat, topInset: CGFloat, bottomInset: CGFloat) -> Bool {
+        laidOutHeight + topInset + bottomInset < handoffCanvasHeight
     }
 
     // MARK: - Actions
@@ -139,10 +158,18 @@ struct OnboardingProfileSetupScreen: View {
     // MARK: - Name, gender, birthday
 
     private var identityGroup: some View {
-        VStack(spacing: isCompactHeight ? 7 : 9) {
+        VStack(spacing: isCompactHeight ? 7 : 8) {
             HStack(spacing: 8) {
-                nameField("First name", text: $draft.firstName, field: .firstName, contentType: .givenName)
-                nameField("Last name", text: $draft.lastName, field: .lastName, contentType: .familyName)
+                nameField("First name", text: $draft.firstName, beside: draft.lastName, field: .firstName, contentType: .givenName)
+                nameField("Last name", text: $draft.lastName, beside: draft.firstName, field: .lastName, contentType: .familyName)
+            }
+
+            if draft.isNameRefused {
+                Text("That name can't go on a leaderboard. Pick another.")
+                    .font(.custom("Montserrat-SemiBold", size: 12.5, relativeTo: .footnote))
+                    .foregroundStyle(OnboardingV3Palette.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
             }
 
             genderControl
@@ -156,6 +183,7 @@ struct OnboardingProfileSetupScreen: View {
     private func nameField(
         _ title: String,
         text: Binding<String>,
+        beside other: String,
         field: Field,
         contentType: UITextContentType
     ) -> some View {
@@ -174,7 +202,8 @@ struct OnboardingProfileSetupScreen: View {
         .focused($focus, equals: field)
         .onSubmit { focus = field == .firstName ? .lastName : nil }
         .onChange(of: text.wrappedValue) { _, new in
-            if new.count > Self.nameLimit { text.wrappedValue = String(new.prefix(Self.nameLimit)) }
+            let capped = ProfileSetupDraft.cappedName(new, beside: other)
+            if capped != new { text.wrappedValue = capped }
         }
         .padding(.horizontal, 16)
         .frame(minHeight: isCompactHeight ? 44 : 48)
@@ -258,7 +287,7 @@ struct OnboardingProfileSetupScreen: View {
             ProfileHeightSheet(
                 initialCentimeters: draft.heightCm,
                 system: draft.system,
-                onUnitChange: rememberUnit
+                onUnitChange: { Self.switchUnit(to: $0, in: &draft, settings: settings) }
             ) { centimeters in
                 draft.heightCm = centimeters
                 self.sheet = nil
@@ -267,7 +296,7 @@ struct OnboardingProfileSetupScreen: View {
             ProfileWeightSheet(
                 initialKilograms: draft.weightKg,
                 system: draft.system,
-                onUnitChange: rememberUnit
+                onUnitChange: { Self.switchUnit(to: $0, in: &draft, settings: settings) }
             ) { kilograms in
                 draft.weightKg = kilograms
                 self.sheet = nil
@@ -275,8 +304,9 @@ struct OnboardingProfileSetupScreen: View {
         }
     }
 
-    private func rememberUnit(_ system: MeasurementSystem) {
-        units.remember(system)
+    /// A unit switched in a sheet is the app's unit from then on, so later screens agree with it.
+    static func switchUnit(to system: MeasurementSystem, in draft: inout ProfileSetupDraft, settings: SettingsManager) {
+        settings.setMeasurementSystem(system)
         draft.system = system
     }
 }

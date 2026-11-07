@@ -68,6 +68,50 @@ struct OnboardingProfileSetupTests {
     }
 
     @Test
+    func theRowPreviewsExactlyWhatSignInPublishes() {
+        var typing = draft()
+
+        typing.firstName = "Tyler"
+        #expect(typing.boardName == "Tyler")
+        #expect(typing.displayName == "Tyler", "one name is a whole name")
+        #expect(!typing.isNameRefused)
+
+        typing.firstName = "Fuck"
+        #expect(typing.boardName == nil)
+        #expect(typing.isNameRefused)
+        #expect(typing.displayName == "Change me", "a refused name is never previewed as accepted")
+        #expect(typing.initials == "CM")
+
+        typing.firstName = ""
+        #expect(!typing.isNameRefused, "nothing typed is nothing refused")
+        #expect(typing.displayName == "Change me")
+    }
+
+    @Test
+    func aRestoredRefusedNameIsCaughtWithoutATouch() {
+        var answers = PreAuthOnboardingAnswers()
+        answers.firstName = "Fuck"
+
+        #expect(ProfileSetupDraft(answers: answers, system: .imperial).isNameRefused)
+    }
+
+    @Test
+    func theTwoFieldsCannotComposeANameThePolicyRefusesForLength() {
+        let long = String(repeating: "ab", count: 40)
+
+        #expect(ProfileSetupDraft.cappedName(long, beside: "").count == DisplayNamePolicy.maximumLength)
+
+        let first = ProfileSetupDraft.cappedName(String(repeating: "ab", count: 25), beside: "")
+        let last = ProfileSetupDraft.cappedName(long, beside: first)
+        #expect(first.count == 50)
+        #expect(last.count == 29, "the 50 beside it and the space between")
+        #expect(DisplayNamePolicy.isAllowed("\(first) \(last)"))
+
+        #expect(ProfileSetupDraft.cappedName("x", beside: long).isEmpty, "a full field leaves no room")
+        #expect(ProfileSetupDraft.cappedName("Tyler", beside: "Pavay") == "Tyler", "a name that fits is untouched")
+    }
+
+    @Test
     func theSublineReadsGenderThenAgeAndNeverTheBirthday() {
         let today = date(2026, 11, 4)
         var filled = draft()
@@ -260,19 +304,38 @@ struct OnboardingProfileSetupTests {
     }
 
     @Test
-    func theUnitDefaultsFromTheRegionAndIsRememberedOnceChanged() {
-        #expect(ProfileUnitPreference.systemForCurrentRegion(Locale(identifier: "en_US")) == .imperial)
-        #expect(ProfileUnitPreference.systemForCurrentRegion(Locale(identifier: "en_GB")) == .imperial)
-        #expect(ProfileUnitPreference.systemForCurrentRegion(Locale(identifier: "de_DE")) == .metric)
-
+    func aUnitSwitchedInASheetIsTheAppsUnitFromThenOn() {
         let suite = "profile-units-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         defaults.removePersistentDomain(forName: suite)
-        let preference = ProfileUnitPreference(userDefaults: defaults, regionDefault: .metric)
+        let settings = SettingsManager(userDefaults: defaults)
+        settings.measurementSystem = .imperial
+        var card = draft(system: settings.measurementSystem)
 
-        #expect(preference.system == .metric)
-        preference.remember(.imperial)
-        #expect(ProfileUnitPreference(userDefaults: defaults, regionDefault: .metric).system == .imperial)
+        OnboardingProfileSetupScreen.switchUnit(to: .metric, in: &card, settings: settings)
+
+        #expect(card.system == .metric)
+        #expect(settings.measurementSystem == .metric, "one setting, so later screens agree")
+        #expect(SettingsManager(userDefaults: defaults).measurementSystem == .metric, "it survives a relaunch")
+    }
+
+    // MARK: - Height class
+
+    @Test(arguments: [
+        (laidOut: 759.0, top: 59.0, bottom: 34.0, phone: "iPhone 16", compact: false),
+        (laidOut: 778.0, top: 62.0, bottom: 34.0, phone: "iPhone 17 Pro", compact: false),
+        (laidOut: 763.0, top: 47.0, bottom: 34.0, phone: "iPhone 16e", compact: false),
+        (laidOut: 728.0, top: 50.0, bottom: 34.0, phone: "iPhone 13 mini", compact: true),
+        (laidOut: 647.0, top: 20.0, bottom: 0.0, phone: "iPhone SE", compact: true)
+    ])
+    func aPhoneIsCompactOnlyBelowTheHandoffsCanvas(laidOut: Double, top: Double, bottom: Double, phone: String, compact: Bool) {
+        #expect(OnboardingProfileSetupScreen.isCompact(laidOutHeight: laidOut, topInset: top, bottomInset: bottom) == compact, "\(phone)")
+    }
+
+    @Test
+    func theKeyboardDoesNotMakeAPhoneCompact() {
+        // A 336 pt keyboard moves that height from the laid-out size into the bottom inset.
+        #expect(!OnboardingProfileSetupScreen.isCompact(laidOutHeight: 759 - 302, topInset: 59, bottomInset: 34 + 302))
     }
 
     // MARK: - Gender
@@ -487,11 +550,34 @@ struct OnboardingProfileSetupTests {
     }
 
     @Test
-    func halfANameOrAnObjectionableOneIsLeftOutAndNeverBlocksTheRest() {
-        var half = answersWithName()
-        half.lastName = nil
-        #expect(OnboardingProfileFill.plan(answers: half, existing: nil).name == nil)
+    func oneHalfOfANameIsAWholeNameEitherWay() throws {
+        var first = answersWithName()
+        first.lastName = nil
+        #expect(OnboardingProfileFill.plan(answers: first, existing: nil).name == .init(firstName: "Tyler", lastName: ""))
 
+        var last = answersWithName()
+        last.firstName = nil
+        let name = try #require(OnboardingProfileFill.plan(answers: last, existing: nil).name)
+        #expect(name == .init(firstName: "", lastName: "Pavay"))
+        #expect(try DisplayNamePolicy.typedBoardName(firstName: name.firstName, lastName: name.lastName) == "Pavay")
+    }
+
+    /// What the write leaves on the profile has to read back as that one name, not as a blank
+    /// profile the next run would fill again, and has to keep the placeholder check honest.
+    @Test
+    func aStoredSingleNameReadsBackAsThatNameAndIsNeverReplaced() {
+        let stored = existingProfile(["firstName": "Tyler", "lastName": "", "displayName": "Tyler"])
+
+        #expect(stored.resolvedDisplayName == "Tyler")
+
+        var other = PreAuthOnboardingAnswers()
+        other.firstName = "Ava"
+        other.lastName = "Mills"
+        #expect(OnboardingProfileFill.plan(answers: other, existing: stored).name == nil)
+    }
+
+    @Test
+    func anObjectionableNameIsLeftOutAndNeverBlocksTheRest() {
         var rude = answersWithName()
         rude.firstName = "Fuck"
         rude.gender = .woman
@@ -516,6 +602,7 @@ struct OnboardingProfileSetupTests {
         let handOff = OnboardingV3SignInHandOff(
             seams: .init(
                 isProfileWriteEnabled: { true },
+                signInNameSettled: {},
                 readProfile: { _ in nil },
                 writeProfile: { _, _, fill in written.append(fill) },
                 recordProfileStepFailure: { _ in },
@@ -540,6 +627,146 @@ struct OnboardingProfileSetupTests {
         #expect(photos.url(for: name) == nil, "uploaded or not needed, the picture is done with the device")
     }
 
+    /// The account a hand-off writes to, standing in for Firestore: whoever commits last holds it.
+    @MainActor
+    private final class FakeAccount {
+        var name: OnboardingProfileFill.Name?
+        var written: [OnboardingProfileFill] = []
+
+        var profile: UserDisplayNameData? {
+            name.map {
+                UserDisplayNameData([
+                    "firstName": $0.firstName,
+                    "lastName": $0.lastName,
+                    "displayName": [$0.firstName, $0.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+                ])
+            }
+        }
+    }
+
+    private func handOff(
+        answers: PreAuthOnboardingAnswers,
+        account: FakeAccount,
+        signInNameSettled: @escaping @MainActor () async -> Void = {}
+    ) -> (OnboardingV3SignInHandOff, PreAuthOnboardingStore) {
+        let suite = "profile-handoff-order-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        defaults.removePersistentDomain(forName: suite)
+        let store = PreAuthOnboardingStore(userDefaults: defaults)
+        store.save(answers)
+        let handOff = OnboardingV3SignInHandOff(
+            seams: .init(
+                isProfileWriteEnabled: { true },
+                signInNameSettled: signInNameSettled,
+                readProfile: { _ in account.profile },
+                writeProfile: { _, _, fill in
+                    account.written.append(fill)
+                    if let name = fill.name { account.name = name }
+                },
+                recordProfileStepFailure: { _ in },
+                importHealthHistory: { _ in true },
+                markPostSignInOnboardingComplete: {},
+                deviceWeeklyTarget: { _ in nil },
+                saveWeeklyTarget: { _, _ in },
+                reconcileWeeklyTarget: { _ in }
+            ),
+            store: store,
+            intent: OnboardingV3HandOffIntent(userDefaults: defaults),
+            photos: OnboardingProfilePhotoStore(directory: temporaryDirectory())
+        )
+        return (handOff, store)
+    }
+
+    private static let placeholderName = OnboardingProfileFill.Name(
+        firstName: SignInNamePlaceholder.firstName,
+        lastName: SignInNamePlaceholder.lastName
+    )
+
+    /// Adoption commits the placeholder only after an Auth round trip, so the hand-off, with no such
+    /// trip, used to commit first and lose the typed name for good.
+    @Test
+    func aTypedNameSurvivesAPlaceholderStillOnItsWay() async {
+        let account = FakeAccount()
+        let adoption = Task { @MainActor in
+            for _ in 0..<20 { await Task.yield() }
+            account.name = Self.placeholderName
+        }
+        let (handOff, store) = handOff(answers: answersWithName(), account: account) { await adoption.value }
+
+        #expect(await handOff.runAfterSignIn(userId: "u1", email: nil) == .complete)
+
+        #expect(account.name == .init(firstName: "Tyler", lastName: "Pavay"))
+        #expect(store.answers().firstName == nil)
+    }
+
+    @Test
+    func aTypedNameReplacesAPlaceholderAlreadyThere() async {
+        let account = FakeAccount()
+        account.name = Self.placeholderName
+        let (handOff, _) = handOff(answers: answersWithName(), account: account)
+
+        #expect(await handOff.runAfterSignIn(userId: "u1", email: nil) == .complete)
+
+        #expect(account.name == .init(firstName: "Tyler", lastName: "Pavay"))
+    }
+
+    @Test
+    func aNameTheProviderSuppliedWinsWheneverItLands() async {
+        let provider = OnboardingProfileFill.Name(firstName: "Ava", lastName: "Mills")
+        let account = FakeAccount()
+        let adoption = Task { @MainActor in
+            for _ in 0..<20 { await Task.yield() }
+            account.name = provider
+        }
+        let (handOff, _) = handOff(answers: answersWithName(), account: account) { await adoption.value }
+
+        #expect(await handOff.runAfterSignIn(userId: "u1", email: nil) == .complete)
+
+        #expect(account.name == provider)
+    }
+
+    @Test
+    func aNameTypedAloneStillHandsOffAndLeavesTheDevice() async {
+        var answers = PreAuthOnboardingAnswers()
+        answers.firstName = "Tyler"
+        #expect(answers.carriesHandOffWork)
+
+        let account = FakeAccount()
+        let (handOff, store) = handOff(answers: answers, account: account)
+
+        #expect(await handOff.runAfterSignIn(userId: "u1", email: nil) == .complete)
+
+        #expect(account.name == .init(firstName: "Tyler", lastName: ""))
+        #expect(store.answers().firstName == nil)
+    }
+
+    @Test
+    func aRefusedNameTypedAloneWritesNothingAndStillLeavesTheDevice() async {
+        var answers = PreAuthOnboardingAnswers()
+        answers.firstName = "Fuck"
+
+        let account = FakeAccount()
+        let (handOff, store) = handOff(answers: answers, account: account)
+
+        #expect(await handOff.runAfterSignIn(userId: "u1", email: nil) == .complete)
+
+        #expect(account.written.isEmpty)
+        #expect(store.answers().firstName == nil)
+    }
+
+    @Test
+    func theSessionShowsTheWrittenNameAndPhotoWithoutARelaunch() async throws {
+        let session = AuthenticationViewModel(observesFirebaseAuth: false)
+        let url = try #require(URL(string: "https://example.com/p.jpg"))
+
+        await session.adoptWrittenName("Tyler")
+        session.adoptWrittenProfilePicture(url)
+
+        #expect(session.displayName == "Tyler")
+        #expect(session.hasRemoteDisplayName)
+        #expect(session.displayPhotoURL == url)
+    }
+
     @Test
     func aRefusedWriteKeepsTheNameAndThePhotoForTheNextRun() async throws {
         let suite = "profile-handoff-refused-\(UUID().uuidString)"
@@ -556,6 +783,7 @@ struct OnboardingProfileSetupTests {
         let handOff = OnboardingV3SignInHandOff(
             seams: .init(
                 isProfileWriteEnabled: { true },
+                signInNameSettled: {},
                 readProfile: { _ in nil },
                 writeProfile: { _, _, _ in throw Refused() },
                 recordProfileStepFailure: { _ in },

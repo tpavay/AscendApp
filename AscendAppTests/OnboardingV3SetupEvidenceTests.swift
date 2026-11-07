@@ -82,7 +82,7 @@ struct OnboardingV3SetupEvidenceTests {
             #expect(copy.contains("change me"), "\(copy)")
             #expect(copy.contains("first name"), "\(copy)")
             #expect(copy.contains("last name"), "\(copy)")
-            // The rows below the name fields sit below the fold at an accessibility size; the scroll reaches them.
+            // A compact-height phone at an accessibility size scrolls the rows below the name fields under a fade.
             if size == nil {
                 #expect(copy.contains("birthday"), "\(copy)")
                 #expect(copy.contains("not set"), "\(copy)")
@@ -110,10 +110,30 @@ struct OnboardingV3SetupEvidenceTests {
         }
     }
 
-    private static let iPhone16 = CGSize(width: 393, height: 852)
+    @Test
+    func aRefusedNameSaysSoAndTheRowKeepsTheDefault() async throws {
+        let coordinator = coordinator(at: .profileSetup) { $0.firstName = "Fuck" }
+        try await host(profileScreen(coordinator), size: nil, name: "profile-setup-refused-name") { copy in
+            #expect(copy.contains("that name can't go on a leaderboard. pick another."), "\(copy)")
+            #expect(copy.contains("change me"), "\(copy)")
+        }
+    }
 
-    /// The iPhone 16 and its filled twin, beside the SE ones above: nothing clips there, because the
-    /// birthday, height and weight rows all sit above the footnote.
+    private static let iPhone16 = CGSize(width: 393, height: 852)
+    /// The padding under the body in `OnboardingSetupLayout`: the last row has to clear the footnote
+    /// by this much or the body overflows, scrolls and draws its fade over the row.
+    private static let bodyBottomPadding: CGFloat = 20
+
+    /// The whole phone, with its own status bar and home indicator instead of the host's.
+    private func onPhone(_ screen: some View, top: CGFloat, bottom: CGFloat) -> some View {
+        screen
+            .safeAreaPadding(.top, top)
+            .safeAreaPadding(.bottom, bottom)
+            .ignoresSafeArea()
+    }
+
+    /// The iPhone 16 and its filled twin, beside the SE ones above, at the height its insets really
+    /// leave: the screen fits without scrolling, because the rows all sit above the footnote.
     @Test(arguments: [false, true])
     func theIPhone16FitsEveryRowAboveTheFootnote(filled: Bool) async throws {
         let coordinator = coordinator(at: .profileSetup) {
@@ -124,29 +144,30 @@ struct OnboardingV3SetupEvidenceTests {
             $0.heightCm = 177.8
             $0.birthday = PreAuthOnboardingBirthday(year: 1996, month: 6, day: 14)
         }
-        try await RenderedScreen.host(profileScreen(coordinator), size: Self.iPhone16, settle: .turns(40)) { screen in
+        try await RenderedScreen.host(onPhone(profileScreen(coordinator), top: 59, bottom: 34), size: Self.iPhone16, settle: .turns(40)) { screen in
             for row in ["Birthday", "Height", "Weight"] {
                 let frame = try #require(try await screen.frame(ofElementLabelled: row))
                 let footnote = try #require(try await screen.text(containing: "all optional")?.frame)
-                #expect(frame.maxY <= footnote.minY, "\(row) \(frame) footnote \(footnote)")
+                #expect(frame.maxY + Self.bodyBottomPadding <= footnote.minY, "\(row) \(frame) footnote \(footnote)")
             }
             try screen.photograph(named: "onboarding-v3-profile-setup-iphone16-\(filled ? "filled" : "empty")")
         }
     }
 
-    /// The design fits one screen with no scrolling. On the design's own 390 x 844 canvas every row
-    /// sits above the footnote that sits above CONTINUE, so nothing is reached by scrolling.
+    /// The screen fits with no scrolling at the handoff's size. On its own 390 x 844 canvas, with the
+    /// insets that phone has, every row sits above the footnote that sits above CONTINUE. A
+    /// compact-height phone is the one that scrolls, under a fade.
     @Test
     func everyRowSitsAboveTheFootnoteOnTheDesignsCanvas() async throws {
         let coordinator = coordinator(at: .profileSetup)
         try await RenderedScreen.host(
-            profileScreen(coordinator),
+            onPhone(profileScreen(coordinator), top: 47, bottom: 34),
             size: CGSize(width: 390, height: 844),
             settle: .turns(40)
         ) { screen in
             let weight = try #require(try await screen.frame(ofElementLabelled: "Weight"))
             let footnote = try #require(try await screen.text(containing: "all optional")?.frame)
-            #expect(weight.maxY <= footnote.minY, "weight \(weight) footnote \(footnote)")
+            #expect(weight.maxY + Self.bodyBottomPadding <= footnote.minY, "weight \(weight) footnote \(footnote)")
 
             let title = try #require(try await screen.text(containing: "set up your")?.frame)
             let header = try #require(try await screen.frame(ofElementLabelled: "Back"))

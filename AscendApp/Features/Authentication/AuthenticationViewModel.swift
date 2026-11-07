@@ -96,6 +96,8 @@ class AuthenticationViewModel {
         }
     }
     private var authStateHandle: AuthStateDidChangeListenerHandle?
+    /// What the latest sign-in set off: name resolution, then reading the profile back.
+    private var profileLoadTask: Task<Void, Never>?
 
     func registerAuthStateHandler() {
         if authStateHandle == nil {
@@ -146,7 +148,7 @@ class AuthenticationViewModel {
                     )
 
                     // Handle Firestore operations in background
-                    Task {
+                    self.profileLoadTask = Task {
                         // The name the provider supplied is written before anything
                         // reads the profile back, so the account already carries one
                         // by the time onboarding resolves - with no screen asking.
@@ -743,6 +745,25 @@ extension AuthenticationViewModel {
         let failure = errorMessage
         errorMessage = nil
         return didSucceed ? nil : (failure ?? fallback)
+    }
+
+    /// Returns once this session's name has been resolved and the profile read back, so a write
+    /// made after it can neither race the placeholder nor be overwritten by that read.
+    func profileLoadSettled() async {
+        await profileLoadTask?.value
+    }
+
+    /// Brings the session up to a name already written to the profile outside this view model.
+    func adoptWrittenName(_ boardName: String) async {
+        displayName = boardName
+        hasRemoteDisplayName = true
+        forgetSuppliedIdentity()
+        try? await authenticationService.updateUserDisplayName(displayName: boardName)
+    }
+
+    /// Brings the session up to a photo already written to the profile outside this view model.
+    func adoptWrittenProfilePicture(_ url: URL) {
+        customProfilePictureURL = url
     }
 
     var displayPhotoURL: URL? {
