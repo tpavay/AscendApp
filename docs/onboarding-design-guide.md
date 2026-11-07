@@ -557,9 +557,10 @@ A better-prefilled screen is not the fix either.
 Ascend resolves the name instead, on one provider-agnostic path, first hit wins, always terminating:
 
 1. The Ascend profile Ascend already holds.
-2. A name typed on the v3 flow's pre-sign-in profile screen, on an account with none of the above - see the carve-out below.
-3. Whatever the provider supplied at this sign-in - Apple's once-only credential, or the display name Google supplies on every sign-in.
-4. The placeholder first name `CHANGE`, last name `ME`.
+2. Whatever the provider supplied at this sign-in - Apple's once-only credential, or the display name Google supplies on every sign-in.
+3. The placeholder first name `CHANGE`, last name `ME`.
+
+A name typed on the v3 flow's pre-sign-in profile screen ranks between steps 1 and 2, on an account with no stored name - see the carve-out below.
 
 `SuppliedNameAdoption.decide` is the single pure rule, and `AscendApp/Features/Authentication/SignInSuppliedIdentity.swift` owns it.
 Deliberately not a per-provider branch: two branches are two things to drift.
@@ -576,7 +577,7 @@ Behavior:
   Resolution writes only when the profile carries no name at all.
 
 The one carve-out is the pre-sign-in profile screen of the v3 flow (08, `OnboardingProfileSetupScreen`, behind `onboarding_v3_enabled`), which offers optional First name and Last name fields beside a photo, gender, birthday, height and weight.
-It is not the rejected step: Skip and Continue both pass with the fields empty, nothing waits on them, and the resolution above is untouched.
+It is not the rejected step: Skip and Continue both pass with the fields empty, and nothing waits on them.
 What a climber types is held on the device and written after sign-in by the hand-off, which fills blanks only - it replaces a `CHANGE ME` placeholder and never a real name the account already carries.
 A typed name outranks the provider's on an account with no stored name, because the screen shows the climber exactly that name: resolution sees one pending, writes nothing, and leaves it to the hand-off, which runs only after resolution has settled.
 A stored real name still wins, so a returning climber keeps theirs, and the provider's name fills only when nothing usable was typed.
