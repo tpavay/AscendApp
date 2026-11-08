@@ -14,6 +14,18 @@ struct OnboardingV3HealthEvidenceTests {
     /// iPhone SE (3rd generation), the smallest phone that runs iOS 26.
     private static let smallestPhone = CGSize(width: 375, height: 667)
     nonisolated private static let phones = [CGSize(width: 375, height: 667), CGSize(width: 402, height: 874)]
+
+    struct PhoneShape: CustomTestStringConvertible, Sendable {
+        let testDescription: String
+        let size: CGSize
+        let top: CGFloat
+        let bottom: CGFloat
+    }
+
+    nonisolated private static let phoneShapes = [
+        PhoneShape(testDescription: "Dynamic Island", size: CGSize(width: 402, height: 874), top: 62, bottom: 34),
+        PhoneShape(testDescription: "home button", size: CGSize(width: 375, height: 667), top: 20, bottom: 0)
+    ]
     nonisolated private static let accessibilitySizes: [DynamicTypeSize] = [.accessibility3, .accessibility5]
 
     private func coordinator(at target: OnboardingV3Step) -> OnboardingV3Coordinator {
@@ -113,20 +125,22 @@ struct OnboardingV3HealthEvidenceTests {
     }
 
     /// The captain's balance call on 06: the Health tile, the dots and the Ascend tile sit centred in
-    /// the room between the progress bar and the headline, and the words sit low, above the buttons.
+    /// the room between the header row and the headline, and the words sit low, above the buttons.
     @Test(arguments: Self.phones)
     func connectCentresTheArtBetweenTheBarAndTheWords(size: CGSize) async throws {
         try await RenderedScreen.host(flow(.healthConnect), size: size, settle: .turns(60)) { screen in
             _ = try await screen.copy { $0.contains("connect apple health") }
-            let bar = try #require(try await screen.frame(ofElementLabelled: "Onboarding progress"))
+            // The row the bar sits in ends where its back button does; the bar itself is 6 pt in the
+            // middle of it, and the button's white chevron reaches below the bar.
+            let header = try #require(try await screen.frame(ofElementLabelled: "Back"))
             let primary = try #require(try await screen.frame(ofElementLabelled: "Connect Apple Health"))
             let skip = try #require(try await screen.frame(ofElementLabelled: "Skip"))
             let footnote = try #require(try await screen.frame(ofElementLabelled: "You can always connect this in Settings."))
 
-            // The Health tile is the only pure white on the screen above the headline, and the headline
-            // is the first white ink below it.
+            // The Health tile is the only pure white on the screen between the header and the headline,
+            // and the headline is the first white ink below it.
             let (art, words) = try screen.withPixels { sampler in
-                let tile = sampler.bounds(in: CGRect(x: 0, y: bar.maxY, width: size.width, height: size.height / 2 - bar.maxY)) {
+                let tile = sampler.bounds(in: CGRect(x: 0, y: header.maxY, width: size.width, height: size.height / 2 - header.maxY)) {
                     $0.red > 245 && $0.green > 245 && $0.blue > 245
                 }
                 let below = tile.map { CGRect(x: 0, y: $0.maxY + 4, width: size.width, height: primary.minY - $0.maxY - 4) }
@@ -137,17 +151,52 @@ struct OnboardingV3HealthEvidenceTests {
             }
             let tile = try #require(art, "the Health tile is on screen")
             let headlineInk = try #require(words, "the headline is on screen")
-            let roomAbove = tile.minY - bar.maxY
-            let roomBelow = headlineInk.minY - tile.maxY
             // The smallest phone has no room to spare, so the balance is read on the tall one and the
             // small one is read from its photograph; both keep the bottom of the screen in order below.
             if size.height > 800 {
-                #expect(abs(roomAbove - roomBelow) <= 10, "centred: \(roomAbove) above, \(roomBelow) below")
+                let roomMiddle = (header.maxY + headlineInk.minY) / 2
+                #expect(abs(tile.midY - roomMiddle) <= 10, "centred: the tile \(tile) in the room from \(header.maxY) to \(headlineInk.minY)")
             }
 
             #expect(skip.minY > primary.maxY, "Skip is under the button")
             #expect(footnote.minY >= skip.maxY - 4, "the Settings line is under Skip")
             #expect(screen.bounds.contains(footnote), "the Settings line is on screen: \(footnote)")
+        }
+    }
+
+    /// The whole phone, with its own status bar and home indicator instead of the host's.
+    private func onPhone(_ screen: some View, _ phone: PhoneShape) -> some View {
+        screen
+            .safeAreaPadding(.top, phone.top)
+            .safeAreaPadding(.bottom, phone.bottom)
+            .ignoresSafeArea()
+    }
+
+    /// The captain's phone screenshot of 06 on the Dev build of 8479f7be: the Settings line ended
+    /// 85 pt above the bottom of a Dynamic Island phone, a band of nothing under the footnote. The
+    /// scaffold added the home indicator's height to a frame that already excluded it, so the whole
+    /// bottom bar sat one inset too high. Every other v3 screen pins its last control 16 pt above
+    /// the home indicator (`SellScreenFrame`, `OnboardingSetupLayout`), and 06 sits with them, the
+    /// words just above the button.
+    @Test(arguments: Self.phoneShapes)
+    func connectsBottomBarSitsOnTheFlowsBottomInset(phone: PhoneShape) async throws {
+        let continueBottom = try await RenderedScreen.host(onPhone(flow(.goHarder), phone), size: phone.size, settle: .turns(60)) { screen in
+            try #require(try await screen.frame(ofElementLabelled: "Continue")).maxY
+        }
+        try await RenderedScreen.host(onPhone(flow(.healthConnect), phone), size: phone.size, settle: .turns(60)) { screen in
+            let footnote = try #require(try await screen.frame(ofElementLabelled: "You can always connect this in Settings."))
+            let primary = try #require(try await screen.frame(ofElementLabelled: "Connect Apple Health"))
+            let heartRate = try #require(try await screen.frame(ofElementLabelled: "Heart rate"))
+            let homeIndicator = phone.size.height - phone.bottom
+
+            #expect(abs(footnote.maxY - (homeIndicator - 16)) <= 1.5, "the Settings line \(footnote) ends 16 pt above the home indicator at \(homeIndicator)")
+            #expect(abs(footnote.maxY - continueBottom) <= 1.5, "the Settings line \(footnote) ends where 02's Continue ends, \(continueBottom)")
+            // The reserved room under the words is the bar, its padding and about a line; a short
+            // phone has none to spare, a tall one keeps the words down with the button.
+            if phone.bottom > 0 {
+                #expect(primary.minY - heartRate.maxY <= 30, "the words sit just above the button: chips end at \(heartRate.maxY), the button starts at \(primary.minY)")
+            }
+            try screen.photograph(named: "onboarding-v3-health-06-connect-on-phone-\(Int(phone.size.height))")
         }
     }
 

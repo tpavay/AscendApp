@@ -38,7 +38,7 @@ struct OnboardingProfileSetupTests {
         let empty = draft()
         #expect(SignInNamePlaceholder.boardName == "CHANGE ME")
 
-        #expect(empty.displayName == "CHANGE ME")
+        #expect(empty.displayName == "Change me", "the placeholder sign-in publishes, as the design writes it")
         #expect(empty.initials == "CM")
         #expect(empty.subline(on: date(2026, 11, 4), calendar: calendar) == nil, "hidden while nothing is set")
         #expect(empty.birthdayRowText(calendar: calendar, locale: english) == nil)
@@ -64,7 +64,7 @@ struct OnboardingProfileSetupTests {
         #expect(typing.initials == "P")
 
         typing.lastName = "   "
-        #expect(typing.displayName == "CHANGE ME", "spaces are not a name")
+        #expect(typing.displayName == "Change me", "spaces are not a name")
         #expect(typing.initials == "CM")
     }
 
@@ -80,12 +80,28 @@ struct OnboardingProfileSetupTests {
         typing.firstName = "Fuck"
         #expect(typing.boardName == nil)
         #expect(typing.isNameRefused)
-        #expect(typing.displayName == "CHANGE ME", "a refused name is never previewed as accepted")
+        #expect(typing.displayName == "Change me", "a refused name is never previewed as accepted")
         #expect(typing.initials == "CM")
 
         typing.firstName = ""
         #expect(!typing.isNameRefused, "nothing typed is nothing refused")
-        #expect(typing.displayName == "CHANGE ME")
+        #expect(typing.displayName == "Change me")
+    }
+
+    /// The avatar is the photo's only button, so until a photo is picked the row's second line
+    /// says so, whatever else is set; once one is, the line is the usual gender, age and city.
+    @Test
+    func theRowAsksForAPhotoUntilOneIsPickedThenShowsTheDetails() {
+        let today = date(2026, 11, 4)
+        var card = draft()
+        #expect(card.rowSubline(hasPhoto: false, on: today, calendar: calendar) == .photoPrompt)
+        #expect(card.rowSubline(hasPhoto: true, on: today, calendar: calendar) == nil, "a photo and nothing else set shows no line")
+
+        card.gender = .man
+        card.setBirthday(from: date(1996, 6, 14), calendar: calendar)
+        #expect(card.rowSubline(hasPhoto: false, on: today, calendar: calendar) == .photoPrompt, "the prompt outranks the details")
+        #expect(card.rowSubline(hasPhoto: true, on: today, calendar: calendar) == .details("M \u{00B7} 30"))
+        #expect(ProfileSetupDraft.RowSubline.photoPrompt.text == "Tap the photo to add yours")
     }
 
     @Test
@@ -341,36 +357,20 @@ struct OnboardingProfileSetupTests {
 
     // MARK: - The ruler's direction
 
-    /// Which mark sits under the pointer, reading only what is drawn: the marks run tallest first
-    /// from where the scroll content, moved on by `scrolled`, and the mirror put them.
-    private func drawnTop(scrolled: CGFloat, range: ClosedRange<Int>) -> CGFloat {
-        (HeightRulerView.viewHeight - HeightRulerView.rowHeight) / 2 - scrolled
-            + HeightRulerView.marksOffset(scrolled: scrolled, markCount: range.count)
-    }
-
-    private func drawnMark(scrolled: CGFloat, range: ClosedRange<Int>) -> Int {
-        let top = drawnTop(scrolled: scrolled, range: range)
-        let rowsFromTop = (HeightRulerView.viewHeight / 2 - top - HeightRulerView.rowHeight / 2) / HeightRulerView.rowHeight
-        return range.upperBound - Int(rowsFromTop.rounded())
-    }
-
-    /// A finger dragging up moves the invisible list on, and it runs shortest first.
+    /// The strip is one list of rows, laid out tallest first, so the row above any mark is the next
+    /// taller one: a finger dragging the strip down brings it under the pointer and the value rises,
+    /// the way the weight scale's ticks follow the finger. Rows laid out shortest first - what
+    /// shipped, with the marks mirrored over them - read the finger backwards.
     @Test(arguments: [ProfileMeasures.heightInchesRange, ProfileMeasures.heightCentimetersRange])
-    func draggingUpRaisesTheDrawnMarkOnePerRowAgainstTheFinger(range: ClosedRange<Int>) {
-        let row = HeightRulerView.rowHeight
+    func theRowAboveAnyMarkIsTheNextTallerOne(range: ClosedRange<Int>) {
+        let rows = HeightRulerView.rows(in: range)
 
-        for mark in range {
-            let scrolled = CGFloat(mark - range.lowerBound) * row
-            #expect(drawnMark(scrolled: scrolled, range: range) == mark, "what is drawn is what is read")
+        #expect(rows.count == range.count, "every mark has one row")
+        #expect(rows.first == range.upperBound, "the tallest mark is at the top of the strip")
+        #expect(rows.last == range.lowerBound, "the shortest is at the bottom")
+        for (above, below) in zip(rows, rows.dropFirst()) {
+            #expect(above == below + 1, "\(above) sits one row above \(below)")
         }
-
-        let start = 10 * row
-        let afterDragUp = start + 3 * row
-        #expect(drawnMark(scrolled: afterDragUp, range: range) == drawnMark(scrolled: start, range: range) + 3)
-        #expect(
-            drawnTop(scrolled: afterDragUp, range: range) - drawnTop(scrolled: start, range: range) == 3 * row,
-            "the marks travel down, point for point"
-        )
     }
 
     // MARK: - Gender

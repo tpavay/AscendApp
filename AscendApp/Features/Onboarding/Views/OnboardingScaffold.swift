@@ -3,6 +3,8 @@ import SwiftUI
 struct OnboardingScaffold<Background: View, Content: View, BottomContent: View>: View {
     var backAction: (() -> Void)?
     var isBackEnabled = true
+    /// See ``OnboardingScaffoldLayout/fixedBottomPadding``.
+    var bottomPadding: CGFloat?
 
     @ViewBuilder let background: () -> Background
     @ViewBuilder let content: (OnboardingScaffoldLayout) -> Content
@@ -12,7 +14,8 @@ struct OnboardingScaffold<Background: View, Content: View, BottomContent: View>:
         GeometryReader { geometry in
             let layout = OnboardingScaffoldLayout(
                 size: geometry.size,
-                safeAreaInsets: geometry.safeAreaInsets
+                safeAreaInsets: geometry.safeAreaInsets,
+                fixedBottomPadding: bottomPadding
             )
 
             ZStack(alignment: .topLeading) {
