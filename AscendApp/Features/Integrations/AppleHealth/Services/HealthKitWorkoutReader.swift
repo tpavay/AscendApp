@@ -71,14 +71,10 @@ final class HealthKitWorkoutReader: HealthWorkoutReading {
     }
 
     /// The activity types a stair stepper session arrives under: stair stepper machines
-    /// (`stairClimbing`), stair workouts (`stairs`), and `stepTraining`, which is where some
-    /// watches and apps file the same machine. Every other activity type is somebody else's
-    /// workout and is never read.
-    ///
-    /// Growing this list means changing `AppleHealthImportSettings.anchorScope` too: a stored
-    /// anchor says "nothing new" only about the types the read that produced it asked for.
+    /// (`stairClimbing`) and stair workouts (`stairs`). Every other activity type is somebody
+    /// else's workout and is never read.
     nonisolated static var stairActivityTypes: [HKWorkoutActivityType] {
-        [.stairClimbing, .stairs, .stepTraining]
+        [.stairClimbing, .stairs]
     }
 
     nonisolated static func stairWorkoutPredicate() -> NSPredicate {

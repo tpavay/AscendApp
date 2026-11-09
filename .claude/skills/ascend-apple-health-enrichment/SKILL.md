@@ -20,7 +20,7 @@ Do not add a second import path behind a flag, a debug toggle, or a "just in cas
 
 ## Import in one screen
 
-- Only `stairClimbing`, `stairs` and `stepTraining` workouts, one `HealthWorkoutRecord` per HealthKit workout UUID.
+- Only `stairClimbing` and `stairs` workouts, one `HealthWorkoutRecord` per HealthKit workout UUID.
 - Steps follow one rule (`HealthWorkoutStepRule`): the workout's own, else a `cumulativeSum` of `stepCount` over the workout's own window, else none.
   Either number is the climb's number, never a tilde and never marked as estimated.
   A workout with no steps anywhere imports with zero steps and the Add steps prompt.

@@ -31,7 +31,7 @@ Still not in the app: any framing of Ascend as a place to log or track training 
 Kept: live heart rate from a Bluetooth chest strap, Live Climbs, leaderboards, First Ascents, Best Efforts, guided routines, and the share sheet.
 
 Ascend reads exactly four Apple Health types, read only: workouts, steps, heart rate and active energy.
-It imports `stairClimbing`, `stairs` and `stepTraining` workouts and their own statistics, reads the step count over an imported workout's own time window when that workout carries no steps, and still reads heart rate and active energy over a climb's own time window, for a climb Ascend recorded, to attach them to it.
+It imports `stairClimbing` and `stairs` workouts and their own statistics, reads the step count over an imported workout's own time window when that workout carries no steps, and still reads heart rate and active energy over a climb's own time window, for a climb Ascend recorded, to attach them to it.
 It never writes to Apple Health.
 `HealthKitAuthorizationClient.readTypes` is the authority for that set; the legal pages, the `Info.plist` usage string, and the App Store data answers all have to match it.
 

@@ -7,8 +7,8 @@ Live headphone climbs stay the main way to climb.
 
 ## What counts
 
-Only `HKWorkoutActivityType.stairClimbing`, `.stairs` and `.stepTraining` workouts are read (`HealthKitWorkoutReader.stairActivityTypes`).
-A watch or an app decides which Apple activity type its stair stepper session is saved under, so the read covers the stair types and not one of them.
+Only `HKWorkoutActivityType.stairClimbing` and `.stairs` workouts are read (`HealthKitWorkoutReader.stairActivityTypes`).
+A watch or an app decides which Apple activity type its stair stepper session is saved under, so the read covers both stair types and not one of them.
 Only workouts that start on or after the climber's join date (Firebase Auth `creationDate`) are filed by the pass.
 Older ones arrive only through the history backfill below, and only when the climber asked for it.
 A workout shorter than a second or longer than a day is not a climb and is never filed.
@@ -43,7 +43,7 @@ The event carries `reason` (`duration`, `overlaps_live_climb`), `activity_type` 
 An Apple Watch writes under `com.apple.health.<a UUID of that watch>`, which is reported as `com.apple.health`.
 `HealthWorkoutSkipReporter` sends one event per workout however many reads see it in a session.
 The privacy policy's Apple HealthKit section says what the event records in plain words, and `PrivacyInfo.xcprivacy` declares it under Health with the Analytics purpose; the App Store privacy answers are applied by hand.
-A workout of an activity type outside the three is never read, so it is never reported: the privacy policy says Ascend does not read any workout that is not a stair stepper workout, and widening the read to learn other mappings is a disclosure change first.
+A workout of an activity type outside the two is never read, so it is never reported: the privacy policy says Ascend does not read any workout that is not a stair stepper workout, and widening the read to learn other mappings is a disclosure change first.
 
 ## The ledger
 
@@ -71,9 +71,6 @@ That is accepted: the climb is the climber's data and the ledger is bookkeeping.
 ## Settings and keys
 
 `AppleHealthImportSettings` keeps three values in UserDefaults, keyed by uid so a different climber on the same device starts clean: auto-import (default on), when Imports was last opened, and the HealthKit query anchor.
-The anchor is stored under the scope of the read that produced it (`anchorScope`), because an anchor says "nothing new before here" only about the activity types that read asked for.
-An anchor from the two-type read is not this read's anchor, so the first pass after the update starts from the join date like a first pass, silently, and the ledger stops anything it already knows from importing twice.
-Growing `stairActivityTypes` again means changing `anchorScope` with it.
 Account deletion empties the whole defaults domain.
 The ledger rows are user records, so `AccountDataOwnershipService` blocks an account switch over them the way it does over climbs.
 
@@ -224,7 +221,7 @@ The last two rows show only while Health is connected.
 
 `AscendAppTests/AppleHealthImportTestDoubles.swift` holds `FakeHealthWorkoutReader` (a Health database whose anchor is a count of what it has handed out), a recording notifier, an in-process climb remover, a fake authorization controller, and `AppleHealthImportHarness`, which wires a service to an in-memory store and a signed-in climber who joined 30 days before a fixed `now`.
 `AppleHealthImportServiceTests` covers mapping, dedupe, skip and remove, the badge rules, both modes, the kill switch and the observer completion handler.
-`HealthWorkoutStepRuleTests` covers the step rule on its own and through the pass, the import-time read and the backfill; `AppleHealthWorkoutSkipTests` the three activity types, the anchor scope, the terminal overlap and the skip event; `HealthHistoryRangeTests` the range arithmetic; and `AppleHealthSettingsTests` the Settings rows and Import older workouts.
+`HealthWorkoutStepRuleTests` covers the step rule on its own and through the pass, the import-time read and the backfill; `AppleHealthWorkoutSkipTests` the two activity types, the terminal overlap and the skip event; `HealthHistoryRangeTests` the range arithmetic; and `AppleHealthSettingsTests` the Settings rows and Import older workouts.
 `FakeHealthWorkoutReader.windowSteps` is what Health's step count holds for a window, keyed by the window's start.
 `HealthWorkoutRecordSchemaMigrationTests` proves the V6 to V7 stage against a real on-disk store.
 Hosted Home tests pass a service built on `FakeHealthWorkoutReader` with Health unavailable, so no test points the process-wide service at a throwaway store.

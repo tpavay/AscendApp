@@ -12,8 +12,8 @@ struct AppleHealthWorkoutSkipTests {
     // MARK: - Activity types
 
     @Test
-    func theReadCoversTheThreeActivityTypesAStairStepperArrivesUnder() {
-        #expect(HealthKitWorkoutReader.stairActivityTypes == [.stairClimbing, .stairs, .stepTraining])
+    func theReadCoversTheTwoStairActivityTypes() {
+        #expect(HealthKitWorkoutReader.stairActivityTypes == [.stairClimbing, .stairs])
     }
 
     @Test
@@ -24,53 +24,6 @@ struct AppleHealthWorkoutSkipTests {
         }
         #expect(!format.contains("\(HKWorkoutActivityType.running.rawValue)"), "\(format)")
         #expect(format.components(separatedBy: " OR ").count == HealthKitWorkoutReader.stairActivityTypes.count, "\(format)")
-    }
-
-    @Test
-    func aStepTrainingWorkoutImportsLikeAnyOtherStairWorkout() async throws {
-        let harness = try AppleHealthImportHarness()
-        harness.addWorkout(daysAgo: 1, steps: 3_000, activityTypeRawValue: HKWorkoutActivityType.stepTraining.rawValue)
-        await harness.service.syncNow()
-
-        let climb = try #require(try harness.climbs().first)
-        #expect(climb.source == .appleHealth)
-        #expect(climb.steps == 3_000)
-        #expect(harness.skipReporter.skips.isEmpty)
-    }
-
-    /// An anchor says "nothing new" only about the types the read that made it asked for, so the
-    /// two-type read's anchor must not hide a step-training workout already behind it.
-    @Test
-    func anAnchorFromTheNarrowerReadIsNotThisReadsAnchor() async throws {
-        let harness = try AppleHealthImportHarness()
-        let known = harness.addWorkout(daysAgo: 3, steps: 3_000)
-        await harness.service.syncNow()
-        #expect(try harness.climbs().count == 1)
-
-        // A step-training workout the two-type read walked past, and that read's anchor: stored
-        // under the old key, and already beyond the workout. (The fake's anchor is a count.)
-        let missed = harness.addWorkout(
-            daysAgo: 2,
-            steps: 2_000,
-            activityTypeRawValue: HKWorkoutActivityType.stepTraining.rawValue
-        )
-        let scopedKey = "appleHealthImport.anchor.\(AppleHealthImportSettings.anchorScope).\(AppleHealthImportHarness.userID)"
-        let legacyKey = "appleHealthImport.anchor.\(AppleHealthImportHarness.userID)"
-        #expect(harness.defaults.data(forKey: scopedKey) != nil, "this read stores its anchor under its own scope")
-        harness.defaults.removeObject(forKey: scopedKey)
-        harness.defaults.set(Data(String(harness.reader.workouts.count).utf8), forKey: legacyKey)
-        #expect(harness.settings.anchorData(for: AppleHealthImportHarness.userID) == nil)
-
-        let relaunched = harness.relaunchedService()
-        await relaunched.syncNow()
-
-        let climbs = try harness.climbs()
-        #expect(climbs.count == 2, "the missed workout is found, and the known one is not imported twice")
-        #expect(climbs.contains { $0.healthKitUUID == missed.uuid.uuidString })
-        #expect(climbs.filter { $0.healthKitUUID == known.uuid.uuidString }.count == 1)
-        #expect(harness.notifier.imported.isEmpty, "a re-read from the join date is history, never news")
-        #expect(harness.defaults.object(forKey: legacyKey) == nil, "the old mark is gone once the new one is stored")
-        #expect(harness.defaults.data(forKey: scopedKey) != nil)
     }
 
     // MARK: - What a skip says
@@ -161,7 +114,7 @@ struct AppleHealthWorkoutSkipTests {
             duration: 90_000,
             steps: 4_000,
             averageHeartRate: 150,
-            activityTypeRawValue: HKWorkoutActivityType.stepTraining.rawValue,
+            activityTypeRawValue: HKWorkoutActivityType.stairs.rawValue,
             sourceBundleIdentifier: "com.garmin.connect.mobile"
         )
 
@@ -170,7 +123,7 @@ struct AppleHealthWorkoutSkipTests {
         #expect(record.name == "apple_health_workout_skipped")
         #expect(record.parameters == [
             "reason": .string("duration"),
-            "activity_type": .int(Int(HKWorkoutActivityType.stepTraining.rawValue)),
+            "activity_type": .int(Int(HKWorkoutActivityType.stairs.rawValue)),
             "source_bundle_id": .string("com.garmin.connect.mobile"),
             "duration_bucket": .string("over_24h")
         ], "no date, no steps, no heart rate, no identifier")

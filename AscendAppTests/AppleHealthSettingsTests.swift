@@ -139,24 +139,58 @@ struct AppleHealthSettingsTests {
     }
 
     /// Settings rows carry a chevron and no state (`SettingsReorganizationEvidenceTests`), so the
-    /// three rows live one screen in and Settings has a single plain row to it.
+    /// three rows live one screen in and Settings has a single plain row to it. Settings reads the
+    /// process-wide service, whose Health availability belongs to the simulator, so the row is
+    /// held to whatever that service says is on offer.
     @Test("Settings carries one plain row to the screen, between Preferences and Purchases")
-    func settingsCarriesOnePlainRowToTheScreen() throws {
-        let source = try String(
-            contentsOf: URL(filePath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appending(path: "AscendApp/Features/Account/Views/AccountView.swift"),
-            encoding: .utf8
-        )
-        let preferences = try #require(source.range(of: #"sectionView(title: "Preferences""#))
-        let health = try #require(source.range(of: #"sectionView(title: "Apple Health", options: appleHealthOptions)"#))
-        let purchases = try #require(source.range(of: #"sectionView(title: "Purchases""#))
-        #expect(preferences.lowerBound < health.lowerBound)
-        #expect(health.lowerBound < purchases.lowerBound)
-        #expect(source.contains("destination: AppleHealthSettingsView()"))
-        #expect(source.contains(#"title: "Workout import""#))
-        #expect(!source.contains("Toggle("), "no switch on Settings itself")
+    func settingsCarriesOnePlainRowToTheScreen() async throws {
+        UserDefaults.standard.set("Maya Chen", forKey: "displayName")
+        let settings = NavigationStack {
+            AccountView()
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+        }
+        .preferredColorScheme(.dark)
+        let isOffered = AppleHealthSettingsView.isOffered(by: .shared)
+
+        try await RenderedScreen.host(settings, size: CGSize(width: 390, height: 1500)) { screen in
+            let copy = try await screen.copy { $0.contains("purchases") }
+            let words = Set(copy.split(whereSeparator: { !$0.isLetter }).map(String.init))
+            #expect(!words.contains("on"), "a Settings row is summarising its state as On: \(copy)")
+            #expect(!words.contains("off"), "a Settings row is summarising its state as Off: \(copy)")
+
+            guard isOffered else {
+                #expect(!copy.contains("apple health"), "\(copy)")
+                #expect(!copy.contains("workout import"), "\(copy)")
+                return
+            }
+
+            var searchStart = copy.startIndex
+            var headers: [Range<String.Index>] = []
+            for header in ["profile", "notifications", "preferences", "apple health", "purchases"] {
+                let range = try #require(
+                    copy.range(of: header, range: searchStart..<copy.endIndex),
+                    "\(header) is missing or out of order: \(copy)"
+                )
+                headers.append(range)
+                searchStart = range.upperBound
+            }
+            let healthSection = copy[headers[3].upperBound..<headers[4].lowerBound]
+            #expect(
+                healthSection.trimmingCharacters(in: .whitespaces) == "workout import",
+                "the Apple Health section holds the one row: \(healthSection)"
+            )
+
+            let elements = try await screen.elements { $0.contains { $0.accessibilityLabel?.contains("Workout import") == true } }
+            let row = try #require(elements.first { $0.accessibilityLabel?.contains("Workout import") == true })
+            #expect(row.accessibilityActivate())
+
+            let pushed = try await screen.copy {
+                $0.contains(AppleHealthSettingsView.connectedDetail.lowercased())
+                    || $0.contains(AppleHealthSettingsView.offDetail.lowercased())
+                    || $0.contains(AppleHealthSettingsView.notOfferedDetail.lowercased())
+            }
+            #expect(!pushed.contains("purchases"), "the row pushed the Apple Health screen: \(pushed)")
+        }
     }
 
     // MARK: - Import older workouts
