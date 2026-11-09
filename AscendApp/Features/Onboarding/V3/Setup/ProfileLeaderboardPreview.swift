@@ -28,6 +28,11 @@ struct ProfileLeaderboardPreview: View {
 
     // MARK: - The climber's row
 
+    /// The photo prompt in lime until a photo is picked, then the grey details line.
+    private var subline: ProfileSetupDraft.RowSubline? {
+        draft.rowSubline(hasPhoto: photoURL != nil, on: now)
+    }
+
     private var ownRow: some View {
         HStack(spacing: 12) {
             Text("5")
@@ -52,17 +57,17 @@ struct ProfileLeaderboardPreview: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
 
-                if let subline = draft.subline(on: now) {
-                    Text(subline)
+                if let subline {
+                    Text(subline.text)
                         .font(.custom("Montserrat-Bold", size: 12, relativeTo: .caption))
-                        .foregroundStyle(Color(hex: "C8C8C8"))
+                        .foregroundStyle(subline == .photoPrompt ? OnboardingV3Palette.accent : Color(hex: "C8C8C8"))
                         .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Your leaderboard row, rank 5")
-            .accessibilityValue([draft.displayName, draft.subline(on: now)].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityValue([draft.displayName, subline?.text].compactMap { $0 }.joined(separator: ", "))
 
             Text("YOU")
                 .font(.custom("Montserrat-Black", fixedSize: 12))

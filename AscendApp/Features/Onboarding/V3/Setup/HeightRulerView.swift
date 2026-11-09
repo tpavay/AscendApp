@@ -1,12 +1,13 @@
 import SwiftUI
 
 /// The height sheet's vertical ruler, tallest mark at the top, under a fixed pointer at its middle.
-/// Dragging up reads taller. It carries momentum on release and snaps to the nearest inch (a
-/// centimetre in metric).
+/// The marks follow the finger, the way the weight scale's ticks do: the next taller mark is above
+/// the pointer, so dragging the strip down brings it under and reads taller, and dragging up reads
+/// shorter. It carries momentum on release and snaps to the nearest inch (a centimetre in metric).
 ///
-/// Those two facts together mean the marks travel against the finger, point for point: a taller
-/// mark can only reach the pointer by moving down. So an invisible list, shortest first, takes the
-/// gesture and owns the momentum, the snapping and the position, and the marks are mirrored off it.
+/// The rows are laid out tallest first, so the row the scroll view centres is the mark drawn under
+/// the pointer - one list, one order. Laying the rows out shortest first and mirroring the marks
+/// over them put the finger and the value in opposite directions.
 ///
 /// `value` is in the ruler's own unit: inches for imperial, centimetres for metric. The ruler is
 /// rebuilt when the unit changes, so it opens at the converted value.
@@ -20,12 +21,10 @@ struct HeightRulerView: View {
 
     @State private var position: Int?
 
-    /// How far the marks are moved from where the scroll content would carry them, so that the mark
-    /// under the pointer is the one the invisible list has centred.
-    ///
-    /// - Parameter scrolled: how far the list has moved on from its first, shortest mark.
-    nonisolated static func marksOffset(scrolled: CGFloat, markCount: Int) -> CGFloat {
-        2 * scrolled - CGFloat(markCount - 1) * rowHeight
+    /// The marks in the order the strip lays them out, top to bottom: the tallest first, so the row
+    /// above any mark is the next taller one and dragging the strip down raises the value.
+    nonisolated static func rows(in range: ClosedRange<Int>) -> [Int] {
+        Array(range.reversed())
     }
 
     private var range: ClosedRange<Int> {
@@ -42,16 +41,13 @@ struct HeightRulerView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                ForEach(Array(range), id: \.self) { mark in
-                    Color.clear
+                ForEach(Self.rows(in: range), id: \.self) { mark in
+                    tick(for: mark)
                         .frame(height: Self.rowHeight)
                         .id(mark)
                 }
             }
             .scrollTargetLayout()
-            .overlay(alignment: .top) {
-                marks
-            }
         }
         .scrollTargetBehavior(.viewAligned)
         .scrollPosition(id: $position, anchor: .center)
@@ -92,21 +88,6 @@ struct HeightRulerView: View {
             let next = min(max(value + step, range.lowerBound), range.upperBound)
             position = next
             value = next
-        }
-    }
-
-    private var marks: some View {
-        let markCount = range.count
-
-        return VStack(spacing: 0) {
-            ForEach(Array(range.reversed()), id: \.self) { mark in
-                tick(for: mark)
-                    .frame(height: Self.rowHeight)
-            }
-        }
-        .allowsHitTesting(false)
-        .visualEffect { content, proxy in
-            content.offset(y: Self.marksOffset(scrolled: -proxy.frame(in: .scrollView).minY, markCount: markCount))
         }
     }
 

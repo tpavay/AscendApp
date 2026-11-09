@@ -3,6 +3,7 @@ import Foundation
 import SwiftUI
 import Testing
 import UIKit
+import UniformTypeIdentifiers
 @testable import AscendApp
 
 /// Screens 07b, 08, 09, 10 and 11 on screen, at the smallest phone and at an accessibility text
@@ -65,11 +66,12 @@ struct OnboardingV3SetupEvidenceTests {
 
     private func profileScreen(
         _ coordinator: OnboardingV3Coordinator,
-        photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore(directory: FileManager.default.temporaryDirectory.appending(path: "profile-evidence-\(UUID().uuidString)"))
+        photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore(directory: FileManager.default.temporaryDirectory.appending(path: "profile-evidence-\(UUID().uuidString)")),
+        now: Date = .now
     ) -> some View {
         ZStack {
             OnboardingV3Palette.background.ignoresSafeArea()
-            OnboardingProfileSetupScreen(coordinator: coordinator, system: .imperial, photos: photos)
+            OnboardingProfileSetupScreen(coordinator: coordinator, system: .imperial, photos: photos, now: now)
         }
         .environment(\.onboardingV3Coordinator, coordinator)
     }
@@ -81,6 +83,7 @@ struct OnboardingV3SetupEvidenceTests {
             #expect(copy.contains("set up your profile."), "\(copy)")
             #expect(copy.contains("this is how you show up on every leaderboard and live climb."), "\(copy)")
             #expect(copy.contains("change me"), "\(copy)")
+            #expect(copy.contains("tap the photo to add yours"), "the row says the avatar is the photo's button: \(copy)")
             #expect(copy.contains("first name"), "\(copy)")
             #expect(copy.contains("last name"), "\(copy)")
             // A compact-height phone at an accessibility size scrolls the rows below the name fields under a fade.
@@ -108,7 +111,84 @@ struct OnboardingV3SetupEvidenceTests {
             #expect(copy.contains("tyler pavay"), "\(copy)")
             #expect(copy.contains("5'10\""), "\(copy)")
             #expect(!copy.contains("change me"), "\(copy)")
+            #expect(copy.contains("tap the photo to add yours"), "no photo yet, so the row still asks for one: \(copy)")
         }
+    }
+
+    /// Lime, the accent, is the camera badge's fill and nothing else's inside the avatar button.
+    private static func limePixels(in rect: CGRect, on screen: HostedScreen) throws -> Int {
+        try screen.withPixels { pixels in
+            pixels.count(in: rect) { $0.green > 170 && $0.red < 180 && $0.blue < 90 }
+        }
+    }
+
+    /// Where the camera badge sits: the bottom-right corner of the 42 pt avatar, which the picker
+    /// button is centred on, out to the badge's offset.
+    private static func badgeCorner(of avatarButton: CGRect) -> CGRect {
+        CGRect(x: avatarButton.midX + 4, y: avatarButton.midY + 4, width: 26, height: 24)
+    }
+
+    /// The captain's mockup for the row before a photo is picked: initials with a small lime
+    /// camera badge, "Change me" for the name, and "Tap the photo to add yours" in lime under it.
+    /// Nothing on the screen said the avatar was a button, so the photo went unpicked.
+    @Test
+    func theRowAsksForAPhotoWithABadgeAndALimeLineUntilOneIsPicked() async throws {
+        let coordinator = coordinator(at: .profileSetup) { $0.gender = .man }
+        try await RenderedScreen.host(onPhone(profileScreen(coordinator), top: 59, bottom: 34), size: Self.iPhone16, settle: .turns(40)) { screen in
+            let copy = try await screen.copy { $0.contains("change me") }
+            #expect(copy.contains("change me"), "\(copy)")
+            #expect(copy.contains("tap the photo to add yours"), "\(copy)")
+            #expect(copy.contains("add a photo"), "the avatar is the picker's button: \(copy)")
+            #expect(!copy.contains("change photo"), "\(copy)")
+
+            let row = try #require(try await screen.frame(ofElementLabelled: "Your leaderboard row, rank 5"))
+            let prompt = try #require(try await screen.text(containing: "tap the photo to add yours"))
+            #expect(row.contains(prompt.frame), "the prompt is the row's own subline: \(prompt.frame) in \(row)")
+            let avatar = try #require(try await screen.frame(ofElementLabelled: "Add a photo"))
+            #expect(try Self.limePixels(in: Self.badgeCorner(of: avatar), on: screen) > 40, "the camera badge is lime, on the avatar's corner")
+            try screen.photograph(named: "onboarding-v3-profile-row-before-photo")
+        }
+    }
+
+    @Test
+    func thePhotoPromptAndTheBadgeLeaveOnceAPhotoIsPicked() async throws {
+        let photos = OnboardingProfilePhotoStore(directory: FileManager.default.temporaryDirectory.appending(path: "profile-evidence-\(UUID().uuidString)"))
+        let name = try #require(photos.save(try Self.solidPhoto()))
+        let coordinator = coordinator(at: .profileSetup) {
+            $0.profilePhotoFileName = name
+            $0.gender = .man
+            $0.birthday = PreAuthOnboardingBirthday(year: 1996, month: 6, day: 14)
+        }
+        // The age the row shows is read on a fixed day, so the test does not age with the calendar.
+        let november2026 = try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 8, hour: 12)))
+        try await RenderedScreen.host(onPhone(profileScreen(coordinator, photos: photos, now: november2026), top: 59, bottom: 34), size: Self.iPhone16, settle: .turns(40)) { screen in
+            let copy = try await screen.copy { $0.contains("change photo") }
+            #expect(copy.contains("change me"), "\(copy)")
+            #expect(!copy.contains("tap the photo to add yours"), "a picked photo needs no asking: \(copy)")
+            #expect(copy.contains("change photo"), "\(copy)")
+            #expect(!copy.contains("add a photo"), "\(copy)")
+            #expect(copy.contains("m \u{00B7} 30"), "the usual subline comes back: \(copy)")
+
+            let avatar = try #require(try await screen.frame(ofElementLabelled: "Change photo"))
+            #expect(try Self.limePixels(in: Self.badgeCorner(of: avatar), on: screen) == 0, "no camera badge over a picked photo")
+            try screen.photograph(named: "onboarding-v3-profile-row-after-photo")
+        }
+    }
+
+    /// A 64 pt deep blue square, as a PNG: a picture that is no shade of lime.
+    private static func solidPhoto() throws -> Data {
+        let context = try #require(CGContext(
+            data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ))
+        context.setFillColor(CGColor(red: 0.1, green: 0.2, blue: 0.7, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        let image = try #require(context.makeImage())
+        let output = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return output as Data
     }
 
     @Test
@@ -253,13 +333,22 @@ struct OnboardingV3SetupEvidenceTests {
         (view as? UIScrollView) ?? view.subviews.lazy.compactMap { scrollView(in: $0) }.first
     }
 
-    /// Reads the marks as drawn, not as modelled. Only a foot's long tick reaches this far left of
-    /// the ruler's edge, so a bright pixel at the pointer's height means a foot mark is under it.
-    /// 71 inches opens one row short of 6 ft; moving the real scroll view on one row, which is what
-    /// a finger dragging up does, brings the 6 ft tick to the pointer from above.
-    @Test
-    func theDrawnMarkUnderThePointerFollowsTheScrollOneRowAtATime() async throws {
-        let ruler = HeightRulerView(system: .imperial, value: .constant(71))
+    /// The captain's finding on the phone: the height wheel ran backwards. The marks are drawn
+    /// tallest at the top, so the next taller mark is above the pointer and a finger dragging the
+    /// strip down should bring it under - the way the weight scale's ticks follow the finger - and
+    /// instead dragging down read shorter.
+    ///
+    /// Here the real scroll view is moved the way a finger dragging down moves it (its offset
+    /// shrinks by a row) and the mark drawn under the pointer is read off the pixels. The row that
+    /// draws a mark is the row that carries its id, so the mark under the pointer is the id
+    /// `scrollPosition` centres and hands to `value`; a programmatic offset change is not a scroll
+    /// SwiftUI reads that id back from, so the value itself is pinned by the unit test on
+    /// `HeightRulerView.rows(in:)` and read here only at the opening.
+    @Test(arguments: [MeasurementSystem.imperial, .metric])
+    func draggingTheStripDownRaisesTheHeightAndDraggingItUpLowersIt(system: MeasurementSystem) async throws {
+        // 71 in is one row short of 6 ft; 180 cm is a labelled ten.
+        let opening = system == .imperial ? 71 : 180
+        let ruler = HeightRulerView(system: system, value: .constant(opening))
         try await RenderedScreen.host(
             ruler.background(Color.black).environment(\.colorScheme, .dark),
             size: CGSize(width: 390, height: 460),
@@ -267,22 +356,34 @@ struct OnboardingV3SetupEvidenceTests {
         ) { screen in
             let scroller = try #require(scrollView(in: screen.root))
             let strip = scroller.convert(scroller.bounds, to: nil)
+            // Only a foot's (a ten-centimetre's) long tick reaches this far left of the ruler's edge.
             let longTickOnly = CGRect(x: strip.maxX - 40, y: strip.midY - 1, width: 6, height: 2)
-            let brightPixels = {
-                try screen.withPixels { pixels in pixels.count(in: longTickOnly) { $0.red > 150 } }
+            // The next row up, where the mark one taller than the pointer's is drawn.
+            let longTickOneRowUp = longTickOnly.offsetBy(dx: 0, dy: -HeightRulerView.rowHeight)
+            let longTick = { (rect: CGRect) in
+                try screen.withPixels { pixels in pixels.count(in: rect) { $0.red > 150 } } > 0
             }
 
-            #expect(try brightPixels() == 0, "71 inches is no foot mark")
-            try screen.photograph(named: "onboarding-v3-height-ruler-71")
+            let elements = try await screen.elements { $0.contains { $0.accessibilityLabel == "Height" } }
+            let spoken = try #require(elements.first { $0.accessibilityLabel == "Height" }?.accessibilityValue)
+            #expect(spoken == (system == .imperial ? "5 feet 11 inches" : "180 centimetres"), "VoiceOver reads the value")
 
-            scroller.setContentOffset(
-                CGPoint(x: 0, y: scroller.contentOffset.y + HeightRulerView.rowHeight),
-                animated: false
-            )
-            try await Task.sleep(for: .milliseconds(200))
+            #expect(try longTick(longTickOnly) == (system == .metric), "71 in is no foot mark; 180 cm is a ten")
+            #expect(try longTick(longTickOneRowUp) == (system == .imperial), "the taller mark, 6 ft, is the row above; 181 cm is no ten")
+            try screen.photograph(named: "onboarding-v3-height-ruler-\(system)-opening")
 
-            #expect(try brightPixels() > 0, "one row on is 72 inches, the 6 ft mark")
-            try screen.photograph(named: "onboarding-v3-height-ruler-72")
+            // A finger dragging the strip down by one row brings the row above under the pointer.
+            scroller.setContentOffset(CGPoint(x: 0, y: scroller.contentOffset.y - HeightRulerView.rowHeight), animated: false)
+            try await screen.settle(.turns(20))
+            #expect(try longTick(longTickOnly) == (system == .imperial), "dragging down reads taller: 6 ft under the pointer, 181 cm no ten")
+            try screen.photograph(named: "onboarding-v3-height-ruler-\(system)-dragged-down")
+
+            // Then up by three rows: two short of where it opened.
+            scroller.setContentOffset(CGPoint(x: 0, y: scroller.contentOffset.y + 3 * HeightRulerView.rowHeight), animated: false)
+            try await screen.settle(.turns(20))
+            #expect(try !longTick(longTickOnly), "69 in and 178 cm are neither a foot nor a ten")
+            #expect(try longTick(longTickOnly.offsetBy(dx: 0, dy: -3 * HeightRulerView.rowHeight)) == (system == .imperial), "6 ft is three rows up again")
+            try screen.photograph(named: "onboarding-v3-height-ruler-\(system)-dragged-up")
         }
     }
 

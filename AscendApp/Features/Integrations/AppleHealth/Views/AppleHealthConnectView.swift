@@ -51,6 +51,13 @@ struct AppleHealthConnectView: View {
 
     private var screenContent: some View {
         OnboardingScaffold(
+            // This scaffold is laid out inside the safe area, and its default bottom padding adds the
+            // home indicator's height again, which put the bar one inset too high - a dead band under
+            // the footnote on every Dynamic Island phone. In onboarding the bar ends 16 pt above the
+            // home indicator, where every v3 frame pins its last control (`SellScreenFrame`,
+            // `OnboardingSetupLayout`); the Climb sheet's cover keeps its chrome, which the import
+            // choice screen after it shares.
+            bottomPadding: chrome == .onboarding ? 16 : nil,
             background: {
                 ZStack {
                     Color.black
@@ -131,8 +138,10 @@ struct AppleHealthConnectView: View {
                                     .padding(.top, 16)
                             }
 
-                            // Room for the bar laid over the content, which is a line taller in onboarding.
-                            Spacer(minLength: chrome.footnote == nil ? 190 : 206)
+                            // Room for the bar laid over the content: its height, its bottom padding, and
+                            // the gap the words keep above the button. Onboarding's bar is a line taller
+                            // and sits lower.
+                            Spacer(minLength: chrome == .onboarding ? 170 : 190)
                         }
                         .padding(.horizontal, layout.horizontalPadding)
                         .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .leading)

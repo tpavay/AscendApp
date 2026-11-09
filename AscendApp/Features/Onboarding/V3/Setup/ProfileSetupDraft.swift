@@ -57,10 +57,38 @@ struct ProfileSetupDraft: Equatable, Sendable {
         boardName == nil && !(trimmedFirstName.isEmpty && trimmedLastName.isEmpty)
     }
 
-    /// What this climber publishes as: the typed name, or the name an account with none is given,
-    /// which is the whole point of the preview: this is you right now, so fix it.
+    /// What the row says while nothing is typed: the placeholder an account with no name is given
+    /// (`SignInNamePlaceholder`), said the way the design writes it - this is you right now, so fix it.
+    static let unnamedRowName = "Change me"
+
+    /// What the row leads with: the typed name, or ``unnamedRowName``.
     var displayName: String {
-        boardName ?? SignInNamePlaceholder.boardName
+        boardName ?? Self.unnamedRowName
+    }
+
+    /// The line under the name, before a photo is picked. The avatar is the photo's only button
+    /// and nothing else on the screen says so.
+    static let photoPrompt = "Tap the photo to add yours"
+
+    /// The line under the name: ``RowSubline/photoPrompt`` until a photo is picked, whatever else
+    /// is set, then ``subline(on:calendar:)``.
+    enum RowSubline: Equatable {
+        case photoPrompt
+        case details(String)
+
+        var text: String {
+            switch self {
+            case .photoPrompt: ProfileSetupDraft.photoPrompt
+            case .details(let text): text
+            }
+        }
+    }
+
+    /// - Parameter hasPhoto: whether a picked photo is on the device, which is what the avatar
+    ///   shows and what the camera badge keys on.
+    func rowSubline(hasPhoto: Bool, on date: Date = .now, calendar: Calendar = .current) -> RowSubline? {
+        guard hasPhoto else { return .photoPrompt }
+        return subline(on: date, calendar: calendar).map(RowSubline.details)
     }
 
     /// The first letter of each part of the name on the row.
