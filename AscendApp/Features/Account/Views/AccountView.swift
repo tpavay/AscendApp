@@ -20,6 +20,7 @@ struct AccountView: View {
     @State private var isShowingDeleteAccountConfirmation = false
     @State private var isShowingManageSubscriptions = false
     @State private var restorePurchases = RestorePurchasesViewModel()
+    @State private var healthImport = AppleHealthImportService.shared
 
     var body: some View {
         @Bindable var restorePurchases = restorePurchases
@@ -40,6 +41,7 @@ struct AccountView: View {
                 sectionView(title: "Profile", options: profileOptions)
                 sectionView(title: "Notifications", options: notificationOptions)
                 sectionView(title: "Preferences", options: preferenceOptions)
+                sectionView(title: "Apple Health", options: appleHealthOptions)
                 sectionView(title: "Purchases", options: purchaseOptions)
                 sectionView(title: "Support", options: supportOptions)
                 sectionView(title: "Privacy", options: privacyOptions)
@@ -173,6 +175,20 @@ struct AccountView: View {
                 icon: .settingsIntegrations,
                 title: "Integrations",
                 destination: IntegrationsView()
+            )
+        ]
+    }
+
+    /// One row to the Apple Health screen, absent when import is not on offer at all: a device with
+    /// no Health, or the import kill switch off. Whether Health is connected is that screen's to
+    /// say; a Settings row carries a chevron and no state.
+    private var appleHealthOptions: [SettingsOption] {
+        guard AppleHealthSettingsView.isOffered(by: healthImport) else { return [] }
+        return [
+            SettingsOption(
+                icon: .settingsAppleHealth,
+                title: "Workout import",
+                destination: AppleHealthSettingsView()
             )
         ]
     }

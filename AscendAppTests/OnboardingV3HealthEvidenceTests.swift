@@ -366,7 +366,7 @@ struct OnboardingV3HealthEvidenceTests {
             size: size,
             settle: .turns(60)
         ) { screen in
-            let copy = try await screen.copy { $0.contains("add to my history") }
+            let copy = try await screen.copy { $0.contains("to my history") }
             #expect(copy.contains("we found your climbs"), "\(copy)")
             #expect(copy.contains("690,000"), "\(copy)")
             #expect(copy.contains("steps in 30 stair stepper workouts"), "\(copy)")
@@ -382,8 +382,12 @@ struct OnboardingV3HealthEvidenceTests {
             #expect(copy.contains("every climb after you sign up counts on the leaderboards."), "\(copy)")
             #expect(!copy.contains("rank 2nd"), "the estimated rank card is dropped: \(copy)")
             #expect(!copy.contains("#2"), "\(copy)")
-            let primary = try #require(try await screen.frame(ofElementLabelled: "Add to my history"))
+            #expect(copy.contains("time range, everything since"), "the one row that changes the range: \(copy)")
+            let primary = try #require(try await screen.frame(ofElementLabelled: "Add 30 to my history"))
             #expect(screen.bounds.contains(primary), "the button \(primary) runs off the screen")
+            let skip = try #require(try await screen.frame(ofElementLabelled: OnboardingHealthHistoryScreen.skipTitle))
+            #expect(screen.bounds.contains(skip), "the way to import nothing \(skip) runs off the screen")
+            #expect(skip.minY >= primary.maxY, "the quiet link sits under the button: \(skip) \(primary)")
             try screen.photograph(named: "onboarding-v3-health-07a-steps-\(Int(size.height))")
         }
     }
@@ -395,11 +399,11 @@ struct OnboardingV3HealthEvidenceTests {
             size: CGSize(width: 402, height: 874),
             settle: .turns(60)
         ) { screen in
-            let copy = try await screen.copy { $0.contains("add to my history") }
+            let copy = try await screen.copy { $0.contains("to my history") }
             #expect(copy.contains("we found your climbs"), "\(copy)")
             #expect(copy.contains("10"), "\(copy)")
             #expect(copy.contains("stair stepper workouts · 7 hours"), "\(copy)")
-            #expect(copy.contains("6,000 steps in the 2 that track them"), "the steps wait behind the workouts: \(copy)")
+            #expect(copy.contains("6,000 steps in the 2 that have them"), "the steps wait behind the workouts: \(copy)")
             try screen.photograph(named: "onboarding-v3-health-07a-workouts-first")
         }
     }
@@ -408,7 +412,7 @@ struct OnboardingV3HealthEvidenceTests {
     func historyWithNoStepsAtAllLeavesTheEverestCardAndTheStepsOut() async throws {
         let workouts = (0..<6).map { Self.workout(daysAgo: Double(2 + $0), steps: nil, minutes: 41) }
         try await RenderedScreen.host(history(workouts, reduceMotion: true), size: CGSize(width: 402, height: 874), settle: .turns(60)) { screen in
-            let copy = try await screen.copy { $0.contains("add to my history") }
+            let copy = try await screen.copy { $0.contains("to my history") }
             #expect(copy.contains("stair stepper workouts · 4 hours"), "\(copy)")
             #expect(!copy.contains("everest"), "\(copy)")
             #expect(!copy.contains("times over"), "\(copy)")
@@ -427,7 +431,7 @@ struct OnboardingV3HealthEvidenceTests {
             size: CGSize(width: 402, height: 874),
             settle: .turns(60)
         ) { screen in
-            let copy = try await screen.copy { $0.contains("add to my history") }
+            let copy = try await screen.copy { $0.contains("to my history") }
             #expect(copy.contains("5,100"), "\(copy)")
             #expect(copy.contains("that's the empire state building"), "\(copy)")
             #expect(copy.contains("3 times over."), "\(copy)")
@@ -440,7 +444,7 @@ struct OnboardingV3HealthEvidenceTests {
     func historyWithNoWorkoutLongEnoughGivesTheUsualClimbTheWholeRow() async throws {
         let workouts = (0..<4).map { Self.workout(daysAgo: Double(2 + $0), steps: 2_400, minutes: 30) }
         try await RenderedScreen.host(history(workouts, reduceMotion: true), size: CGSize(width: 402, height: 874), settle: .turns(60)) { screen in
-            let copy = try await screen.copy { $0.contains("add to my history") }
+            let copy = try await screen.copy { $0.contains("to my history") }
             #expect(!copy.contains("your best hour"), "\(copy)")
             #expect(copy.contains("your usual climb"), "\(copy)")
             let tile = try #require(try await screen.frame(ofElementLabelled: "Your usual climb"))
@@ -456,12 +460,18 @@ struct OnboardingV3HealthEvidenceTests {
             size: CGSize(width: Self.smallestPhone.width, height: 2_600),
             settle: .turns(80)
         ) { screen in
-            let copy = try await screen.copy { $0.contains("add to my history") }
-            #expect(copy.contains("add to my history"), "\(copy)")
+            let copy = try await screen.copy { $0.contains("to my history") }
+            #expect(copy.contains("add 30 to my history"), "\(copy)")
             let recognized = try await screen.recognizedText(scale: 2).lowercased()
             for word in ["found", "everest", "usual", "history"] {
                 #expect(recognized.contains(word), "\(word) is broken at \(size): \(recognized)")
             }
+            // Tracked capitals: the recogniser does not always see the word gaps, so they are left out.
+            #expect(
+                recognized.replacing(" ", with: "").contains("add30tomyhistory"),
+                "the button's title is cut at \(size): \(recognized)"
+            )
+            #expect(recognized.contains("skip history"), "\(recognized)")
             try screen.photograph(named: "onboarding-v3-health-07a-se-\(size)")
         }
 
@@ -470,8 +480,10 @@ struct OnboardingV3HealthEvidenceTests {
             size: Self.smallestPhone,
             settle: .turns(80)
         ) { screen in
-            let primary = try #require(try await screen.frame(ofElementLabelled: "Add to my history"))
+            let primary = try #require(try await screen.frame(ofElementLabelled: "Add 30 to my history"))
             #expect(screen.bounds.contains(primary), "pinned and reachable on the smallest phone: \(primary)")
+            let skip = try #require(try await screen.frame(ofElementLabelled: OnboardingHealthHistoryScreen.skipTitle))
+            #expect(screen.bounds.contains(skip), "pinned and reachable on the smallest phone: \(skip)")
         }
     }
 

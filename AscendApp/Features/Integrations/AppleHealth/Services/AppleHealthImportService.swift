@@ -3,6 +3,14 @@ import Observation
 import SwiftData
 @preconcurrency import FirebaseAuth
 
+/// The three Apple Health states the Climb sheet's right-hand button tells apart.
+enum AppleHealthEntry: Equatable {
+    /// Not connected, or connected before import and never asked for workouts: Connect Health.
+    case connect
+    /// Connected. `badge` is the red count: zero with auto-import on, where nothing ever waits.
+    case viewImports(badge: Int)
+}
+
 /// Brings stair workouts from Apple Health into Ascend as climbs.
 ///
 /// ## One ledger, keyed by the workout
@@ -26,19 +34,16 @@ import SwiftData
 /// saves a workout. Its completion handler is always called, and always within a bound, because
 /// HealthKit stops delivering until it is.
 ///
-/// ## The overlap hook
+/// ## Steps
+///
+/// A workout's steps are its own, else the steps Health counted over its window, else unknown
+/// (`HealthWorkoutStepRule`). Every read here goes through that rule before the workout is filed.
+///
+/// ## A live climb wins
 ///
 /// A workout whose window overlaps an Ascend live climb by a minute is not a second climb. It is
-/// filed as `overlapsLiveClimb` and left there: the merge that lets that workout enrich the live
-/// climb is a separate piece of work and reads those rows.
-/// The three Apple Health states the Climb sheet's right-hand button tells apart.
-enum AppleHealthEntry: Equatable {
-    /// Not connected, or connected before import and never asked for workouts: Connect Health.
-    case connect
-    /// Connected. `badge` is the red count: zero with auto-import on, where nothing ever waits.
-    case viewImports(badge: Int)
-}
-
+/// filed as `overlapsLiveClimb` and that is the end of it: never imported, never merged into the
+/// live climb, and never put in front of the climber. The live climb is the climb.
 @MainActor
 @Observable
 final class AppleHealthImportService: AuthenticatedSessionWorker {
@@ -85,6 +90,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
     @ObservationIgnored private let settings: AppleHealthImportSettings
     @ObservationIgnored private let notifier: any HealthImportNotifying
     @ObservationIgnored private let remover: any HealthImportClimbRemoving
+    @ObservationIgnored private let skipReporter: any HealthWorkoutSkipReporting
     @ObservationIgnored private let featureFlags: RemoteFeatureFlagStore
     @ObservationIgnored private let sessionWorkGate: AuthenticatedBootstrapCoordinator
     @ObservationIgnored private let sessionStore: AccountSessionStore
@@ -114,6 +120,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         settings: AppleHealthImportSettings = AppleHealthImportSettings(),
         notifier: any HealthImportNotifying = LocalHealthImportNotifier(),
         remover: any HealthImportClimbRemoving = LiveHealthImportClimbRemover(),
+        skipReporter: any HealthWorkoutSkipReporting = HealthWorkoutSkipReporter.shared,
         featureFlags: RemoteFeatureFlagStore = .shared,
         sessionWorkGate: AuthenticatedBootstrapCoordinator = .shared,
         sessionStore: AccountSessionStore = .shared,
@@ -136,6 +143,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         self.settings = settings
         self.notifier = notifier
         self.remover = remover
+        self.skipReporter = skipReporter
         self.featureFlags = featureFlags
         self.sessionWorkGate = sessionWorkGate
         self.sessionStore = sessionStore
@@ -368,14 +376,15 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             )
             return
         }
-        // The climber can sign out, or Health can be switched off, while the read is out.
+        let climbs = await stepResolvedClimbs(in: changes.added.filter { $0.startDate >= joinDate })
+        // The climber can sign out, or Health can be switched off, while the reads are out.
         guard !Task.isCancelled, currentUserID() == userID, canImport else { return }
 
         let ledger = HealthWorkoutLedger(modelContext: modelContext)
         var discovered: [String] = []
         do {
-            for snapshot in changes.added {
-                if let record = try ingest(snapshot, joinDate: joinDate, ledger: ledger) {
+            for snapshot in climbs {
+                if case .discovered(let record) = try file(snapshot, ledger: ledger) {
                     discovered.append(record.workoutUUID)
                 }
             }
@@ -402,21 +411,20 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         refreshDerivedState()
     }
 
-    /// Files one workout, or returns nil when it is already known or is not a climb.
-    private func ingest(
-        _ snapshot: HealthWorkoutSnapshot,
-        joinDate: Date,
-        ledger: HealthWorkoutLedger
-    ) throws -> HealthWorkoutRecord? {
-        guard snapshot.startDate >= joinDate,
-              AppleHealthImportPolicy.isImportableDuration(snapshot.duration) else {
-            return nil
+    /// The workouts of a read that can be climbs, with their steps settled by the step rule.
+    ///
+    /// A workout that cannot be a climb - shorter than a second, longer than a day - is reported
+    /// as passed over and goes no further.
+    private func stepResolvedClimbs(in snapshots: [HealthWorkoutSnapshot]) async -> [HealthWorkoutSnapshot] {
+        var climbs: [HealthWorkoutSnapshot] = []
+        for snapshot in snapshots {
+            if AppleHealthImportPolicy.isImportableDuration(snapshot.duration) {
+                climbs.append(snapshot)
+            } else {
+                skipReporter.report(HealthWorkoutSkip(snapshot, reason: .duration))
+            }
         }
-
-        if case .discovered(let record) = try file(snapshot, ledger: ledger) {
-            return record
-        }
-        return nil
+        return await HealthWorkoutStepRule.resolve(climbs, using: reader)
     }
 
     /// What filing a workout in the ledger found.
@@ -450,9 +458,11 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             return .settled
         }
         if try ledger.overlappingLiveClimb(start: snapshot.startDate, end: snapshot.endDate) != nil {
+            // The live climb is the climb. Terminal: nothing imports, merges or asks about it.
             record.state = .overlapsLiveClimb
             record.resolvedAt = now()
             ledger.modelContext.insert(record)
+            skipReporter.report(HealthWorkoutSkip(snapshot, reason: .overlapsLiveClimb))
             return .settled
         }
 
@@ -509,16 +519,15 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             )
             return false
         }
+        let asked = await stepResolvedClimbs(in: found.added.filter {
+            $0.startDate < joinedAt && workoutIDs.contains($0.uuid.uuidString)
+        })
         guard !Task.isCancelled, currentUserID() == userID, canImport else { return false }
 
         let ledger = HealthWorkoutLedger(modelContext: modelContext)
         var waiting: [HealthWorkoutRecord] = []
         do {
-            for snapshot in found.added where snapshot.startDate < joinedAt {
-                guard AppleHealthImportPolicy.isImportableDuration(snapshot.duration),
-                      workoutIDs.contains(snapshot.uuid.uuidString) else {
-                    continue
-                }
+            for snapshot in asked {
                 switch try file(snapshot, ledger: ledger) {
                 case .discovered(let record), .alreadyWaiting(let record):
                     waiting.append(record)
@@ -541,6 +550,37 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         _ = await trackingRequestedImport { await self.importRecords(records, announcing: []) }
         refreshDerivedState()
         return records.allSatisfy { $0.state != .notImported }
+    }
+
+    /// What Settings' Import older workouts has to offer: the stair workouts Health holds from
+    /// before this climber joined that are not climbs yet and were never turned away, with their
+    /// steps settled by the step rule. Read-only, like 07a's look: nothing is filed.
+    ///
+    /// - Returns: Nil when Health cannot be read right now, which a caller says as "try again" and
+    ///   never as "nothing to import".
+    func olderWorkouts() async -> [HealthWorkoutSnapshot]? {
+        guard featureFlags.isEnabled(.appleHealthHistoryImport) else { return nil }
+        await authorization.refreshAuthorizationRequestStatus()
+        guard canImport, let modelContext, let userID = currentUserID(), let joinedAt = joinDate(),
+              let found = try? await reader.changes(since: nil, startingOnOrAfter: .distantPast) else {
+            return nil
+        }
+        guard !Task.isCancelled, currentUserID() == userID else { return nil }
+
+        let ledger = HealthWorkoutLedger(modelContext: modelContext)
+        let open = found.added.filter { snapshot in
+            guard snapshot.startDate < joinedAt else { return false }
+            let uuid = snapshot.uuid.uuidString
+            if let record = try? ledger.record(forUUID: uuid) { return record.state == .notImported }
+            return (try? ledger.climb(withHealthKitUUID: uuid)) == nil
+        }
+        return await stepResolvedClimbs(in: open)
+    }
+
+    /// Whether Settings offers Import older workouts: Health connected for import, and the
+    /// history backfill's own switch on.
+    var offersOlderWorkouts: Bool {
+        offeredImportConnectionState == .connected && featureFlags.isEnabled(.appleHealthHistoryImport)
     }
 
     // MARK: - Importing
@@ -594,9 +634,12 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             // The workout's statistics can land after the workout itself, so the numbers are read
             // again at the moment they are about to become a climb. A workout Health no longer
             // has keeps the numbers it was found with.
+            var fresh: HealthWorkoutSnapshot?
             if let uuid = UUID(uuidString: record.workoutUUID),
-               let fresh = try? await reader.snapshot(for: uuid) {
-                record.updateMeasurements(from: fresh)
+               let read = try? await reader.snapshot(for: uuid) {
+                let resolved = await HealthWorkoutStepRule.resolve(read, using: reader)
+                record.updateMeasurements(from: resolved)
+                fresh = resolved
             }
             // The session can end during that read. The workouts stay waiting, and nothing of this
             // batch lands in a store that is about to be emptied or handed to the next climber.
@@ -616,6 +659,10 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
             if overlappingLiveClimb != nil {
                 record.state = .overlapsLiveClimb
                 record.resolvedAt = now()
+                skipReporter.report(HealthWorkoutSkip(
+                    fresh ?? HealthWorkoutSnapshot(record: record),
+                    reason: .overlapsLiveClimb
+                ))
                 continue
             }
             // A session still running, or waiting to be recovered, will save the live climb that

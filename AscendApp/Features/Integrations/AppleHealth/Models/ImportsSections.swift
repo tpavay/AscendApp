@@ -6,7 +6,7 @@ struct ImportsRow: Identifiable, Equatable, Sendable {
     let id: String
     let startDate: Date
     let duration: TimeInterval
-    /// Exact steps, or nil where Health recorded none.
+    /// The workout's steps, or nil where Health holds none.
     let steps: Int?
     /// The climb this workout became. Nil while it is still waiting.
     let climbID: UUID?

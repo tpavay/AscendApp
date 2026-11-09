@@ -4,10 +4,10 @@ import Foundation
 ///
 /// A climb with `source` `.appleHealth`, keyed by the workout's UUID in `healthKitUUID` - which is
 /// both the dedupe key and the thing that travels with the climb through the cloud backup.
-/// Everything the workout's own statistics said lands on it: exact steps, average and maximum
-/// heart rate, active energy. A workout with no step count arrives with zero steps, which
-/// `Workout.isMissingSteps` reads as absent and WorkoutDetailView answers with the Add steps
-/// prompt.
+/// The workout's steps land on it as the step rule settled them (`HealthWorkoutStepRule`), with
+/// the average and maximum heart rate and active energy its own statistics said. A workout Health
+/// holds no steps for at all arrives with zero steps, which `Workout.isMissingSteps` reads as
+/// absent and WorkoutDetailView answers with the Add steps prompt.
 @MainActor
 enum HealthImportedClimb {
     static let workoutName = "Stair Stepper"

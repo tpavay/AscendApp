@@ -101,6 +101,8 @@ struct TelemetryScreenCatalogTests {
         "apple_health_manage": "AppleHealthManageSheet",
         "apple_health_import_choice": "AppleHealthImportChoiceView",
         "apple_health_imports": "AppleHealthImportsView",
+        "apple_health_older_workouts": "AppleHealthOlderWorkoutsView",
+        "apple_health_settings": "AppleHealthSettingsView",
         "imported_climb_quick_edit": "ImportedClimbQuickEditSheet",
         "heart_rate_monitor_manage": "HeartRateMonitorManageSheet",
         "strava_manage": "StravaManageSheet",

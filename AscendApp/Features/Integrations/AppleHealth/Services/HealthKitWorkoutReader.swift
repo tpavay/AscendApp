@@ -6,7 +6,7 @@ import HealthKit
 /// A protocol so the import rules run against a fake in tests and on a machine with no Health
 /// database. The real reader is read-only: Ascend never writes a workout to Health.
 @MainActor
-protocol HealthWorkoutReading: AnyObject {
+protocol HealthWorkoutReading: AnyObject, Sendable {
     var isHealthDataAvailable: Bool { get }
 
     /// The stair workouts added since `anchorData`, starting on or after `earliest`.
@@ -17,6 +17,13 @@ protocol HealthWorkoutReading: AnyObject {
 
     /// A fresh read of one workout, or nil when Health no longer has it.
     func snapshot(for uuid: UUID) async throws -> HealthWorkoutSnapshot?
+
+    /// The steps Health counted between two moments, summed across every source that wrote them
+    /// and de-duplicated where a watch and a phone overlap, or nil when it holds none.
+    ///
+    /// The second half of the step rule (`HealthWorkoutStepRule`): a stair workout that carries no
+    /// steps of its own takes the steps Health counted while it ran.
+    func stepCount(from start: Date, to end: Date) async throws -> Int?
 
     /// Registers for new workouts, including while the app is not running.
     ///
@@ -63,10 +70,15 @@ final class HealthKitWorkoutReader: HealthWorkoutReading {
         self.healthStore = healthStore
     }
 
-    /// Stair stepper machines (`stairClimbing`) and stair workouts (`stairs`). Every other
-    /// activity type is somebody else's workout and is never read.
+    /// The activity types a stair stepper session arrives under: stair stepper machines
+    /// (`stairClimbing`), stair workouts (`stairs`), and `stepTraining`, which is where some
+    /// watches and apps file the same machine. Every other activity type is somebody else's
+    /// workout and is never read.
+    ///
+    /// Growing this list means changing `AppleHealthImportSettings.anchorScope` too: a stored
+    /// anchor says "nothing new" only about the types the read that produced it asked for.
     nonisolated static var stairActivityTypes: [HKWorkoutActivityType] {
-        [.stairClimbing, .stairs]
+        [.stairClimbing, .stairs, .stepTraining]
     }
 
     nonisolated static func stairWorkoutPredicate() -> NSPredicate {
@@ -106,6 +118,28 @@ final class HealthKitWorkoutReader: HealthWorkoutReading {
         return try await descriptor.result(for: healthStore).first.map(Self.snapshot(from:))
     }
 
+    func stepCount(from start: Date, to end: Date) async throws -> Int? {
+        guard isHealthDataAvailable, end > start else { return nil }
+
+        // A cumulative sum, so two sources that counted the same steps - a watch and the phone in
+        // a pocket - are merged by Health and never added together.
+        let descriptor = HKStatisticsQueryDescriptor(
+            predicate: .quantitySample(
+                type: HKQuantityType(.stepCount),
+                predicate: HKQuery.predicateForSamples(withStart: start, end: end)
+            ),
+            options: .cumulativeSum
+        )
+        do {
+            let sum = try await descriptor.result(for: healthStore)?
+                .sumQuantity()?.doubleValue(for: .count())
+            return sum.flatMap(Self.wholeNumber)
+        } catch let error as HKError where error.code == .errorNoData {
+            // Health's way of saying the window holds no step samples.
+            return nil
+        }
+    }
+
     func startObserving(onChange: @escaping @MainActor (_ completion: @escaping @Sendable () -> Void) -> Void) {
         guard isHealthDataAvailable, observerQuery == nil else { return }
 
@@ -141,8 +175,9 @@ final class HealthKitWorkoutReader: HealthWorkoutReading {
     // MARK: - Mapping
 
     /// A workout's numbers come from its own statistics, which are de-duplicated across the
-    /// sources that wrote to it. A statistic Health did not collect reads as nil, never as zero:
-    /// an imported climb with no steps asks the climber for them instead of claiming none.
+    /// sources that wrote to it. A statistic Health did not collect reads as nil, never as zero.
+    /// Steps that are nil here are looked for once more, over the workout's window
+    /// (`HealthWorkoutStepRule`), before the workout is filed anywhere.
     nonisolated static func snapshot(from workout: HKWorkout) -> HealthWorkoutSnapshot {
         let countUnit = HKUnit.count()
         let beatsPerMinute = countUnit.unitDivided(by: .minute())
@@ -165,7 +200,9 @@ final class HealthKitWorkoutReader: HealthWorkoutReading {
             averageHeartRate: averageHeartRate.flatMap(Self.wholeNumber),
             maxHeartRate: maxHeartRate.flatMap(Self.wholeNumber),
             activeEnergyKilocalories: energy.flatMap(Self.wholeNumber),
-            sourceName: workout.sourceRevision.source.name
+            sourceName: workout.sourceRevision.source.name,
+            activityTypeRawValue: workout.workoutActivityType.rawValue,
+            sourceBundleIdentifier: workout.sourceRevision.source.bundleIdentifier
         )
     }
 

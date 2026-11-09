@@ -59,7 +59,8 @@ final class HealthKitAuthorizationClient: HealthKitAuthorizationControlling {
     /// Everything Ascend asks Health for. Ascend requests `toShare: []` and never writes.
     ///
     /// The stair workouts import reads (`workoutType()`), the steps, heart rate and active energy
-    /// on a workout's own statistics. Apple Health import returned in 1.3.0;
+    /// on a workout's own statistics, and the step count over a workout's own window when the
+    /// workout carries none (`HealthWorkoutStepRule`). Apple Health import returned in 1.3.0;
     /// before it, only the enrichment pair was requested. A type requested but never read is a
     /// permission the climber cannot meaningfully refuse (#353), so this list and the
     /// `NSHealthShareUsageDescription` sentence that prints above the sheet change together.

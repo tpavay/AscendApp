@@ -12,17 +12,14 @@ import Observation
 final class OnboardingHealthPermissionViewModel {
     @ObservationIgnored private let connect: AppleHealthConnectViewModel
     @ObservationIgnored private let reader: any HealthWorkoutReading
-    @ObservationIgnored private let now: () -> Date
     private var isReading = false
 
     init(
         connect: AppleHealthConnectViewModel = AppleHealthConnectViewModel(),
-        reader: any HealthWorkoutReading = HealthKitWorkoutReader.shared,
-        now: @escaping () -> Date = Date.init
+        reader: any HealthWorkoutReading = HealthKitWorkoutReader.shared
     ) {
         self.connect = connect
         self.reader = reader
-        self.now = now
     }
 
     var isWorking: Bool { connect.isWorking || isReading }
@@ -38,14 +35,14 @@ final class OnboardingHealthPermissionViewModel {
         guard await connect.requestAccessOnly() else { return }
 
         isReading = true
-        let summary = try? await HealthHistorySummary.load(using: reader, now: now())
+        let hasHistory = (try? await HealthHistory.exists(using: reader)) == true
         isReading = false
 
         // The climber could have backed out while the sheet was up; the answer then belongs to a
         // screen that is gone.
         guard coordinator.step == .healthPermission else { return }
 
-        if summary?.isEmpty == false {
+        if hasHistory {
             coordinator.advance()
         } else {
             // None found, or a read that failed - never reported as a history. A climber with

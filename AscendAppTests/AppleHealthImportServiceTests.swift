@@ -821,7 +821,7 @@ struct AppleHealthImportServiceTests {
         await harness.service.syncNow()
 
         #expect(try harness.climbs().count == 1, "the live climb is the climb")
-        #expect(try harness.record(snapshot)?.state == .overlapsLiveClimb, "kept for the overlap merge")
+        #expect(try harness.record(snapshot)?.state == .overlapsLiveClimb, "and that is the end of it")
         let imports = ImportsSections.make(records: try harness.records(), climbs: [:], now: AppleHealthImportHarness.now)
         #expect(imports.isEmpty, "and it is never offered in Imports")
     }

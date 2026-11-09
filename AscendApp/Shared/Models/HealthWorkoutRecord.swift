@@ -21,7 +21,8 @@ final class HealthWorkoutRecord {
     var startDate: Date = Date()
     var endDate: Date = Date()
     var durationSeconds: Double = 0
-    /// Exact steps from the workout's own statistics, or nil when Health recorded none.
+    /// The workout's steps as the step rule settled them (`HealthWorkoutStepRule`): its own, else
+    /// the steps Health counted over its window, else nil.
     var steps: Int?
     var averageHeartRate: Int?
     var maxHeartRate: Int?
@@ -57,11 +58,15 @@ final class HealthWorkoutRecord {
 
     /// Refreshes the numbers from a newer read of the same workout. Identity and state are never
     /// touched.
+    ///
+    /// Steps a newer read does not hold never erase steps an earlier one found: a window read can
+    /// fail on the one pass that happens to import the workout, and a climb that had its number
+    /// when it was found must not arrive asking for it.
     func updateMeasurements(from snapshot: HealthWorkoutSnapshot) {
         startDate = snapshot.startDate
         endDate = snapshot.endDate
         durationSeconds = snapshot.duration
-        steps = snapshot.steps
+        steps = snapshot.steps ?? steps
         averageHeartRate = snapshot.averageHeartRate
         maxHeartRate = snapshot.maxHeartRate
         activeEnergyKilocalories = snapshot.activeEnergyKilocalories
@@ -80,8 +85,7 @@ enum HealthWorkoutImportState: String, CaseIterable, Sendable {
     /// mode.
     case skipped
     /// An Ascend live climb already covers this workout's window, so it is not a second climb.
-    /// Kept out of Imports and out of every count. This is the named hook for the overlap merge
-    /// (HANDOFF 5.2): the live climb takes the workout's heart rate and calories, and the extra
-    /// minutes prompt, from this row. Nothing reads or resolves it yet.
+    /// Terminal: the live climb is the climb, and this workout is never imported, never merged
+    /// into it and never put in front of the climber. Kept out of Imports and out of every count.
     case overlapsLiveClimb = "overlaps_live_climb"
 }

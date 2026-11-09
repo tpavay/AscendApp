@@ -140,7 +140,8 @@ struct OnboardingV3FlowEvidenceTests {
         try await RenderedScreen.host(screen, size: Self.iPhone16, settle: .turns(60)) { hosted in
             let copy = try await hosted.copy { $0.contains("we found your climbs") }
             #expect(copy.contains("14 stair stepper workouts"))
-            #expect(copy.contains("add to my history"))
+            #expect(copy.contains("add 14 to my history"))
+            #expect(copy.contains("skip history, just import new workouts"))
             try hosted.photograph(named: "onboarding-v3-flow-07a-health-history")
         }
     }
