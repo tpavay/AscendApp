@@ -36,7 +36,8 @@ struct AppleHealthSurfacesEvidenceTests {
 
     /// The requested read set is the only place a climber is ever shown what Ascend takes from
     /// Health, and iOS builds that sheet from exactly this set: the workouts import reads, the
-    /// numbers on their own statistics, and the heart rate and energy enrichment attaches.
+    /// steps, heart rate and energy that come with them, and the heart rate and energy enrichment
+    /// attaches.
     @Test("Health asks for the stair workouts import reads and what enrichment attaches, and writes nothing")
     func healthPromptRequestsExactlyTheImportAndEnrichmentReadSet() throws {
         let requested = HealthKitAuthorizationClient.shared.readTypes

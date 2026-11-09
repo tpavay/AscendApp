@@ -12,7 +12,7 @@ Apple Health does two separate jobs here, and they never share a code path.
   It is the original integration and the rest of this skill unless a heading says otherwise.
 - **Import** (1.3.0) brings a stair stepper workout a watch or another app saved to Health in as a climb.
   Apple Health workout import was removed on 2026-08-08 (#437) under the racing-not-tracker positioning and returned as its own reviewed piece.
-  Its design, ledger states, announce rules and the overlap hook are in `docs/apple-health-import.md`, owned by `AppleHealthImportService`.
+  Its design, ledger states, step rule, announce rules and the overlap rule are in `docs/apple-health-import.md`, owned by `AppleHealthImportService`.
 
 A `Workout` is created by an in-app sensor flow, typed in on the Log a climb screen (`WorkoutSource.manual`, `LoggedClimbService`), or imported (`WorkoutSource.appleHealth`, `AppleHealthImportService`), and nowhere else.
 `isInAppSensorWorkout` is what gates enrichment: an imported climb already carries the heart rate and energy of its own workout and is never enriched.
@@ -21,15 +21,17 @@ Do not add a second import path behind a flag, a debug toggle, or a "just in cas
 ## Import in one screen
 
 - Only `stairClimbing` and `stairs` workouts, one `HealthWorkoutRecord` per HealthKit workout UUID.
-- Steps are the exact number on the workout's own statistics, never a tilde and never a second query over a time window.
-  A workout with none imports with zero steps and the Add steps prompt.
+- Steps follow one rule (`HealthWorkoutStepRule`): the workout's own, else a `cumulativeSum` of `stepCount` over the workout's own window, else none.
+  Either number is the climb's number, never a tilde and never marked as estimated.
+  A workout with no steps anywhere imports with zero steps and the Add steps prompt.
+- A workout an Ascend live climb already covers is `overlaps_live_climb`, and that is terminal: never imported, never merged, never asked about.
 - A pass reads from a persisted anchor (`HKAnchoredObjectQueryDescriptor`), files what is new, and imports it when auto-import is on.
   A workout deleted in Health keeps its climb.
 - `HKObserverQuery` with immediate background delivery wakes the app for a new workout.
   The completion handler is called on every path and is time-bounded, because HealthKit stops delivering until it is.
 - Kill switch `apple_health_import_enabled`.
   Nothing a blocked pass leaves behind is lost: the anchor does not advance while it is off.
-- Imported climbs rank only through `ClimbPacePolicy` and the join-date rule (see `ascend-workout-model`): the pass files only workouts from the join date on, and the one-time history backfill (`importHistory(matching:)`, `docs/apple-health-import.md`) files older ones off the boards.
+- Imported climbs rank only through `ClimbPacePolicy` and the join-date rule (see `ascend-workout-model`): the pass files only workouts from the join date on, and the history backfill (`importHistory(matching:)`, `docs/apple-health-import.md`) files older ones off the boards, from onboarding's "We found your climbs" or Settings' Import older workouts, over the range the climber picked.
 
 ## The boundary that defines this integration
 

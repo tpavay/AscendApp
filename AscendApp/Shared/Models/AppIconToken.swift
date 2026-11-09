@@ -37,6 +37,9 @@ enum AppIconToken: Hashable, Sendable {
     case settingsManageSubscription
     case settingsBlockedClimbers
     case settingsHeartRateVisibility
+    case settingsAppleHealth
+    case settingsHealthAutoImport
+    case settingsHealthOlderWorkouts
     case profileBirthday
     case profileGender
     case profileWeight
@@ -109,6 +112,12 @@ enum AppIconToken: Hashable, Sendable {
             return .systemSymbol("person.crop.circle.badge.xmark")
         case .settingsHeartRateVisibility:
             return .systemSymbol("heart")
+        case .settingsAppleHealth:
+            return .systemSymbol("heart.text.square")
+        case .settingsHealthAutoImport:
+            return .systemSymbol("arrow.triangle.2.circlepath")
+        case .settingsHealthOlderWorkouts:
+            return .systemSymbol("clock.arrow.circlepath")
         case .profileBirthday:
             return .systemSymbol("calendar")
         case .profileGender:

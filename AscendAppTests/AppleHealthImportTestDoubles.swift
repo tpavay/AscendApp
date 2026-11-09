@@ -16,6 +16,14 @@ final class FakeHealthWorkoutReader: HealthWorkoutReading {
     var readError: (any Error)?
     /// How long a read takes, for the observer's time bound.
     var readDelay: Duration?
+    /// The steps Health counted over a window, keyed by the moment the window starts. A window
+    /// with no entry holds no steps, which is what Health says about most of a day.
+    var windowSteps: [Date: Int] = [:]
+    var windowReadError: (any Error)?
+    private(set) var windowReads: [(start: Date, end: Date)] = []
+    /// The most window reads that were ever out at the same moment.
+    private(set) var mostWindowReadsInFlight = 0
+    private var windowReadsInFlight = 0
     private(set) var changeReads: [(anchor: Data?, earliest: Date)] = []
     private(set) var snapshotReads: [UUID] = []
     private(set) var isObserving = false
@@ -45,6 +53,17 @@ final class FakeHealthWorkoutReader: HealthWorkoutReading {
             await withCheckedContinuation { heldSnapshots.append($0) }
         }
         return workouts.first { $0.uuid == uuid }
+    }
+
+    func stepCount(from start: Date, to end: Date) async throws -> Int? {
+        windowReads.append((start, end))
+        windowReadsInFlight += 1
+        mostWindowReadsInFlight = max(mostWindowReadsInFlight, windowReadsInFlight)
+        defer { windowReadsInFlight -= 1 }
+        // A HealthKit read always suspends, which is what lets several be out at once.
+        await Task.yield()
+        if let windowReadError { throw windowReadError }
+        return windowSteps[start]
     }
 
     func releaseSnapshots() {
@@ -77,6 +96,15 @@ final class RecordingHealthImportNotifier: HealthImportNotifying {
 
     func climbImported(workoutID: UUID, steps: Int?) async {
         imported.append((workoutID, steps))
+    }
+}
+
+@MainActor
+final class RecordingHealthWorkoutSkipReporter: HealthWorkoutSkipReporting {
+    private(set) var skips: [HealthWorkoutSkip] = []
+
+    func report(_ skip: HealthWorkoutSkip) {
+        skips.append(skip)
     }
 }
 
@@ -135,6 +163,7 @@ final class AppleHealthImportHarness {
     let authorization = FakeImportAuthorization()
     let notifier = RecordingHealthImportNotifier()
     let remover = InProcessHealthImportClimbRemover()
+    let skipReporter = RecordingHealthWorkoutSkipReporter()
     let container: ModelContainer
     let context: ModelContext
     let defaults: UserDefaults
@@ -174,6 +203,7 @@ final class AppleHealthImportHarness {
 
         let holder = HarnessState()
         let (reader, authorization, settings, notifier, remover) = (reader, authorization, settings, notifier, remover)
+        let skipReporter = skipReporter
         let sessionStore = sessionStore
         let makeService: @MainActor () -> AppleHealthImportService = {
             AppleHealthImportService(
@@ -182,6 +212,7 @@ final class AppleHealthImportHarness {
                 settings: settings,
                 notifier: notifier,
                 remover: remover,
+                skipReporter: skipReporter,
                 featureFlags: featureFlags,
                 sessionWorkGate: AuthenticatedBootstrapCoordinator(),
                 sessionStore: sessionStore,
@@ -251,6 +282,9 @@ final class AppleHealthImportHarness {
         averageHeartRate: Int? = 140,
         maxHeartRate: Int? = 165,
         energy: Int? = 280,
+        windowSteps: Int? = nil,
+        activityTypeRawValue: UInt? = HKWorkoutActivityType.stairClimbing.rawValue,
+        sourceBundleIdentifier: String? = "com.example.watch",
         uuid: UUID = UUID()
     ) -> HealthWorkoutSnapshot {
         let start = referenceNow.addingTimeInterval(-daysAgo * 24 * 3600)
@@ -263,9 +297,13 @@ final class AppleHealthImportHarness {
             averageHeartRate: averageHeartRate,
             maxHeartRate: maxHeartRate,
             activeEnergyKilocalories: energy,
-            sourceName: "Test Watch"
+            sourceName: "Test Watch",
+            activityTypeRawValue: activityTypeRawValue,
+            sourceBundleIdentifier: sourceBundleIdentifier
         )
         reader.workouts.append(snapshot)
+        // What Health's step count holds for the time the workout ran, whoever counted it.
+        reader.windowSteps[start] = windowSteps
         return snapshot
     }
 

@@ -69,11 +69,18 @@ struct HealthFlowBottomBar: View {
                 Text(caption)
                     .font(.montserratMedium(size: 14))
                     .foregroundStyle(.white.opacity(0.5))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Button(action: onPrimary) {
                 Text(primaryTitle)
                     .tracking(2)
+                    // One line that shrinks to fit, so a long title at a large text size is never
+                    // cut to an ellipsis.
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.4)
+                    .padding(.horizontal, 12)
             }
             .buttonStyle(OnboardingPrimaryCTAButtonStyle(height: primaryHeight, tint: .accent))
             .disabled(isDisabled)

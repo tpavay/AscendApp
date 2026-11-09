@@ -866,12 +866,13 @@ Design principle:
 User goal: see heart rate and calories on a climb they ran in Ascend.
 
 Primary path:
-1. Connect Apple Health from onboarding's screen 06, Settings -> Integrations, or the Climb sheet's Connect Health (`docs/apple-health-import.md`)
+1. Connect Apple Health from onboarding's screen 06, Settings -> Apple Health, Settings -> Integrations, or the Climb sheet's Connect Health (`docs/apple-health-import.md`)
 2. Silent enrichment of climbs Ascend recorded, retried on a bounded persisted schedule until Health writes the samples
 3. Heart rate and calories appear on workout detail once they exist
 
 App surfaces:
-- Settings -> Integrations - Apple Health card and manage sheet, and the only surface that explains connection or revoked-access state
+- Settings -> Integrations - Apple Health card and manage sheet, and the only surface that explains revoked access
+- Settings -> Apple Health -> Workout import - connected or off, Import automatically, and Import older workouts (`docs/apple-health-import.md`)
 - `AppleHealthEnrichmentService`
 - Workout detail heart-rate chart, shown only when a series exists
 

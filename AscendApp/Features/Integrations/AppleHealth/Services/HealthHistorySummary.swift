@@ -1,15 +1,109 @@
 import Foundation
 
-/// What Apple Health already holds for the climber, read before they have an account, for onboarding's
-/// "We found your climbs".
+/// How far back a history import reaches. Everything is the default; the others are the one change
+/// a climber can make on the history screen.
+enum HealthHistoryRange: Equatable, Sendable {
+    case everything
+    case lastYear
+    case last90Days
+    /// From the start of a day the climber picked.
+    case since(Date)
+
+    /// The earliest moment a workout may start to be inside the range, or nil for no floor.
+    func earliestStart(now: Date, calendar: Calendar = .current) -> Date? {
+        switch self {
+        case .everything: nil
+        case .lastYear: calendar.date(byAdding: .year, value: -1, to: now)
+        case .last90Days: calendar.date(byAdding: .day, value: -90, to: now)
+        case .since(let day): calendar.startOfDay(for: day)
+        }
+    }
+
+    /// The stable name analytics reports the choice under. A picked day reports that one was
+    /// picked, never which.
+    var analyticsID: String {
+        switch self {
+        case .everything: "everything"
+        case .lastYear: "last_year"
+        case .last90Days: "last_90_days"
+        case .since: "since_date"
+        }
+    }
+}
+
+/// Every stair workout a read of Health found that an import would file, with its steps settled by
+/// the step rule, for the history screens: onboarding's "We found your climbs" and Settings'
+/// Import older workouts.
 ///
-/// Read-only and filed nowhere: this is a look, and the import itself waits for sign-in
-/// (`AppleHealthImportService.importHistory(matching:)`). Unlike the pass it has no join-date floor,
-/// because the screen is about the history the pass would never reach.
+/// Read-only and filed nowhere: this is a look, and the import itself is
+/// `AppleHealthImportService.importHistory(matching:)`.
+struct HealthHistory: Equatable, Sendable {
+    /// Oldest first.
+    let workouts: [HealthWorkoutSnapshot]
+
+    init(workouts: [HealthWorkoutSnapshot]) {
+        self.workouts = workouts
+            .filter { AppleHealthImportPolicy.isImportableDuration($0.duration) }
+            .sorted { $0.startDate < $1.startDate }
+    }
+
+    var isEmpty: Bool { workouts.isEmpty }
+    var oldestStart: Date? { workouts.first?.startDate }
+    var newestStart: Date? { workouts.last?.startDate }
+
+    func workouts(in range: HealthHistoryRange, now: Date, calendar: Calendar = .current) -> [HealthWorkoutSnapshot] {
+        guard let earliest = range.earliestStart(now: now, calendar: calendar) else { return workouts }
+        return workouts.filter { $0.startDate >= earliest }
+    }
+
+    func count(in range: HealthHistoryRange, now: Date, calendar: Calendar = .current) -> Int {
+        workouts(in: range, now: now, calendar: calendar).count
+    }
+
+    /// What the screen says about the workouts inside `range`: the count, the hours and the steps
+    /// all follow it, and so do the identifiers an import is handed.
+    func summary(
+        in range: HealthHistoryRange = .everything,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> HealthHistorySummary {
+        HealthHistorySummary.make(from: workouts(in: range, now: now, calendar: calendar), now: now)
+    }
+
+    /// Whether Health holds any stair workout an import would file. The question a screen asks
+    /// before deciding whether there is a history to show at all, so it reads no steps.
+    @MainActor
+    static func exists(using reader: any HealthWorkoutReading) async throws -> Bool {
+        let found = try await reader.changes(since: nil, startingOnOrAfter: .distantPast)
+        return !HealthHistory(workouts: found.added).isEmpty
+    }
+
+    /// Reads every stair workout Health holds, from the beginning, and settles each one's steps
+    /// with the same rule an import uses, so a total on screen is the total that lands. Throws
+    /// when the read fails, which a caller reads as "nothing to show", never as an empty history.
+    ///
+    /// Unlike the pass it has no join-date floor, because the screen is about the history the pass
+    /// would never reach. The anchor the read returns is dropped on purpose: it belongs to the
+    /// pass, which stores its own.
+    @MainActor
+    static func load(
+        using reader: any HealthWorkoutReading,
+        skipReporter: any HealthWorkoutSkipReporting = HealthWorkoutSkipReporter.shared
+    ) async throws -> HealthHistory {
+        let found = try await reader.changes(since: nil, startingOnOrAfter: .distantPast)
+        for workout in found.added where !AppleHealthImportPolicy.isImportableDuration(workout.duration) {
+            skipReporter.report(HealthWorkoutSkip(workout, reason: .duration))
+        }
+        let history = HealthHistory(workouts: found.added)
+        return HealthHistory(workouts: await HealthWorkoutStepRule.resolve(history.workouts, using: reader))
+    }
+}
+
+/// What a set of Health's stair workouts comes to, as the history screens say it back.
 ///
 /// Steps are the ones an import would keep (`AppleHealthImportPolicy.importableSteps`), so the
-/// number on screen is the number that lands. A stair stepper workout usually carries none, and
-/// unknown is never zero: every figure built from steps counts only the workouts that report them.
+/// number on screen is the number that lands. A workout Health holds no steps for at all is still
+/// unknown and never zero: every figure built from steps counts only the workouts that have them.
 struct HealthHistorySummary: Equatable, Sendable {
     /// The usual climb: the median of the last 30 days, else of everything.
     struct UsualClimb: Equatable, Sendable {
@@ -28,9 +122,9 @@ struct HealthHistorySummary: Equatable, Sendable {
     /// The workouts found, every one a climb an import would file.
     let workoutIDs: [String]
     let totalDuration: TimeInterval
-    /// How many of them carry a step count.
+    /// How many of them have steps.
     let workoutsWithSteps: Int
-    /// The sum of the steps those workouts report.
+    /// The sum of those workouts' steps.
     let knownSteps: Int
     let bestHourSteps: Int?
     let usualClimb: UsualClimb?
@@ -39,7 +133,7 @@ struct HealthHistorySummary: Equatable, Sendable {
 
     var isEmpty: Bool { workoutIDs.isEmpty }
 
-    /// Whether the headline is the steps total: at least half of the workouts report steps. With
+    /// Whether the headline is the steps total: at least half of the workouts have steps. With
     /// fewer, the screen leads with the count and the hours and the steps wait behind them.
     var leadsWithSteps: Bool {
         knownSteps > 0 && workoutsWithSteps * 2 >= workoutCount
@@ -53,7 +147,7 @@ struct HealthHistorySummary: Equatable, Sendable {
         return hours == 1 ? "1 hour" : "\(hours.formatted()) hours"
     }
 
-    /// Builds the summary from every stair workout Health returned.
+    /// Builds the summary from stair workouts whose steps the step rule has already settled.
     static func make(from workouts: [HealthWorkoutSnapshot], now: Date) -> HealthHistorySummary {
         let climbs = workouts
             .filter { AppleHealthImportPolicy.isImportableDuration($0.duration) }
@@ -70,17 +164,6 @@ struct HealthHistorySummary: Equatable, Sendable {
             bestHourSteps: bestHour(in: withSteps),
             usualClimb: usualClimb(in: climbs, now: now)
         )
-    }
-
-    /// Reads every stair workout Health holds, from the beginning, and summarises it. Throws when
-    /// the read fails, which a caller reads as "nothing to show", never as an empty history.
-    ///
-    /// The anchor the read returns is dropped on purpose. It belongs to the pass, which stores its
-    /// own and reads from the join date on.
-    @MainActor
-    static func load(using reader: any HealthWorkoutReading, now: Date = Date()) async throws -> HealthHistorySummary {
-        let found = try await reader.changes(since: nil, startingOnOrAfter: .distantPast)
-        return make(from: found.added, now: now)
     }
 
     // MARK: - Derivations
@@ -145,7 +228,7 @@ struct HealthHistoryComparison: Equatable, Sendable {
     let timesOver: Int
 
     /// Everest when the steps reach it, else the tallest available climb they reach, else nil.
-    /// Only the steps a workout reported count, so no known steps means no comparison.
+    /// Only steps Health holds count, so no known steps means no comparison.
     static func make(knownSteps: Int, climbs: [Climb]) -> HealthHistoryComparison? {
         guard knownSteps > 0 else { return nil }
 

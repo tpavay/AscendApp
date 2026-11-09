@@ -41,8 +41,8 @@ enum AppleHealthImportPolicy {
         return steps
     }
 
-    /// The local notification's title and body. Steps are exact and never "~"; a climb with none
-    /// says so rather than naming a number.
+    /// The local notification's title and body. Steps are the climb's number and never "~"; a
+    /// climb with none says so rather than naming a number.
     static func notificationContent(steps: Int?) -> (title: String, body: String) {
         let title = "Climb imported"
         guard let steps else {

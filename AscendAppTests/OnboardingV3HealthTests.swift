@@ -109,6 +109,20 @@ struct OnboardingV3HealthTests {
         #expect(flow.step == .usualClimb)
     }
 
+    /// 06b only asks whether there is a history. Counting its steps is 07a's job, and doing it
+    /// twice would be a few hundred Health reads for an answer of yes or no.
+    @Test
+    func theTwoTapsScreenAsksOnlyWhetherThereIsAHistoryAndReadsNoSteps() async throws {
+        let rig = try permissionRig()
+        rig.harness.addWorkout(daysAgo: 100, steps: nil, windowSteps: 3_000)
+        let flow = coordinator(at: .healthPermission)
+
+        await rig.viewModel.gotIt(coordinator: flow)
+
+        #expect(flow.step == .healthHistory)
+        #expect(rig.harness.reader.windowReads.isEmpty)
+    }
+
     @Test
     func aRefusedRequestStaysOnTheScreenWithTheMessageAndReadsNothing() async throws {
         let rig = try permissionRig(grants: false)
@@ -155,9 +169,32 @@ struct OnboardingV3HealthTests {
 
     // MARK: - 07a
 
-    private func historyViewModel(_ reader: FakeHealthWorkoutReader, climbs: [Climb] = []) -> OnboardingHealthHistoryViewModel {
-        OnboardingHealthHistoryViewModel(reader: reader, loadClimbs: { climbs })
+    /// The events a history screen reported, so a test reads them without the app's telemetry.
+    private final class Tracked {
+        var records: [TelemetryRecord] = []
     }
+
+    private func historyViewModel(
+        _ reader: FakeHealthWorkoutReader,
+        climbs: [Climb] = [],
+        tracked: Tracked = Tracked()
+    ) -> OnboardingHealthHistoryViewModel {
+        OnboardingHealthHistoryViewModel(
+            reader: reader,
+            skipReporter: RecordingHealthWorkoutSkipReporter(),
+            loadClimbs: { climbs },
+            track: { tracked.records.append($0.record) }
+        )
+    }
+
+    private func choice(_ viewModel: OnboardingHealthHistoryViewModel) throws -> HealthHistoryChoice {
+        guard case .found(let choice) = viewModel.state else {
+            throw HealthHistoryNotFound()
+        }
+        return choice
+    }
+
+    private struct HealthHistoryNotFound: Error {}
 
     @Test
     func addToMyHistoryLeavesTheFoundWorkoutsAndTheUsualClimbOnTheDeviceAndMovesOn() async throws {
@@ -256,7 +293,169 @@ struct OnboardingV3HealthTests {
 
         await viewModel.load(coordinator: coordinator(at: .healthHistory))
 
-        #expect(viewModel.comparison?.timesOver == 12, "600,000 over 48,664, floored")
+        #expect(try choice(viewModel).comparison?.timesOver == 12, "600,000 over 48,664, floored")
+    }
+
+    // MARK: - 07a's one choice
+
+    @Test
+    func theRangeStartsAtEverythingAndTheButtonCountsEveryWorkout() async throws {
+        let reader = FakeHealthWorkoutReader()
+        reader.workouts = [workout(daysAgo: 10, steps: 3_000), workout(daysAgo: 200, steps: 3_000), workout(daysAgo: 500, steps: 3_000)]
+        let viewModel = historyViewModel(reader)
+
+        await viewModel.load(coordinator: coordinator(at: .healthHistory))
+
+        let choice = try choice(viewModel)
+        #expect(choice.range == .everything)
+        #expect(choice.primaryTitle == "Add 3 to my history")
+        #expect(choice.rangeLabel.hasPrefix("Everything since "), "\(choice.rangeLabel)")
+    }
+
+    @Test
+    func aNarrowerRangeLeavesOnlyTheWorkoutsInsideItForTheImportAndSaysSoEverywhere() async throws {
+        let reader = FakeHealthWorkoutReader()
+        let recent = workout(daysAgo: 10, steps: 3_000, minutes: 40)
+        let lastSpring = workout(daysAgo: 200, steps: 5_000, minutes: 50)
+        let old = workout(daysAgo: 500, steps: 9_000, minutes: 60)
+        reader.workouts = [recent, lastSpring, old]
+        let store = makeStore()
+        let flow = coordinator(at: .healthHistory, store: store)
+        let tracked = Tracked()
+        let viewModel = historyViewModel(reader, tracked: tracked)
+        await viewModel.load(coordinator: flow)
+        let choice = try choice(viewModel)
+
+        choice.select(.lastYear)
+        #expect(choice.summary.workoutCount == 2)
+        #expect(choice.summary.knownSteps == 8_000, "the step total follows the range")
+        #expect(choice.summary.totalDurationText == "2 hours", "and so do the hours")
+        #expect(choice.primaryTitle == "Add 2 to my history")
+        #expect(choice.rangeLabel == "Last year")
+
+        choice.select(.last90Days)
+        #expect(choice.primaryTitle == "Add 1 to my history")
+        viewModel.addToHistory(coordinator: flow)
+
+        let answers = store.answers()
+        #expect(answers.foundHealthWorkoutIDs == [recent.uuid.uuidString], "only what is inside the range imports")
+        #expect(answers.foundHealthKnownSteps == 3_000)
+        #expect(flow.step == .profileSetup)
+
+        let event = try #require(tracked.records.first)
+        #expect(tracked.records.count == 1)
+        #expect(event.name == "onboarding_question_answered")
+        #expect(event.parameters["question_id"] == .string("health_history"))
+        #expect(event.parameters["answer_id"] == .string("last_90_days"))
+        #expect(event.parameters["workouts_added"] == .int(1))
+        #expect(event.parameters["workouts_found"] == .int(3))
+        #expect(event.parameters["flow_version"] == .string("v3"))
+        #expect(event.parameters["step_id"] == .string("health_history"))
+    }
+
+    @Test
+    func aPickedDayImportsFromTheStartOfThatDayAndNeverReportsTheDay() async throws {
+        let reader = FakeHealthWorkoutReader()
+        let inside = workout(daysAgo: 30, steps: 3_000)
+        let outside = workout(daysAgo: 60, steps: 3_000)
+        reader.workouts = [inside, outside]
+        let store = makeStore()
+        let flow = coordinator(at: .healthHistory, store: store)
+        let tracked = Tracked()
+        let viewModel = historyViewModel(reader, tracked: tracked)
+        await viewModel.load(coordinator: flow)
+        let choice = try choice(viewModel)
+
+        // Later the same day than the workout began: the range still starts at that day's midnight.
+        choice.select(.since(inside.startDate.addingTimeInterval(60)))
+        viewModel.addToHistory(coordinator: flow)
+
+        #expect(store.answers().foundHealthWorkoutIDs == [inside.uuid.uuidString])
+        #expect(choice.rangeLabel.hasPrefix("Since "), "\(choice.rangeLabel)")
+        #expect(tracked.records.first?.parameters["answer_id"] == .string("since_date"))
+    }
+
+    @Test
+    func skippingHistoryLeavesNothingToImportKeepsTheUsualClimbAndMovesOn() async throws {
+        let reader = FakeHealthWorkoutReader()
+        reader.workouts = [workout(daysAgo: 100, steps: 3_000, minutes: 40), workout(daysAgo: 120, steps: 5_000, minutes: 50)]
+        let store = makeStore()
+        store.update {
+            $0.foundHealthWorkoutIDs = ["from-an-earlier-pass-through-this-screen"]
+            $0.foundHealthKnownSteps = 12
+        }
+        let flow = coordinator(at: .healthHistory, store: store)
+        let tracked = Tracked()
+        let viewModel = historyViewModel(reader, tracked: tracked)
+        await viewModel.load(coordinator: flow)
+
+        viewModel.skipHistory(coordinator: flow)
+
+        let answers = store.answers()
+        #expect(answers.foundHealthWorkoutIDs.isEmpty, "nothing is left for the sign-in hand-off to import")
+        #expect(answers.foundHealthKnownSteps == nil)
+        #expect(answers.usualClimbSteps == 4_000, "the usual climb the screen showed still speaks for the climber")
+        #expect(answers.usualClimbMinutes == 45)
+        #expect(flow.step == .profileSetup, "Health stays connected and the flow moves on")
+        #expect(OnboardingSavedItems.make(from: answers).contains { $0.kind == .healthHistory } == false)
+
+        let event = try #require(tracked.records.first)
+        #expect(tracked.records.count == 1)
+        #expect(event.parameters["question_id"] == .string("health_history"))
+        #expect(event.parameters["answer_id"] == .string("skip_history"))
+        #expect(event.parameters["workouts_added"] == .int(0))
+        #expect(event.parameters["workouts_found"] == .int(2))
+    }
+
+    @Test
+    func aSkippedHistoryGivesTheHandOffNothingToRun() async throws {
+        let harness = try AppleHealthImportHarness()
+        harness.addWorkout(daysAgo: 100, steps: 3_000)
+        let store = makeStore()
+        let flow = coordinator(at: .healthHistory, store: store)
+        let viewModel = historyViewModel(harness.reader)
+        await viewModel.load(coordinator: flow)
+        viewModel.skipHistory(coordinator: flow)
+
+        let landed = await OnboardingHealthHistoryImport.run(store.answers(), service: harness.service)
+
+        #expect(landed, "nothing to bring in is done")
+        #expect(try harness.climbs().isEmpty)
+        #expect(harness.settings.isAutoImportEnabled(for: AppleHealthImportHarness.userID), "new workouts still import on their own")
+    }
+
+    @Test
+    func skipDoesNothingUntilTheReadHasFoundSomething() {
+        let store = makeStore()
+        store.update { $0.foundHealthWorkoutIDs = ["kept"] }
+        let flow = coordinator(at: .healthHistory, store: store)
+        let viewModel = historyViewModel(FakeHealthWorkoutReader())
+
+        viewModel.skipHistory(coordinator: flow)
+
+        #expect(flow.step == .healthHistory)
+        #expect(store.answers().foundHealthWorkoutIDs == ["kept"])
+    }
+
+    @Test
+    func theHistoryTotalsCountTheStepsHealthHoldsOverAWorkoutsWindow() async throws {
+        let reader = FakeHealthWorkoutReader()
+        let carried = workout(daysAgo: 100, steps: 3_000, minutes: 40)
+        let windowOnly = workout(daysAgo: 120, steps: nil, minutes: 50)
+        let neither = workout(daysAgo: 140, steps: nil, minutes: 30)
+        reader.workouts = [carried, windowOnly, neither]
+        reader.windowSteps[windowOnly.startDate] = 5_000
+        let store = makeStore()
+        let flow = coordinator(at: .healthHistory, store: store)
+        let viewModel = historyViewModel(reader)
+
+        await viewModel.load(coordinator: flow)
+        let summary = try choice(viewModel).summary
+
+        #expect(summary.knownSteps == 8_000, "the screen's total is the total the import lands")
+        #expect(summary.workoutsWithSteps == 2)
+        #expect(summary.workoutCount == 3)
+        #expect(reader.windowReads.count == 2, "only the workouts with no steps of their own are looked up")
     }
 
     @Test
@@ -384,7 +583,15 @@ struct OnboardingV3HealthTests {
         let copy = [
             "Your workouts,", "counted for you.", "Skip", "You can always connect this in Settings.",
             "Two taps and", "you're set.", "Tap Turn On All", "Tap Allow at the bottom",
-            "We found your climbs", "Add to my history", OnboardingHealthHistoryScreen.footnote,
+            "We found your climbs", "Add 214 to my history", OnboardingHealthHistoryScreen.footnote,
+            OnboardingHealthHistoryScreen.skipTitle, OnboardingHealthHistoryScreen.primaryPlaceholder,
+            "How far back?", "Add the rest any time in Settings.", "Everything", "Last year", "Last 90 days", "Since",
+            AppleHealthOlderWorkoutsView.footnote, AppleHealthOlderWorkoutsView.nothingTitle,
+            AppleHealthOlderWorkoutsView.nothingDetail, AppleHealthOlderWorkoutsView.unavailableTitle,
+            AppleHealthOlderWorkoutsView.unavailableDetail, AppleHealthOlderWorkoutsViewModel.importFailedMessage,
+            AppleHealthSettingsView.connectedDetail, AppleHealthSettingsView.offDetail,
+            AppleHealthSettingsView.autoImportDetail, AppleHealthSettingsView.olderWorkoutsDetail,
+            AppleHealthSettingsView.notOfferedDetail, "Workout import",
             HealthPermissionSheetMock.accessibilityDescription
         ] + HealthPermissionSheetMock.categories
 
