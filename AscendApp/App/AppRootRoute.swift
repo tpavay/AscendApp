@@ -34,6 +34,11 @@ struct AppRootRouteResolver {
     ///     switch is on and the flow has not reached its end. `nil` while this launch has not
     ///     decided (``OnboardingV3RouteLatch``). Resolved outside, like every other input, so the
     ///     decision stays synchronous and pure.
+    ///   - freeWeekAccess: Whether this account is on its server-granted free week
+    ///     (``FreeWeekAccessStore``). A running week enters exactly as a paid entitlement does; a
+    ///     record that has not been read yet holds on ``AppRootRoute/resolving`` for the same reason
+    ///     an unknown entitlement does, because a paywall shown to a climber mid-week is a refusal
+    ///     they were promised they would not get.
     static func resolve(
         updatePresentation: AppUpdatePresentation?,
         authenticationState: AuthenticationState,
@@ -42,7 +47,8 @@ struct AppRootRouteResolver {
         entitlementState: MonetizationEntitlementState,
         requiredEntitlementID: String,
         allowsUnentitledAppAccess: Bool = false,
-        showsPreAuthOnboardingV3: Bool? = false
+        showsPreAuthOnboardingV3: Bool? = false,
+        freeWeekAccess: FreeWeekRoutingAccess = .none
     ) -> AppRootRoute {
         // First, above authentication and above the entitlement gate. As a sheet this lost to the
         // paywall outright - Superwall presents outside `RootView`'s hierarchy, so an unentitled
@@ -74,7 +80,8 @@ struct AppRootRouteResolver {
                 postAuthOnboardingPhase: postAuthOnboardingPhase,
                 entitlementState: entitlementState,
                 requiredEntitlementID: requiredEntitlementID,
-                allowsUnentitledAppAccess: allowsUnentitledAppAccess
+                allowsUnentitledAppAccess: allowsUnentitledAppAccess,
+                freeWeekAccess: freeWeekAccess
             )
         }
     }
@@ -83,7 +90,8 @@ struct AppRootRouteResolver {
         postAuthOnboardingPhase: PostAuthOnboardingPhase,
         entitlementState: MonetizationEntitlementState,
         requiredEntitlementID: String,
-        allowsUnentitledAppAccess: Bool
+        allowsUnentitledAppAccess: Bool,
+        freeWeekAccess: FreeWeekRoutingAccess
     ) -> AppRootRoute {
         switch postAuthOnboardingPhase {
         case .signedOut, .resolving:
@@ -91,11 +99,13 @@ struct AppRootRouteResolver {
         case .onboarding(let stage):
             return .onboarding(stage)
         case .complete:
-            if allowsUnentitledAppAccess || entitlementState.hasActiveEntitlement(requiredEntitlementID) {
+            if allowsUnentitledAppAccess
+                || entitlementState.hasActiveEntitlement(requiredEntitlementID)
+                || freeWeekAccess == .live {
                 return .mainApp
             }
 
-            if entitlementState == .unknown { return .resolving }
+            if entitlementState == .unknown || freeWeekAccess == .unresolved { return .resolving }
 
             return .paywall
         }

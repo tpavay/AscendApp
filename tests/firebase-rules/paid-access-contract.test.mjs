@@ -6,7 +6,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import { getBytes, ref, uploadBytes } from 'firebase/storage';
 
 // Cross-service Storage rules read the Firestore database of the emulator's
@@ -127,6 +127,61 @@ test('a caller cannot forge or inspect the server-owned access projection', asyn
   }));
   await assertFails(getDoc(grant));
   await assertFails(getDoc(doc(context.firestore(), leaderboardPath)));
+});
+
+test('the free week record is owner-readable and server-written', async () => {
+  const record = `users/${unpaidUserId}/trial/free_week`;
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(doc(adminContext.firestore(), record), {
+      schemaVersion: 1,
+      grantedAt: new Date('2026-11-10T12:00:00.000Z'),
+      expiresAt: new Date('2026-11-17T12:00:00.000Z'),
+    });
+  });
+  const owner = testEnv.authenticatedContext(unpaidUserId);
+  const stranger = testEnv.authenticatedContext(paidUserId);
+
+  await assertSucceeds(getDoc(doc(owner.firestore(), record)));
+  await assertFails(getDoc(doc(stranger.firestore(), record)));
+  await assertFails(getDoc(doc(testEnv.unauthenticatedContext().firestore(), record)));
+
+  // A climber can neither extend their own week nor erase it to claim another.
+  await assertFails(setDoc(doc(owner.firestore(), record), {
+    schemaVersion: 1,
+    grantedAt: new Date('2026-11-10T12:00:00.000Z'),
+    expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+  }));
+  await assertFails(deleteDoc(doc(owner.firestore(), record)));
+  await assertFails(setDoc(
+    doc(owner.firestore(), `users/${unpaidUserId}/trial/second_week`),
+    { expiresAt: new Date('2099-01-01T00:00:00.000Z') }
+  ));
+});
+
+test('a free week grant opens the paid boundaries exactly as a paid grant does', async () => {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(
+      doc(adminContext.firestore(), `users/${unpaidUserId}/entitlements/app_access`),
+      {
+        schemaVersion: 1,
+        uid: unpaidUserId,
+        entitlementId: 'app_access',
+        isActive: true,
+        productId: 'ascend_free_week',
+        source: 'trial',
+        expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+        accessUntil: new Date('2099-01-01T00:00:00.000Z'),
+      }
+    );
+  });
+  const context = testEnv.authenticatedContext(unpaidUserId);
+
+  await assertSucceeds(getDoc(doc(context.firestore(), leaderboardPath)));
+  // Still server-owned: holding the week does not make the grant readable.
+  await assertFails(getDoc(doc(
+    context.firestore(),
+    `users/${unpaidUserId}/entitlements/app_access`
+  )));
 });
 
 test('RevenueCat ledgers, outbox, and inactive status are server-only', async () => {

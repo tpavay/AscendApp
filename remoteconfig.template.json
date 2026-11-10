@@ -203,6 +203,13 @@
       "valueType": "BOOLEAN",
       "description": "Rollout switch, ships off. On lets the server push announce a new gear event; off sends nothing and the event stays unannounced until it is on and still inside its window. Read by the Cloud Function, not the app."
     },
+    "free_week_after_decline_enabled": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Rollout switch, ships off. On gives a climber who declines every paid offer the founder letter and one free week of access, granted by the server. Off keeps the plan picker. Read by the app and by the startFreeWeek Cloud Function."
+    },
     "apple_health_import_enabled": {
       "defaultValue": {
         "value": "true"

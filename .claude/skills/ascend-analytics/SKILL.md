@@ -240,6 +240,12 @@ The segment labels identify nested implementation sections and never replace the
   They exist because that pair is exactly what the discarded `activeInCurrentEnvironment` filter compared and neither half was observable when it refused a paying App Reviewer (#506); read the doc comments on `AscendApp/Features/Monetization/Services/StoreKitEnvironmentDiagnostics.swift` for why the sandbox flag is absent rather than `false` before RevenueCat has answered.
   Raw `paywall_error`, `paywall_skipped`, and `paywall_reached` records must be built through `PaywallAnalyticsEvent.diagnosticRecord` so they carry the same StoreKit pair.
   The app-access coordinator also emits one `app_access_gate_attempt_terminal` per hosted attempt with bounded provider outcome, recovery path, identity match, and entitlement-presence fields.
+- **The free week has four events of its own, and `has_app_access` does not count it.**
+  `free_week_letter_shown`, `free_week_granted`, `free_week_expired_gated` and `free_week_purchase_completed` (`FreeWeekAnalyticsEvent`) each carry `flow_version`, and a climber let in on the week completes onboarding with `completion_reason: free_week`.
+  The `has_app_access` user property still means a paid entitlement, so a climber on their week reads `false`; segment the week by the events, never by that property.
+  `free_week_granted` is tracked by `MonetizationManager`, not the gate, because the route leaves the gate the moment the week lands and cancels whatever the gate was about to do with the answer.
+  The table of events and properties lives in `docs/free-week-after-decline.md`.
+  The production board (dashboard `11433611`) carries them right after the v3 cards: a text card, the funnel `93958620` "Free week: saw the letter, got the week, bought during it" (letter shown, granted, purchase completed, `flow_version == v3` only) and the table `93958621` "Free week: every event, how many people" (all four events, every flow). They read zero until `free_week_after_decline_enabled` is on in production, and a renamed event needs both reports repointed.
 
 ## Reference
 - `docs/sentry-setup.md` - Sentry role and app configuration.

@@ -43,6 +43,28 @@ export const GUARD_DOC = "docs/functions-secret-versions.md";
 export const GRANT_SNAPSHOT_SCHEMA_VERSION = 1;
 
 /**
+ * Products the server grants on its own authority, with no RevenueCat
+ * entitlement behind them.
+ *
+ * The free week on the house (`functions/src/revenueCat/freeWeek.ts`) writes
+ * `users/{uid}/entitlements/app_access` with this product id. RevenueCat never
+ * sees it, so the RevenueCat allowlist neither grants nor removes it: a live
+ * grant holding it must not be demanded of the allowlist, and must not be
+ * reported as about to be lost because the allowlist lacks it. A grant that
+ * disappears while its week is still running is still a loss.
+ */
+export const SERVER_GRANTED_PRODUCT_IDS = Object.freeze(["ascend_free_week"]);
+
+/**
+ * Whether a product id is one the server grants without RevenueCat.
+ * @param {?string} productId A grant's product id.
+ * @return {boolean} True for a server-granted product.
+ */
+export function isServerGrantedProduct(productId) {
+  return SERVER_GRANTED_PRODUCT_IDS.includes(productId);
+}
+
+/**
  * The projects that run a Functions deploy, and where each one's expected
  * product set comes from.
  *
@@ -646,6 +668,7 @@ export function requiredProducts(floor, grants, now) {
   );
   const holders = new Map();
   for (const grant of grants.filter((entry) => isUnexpiredGrant(entry, now))) {
+    if (isServerGrantedProduct(grant.productId)) continue;
     const productId = grant.productId ?? "(no productId)";
     holders.set(productId, (holders.get(productId) ?? 0) + 1);
   }
@@ -910,7 +933,7 @@ export function evaluateGrantSurvival({
       continue;
     }
     const productId = after.productId ?? before.productId;
-    if (!allowed.has(productId)) {
+    if (!allowed.has(productId) && !isServerGrantedProduct(productId)) {
       errors.push(
         `WILL BE LOST: ${who} holds ${grantPath} for ${productId}, which the ` +
           "version the functions are now bound to does not allowlist. Their " +

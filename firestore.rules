@@ -1558,6 +1558,18 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // The free week on the house (functions/src/revenueCat/freeWeek.ts). The
+      // record is the server's proof a climber was given their one week, so
+      // only the startFreeWeek callable writes it: a client that could write
+      // it could hand itself a window, and one that could delete it could
+      // claim a second week. The owner may read it - it is the only way the
+      // app can tell a running week from no access, because the grant itself
+      // stays unreadable - and it holds nothing but the two timestamps.
+      match /trial/{docId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
       // Server-owned cooldown for the self-service reconciliation callable.
       // A client that could write it could turn recovery into an unbounded
       // RevenueCat subscriber-API amplifier.

@@ -24,7 +24,9 @@ struct RemoteFeatureFlagResolutionTests {
     func theOnboardingRolloutShipsOffAndIsNotReportedAsADisabledSwitch() {
         let snapshot = RemoteFeatureFlagSnapshot.shippedDefaults
 
-        #expect(RemoteFeatureFlag.allCases.filter(\.isRollout) == [.onboardingV3, .gearDropPush])
+        #expect(RemoteFeatureFlag.allCases.filter(\.isRollout) == [.onboardingV3, .gearDropPush, .freeWeekAfterDecline])
+        #expect(snapshot.isEnabled(.freeWeekAfterDecline) == false)
+        #expect(snapshot.source(of: .freeWeekAfterDecline) == .shippedDefault)
         #expect(snapshot.isEnabled(.gearDropPush) == false)
         #expect(snapshot.source(of: .gearDropPush) == .shippedDefault)
         #expect(snapshot.isEnabled(.onboardingV3) == false)
@@ -708,8 +710,12 @@ struct OnboardingV3RouteLatchTests {
         )
     }
 
+    /// The bound is only ever spent on a failure, so it is sized for the full suite rather than for
+    /// this one: with every suite in one process a hosted test can hold the main actor past ten
+    /// seconds, and both fetch-driven cases here timed out at 23 seconds on 2026-11-10 while
+    /// passing in isolation in under one.
     private func decision(of latch: OnboardingV3RouteLatch) async throws -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
         while latch.showsFlow == nil, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5))
         }

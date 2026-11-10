@@ -110,7 +110,8 @@ Who sees the paywall is decided by the entitlement, never by the order of the sc
 
 The decline offer is Superwall's, with no Ascend code:
 
-- The app only ever registers `app_access_gate`.
+- The only placement the app registers to sell anything is `app_access_gate`.
+  It registers one other, `founder_letter`, which has no products and exists to say hello before a free week starts (see "Founder letter and the free week" below).
   The offer is a second campaign triggered by Superwall's built-in `paywall_decline` event, showing the welcome product's paywall, and it is shown to everyone who closes the first paywall, including a lapsed subscriber.
   Whether it exists, what it costs and who it targets are dashboard settings.
 - The offer has no back control: its only chrome is a close, plus a close action on `No thanks`, and no back arrow.
@@ -134,10 +135,13 @@ The decline offer is Superwall's, with no Ascend code:
   Access arriving or signing out ends the hold.
   A restore that finds nothing ends an Ask to Buy hold, because a declined request reads the same as an undecided one and must not stay locked; it never ends a hold on a charge.
   What this does not guarantee: signing out ends the hold, and StoreKit can only answer for this device's Apple ID, so a charge StoreKit has not yet recorded when the error arrives reads as no charge.
-- When both paywalls are closed, by the close, `No thanks` or a stray `back`:
-  the offer closes without a further offer (the SDK does not chain from `paywall_decline`), and the climber is left on the gate's native fallback - `No purchase was made. Choose a plan below.` - with the Yearly and Lifetime plans, Restore, Terms, Privacy, support, Sign out and Delete account.
-  If Superwall cannot load at all, the same fallback opens after the 8-second opening deadline (`Plans took too long to open. Choose a plan below.`), and the same deadline covers an offer that never opens.
-  Nobody is stranded and nobody reaches the app without `app_access`.
+- When both paywalls are closed, by the close, `No thanks` or a stray `back`, the offer closes without a further offer (the SDK does not chain from `paywall_decline`), and what happens next depends on `free_week_after_decline_enabled`:
+  - Off, which is how it ships: the climber is left on the gate's native fallback - `No purchase was made. Choose a plan below.` - with the Yearly and Lifetime plans, Restore, Terms, Privacy, support, Sign out and Delete account.
+  - On: the native fallback is no longer where a decline lands.
+    A climber who has never had a free week is shown the founder letter and let into the app for seven days; a climber whose week is spent gets the first paywall again, which is then the floor.
+    `docs/free-week-after-decline.md` owns that behaviour.
+  If Superwall cannot load at all, the native fallback opens after the 8-second opening deadline (`Plans took too long to open. Choose a plan below.`) whatever the switch says, and the same deadline covers an offer that never opens.
+  Nobody is stranded, and nobody reaches the app without a server-owned `app_access` grant: a paid one, or the free week's.
 
 The welcome product, `ascend_yearly_welcome` (`ascend_staging_yearly_welcome` in Debug and Staging, `ASCEND_REVENUECAT_WELCOME_PRODUCT_ID`):
 
@@ -155,6 +159,32 @@ Captain-gated before production, none of it done by the build:
 5. Do not publish the decline campaign before the v3 launch: publish the two together, so back only leaves the old onboarding once new climbers no longer walk it.
 
 Whether to remove the one-month introductory offer from `ascend_yearly` is a separate captain decision; this change neither requires nor performs it.
+
+### Founder letter and the free week
+
+`founder_letter` is the app's second placement (`SuperwallPlacement.founderLetter`).
+It is registered in exactly one situation: `free_week_after_decline_enabled` is on, the climber has just closed the last paid offer at the gate, and their account has never had a free week.
+`docs/free-week-after-decline.md` owns what the week is; this section owns what Superwall has to hold.
+
+- The paywall on it is the founder letter: a circular founder photo with a lime ring, the `A NOTE FROM THE FOUNDER` eyebrow, the letter, the `Tyler` signature with `Founder, Ascend` under it, one lime button `Start my free trial`, and an X in the top right.
+  It has no products, no price, no back arrow, no `No thanks` link and no `delete_account` control.
+- Both controls are plain close actions, with no custom action.
+  The app reads no choice out of how the letter closed: every terminal outcome starts the week, and so does a letter Superwall could not present at all (no campaign, no audience match, an error, or the 8-second opening deadline).
+  The letter is a courtesy and the access is the promise, so a missing campaign costs the climber the letter, never the week.
+- The campaign on `founder_letter` shows the letter to everyone.
+  Whether an account has already had its week is decided by the server and by the app before it registers the placement, so no audience filter is needed for that.
+- **Filter the `paywall_decline` campaign to the `app_access_gate` placement.**
+  Superwall fires `paywall_decline` when the letter is closed too, and the welcome offer's campaign is shown to everyone today, so unfiltered it would open the welcome offer a second time between the letter and the app.
+  The app tolerates that - it waits for the chained screen to close and then starts the week - but the climber should not see it.
+- The app records no lifecycle paywall event for the letter (`LifecycleEventRecorder`), because it sells nothing and `recordLifecycleEvent` lists only real paywall placements.
+  It does report `free_week_letter_shown`, and the relay's `sw_paywall_open` and `sw_paywall_close` carry `placement: founder_letter`.
+
+Captain-gated, none of it done by the build:
+
+1. Build the letter paywall and its `founder_letter` campaign in the staging and the production Superwall project.
+2. Narrow the `paywall_decline` campaign's audience to `app_access_gate`.
+3. Deploy `startFreeWeek` and the `trial` rule (both ship with the normal Functions and rules deploy) before turning the switch on.
+4. Turn `free_week_after_decline_enabled` on, in staging first, and walk the funnel on a device: Lifetime paywall, close, welcome offer, close, letter, close, app.
 
 ## Verified Vendor State
 
@@ -359,7 +389,7 @@ Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an
 ### Paywall chrome, the back control, and DELETE ACCOUNT
 
 The paywall carries one chrome control: a back arrow in the top-left.
-While no `paywall_decline` campaign is live, it returns the climber to the last onboarding step, except during a v3 onboarding pass, which has no step behind the paywall: there the arrow is a plain close that lands on the native fallback, never a v1 stage.
+While no `paywall_decline` campaign is live, it returns the climber to the last onboarding step, except during a v3 onboarding pass, which has no step behind the paywall: there the arrow is a plain close, treated as any other decline - the native fallback, or the founder letter and free week when `free_week_after_decline_enabled` is on - and never a v1 stage.
 Once a `paywall_decline` campaign is live, the arrow behaves as a plain close: the close chained after `back` opens the decline offer for everyone, a lapsed subscriber and a climber in a v1 pass included, and Ascend neither dismisses the offer nor reopens a step, and it records no `onboarding_back_tapped` for that tap.
 A v1 climber losing the way back is accepted because the campaign is published together with the v3 launch, when the old onboarding stops being the path for new climbers.
 The paywall carries no close or X control at all.
@@ -436,6 +466,7 @@ Steps that name Monthly apply only to a paywall that still offers it:
 13. Confirm the footer's `DELETE ACCOUNT` control fires a `Custom action` named `delete_account` and that **no close action is chained after it** - Ascend dismisses the paywall itself for this control, and an editor close would race that dismissal.
 14. Wire the verified paywall to `app_access_gate`.
 15. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
+16. If `free_week_after_decline_enabled` is or will be on: confirm the `founder_letter` campaign presents the letter with no products and two plain close controls, and that the `paywall_decline` campaign does not match a close of it - see "Founder letter and the free week" above.
 
 ## Release Gate
 

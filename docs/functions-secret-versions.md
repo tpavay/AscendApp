@@ -113,6 +113,12 @@ The required set is derived, not remembered:
 
 Retiring a product that live grants still hold means revoking those grants first; the invariant refuses to drop it while anybody holds it.
 
+One product a live grant can hold is exempt: `ascend_free_week`, the free week on the house (`docs/free-week-after-decline.md`).
+The server grants it on its own authority and RevenueCat never sees it, so the allowlist neither admits nor removes it.
+`SERVER_GRANTED_PRODUCT_IDS` in `scripts/lib/functions-secret-guard.mjs` names it: a running week is never added to the required set, and the post-deploy check never reports it as about to be lost for being absent from the allowlist.
+A free week that disappears while it is still running is still reported as lost, and one that ends during the deploy is an expiry like any other.
+Do not add `ascend_free_week` to `allowedProductIds` to make a check pass; it would let a RevenueCat entitlement carrying that id grant paid access.
+
 ### The credential
 
 The checks read Secret Manager, the Cloud Functions API and Firestore with the deploy's own `FIREBASE_TOKEN`, minted into a Google access token through the pinned firebase-tools CLI (`scripts/lib/pinned-firebase-tools.mjs`).

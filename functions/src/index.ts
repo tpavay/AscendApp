@@ -46,6 +46,7 @@ export {
   processRevenueCatAnalyticsOutbox,
 } from "./revenueCat/analyticsExporter";
 export {reconcileAppAccess} from "./revenueCat/reconciliation";
+export {startFreeWeek} from "./revenueCat/freeWeekGrant";
 export {
   expireRevenueCatEntitlements,
 } from "./revenueCat/expiration";

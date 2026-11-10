@@ -1,5 +1,11 @@
 import * as admin from "firebase-admin";
 import {onSchedule} from "firebase-functions/v2/scheduler";
+import {
+  freeWeekGrantFields,
+  freeWeekRecordRef,
+  isFreeWeekGrant,
+  liveFreeWeekWindow,
+} from "./freeWeek";
 
 const EXPIRATION_BATCH_SIZE = 200;
 const EXPIRATION_PAGE_SIZE = 200;
@@ -93,13 +99,23 @@ async function expireGrant(
       return false;
     }
 
-    const statusRef = grantRef.parent.parent?.collection(
-      "entitlement_status"
-    ).doc(grantRef.id);
-    if (!statusRef) {
+    const userRef = grantRef.parent.parent;
+    if (!userRef) {
       return false;
     }
-    transaction.delete(grantRef);
+    const statusRef = userRef.collection("entitlement_status").doc(grantRef.id);
+    // A paid grant that ends while the climber's free week is still running
+    // hands the rest of the week back instead of locking them out early. The
+    // week's own grant ends with its record, so it is never restored here.
+    const freeWeek = isFreeWeekGrant(current) ? null : liveFreeWeekWindow(
+      await transaction.get(freeWeekRecordRef(firestore, userRef.id)),
+      now
+    );
+    if (freeWeek) {
+      transaction.set(grantRef, freeWeekGrantFields(userRef.id, freeWeek, now));
+    } else {
+      transaction.delete(grantRef);
+    }
     transaction.set(statusRef, {
       isActive: false,
       accessUntil: admin.firestore.Timestamp.fromDate(new Date(0)),
