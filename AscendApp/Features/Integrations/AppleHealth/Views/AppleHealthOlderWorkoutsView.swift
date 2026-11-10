@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings -> Apple Health -> Import older workouts. Onboarding's "We found your climbs" in the
+/// Settings -> Integrations -> Apple Health -> Import older workouts. Onboarding's "We found your climbs" in the
 /// Connect flow's own chrome: the close X, the same body and range row, and one button.
 struct AppleHealthOlderWorkoutsView: View {
     @State private var viewModel: AppleHealthOlderWorkoutsViewModel

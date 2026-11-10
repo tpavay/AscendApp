@@ -585,13 +585,12 @@ struct OnboardingV3HealthTests {
             "Two taps and", "you're set.", "Tap Turn On All", "Tap Allow at the bottom",
             "We found your climbs", "Add 214 to my history", OnboardingHealthHistoryScreen.footnote,
             OnboardingHealthHistoryScreen.skipTitle, OnboardingHealthHistoryScreen.primaryPlaceholder,
-            "How far back?", "Add the rest any time in Settings.", "Everything", "Last year", "Last 90 days", "Since",
+            "How far back?", "Add the rest any time in Integrations.", "Everything", "Last year", "Last 90 days", "Since",
             AppleHealthOlderWorkoutsView.footnote, AppleHealthOlderWorkoutsView.nothingTitle,
             AppleHealthOlderWorkoutsView.nothingDetail, AppleHealthOlderWorkoutsView.unavailableTitle,
             AppleHealthOlderWorkoutsView.unavailableDetail, AppleHealthOlderWorkoutsViewModel.importFailedMessage,
-            AppleHealthSettingsView.connectedDetail, AppleHealthSettingsView.offDetail,
-            AppleHealthSettingsView.autoImportDetail, AppleHealthSettingsView.olderWorkoutsDetail,
-            AppleHealthSettingsView.notOfferedDetail, "Workout import",
+            "Import automatically", AppleHealthManageSheet.autoImportDetail,
+            "Import older workouts", AppleHealthManageSheet.olderWorkoutsDetail,
             HealthPermissionSheetMock.accessibilityDescription
         ] + HealthPermissionSheetMock.categories
 

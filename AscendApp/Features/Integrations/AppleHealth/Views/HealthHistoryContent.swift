@@ -3,7 +3,7 @@ import SwiftUI
 /// What a history screen says back about the workouts Health holds: the number they come to, the
 /// one row that changes how far back the import reaches, and what those steps are the height of.
 ///
-/// One body in two frames: onboarding's "We found your climbs" (07a) and Settings' Import older
+/// One body in two frames: onboarding's "We found your climbs" (07a) and Integrations' Import older
 /// workouts. Everything it shows follows the range the climber picked.
 struct HealthHistoryContent: View {
     let choice: HealthHistoryChoice
@@ -90,7 +90,7 @@ struct HealthHistoryRangeSheet: View {
     var body: some View {
         ProfileSheetFrame(
             title: "How far back?",
-            note: "Add the rest any time in Settings.",
+            note: "Add the rest any time in Integrations.",
             onDone: onDone
         ) {
             ScrollView {

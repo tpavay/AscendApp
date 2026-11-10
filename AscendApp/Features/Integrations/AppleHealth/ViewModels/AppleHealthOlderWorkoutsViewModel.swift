@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Settings -> Apple Health -> Import older workouts: the same look at Health's history that
+/// Settings -> Integrations -> Apple Health -> Import older workouts: the same look at Health's history that
 /// onboarding's "We found your climbs" takes, for a climber who already has an account.
 ///
 /// What it lists is what the history backfill can still bring in: stair workouts from before the

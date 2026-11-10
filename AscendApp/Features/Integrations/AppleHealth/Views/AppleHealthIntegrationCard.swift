@@ -58,6 +58,7 @@ struct AppleHealthIntegrationCard: View {
         .sheet(isPresented: $showingManageSheet) {
             AppleHealthManageSheet(
                 isPresented: $showingManageSheet,
+                importService: importService,
                 onCheckNow: checkForHeartRateFromManageSheet,
                 onOpenHealthPermissions: openPermissionsFromManageSheet
             )

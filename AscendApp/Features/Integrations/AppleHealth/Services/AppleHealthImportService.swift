@@ -552,7 +552,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         return records.allSatisfy { $0.state != .notImported }
     }
 
-    /// What Settings' Import older workouts has to offer: the stair workouts Health holds from
+    /// What Integrations' Import older workouts has to offer: the stair workouts Health holds from
     /// before this climber joined that are not climbs yet and were never turned away, with their
     /// steps settled by the step rule. Read-only, like 07a's look: nothing is filed.
     ///
@@ -577,7 +577,7 @@ final class AppleHealthImportService: AuthenticatedSessionWorker {
         return await stepResolvedClimbs(in: open)
     }
 
-    /// Whether Settings offers Import older workouts: Health connected for import, and the
+    /// Whether Integrations offers Import older workouts: Health connected for import, and the
     /// history backfill's own switch on.
     var offersOlderWorkouts: Bool {
         offeredImportConnectionState == .connected && featureFlags.isEnabled(.appleHealthHistoryImport)

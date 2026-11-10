@@ -32,7 +32,7 @@ enum HealthHistoryRange: Equatable, Sendable {
 }
 
 /// Every stair workout a read of Health found that an import would file, with its steps settled by
-/// the step rule, for the history screens: onboarding's "We found your climbs" and Settings'
+/// the step rule, for the history screens: onboarding's "We found your climbs" and Integrations'
 /// Import older workouts.
 ///
 /// Read-only and filed nowhere: this is a look, and the import itself is
