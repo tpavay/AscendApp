@@ -401,17 +401,12 @@ final class MonetizationManager: MonetizationIdentityManaging {
         pendingPurchaseHoldStore.clear()
     }
 
-    /// - Parameter isAccessRequest: Whether this presentation is the app asking the climber for
-    ///   access, which is what the onboarding funnel counts. `false` for a climber who already
-    ///   holds access and opened plans themselves - the Settings row during a free week - so that
-    ///   visit is not banked as a second trip through the gate.
     func presentPaywall(
         _ placement: SuperwallPlacement,
         params: [String: Any]? = nil,
-        isAccessRequest: Bool = true,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void = { _ in }
     ) {
-        let tracksOnboardingAccess = placement == .appAccessGate && isAccessRequest
+        let tracksOnboardingAccess = placement == .appAccessGate
         guard let presentationIdentity = identityGeneration else {
             if tracksOnboardingAccess {
                 recordOnboardingAccessGrantRequestReportedNothing()
@@ -424,12 +419,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
             placement: placement.rawValue,
             expectedUserID: presentationIdentity.userID
         )
-        trackPaywallReached(
-            placement,
-            params: params,
-            identity: presentationIdentity,
-            reportsOnboardingHandOff: tracksOnboardingAccess
-        )
+        trackPaywallReached(placement, params: params, identity: presentationIdentity)
 
         if tracksOnboardingAccess {
             beginOnboardingAccessGrantRequest()
@@ -492,8 +482,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private func trackPaywallReached(
         _ placement: SuperwallPlacement,
         params: [String: Any]?,
-        identity: MonetizationIdentityTransition,
-        reportsOnboardingHandOff: Bool
+        identity: MonetizationIdentityTransition
     ) {
         guard let userID = identity.userID else { return }
         let source = params?["source"] as? String
@@ -513,7 +502,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
             ifIdentifiedAs: userID
         )
 
-        guard reportsOnboardingHandOff else { return }
+        guard placement == .appAccessGate else { return }
 
         // The gate is where every flow hands a climber without access, so it reports under the pass
         // that led there.
@@ -640,10 +629,11 @@ final class MonetizationManager: MonetizationIdentityManaging {
             recordOnboardingAccessGranted(.purchase)
         case .restored:
             recordOnboardingAccessGranted(.restore)
-        case .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .skipped, .failed:
-            // Back and delete-account are navigations, not grants: like a dismissal each closes the
-            // request without naming how access was given, so a later webhook-delayed purchase
-            // still attributes.
+        case .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .signOutRequested,
+             .skipped, .failed:
+            // Back, delete-account and sign-out are navigations, not grants: like a dismissal each
+            // closes the request without naming how access was given, so a later webhook-delayed
+            // purchase still attributes.
             recordOnboardingAccessGrantRequestReportedNothing()
         case .presented, .followOnPaywallOpening, .pendingApproval, .verificationUnavailable:
             // Presentation and recoverable transaction states are not access-grant results.

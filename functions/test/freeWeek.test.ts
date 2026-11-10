@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
 import test from "node:test";
+import {freeWeekGrantFields} from "../src/revenueCat/freeWeek.js";
 import {
   FREE_WEEK_REMOTE_CONFIG_KEY,
   FREE_WEEK_SWITCH_CACHE_MS,
@@ -10,6 +13,27 @@ import {
 function template(parameter: unknown): unknown {
   return {parameters: {[FREE_WEEK_REMOTE_CONFIG_KEY]: parameter}};
 }
+
+// __dirname is the compiled lib/test directory; walk up to the repo root.
+const serverGrantedVector = JSON.parse(readFileSync(
+  join(
+    __dirname,
+    "../../../SharedTestVectors/server-granted-products-vector.json"
+  ),
+  "utf8"
+)) as {serverGrantedProductIds: string[]};
+
+test("the grant the free week writes is a product the deploy guard treats as server-granted", () => {
+  const now = new Date("2026-11-10T12:00:00.000Z");
+  const fields = freeWeekGrantFields(
+    "uid-1",
+    {grantedAt: now, expiresAt: new Date(now.getTime() + 1000)},
+    now
+  );
+  assert.deepEqual(serverGrantedVector.serverGrantedProductIds, [
+    fields.productId,
+  ]);
+});
 
 test("the switch is the rollout the app reads", () => {
   assert.equal(FREE_WEEK_REMOTE_CONFIG_KEY, "free_week_after_decline_enabled");

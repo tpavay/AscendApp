@@ -47,6 +47,10 @@ final class AppAccessPaywallCoordinator {
     /// update nudge - yield first, rather than reporting a refusal this gate would have nowhere to
     /// render.
     private let onRequestAccountDeletion: (@MainActor () -> Void)?
+    /// Signs the climber out exactly as the gate's own `Sign Out` control does, for the same reason:
+    /// the hosted and native routes must not reach two different destinations. Ascend has already
+    /// dismissed the hosted paywall by the time this is asked.
+    private let onRequestSignOut: (@MainActor () -> Void)?
     private let telemetry: TelemetryManager
     private let hostedOpeningDeadline: Duration
     private let nativeLoadingDeadline: Duration
@@ -85,6 +89,7 @@ final class AppAccessPaywallCoordinator {
         initialStatusMessage: String? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
+        onRequestSignOut: (@MainActor () -> Void)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
         nativeLoadingDeadline: Duration = .seconds(12),
         sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
@@ -98,6 +103,7 @@ final class AppAccessPaywallCoordinator {
         self.restoreService = restoreService ?? .shared
         self.onRequestOnboardingBack = onRequestOnboardingBack
         self.onRequestAccountDeletion = onRequestAccountDeletion
+        self.onRequestSignOut = onRequestSignOut
         self.telemetry = telemetry
         self.phase = initialPhase
         restoreState = initialRestoreState
@@ -525,6 +531,19 @@ final class AppAccessPaywallCoordinator {
                 entitlementActive: entitlementPresence
             )
             onRequestAccountDeletion?()
+        case .signOutRequested:
+            // Signing out routes away from the gate entirely, so like a deletion request this never
+            // falls through to the native plan list and does not move the phase.
+            watchdogTask?.cancel()
+            recordGateTerminal(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                providerOutcome: .signOutRequested,
+                recoveryPath: .account,
+                recoveryReason: .hostedSignOutRequested,
+                entitlementActive: entitlementPresence
+            )
+            onRequestSignOut?()
         case .dismissedWithoutPurchase:
             watchdogTask?.cancel()
             handlePaidOffersDeclined(
@@ -571,7 +590,8 @@ final class AppAccessPaywallCoordinator {
     ///
     /// - An account that has never had its week is shown the founder letter and let in.
     /// - An account whose week is over gets the hosted paywall again. That paywall is the floor:
-    ///   it carries its own restore and delete-account controls, and declining it only reopens it.
+    ///   it carries its own restore, delete-account and sign-out controls, and declining it only
+    ///   reopens it.
     /// - An account the server could not be asked about gets the plan picker, because showing the
     ///   letter to a climber who already spent their week would promise a second one.
     ///
@@ -749,6 +769,10 @@ final class AppAccessPaywallCoordinator {
         case .pendingApproval, .verificationUnavailable:
             letterWatchdogTask?.cancel()
             showPurchaseHold(outcome == .pendingApproval ? .askToBuy : .unconfirmedCharge)
+        case .signOutRequested:
+            // A climber leaving the account is not accepting a week on it.
+            letterWatchdogTask?.cancel()
+            onRequestSignOut?()
         case .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .skipped, .failed:
             letterWatchdogTask?.cancel()
             startFreeWeek(identity: identity)

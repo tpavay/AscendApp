@@ -743,12 +743,16 @@ const FREE_WEEK = "ascend_free_week";
 const WEEK_ENDS = "2026-10-01T20:00:00Z";
 
 test("the server-granted product is the one the free week function writes", () => {
-  const source = readFileSync(
-    join(REPO_ROOT, "functions", "src", "revenueCat", "freeWeek.ts"),
+  // functions/test/freeWeek.test.ts holds the grant the function writes to the
+  // same vector, so the two sides cannot name different products.
+  const vector = JSON.parse(readFileSync(
+    join(REPO_ROOT, "SharedTestVectors", "server-granted-products-vector.json"),
     "utf8"
-  );
-  assert.deepEqual([...SERVER_GRANTED_PRODUCT_IDS], [FREE_WEEK]);
-  assert.match(source, new RegExp(`FREE_WEEK_PRODUCT_ID = "${FREE_WEEK}"`));
+  ));
+  assert.deepEqual([...SERVER_GRANTED_PRODUCT_IDS], vector.serverGrantedProductIds);
+  for (const productId of vector.serverGrantedProductIds) {
+    assert.equal(isServerGrantedProduct(productId), true);
+  }
   assert.equal(isServerGrantedProduct(FREE_WEEK), true);
   assert.equal(isServerGrantedProduct(PROMO), false);
   assert.equal(isServerGrantedProduct(null), false);

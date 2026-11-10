@@ -1,0 +1,4 @@
+{
+  "description": "The product ids the server writes into users/{uid}/entitlements/app_access on its own authority, with no RevenueCat entitlement behind them. The free week grant (freeWeekGrantFields in functions/src/revenueCat/freeWeek.ts) must write one of these, and the deploy preflight (SERVER_GRANTED_PRODUCT_IDS in scripts/lib/functions-secret-guard.mjs) must treat exactly these as server-granted, so the grant the function writes is never demanded of, or reported lost by, the RevenueCat allowlist.",
+  "serverGrantedProductIds": ["ascend_free_week"]
+}

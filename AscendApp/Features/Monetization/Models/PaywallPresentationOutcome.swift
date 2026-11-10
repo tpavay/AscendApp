@@ -14,6 +14,8 @@ enum PaywallPresentationOutcome: Equatable, Sendable {
     case backRequested
     /// The climber tapped the paywall's delete-account control, also a custom action.
     case deleteAccountRequested
+    /// The climber tapped the paywall's sign-out control, also a custom action.
+    case signOutRequested
     case skipped(reason: String)
     case failed(message: String)
 }
@@ -24,7 +26,7 @@ extension PaywallPresentationOutcome {
         case .presented, .followOnPaywallOpening:
             return false
         case .purchased, .restored, .pendingApproval, .verificationUnavailable,
-             .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .skipped, .failed:
+             .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .signOutRequested, .skipped, .failed:
             return true
         }
     }

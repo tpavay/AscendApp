@@ -108,6 +108,23 @@ struct FreeWeekGateCoordinatorTests {
         #expect(harness.eventNames.contains("free_week_granted") == false)
     }
 
+    /// A climber leaving the account is not accepting a week on it.
+    @Test
+    func aSignOutFromTheLetterSignsOutRatherThanStartingTheWeek() async {
+        let harness = await makeHarness()
+        harness.freeWeek.granter.responses = [.success(.granted(harness.freeWeek.week()))]
+
+        declinePaidOffers(harness)
+        harness.presenter.send(.presented, registration: 1)
+        harness.presenter.send(.signOutRequested, registration: 1)
+
+        #expect(harness.signOut.count == 1)
+        #expect(harness.coordinator.phase != .startingFreeWeek)
+        #expect(harness.freeWeek.granter.callCount == 0)
+        #expect(harness.freeWeek.store.routingAccess == .none)
+        #expect(harness.provider.loadCount == 0)
+    }
+
     @Test
     func aChainedScreenAfterTheLetterIsWaitedForBeforeTheWeekStarts() async {
         let harness = await makeHarness()
@@ -150,6 +167,29 @@ struct FreeWeekGateCoordinatorTests {
         harness.presenter.send(.dismissedWithoutPurchase, registration: 1)
         #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate, .appAccessGate])
         #expect(harness.provider.loadCount == 0)
+    }
+
+    /// Declining the floor only reopens it, so the native gate's Sign Out is never reached: the
+    /// floor's own Sign out is how a climber on the wrong account leaves it without deleting it.
+    @Test
+    func aSignOutFromTheFloorSignsOutAndDoesNotReopenThePaywall() async {
+        let harness = await makeHarness(spentWeek: true)
+
+        harness.coordinator.start()
+        harness.presenter.send(.presented, registration: 0)
+        harness.presenter.send(.dismissedWithoutPurchase, registration: 0)
+        #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
+
+        harness.presenter.send(.presented, registration: 1)
+        harness.presenter.send(.signOutRequested, registration: 1)
+
+        #expect(harness.signOut.count == 1)
+        #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
+        #expect(harness.provider.loadCount == 0)
+        #expect(harness.freeWeek.granter.callCount == 0)
+        let terminals = harness.sink.records.filter { $0.name == "app_access_gate_attempt_terminal" }
+        #expect(terminals.last?.parameters["provider_outcome"] == .string("sign_out_requested"))
+        #expect(terminals.last?.parameters["recovery_reason"] == .string("hosted_sign_out_requested"))
     }
 
     @Test
@@ -376,6 +416,7 @@ struct FreeWeekGateCoordinatorTests {
 
         let presenter = FreeWeekGatePresenter()
         let provider = FreeWeekGateNativeProvider()
+        let signOut = FreeWeekSignOutSpy()
         let manager = MonetizationManager(
             configuration: MonetizationConfiguration(
                 infoDictionary: [
@@ -403,6 +444,7 @@ struct FreeWeekGateCoordinatorTests {
                 restorer: { manager }
             ),
             telemetry: telemetry,
+            onRequestSignOut: { signOut.count += 1 },
             sleep: sleep
         )
         return FreeWeekGateHarness(
@@ -410,6 +452,7 @@ struct FreeWeekGateCoordinatorTests {
             manager: manager,
             presenter: presenter,
             provider: provider,
+            signOut: signOut,
             freeWeek: freeWeek,
             sink: sink,
             telemetry: telemetry,
@@ -424,6 +467,7 @@ private struct FreeWeekGateHarness {
     let manager: MonetizationManager
     let presenter: FreeWeekGatePresenter
     let provider: FreeWeekGateNativeProvider
+    let signOut: FreeWeekSignOutSpy
     let freeWeek: FreeWeekTestHarness
     let sink: InMemoryTelemetrySink
     let telemetry: TelemetryManager
@@ -437,6 +481,11 @@ private struct FreeWeekGateHarness {
     func event(_ name: String) -> EnvelopedTelemetryRecord? {
         sink.records.first { $0.name == name }
     }
+}
+
+@MainActor
+private final class FreeWeekSignOutSpy {
+    var count = 0
 }
 
 @MainActor

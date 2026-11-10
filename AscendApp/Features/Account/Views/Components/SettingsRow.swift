@@ -47,7 +47,7 @@ struct SettingsRow: View {
                 ProgressView()
                     .tint(.white)
                     .accessibilityLabel("Restoring purchases")
-            } else {
+            } else if option.isInteractive {
                 AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .medium)
                     .foregroundStyle(option.isDestructive ? .red.opacity(0.6) : .white.opacity(0.6))
                     .accessibilityHidden(true)

@@ -386,7 +386,7 @@ Apple grants one introductory offer per subscription group per Apple account and
 Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an account that already used the offer sees immediate-charge annual copy instead of the trial promise.
 `PaywallAnalyticsContext.isFreeTrialAvailable` records which state each presentation actually showed.
 
-### Paywall chrome, the back control, and DELETE ACCOUNT
+### Paywall chrome, the back control, DELETE ACCOUNT, and Sign out
 
 The paywall carries one chrome control: a back arrow in the top-left.
 While no `paywall_decline` campaign is live, it returns the climber to the last onboarding step, except during a v3 onboarding pass, which has no step behind the paywall: there the arrow is a plain close, treated as any other decline - the native fallback, or the founder letter and free week when `free_week_after_decline_enabled` is on - and never a v1 stage.
@@ -395,7 +395,7 @@ A v1 climber losing the way back is accepted because the campaign is published t
 The paywall carries no close or X control at all.
 Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
 
-Two controls on the paywall are custom actions rather than plain closes: the back arrow (`back`) and the footer's `DELETE ACCOUNT` (`delete_account`).
+Three controls on the paywall are custom actions rather than plain closes: the back arrow (`back`), the footer's `DELETE ACCOUNT` (`delete_account`), and the footer's Sign out (`sign_out`).
 The custom action name is the only thing that can distinguish either control from any other dismissal: SuperwallKit reports every user-driven close as the same `PaywallResult.declined` with `PaywallCloseReason.manualClose`, and the close message carries no payload, so two controls both wired to a close action are indistinguishable to the app.
 
 **A custom action never dismisses the paywall and carries no outcome of its own**, so every control has to be dismissed by *somebody*.
@@ -405,6 +405,7 @@ There are exactly two arrangements and they are mutually exclusive - `SuperwallC
 |---|---|---|
 | back arrow (`back`) | `Custom action` **chained ahead of a close action** | the paywall |
 | `DELETE ACCOUNT` (`delete_account`) | `Custom action` **only, with no close after it** | Ascend |
+| Sign out (`sign_out`) | `Custom action` **only, with no close after it** | Ascend |
 
 A control Ascend dismisses must **not** also chain a close, and a control the paywall dismisses must chain one.
 Get it backwards in either direction and the control misbehaves: with no close and no app handling it does nothing at all, not even close the paywall (the shipped state of `DELETE ACCOUNT` in staging build 2026083101), and with both, the editor's close races Ascend's own dismissal and hands the app a dismissal it did not cause.
@@ -414,6 +415,11 @@ The enum is `CaseIterable` and `AscendAppTests/PaywallDeleteAccountFromHostedPay
 
 `DELETE ACCOUNT` matters beyond convenience: with no close control on the paywall, it is the account-deletion route Guideline 5.1.1(v) requires for a climber who is locked out and cannot pay, and it opens the same confirmation dialog the native gate's own `Delete account` control opens - the identical closure, so the two can never diverge.
 Ascend owns that dismissal because the dialog cannot be shown while the paywall is up; see below.
+
+Sign out is a required control on the access-gate paywall, on every screen of it: the first paywall, the decline offer, and the floor a spent free week reopens.
+Once `free_week_after_decline_enabled` is on, declining the floor only reopens it, so the native gate - until then the only surface with Sign Out - is never reached, and a climber signed into the wrong account could otherwise leave it only by deleting it.
+Firebase Auth survives a reinstall through the keychain, so reinstalling is no way out either.
+Ascend answers `sign_out` with the same sign-out the native gate's own Sign Out control runs, the identical closure, so the two can never diverge, and a `sign_out` from the founder letter signs out rather than starting the week.
 
 The staging editor already carries `DELETE ACCOUNT` and already emits `delete_account` - a control firing with nothing answering it is exactly what #558 was - so that route is live rather than hypothetical, and step 13 below is how each environment's paywall is confirmed to carry it on the wiring above.
 For a control an editor does not yet carry, nothing emits its action, so the matching app route stays inert and paywall behaviour is unchanged.
@@ -462,11 +468,12 @@ Steps that name Monthly apply only to a paywall that still offers it:
 9. Preview with an Apple account that already used the introductory offer and confirm no annual surface promises a free trial.
 10. Confirm Restore, Terms, and Privacy still work.
 11. Confirm a sandbox purchase of every product the paywall offers grants `app_access`, and that a Lifetime purchase shows no trial, renewal or cancellation copy anywhere.
-12. Confirm the only chrome control is the top-left back arrow, that it fires a `Custom action` named `back` ahead of its close action, and that no `CLOSE` node remains - see Paywall chrome, the back control, and DELETE ACCOUNT above.
+12. Confirm the only chrome control is the top-left back arrow, that it fires a `Custom action` named `back` ahead of its close action, and that no `CLOSE` node remains - see Paywall chrome, the back control, DELETE ACCOUNT, and Sign out above.
 13. Confirm the footer's `DELETE ACCOUNT` control fires a `Custom action` named `delete_account` and that **no close action is chained after it** - Ascend dismisses the paywall itself for this control, and an editor close would race that dismissal.
-14. Wire the verified paywall to `app_access_gate`.
-15. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
-16. If `free_week_after_decline_enabled` is or will be on: confirm the `founder_letter` campaign presents the letter with no products and two plain close controls, and that the `paywall_decline` campaign does not match a close of it - see "Founder letter and the free week" above.
+14. Confirm the footer's Sign out control fires a `Custom action` named `sign_out` and that **no close action is chained after it**, on the first paywall and on the decline offer alike - the same rule as `delete_account`.
+15. Wire the verified paywall to `app_access_gate`.
+16. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
+17. If `free_week_after_decline_enabled` is or will be on: confirm the `founder_letter` campaign presents the letter with no products and two plain close controls, and that the `paywall_decline` campaign does not match a close of it - see "Founder letter and the free week" above.
 
 ## Release Gate
 

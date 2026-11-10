@@ -36,7 +36,7 @@ struct LockedOutSubscriberRecoveryContractTests {
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
         )
 
-        #expect(gate.contains("onSignOut: @escaping () -> Void"))
+        #expect(gate.contains("onSignOut: @escaping @MainActor () -> Void"))
         #expect(gate.contains("Button(action: onSignOut)"))
         #expect(gate.contains("Text(\"Sign Out\")"))
         #expect(gate.contains(".accessibilityIdentifier(\"appAccessSignOut\")"))

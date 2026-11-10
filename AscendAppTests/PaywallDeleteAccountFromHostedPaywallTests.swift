@@ -18,7 +18,10 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
     /// without a resolved intent fails this test instead of failing silently in a climber's hands.
     @Test
     func everyModelledActionResolvesAndNothingElseDoes() {
-        #expect(SuperwallCustomAction.allCases.map(\.rawValue).sorted() == ["back", "delete_account"])
+        #expect(
+            SuperwallCustomAction.allCases.map(\.rawValue).sorted()
+                == ["back", "delete_account", "sign_out"]
+        )
 
         for action in SuperwallCustomAction.allCases {
             let intent = PaywallDismissIntent.resolve(latchedActionName: action.rawValue)
@@ -38,7 +41,7 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
         let modelled = Set(SuperwallCustomAction.allCases.map(\.rawValue))
         for unmodelled in [
             "", "Back", "DELETE_ACCOUNT", "delete-account", "deleteAccount", "delete_account ",
-            "close", "manage_subscription", "restore", "sign_out", "terms"
+            "close", "manage_subscription", "restore", "SIGN_OUT", "sign-out", "signOut", "terms"
         ] {
             #expect(!modelled.contains(unmodelled))
             #expect(
@@ -50,6 +53,8 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
 
         #expect(PaywallDismissIntent.deleteAccount.outcome == .deleteAccountRequested)
         #expect(PaywallPresentationOutcome.deleteAccountRequested.isTerminal)
+        #expect(PaywallDismissIntent.signOut.outcome == .signOutRequested)
+        #expect(PaywallPresentationOutcome.signOutRequested.isTerminal)
     }
 
     /// The two arrangements are mutually exclusive, and getting one backwards is what breaks a
@@ -58,6 +63,7 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
     func eachControlDeclaresExactlyOneDismissalOwner() {
         #expect(SuperwallCustomAction.back.isDismissedByAscend == false)
         #expect(SuperwallCustomAction.deleteAccount.isDismissedByAscend)
+        #expect(SuperwallCustomAction.signOut.isDismissedByAscend)
     }
 
     /// The exact defect: the control fires its custom action and chains nothing, so if the app does
@@ -85,6 +91,67 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
         #expect(outcomes.isEmpty, "the outcome must not be reported while the paywall is still up")
         await presenter.drainPresentationOperationsForTesting()
         #expect(outcomes == [.deleteAccountRequested])
+        #expect(await dismissals.count == 1)
+    }
+
+    /// Sign out is wired exactly as delete account is: the control chains nothing, so the app
+    /// answers on arrival and owns the dismissal.
+    @MainActor
+    @Test
+    func aSignOutActionAloneReportsTheOutcomeAndDismissesThePaywall() async {
+        let dismissals = DismissalSpy()
+        let presenter = SuperwallPaywallPresenter(
+            startsConfigured: true,
+            dismissPresentation: { await dismissals.record() }
+        )
+        var outcomes: [PaywallPresentationOutcome] = []
+        let identity = MonetizationIdentityTransition(revision: 1, userID: "user-1")
+        let revision = presenter.beginPresentationAttemptForTesting(identity: identity) {
+            outcomes.append($0)
+        }
+        presenter.handlePresentationBegan(revision: revision, presentationID: "presentation-1")
+
+        presenter.handleCustomPaywallAction(withName: "sign_out")
+        presenter.handleCustomPaywallAction(withName: "sign_out")
+        #expect(outcomes.isEmpty, "the outcome must not be reported while the paywall is still up")
+        presenter.handleDismissForTesting(revision: revision, result: .declined)
+
+        await presenter.drainPresentationOperationsForTesting()
+        #expect(outcomes == [.signOutRequested])
+        #expect(await dismissals.count == 1)
+    }
+
+    /// The decline offer the dashboard chains onto the first paywall belongs to the same attempt,
+    /// so its Sign out reaches the gate the same way.
+    @MainActor
+    @Test
+    func aSignOutFromTheChainedDeclineOfferIsAnsweredToo() async {
+        let dismissals = DismissalSpy()
+        let presenter = SuperwallPaywallPresenter(
+            startsConfigured: true,
+            dismissPresentation: { await dismissals.record() }
+        )
+        var outcomes: [PaywallPresentationOutcome] = []
+        let identity = MonetizationIdentityTransition(revision: 1, userID: "user-1")
+        let revision = presenter.beginPresentationAttemptForTesting(identity: identity) {
+            outcomes.append($0)
+        }
+        presenter.handlePresentationBegan(revision: revision, presentationID: "presentation-1")
+        presenter.handleDismissForTesting(
+            revision: revision,
+            result: .declined,
+            closeReason: .forNextPaywall
+        )
+        presenter.handlePresentationBegan(
+            revision: revision,
+            presentationID: "presentation-2",
+            placement: "paywall_decline"
+        )
+
+        presenter.handleCustomPaywallAction(withName: "sign_out")
+
+        await presenter.drainPresentationOperationsForTesting()
+        #expect(outcomes == [.followOnPaywallOpening, .signOutRequested])
         #expect(await dismissals.count == 1)
     }
 
@@ -158,6 +225,43 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
         )
     }
 
+    /// The hosted paywall's Sign out signs out through the gate's own closure, never the plan list.
+    @MainActor
+    @Test
+    func signOutSignsTheClimberOutWithoutLoadingTheNativePlanList() {
+        let harness = GateDeleteAccountHarness()
+
+        harness.openHostedPaywall()
+        harness.coordinator.handleHostedOutcomeForTesting(.signOutRequested)
+
+        #expect(harness.signOutRequestCount == 1)
+        #expect(harness.deletionRequestCount == 0)
+        #expect(harness.nativeProvider.loadCount == 0)
+        #expect(harness.presenter.registrationCount == 1)
+        #expect(harness.coordinator.phase == .hostedPresented)
+
+        let terminals = harness.gateTerminals
+        #expect(terminals.count == 1)
+        #expect(terminals[0].parameters["provider_outcome"] == .string("sign_out_requested"))
+        #expect(terminals[0].parameters["recovery_path"] == .string("account"))
+        #expect(terminals[0].parameters["recovery_reason"] == .string("hosted_sign_out_requested"))
+    }
+
+    @MainActor
+    @Test
+    func signOutFromTheChainedDeclineOfferSignsOutToo() {
+        let harness = GateDeleteAccountHarness()
+
+        harness.openHostedPaywall()
+        harness.coordinator.handleHostedOutcomeForTesting(.followOnPaywallOpening)
+        harness.coordinator.handleHostedOutcomeForTesting(.presented)
+        harness.coordinator.handleHostedOutcomeForTesting(.signOutRequested)
+
+        #expect(harness.signOutRequestCount == 1)
+        #expect(harness.nativeProvider.loadCount == 0)
+        #expect(harness.gateTerminals.count == 1)
+    }
+
     /// Ascend dismissed the paywall to raise the dialog, so backing out of the deletion has to put
     /// the climber back on it. Cancelling a deletion means nothing happened - not a plan list, and
     /// not an opening spinner with no controls at all.
@@ -226,9 +330,11 @@ private final class GateDeleteAccountHarness {
     let nativeProvider = DeleteAccountNativeProviderSpy()
     let presenter = RegisteringPaywallPresenterSpy()
     private let sink = InMemoryTelemetrySink(destination: .analytics)
-    private let deletionSpy = AccountDeletionRequestSpy()
+    private let deletionSpy = RouteRequestSpy()
+    private let signOutSpy = RouteRequestSpy()
 
     var deletionRequestCount: Int { deletionSpy.count }
+    var signOutRequestCount: Int { signOutSpy.count }
 
     var gateTerminals: [EnvelopedTelemetryRecord] {
         sink.records.filter { $0.name == "app_access_gate_attempt_terminal" }
@@ -250,11 +356,13 @@ private final class GateDeleteAccountHarness {
             )!
         )
         let deletion = deletionSpy
+        let signOut = signOutSpy
         coordinator = AppAccessPaywallCoordinator(
             monetizationManager: manager,
             nativeProvider: nativeProvider,
             telemetry: telemetry,
             onRequestAccountDeletion: { deletion.request() },
+            onRequestSignOut: { signOut.request() },
             sleep: { _ in try await Task.sleep(for: .seconds(3_600)) },
             nativeLoadSleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
         )
@@ -274,7 +382,7 @@ private final class GateDeleteAccountHarness {
 }
 
 @MainActor
-private final class AccountDeletionRequestSpy {
+private final class RouteRequestSpy {
     private(set) var count = 0
 
     func request() {

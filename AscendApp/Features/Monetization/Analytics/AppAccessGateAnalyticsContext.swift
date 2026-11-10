@@ -18,6 +18,7 @@ enum AppAccessGateProviderOutcome: String, Sendable {
     case cancelled
     case backRequested = "back_requested"
     case deleteAccountRequested = "delete_account_requested"
+    case signOutRequested = "sign_out_requested"
     case staleIdentity = "stale_identity"
     case pendingApproval = "pending_approval"
     case verificationUnavailable = "verification_unavailable"
@@ -33,6 +34,7 @@ enum AppAccessGateRecoveryReason: String, Sendable {
     case hostedDismissed = "hosted_dismissed"
     case hostedBackRequested = "hosted_back_requested"
     case hostedDeleteAccountRequested = "hosted_delete_account_requested"
+    case hostedSignOutRequested = "hosted_sign_out_requested"
     case hostedSkipped = "hosted_skipped"
     case hostedError = "hosted_error"
     /// The free week could not be started, or the account's record could not be read.

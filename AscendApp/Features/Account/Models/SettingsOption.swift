@@ -56,4 +56,24 @@ struct SettingsOption: Identifiable {
         self.isEnabled = isEnabled
         self.isLoading = isLoading
     }
+
+    // Convenience initializer for a row that only states something and cannot be tapped
+    init(
+        icon: AppIconToken,
+        title: String,
+        iconColor: Color = .accent
+    ) {
+        self.icon = icon
+        self.title = title
+        self.iconColor = iconColor
+        self.destination = nil
+        self.action = nil
+        self.isDestructive = false
+        self.isEnabled = true
+        self.isLoading = false
+    }
+
+    var isInteractive: Bool {
+        destination != nil || action != nil
+    }
 }

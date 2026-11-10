@@ -12,7 +12,7 @@ struct AppAccessPaywallPlaceholderView: View {
     private let accountDeletionDismissalRevision: UInt
     private let onAccountDeletionFocusRestored: (() -> Void)?
     private let onDeleteAccount: @MainActor () -> Void
-    private let onSignOut: () -> Void
+    private let onSignOut: @MainActor () -> Void
     private let onRequestOnboardingBack: (@MainActor () -> Bool)?
 
     init(
@@ -25,7 +25,7 @@ struct AppAccessPaywallPlaceholderView: View {
         onAccountDeletionFocusRestored: (() -> Void)? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onDeleteAccount: @escaping @MainActor () -> Void,
-        onSignOut: @escaping () -> Void = {}
+        onSignOut: @escaping @MainActor () -> Void = {}
     ) {
         self.initialPhase = initialPhase
         self.initialRestoreState = initialRestoreState
@@ -63,7 +63,7 @@ private struct AppAccessPaywallContentView: View {
 
     private let manager: MonetizationManager
     private let onDeleteAccount: @MainActor () -> Void
-    private let onSignOut: () -> Void
+    private let onSignOut: @MainActor () -> Void
     private let automaticallyStarts: Bool
     private let accountDeletionDismissalRevision: UInt
     private let onAccountDeletionFocusRestored: (() -> Void)?
@@ -85,7 +85,7 @@ private struct AppAccessPaywallContentView: View {
         onAccountDeletionFocusRestored: (() -> Void)?,
         onRequestOnboardingBack: (@MainActor () -> Bool)?,
         onDeleteAccount: @escaping @MainActor () -> Void,
-        onSignOut: @escaping () -> Void
+        onSignOut: @escaping @MainActor () -> Void
     ) {
         self.manager = manager
         self.automaticallyStarts = automaticallyStarts
@@ -101,7 +101,9 @@ private struct AppAccessPaywallContentView: View {
                 onRequestOnboardingBack: onRequestOnboardingBack,
                 // The hosted paywall's DELETE ACCOUNT control and this screen's own must open the
                 // same dialog, so they are the same closure rather than two routes that can drift.
-                onRequestAccountDeletion: onDeleteAccount
+                onRequestAccountDeletion: onDeleteAccount,
+                // Likewise the hosted paywall's Sign out and this screen's own Sign Out.
+                onRequestSignOut: onSignOut
             )
         )
         self.onDeleteAccount = onDeleteAccount

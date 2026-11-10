@@ -19,7 +19,9 @@ The week is already running when the main app appears.
 
 Seven days later the gate comes back, and from then on the funnel is: Lifetime paywall, decline, welcome offer, decline, Lifetime paywall again.
 The hosted paywall is the floor.
-It carries its own Restore and `DELETE ACCOUNT` controls, so Guideline 5.1.1(v) is still met from it, and declining it only reopens it.
+It carries its own Restore, `DELETE ACCOUNT` and Sign out controls, so Guideline 5.1.1(v) is still met from it, and declining it only reopens it.
+Sign out (`sign_out`) is how a climber signed into the wrong account leaves it without deleting it: the native gate's own Sign Out is no longer reachable once the floor is the hosted paywall, and Firebase Auth survives a reinstall.
+Ascend answers it exactly as it answers `DELETE ACCOUNT`, from the first paywall, the decline offer, the floor, and the letter alike, and a `sign_out` from the letter signs out rather than starting the week.
 Paying at that paywall restores the account exactly as it was: nothing about the climber's data is tied to the week, and a lapsed account keeps its climbs, records and history (`docs/revenuecat-server-entitlement-enforcement.md`, "Backend choke points").
 
 The native plan picker remains for two cases only:
@@ -147,7 +149,7 @@ It is the same template read `announceGearDrops` already makes every five minute
 - `MonetizationManager.hasAppAccess` is true during the week, so the workout upload hold releases and climbs saved during the week reach the cloud.
 - `AppAccessPaywallCoordinator.handlePaidOffersDeclined` is the one place a decline is decided.
 - Settings, under Purchases, shows `Free trial, N days left` (`Free trial, 1 day left`) while a week is running.
-  Tapping it opens the paid paywall, because the week is the one stretch in which a climber is inside the app with nothing bought.
+  It is informational only: it cannot be tapped, opens nothing, and carries no disclosure chevron.
   Home shows nothing.
 
 ## Analytics
@@ -170,6 +172,7 @@ Also:
 
 - `onboarding_flow_completed` reports `completion_reason: free_week` for a climber let in on the week.
 - `app_access_gate_attempt_terminal` reports `provider_outcome: free_week_offered` when the letter is offered and `paywall_floor` when a spent week reopens the paywall, and `recovery_reason: free_week_unavailable` when the week could not be started.
+  A `sign_out` from the hosted paywall reports `provider_outcome: sign_out_requested` with `recovery_reason: hosted_sign_out_requested`.
 - The letter itself reports through `SuperwallEventRelay` like every hosted screen, as `sw_paywall_open` and `sw_paywall_close` with `placement: founder_letter`.
 - The `has_app_access` user property still means a paid entitlement. A climber on their week reads `false`.
 

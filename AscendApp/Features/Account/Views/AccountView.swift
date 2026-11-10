@@ -214,8 +214,8 @@ struct AccountView: View {
     /// Lifetime from the gate while a lapsed subscription was in billing retry still has that
     /// subscription to cancel, and this row is the only route to it inside Ascend.
     ///
-    /// The free-week row is there only while a week is running. It opens the plans, because the
-    /// week is the one stretch in which a climber is inside the app with nothing bought.
+    /// The free-week row is there only while a week is running, and only says how much of it is
+    /// left.
     private var purchaseOptions: [SettingsOption] {
         freeWeekOptions + [
             SettingsOption(
@@ -246,17 +246,7 @@ struct AccountView: View {
         }
 
         return [
-            SettingsOption(
-                icon: .settingsManageSubscription,
-                title: title,
-                action: {
-                    monetizationManager.presentPaywall(
-                        .appAccessGate,
-                        params: ["source": "settings_free_week"],
-                        isAccessRequest: false
-                    )
-                }
-            )
+            SettingsOption(icon: .settingsManageSubscription, title: title)
         ]
     }
 
