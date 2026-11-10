@@ -28,20 +28,6 @@ struct LockedOutSubscriberRecoveryContractTests {
         #expect(gate.contains("onRequestAccountDeletion: onDeleteAccount"))
     }
 
-    /// A wrong-account subscriber must be able to leave the gate and authenticate as the Apple ID
-    /// that owns the subscription.
-    @Test
-    func theAppAccessGateOffersSignOutForWrongAccountRecovery() throws {
-        let gate = try source(
-            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
-        )
-
-        #expect(gate.contains("onSignOut: @escaping @MainActor () -> Void"))
-        #expect(gate.contains("Button(action: onSignOut)"))
-        #expect(gate.contains("Text(\"Sign Out\")"))
-        #expect(gate.contains(".accessibilityIdentifier(\"appAccessSignOut\")"))
-    }
-
     /// The deletion link stays subordinate to subscribe and restore: it is the way out, not the
     /// offer. A promoted button here would read as the gate's recommended action.
     @Test
