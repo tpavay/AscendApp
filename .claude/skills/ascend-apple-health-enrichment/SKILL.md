@@ -31,7 +31,7 @@ Do not add a second import path behind a flag, a debug toggle, or a "just in cas
   The completion handler is called on every path and is time-bounded, because HealthKit stops delivering until it is.
 - Kill switch `apple_health_import_enabled`.
   Nothing a blocked pass leaves behind is lost: the anchor does not advance while it is off.
-- Imported climbs rank only through `ClimbPacePolicy` and the join-date rule (see `ascend-workout-model`): the pass files only workouts from the join date on, and the history backfill (`importHistory(matching:)`, `docs/apple-health-import.md`) files older ones off the boards, from onboarding's "We found your climbs" or Settings' Import older workouts, over the range the climber picked.
+- Imported climbs rank only through `ClimbPacePolicy` and the join-date rule (see `ascend-workout-model`): the pass files only workouts from the join date on, and the history backfill (`importHistory(matching:)`, `docs/apple-health-import.md`) files older ones off the boards, from onboarding's "We found your climbs" or Integrations' Import older workouts, over the range the climber picked.
 
 ## The boundary that defines this integration
 

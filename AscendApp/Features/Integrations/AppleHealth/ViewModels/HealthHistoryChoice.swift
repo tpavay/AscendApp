@@ -6,7 +6,7 @@ import Observation
 /// Holds what Health was found to hold and the range picked, and derives everything the screen
 /// says from the two, so the count, the hours, the steps, the comparison and the button's number
 /// can never disagree with the workouts an import is then handed. Shared by onboarding's "We
-/// found your climbs" and Settings' Import older workouts.
+/// found your climbs" and Integrations' Import older workouts.
 @MainActor
 @Observable
 final class HealthHistoryChoice {

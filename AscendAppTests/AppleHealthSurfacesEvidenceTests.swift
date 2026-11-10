@@ -187,8 +187,9 @@ struct AppleHealthSurfacesEvidenceTests {
             photographedAs: "04-apple-health-card-connected"
         ) { $0.contains("connected") }
 
-        // Manage sheet: the auto-import toggle and "Review workouts" are gone, one enrichment
-        // action is left.
+        // Manage sheet: the heart-rate check and the way to Health's own permissions, with the
+        // import rows above them while Health is connected for import
+        // (`AppleHealthIntegrationsEntryTests` holds those).
         let manageText = try await Self.hostedCopy(
             AppleHealthManageSheet(
                 isPresented: .constant(true),

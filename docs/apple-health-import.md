@@ -126,7 +126,7 @@ A workout deleted in Apple Health keeps its climb.
 
 Auto-import is on by default.
 Onboarding connects Health with it on and shows no choice.
-A climber connecting later sees Import automatically (preselected) or Let me choose, and the choice is the one setting Imports and Settings show.
+A climber connecting later sees Import automatically (preselected) or Let me choose, and the choice is the one setting Imports and the Integrations manage sheet show.
 Turning auto-import on imports what is already waiting, silently.
 
 With auto-import off, new workouts land in Not imported and nothing is sent.
@@ -150,7 +150,7 @@ For each workout a non-history pass imports automatically:
 ## The history backfill
 
 Connecting finds the stair workouts Health already holds, and one screen asks the one question about them.
-Onboarding's "We found your climbs" (07a) and Settings' Import older workouts are that screen in two frames, drawing the same body (`HealthHistoryContent`) from the same state (`HealthHistoryChoice`).
+Onboarding's "We found your climbs" (07a) and Integrations' Import older workouts are that screen in two frames, drawing the same body (`HealthHistoryContent`) from the same state (`HealthHistoryChoice`).
 
 - The primary button is `ADD <N> TO MY HISTORY`.
   N is the number of workouts inside the range, and those are the identifiers the import is handed.
@@ -190,26 +190,30 @@ The pass never reaches workouts from before the climber joined, so `AppleHealthI
 - Production holds no such workout today: measured on 2026-11-06, `ascend-prod-9c8f2` had 117 cloud-backed workouts from 11 climbers, all `headphone_motion`, none `manual`, `apple_health` or `hevy`, so the rule cannot take a standing from an existing climber.
   Count them again on `ascend-prod-9c8f2` right before the production functions deploy, because a stale measurement licenses a change that damages real customers' data.
 - A history workout goes through the step rule like any other, and one with no steps anywhere follows the Add steps handling above unchanged.
-- Settings' Import older workouts lists what the backfill can still bring in (`olderWorkouts()`): stair workouts from before the join date that are not climbs yet and were never turned away.
+- Integrations' Import older workouts lists what the backfill can still bring in (`olderWorkouts()`): stair workouts from before the join date that are not climbs yet and were never turned away.
   It files through the same `importHistory(matching:)`, so a second visit offers only what the first left out.
   Workouts since joining are the pass's and arrive through Imports.
 
 ## Settings
 
-Settings carries an Apple Health section between Preferences and Purchases with one plain row, Workout import, to the Apple Health screen (`AppleHealthSettingsView`, `apple_health_settings`).
-The row carries a chevron and no state, like every other Settings row (`SettingsReorganizationEvidenceTests` holds Settings to that), and it is absent when import is not on offer at all: a device with no Health, or `apple_health_import_enabled` off.
-The screen has three rows:
+Apple Health has one home in Settings: Preferences -> Integrations -> Apple Health.
+Settings has no Apple Health section of its own; it had one for a single build (a Workout import row to a separate screen) and the two were folded together, because a climber should not have to guess which of two places holds the connection.
 
-- **Apple Health.**
-  Off, the row says so and opens the Connect flow (`AppleHealthConnectFlowView`, `health_connect_later`).
-  Connected, it says Health access is managed in the Health app and opens it, because iOS gives an app no way to disconnect.
+The card (`AppleHealthIntegrationCard`) says whether Health is connected and carries one button.
+Connect opens the Connect flow (`AppleHealthConnectFlowView`), and the card draws no button at all on a device with no Health.
+Manage opens the manage sheet (`AppleHealthManageSheet`, `apple_health_manage`), which holds everything a connected climber can change:
+
 - **Import automatically.**
   A switch on `AppleHealthImportSettings`' auto-import value through `setAutoImportEnabled`, so turning it on imports what already waits, silently.
 - **Import older workouts.**
-  Opens the history screen in the Connect flow's chrome (`AppleHealthOlderWorkoutsView`, `apple_health_older_workouts`): the close X, the range row, `ADD <N> TO MY HISTORY`, and Not now in the reserved slot.
-  Hidden when `apple_health_history_import_enabled` is off.
+  Opens the history screen in the Connect flow's chrome (`AppleHealthOlderWorkoutsView`, `apple_health_older_workouts`) over the sheet: the close X, the range row, `ADD <N> TO MY HISTORY`, and Not now in the reserved slot.
+  Closing it lands back on the sheet.
+  Hidden when `apple_health_history_import_enabled` is off (`offersOlderWorkouts`).
+- **Check for heart rate now** and **Manage Health permissions.**
+  The enrichment check by hand, and the Health app, because iOS gives an app no way to disconnect.
 
-The last two rows show only while Health is connected.
+The two import rows show only while Health is connected for import (`offeredImportConnectionState == .connected`), so they are absent with `apple_health_import_enabled` off, and the heart-rate rows stay.
+`AppleHealthIntegrationsEntryTests` holds the sheet to those gates.
 
 ## Not built
 
@@ -221,7 +225,7 @@ The last two rows show only while Health is connected.
 
 `AscendAppTests/AppleHealthImportTestDoubles.swift` holds `FakeHealthWorkoutReader` (a Health database whose anchor is a count of what it has handed out), a recording notifier, an in-process climb remover, a fake authorization controller, and `AppleHealthImportHarness`, which wires a service to an in-memory store and a signed-in climber who joined 30 days before a fixed `now`.
 `AppleHealthImportServiceTests` covers mapping, dedupe, skip and remove, the badge rules, both modes, the kill switch and the observer completion handler.
-`HealthWorkoutStepRuleTests` covers the step rule on its own and through the pass, the import-time read and the backfill; `AppleHealthWorkoutSkipTests` the two activity types, the terminal overlap and the skip event; `HealthHistoryRangeTests` the range arithmetic; and `AppleHealthSettingsTests` the Settings rows and Import older workouts.
+`HealthWorkoutStepRuleTests` covers the step rule on its own and through the pass, the import-time read and the backfill; `AppleHealthWorkoutSkipTests` the two activity types, the terminal overlap and the skip event; `HealthHistoryRangeTests` the range arithmetic; `AppleHealthIntegrationsEntryTests` the Integrations manage sheet's import rows and their gates; and `AppleHealthOlderWorkoutsTests` Import older workouts.
 `FakeHealthWorkoutReader.windowSteps` is what Health's step count holds for a window, keyed by the window's start.
 `HealthWorkoutRecordSchemaMigrationTests` proves the V6 to V7 stage against a real on-disk store.
 Hosted Home tests pass a service built on `FakeHealthWorkoutReader` with Health unavailable, so no test points the process-wide service at a throwaway store.
