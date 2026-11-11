@@ -114,6 +114,14 @@ final class TelemetryManager: @unchecked Sendable {
         }
     }
 
+    /// Whether this process is the app hosting the unit-test bundle rather than a climber's launch.
+    static func isUnitTestHost(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment["XCTestConfigurationFilePath"] != nil ||
+            environment["XCTestSessionIdentifier"] != nil
+    }
+
     static func shouldEnableCollection(
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -124,8 +132,7 @@ final class TelemetryManager: @unchecked Sendable {
         // The unit-test host must never ship telemetry: test-injected failures
         // would surface in Crashlytics/Sentry as real issues. This overrides
         // every other enablement path, including persisted debug toggles.
-        if environment["XCTestConfigurationFilePath"] != nil ||
-            environment["XCTestSessionIdentifier"] != nil {
+        if isUnitTestHost(environment: environment) {
             return false
         }
 

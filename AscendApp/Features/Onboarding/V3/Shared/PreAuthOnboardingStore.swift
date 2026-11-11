@@ -91,8 +91,9 @@ struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
     /// ``recordFoundHealthHistory(_:)`` and ``clearFoundHealthHistory()`` keep the two together.
     var foundHealthKnownSteps: Int?
 
-    /// When the climber reached the end of the flow. Present means the flow is finished and the
-    /// app moves on to whatever follows it.
+    /// When the climber signed in at the end of the flow. Present means what is left here belongs
+    /// to that account. It never decides which screen a signed-out climber sees, and it leaves the
+    /// device with everything else when the session ends (`OnboardingV3Coordinator.sessionEnded()`).
     var completedAt: Date?
 }
 
@@ -104,8 +105,8 @@ extension PreAuthOnboardingAnswers {
         foundHealthKnownSteps = summary.leadsWithSteps ? summary.knownSteps : nil
     }
 
-    /// Leaves nothing to import: a no to Health, a read that found nothing, a history that landed,
-    /// or a sign-out.
+    /// Leaves nothing to import: a no to Health, a read that found nothing, or a history that
+    /// landed.
     mutating func clearFoundHealthHistory() {
         foundHealthWorkoutIDs = []
         foundHealthKnownSteps = nil

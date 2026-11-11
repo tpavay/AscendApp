@@ -17,6 +17,27 @@ struct AppRootRouteResolverTests {
         #expect(route == .signedOut)
     }
 
+    /// An authenticated state with no account behind it is nobody signed in, and takes the same
+    /// signed-out decision as any other: with the v3 onboarding on it never falls to the landing.
+    @Test
+    func anAuthenticatedStateWithNoUserTakesTheSignedOutDecision() {
+        func route(showsV3: Bool?) -> AppRootRoute {
+            AppRootRouteResolver.resolve(
+                updatePresentation: nil,
+                authenticationState: .authenticated,
+                userId: nil,
+                postAuthOnboardingPhase: .complete,
+                entitlementState: .active(["app_access"]),
+                requiredEntitlementID: "app_access",
+                showsPreAuthOnboardingV3: showsV3
+            )
+        }
+
+        #expect(route(showsV3: true) == .preAuthOnboarding)
+        #expect(route(showsV3: nil) == .signedOutHold)
+        #expect(route(showsV3: false) == .signedOut)
+    }
+
     @Test
     func resolvesSigningInBeforeUserIsAvailable() {
         let route = AppRootRouteResolver.resolve(

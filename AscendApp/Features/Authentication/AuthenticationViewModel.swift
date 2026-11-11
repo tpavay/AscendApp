@@ -62,6 +62,9 @@ class AuthenticationViewModel {
     /// Used to avoid showing authenticated UI before profile state is known.
     private(set) var isProfileLoaded: Bool = false
 
+    /// Set once, by the first auth-state callback of this process.
+    private(set) var firstAuthCallback: FirstAuthCallback?
+
     private var authenticationService: AuthenticationService
     private let accountSessionStore = AccountSessionStore.shared
     private let monetizationIdentityManager: any MonetizationIdentityManaging
@@ -104,6 +107,12 @@ class AuthenticationViewModel {
             authStateHandle = Auth.auth().addStateDidChangeListener({ auth, user in
                 defer { self.profileLoadGate.authCallbackArrived() }
 
+                if self.firstAuthCallback == nil {
+                    self.firstAuthCallback = FirstAuthCallback(
+                        reportedUser: user != nil,
+                        followedRestoredUser: self.user != nil
+                    )
+                }
                 self.user = user
                 self.photoURL = user?.photoURL ?? URL(string: "")
 

@@ -166,13 +166,4 @@ extension PreAuthOnboardingAnswers {
         kept.city = nil
         return kept
     }
-
-    /// What is left on the device when the climber signs out: the flow's bookkeeping and nothing of
-    /// theirs, so the next account on this phone cannot receive it.
-    var droppingSessionAnswers: PreAuthOnboardingAnswers {
-        var kept = droppingHandedOffAnswers
-        kept.clearFoundHealthHistory()
-        kept.weeklyTargetDays = nil
-        return kept
-    }
 }

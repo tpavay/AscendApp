@@ -664,29 +664,34 @@ struct OnboardingAuthTests {
         #expect(flow.answers.gender == nil, "no setup screen prefills the last climber's answers")
         #expect(flow.answers.foundHealthWorkoutIDs.isEmpty)
         #expect(flow.answers.foundHealthKnownSteps == nil)
-        #expect(flow.isFinished, "signing out does not restart the flow")
+        #expect(!flow.isFinished, "the finished pass was the last climber's, and left with them")
+        #expect(harness.store.answers() == PreAuthOnboardingAnswers(), "nothing of theirs stays on the device")
     }
 
     @Test
-    func aReturningClimberWhoSignsOutIsNotClosedOutAndABrandNewAccountIsNotEither() async {
+    func aReturningClimberWhoSignsOutIsNotClosedOutAndABrandNewAccountIsNotEither() async throws {
         let harness = Harness(defaults: defaults(), answers: PreAuthOnboardingAnswers())
         let flow = OnboardingV3Coordinator(store: harness.store)
         flow.go(to: .auth)
 
         await harness.handOff.runAfterSignIn(userId: "a", email: nil)
+        flow.sessionBegan()
         flow.sessionEnded()
 
-        #expect(flow.step == .auth)
-        #expect(OnboardingAuthMode(arrivedFrom: flow.previousStep) == .returning)
+        #expect(flow.step == .welcome)
+        #expect(!flow.canGoBack)
         #expect(!flow.isFinished)
         #expect(!harness.intent.isSet)
+
+        // Signing back in is the first screen's "Already have an account? Sign in", in returning mode.
+        let signIn = try #require(OnboardingV3Step.welcome.alternateExits.first)
+        flow.go(to: signIn.destination)
+        #expect(flow.step == .auth)
+        #expect(OnboardingAuthMode(arrivedFrom: flow.previousStep) == .returning)
 
         harness.recorder.events.removeAll()
         await harness.handOff.runAfterSignIn(userId: "b", email: nil)
         #expect(!harness.recorder.events.contains("markComplete"))
-
-        flow.back()
-        #expect(flow.step == .welcome)
     }
 
     @Test
@@ -700,7 +705,7 @@ struct OnboardingAuthTests {
         #expect(harness.recorder.reconciledReminders == [3])
 
         // Sign-out: reminders cleared, answers gone. The account still holds 3.
-        harness.store.update { $0 = $0.droppingSessionAnswers }
+        harness.store.clear()
         harness.recorder.reconciledReminders.removeAll()
         harness.recorder.events.removeAll()
 
