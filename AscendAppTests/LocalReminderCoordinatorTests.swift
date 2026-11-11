@@ -358,7 +358,6 @@ struct LocalReminderCoordinatorTests {
     func aSignOutClearsTheNudgeAndNoLaterReconcileReArmsIt() async throws {
         let center = CoordinatorRecordingCenter()
         let store = try answersStore(target: 3)
-        store.update { $0.completedAt = monday }
         let reminders = coordinator(center: center, store: store, now: monday)
         reminders.configure(modelContext: try context())
         await reminders.reconcile()
@@ -370,6 +369,5 @@ struct LocalReminderCoordinatorTests {
         await reminders.reconcile()
         #expect(center.pending.isEmpty, "the next foreground must not re-arm the nudge")
         #expect(store.answers().weeklyTargetDays == nil, "the next account must not inherit the target")
-        #expect(store.answers().completedAt == monday, "signing out does not restart the onboarding flow")
     }
 }

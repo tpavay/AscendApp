@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import AscendApp
 
-/// Debug Tools' "Replay New Onboarding From Welcome": a finished v3 pass is kept across sign-out on
-/// purpose, so the replay has to clear it, restart the live coordinator, and open the flow even
-/// when `onboarding_v3_enabled` is off.
+/// Debug Tools' "Replay New Onboarding From Welcome": the replay clears the v3 state on the device
+/// and opens the flow even when `onboarding_v3_enabled` is off, and the sign-out it makes returns
+/// the live coordinator to Welcome.
 @MainActor
 struct OnboardingV3DebugReplayTests {
     private func makeDefaults() -> UserDefaults {
@@ -43,7 +43,7 @@ struct OnboardingV3DebugReplayTests {
     }
 
     @Test
-    func aLiveCoordinatorReturnsToWelcomeUnfinishedAndUnanswered() {
+    func theReplaysSignOutReturnsALiveCoordinatorToWelcomeUnfinishedAndUnanswered() {
         let defaults = makeDefaults()
         let store = PreAuthOnboardingStore(userDefaults: defaults)
         let coordinator = OnboardingV3Coordinator(store: store)
@@ -55,7 +55,7 @@ struct OnboardingV3DebugReplayTests {
         #expect(coordinator.canGoBack)
 
         OnboardingV3DebugReplay(userDefaults: defaults).reset()
-        coordinator.restartFromWelcome()
+        coordinator.sessionEnded()
 
         #expect(coordinator.step == .welcome)
         #expect(!coordinator.canGoBack)

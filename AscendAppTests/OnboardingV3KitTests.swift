@@ -211,7 +211,7 @@ struct OnboardingV3KitTests {
     }
 
     @Test
-    func signingInEndsTheSignedOutFlowForGood() {
+    func signingInAtTheEndMarksTheAnswersAsThatAccountsOnce() {
         let coordinator = OnboardingV3Coordinator(store: makeStore(), startingAt: .auth)
 
         coordinator.finish()
@@ -221,17 +221,19 @@ struct OnboardingV3KitTests {
         #expect(finishedAt != nil)
         #expect(coordinator.answers.completedAt == finishedAt, "a second finish keeps the first time")
         #expect(coordinator.isFinished)
-        #expect(coordinator.step == .auth)
     }
 
+    /// A finished pass is the account's, so it leaves with the session: kept, it sent every climber
+    /// who signed out to the onboarding this flow replaced (`OnboardingV3SignOutTests`).
     @Test
-    func signingOutDoesNotRestartTheFlow() {
+    func signingOutRestartsTheFlowAtWelcomeWithNothingFinished() {
         let coordinator = OnboardingV3Coordinator(store: makeStore(), startingAt: .auth)
         coordinator.finish()
 
         coordinator.sessionEnded()
 
-        #expect(coordinator.isFinished, "signing out does not restart the flow")
+        #expect(!coordinator.isFinished)
+        #expect(coordinator.step == .welcome)
     }
 
     // MARK: - Store

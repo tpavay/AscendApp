@@ -30,10 +30,11 @@ struct AppRootRouteResolver {
     /// - Parameters:
     ///   - updatePresentation: The verdict ``AppVersionGateState`` resolved from the last
     ///     version floor this device received and this build's version, or `nil` when no floor applies.
-    ///   - showsPreAuthOnboardingV3: Whether a signed-out climber gets the v3 onboarding: the
-    ///     switch is on and the flow has not reached its end. `nil` while this launch has not
-    ///     decided (``OnboardingV3RouteLatch``). Resolved outside, like every other input, so the
-    ///     decision stays synchronous and pure.
+    ///   - showsPreAuthOnboardingV3: Whether a signed-out climber gets the v3 onboarding, which is
+    ///     the switch and nothing else: with it on, the landing screen and the sign-in it leads to
+    ///     are unreachable on every launch and after every sign-out, whatever this device finished
+    ///     before. `nil` while this launch has not decided (``OnboardingV3RouteLatch``). Resolved
+    ///     outside, like every other input, so the decision stays synchronous and pure.
     ///   - freeWeekAccess: Whether this account is on its server-granted free week
     ///     (``FreeWeekAccessStore``). A running week enters exactly as a paid entitlement does; a
     ///     record that has not been read yet holds on ``AppRootRoute/resolving`` for the same reason
@@ -60,11 +61,7 @@ struct AppRootRouteResolver {
 
         switch authenticationState {
         case .unauthenticated:
-            guard let showsPreAuthOnboardingV3 else {
-                return .signedOutHold
-            }
-
-            return showsPreAuthOnboardingV3 ? .preAuthOnboarding : .signedOut
+            return resolveSignedOutRoute(showsPreAuthOnboardingV3: showsPreAuthOnboardingV3)
         case .authenticatingWithApple,
              .authenticatingWithGoogle,
              .authenticatingWithInternalQA:
@@ -72,8 +69,10 @@ struct AppRootRouteResolver {
         case .restoringSession:
             return .restoringSession
         case .authenticated:
+            // No account behind an authenticated state is still nobody signed in, and gets the
+            // same answer: never the landing screen while the switch is on.
             guard userId != nil else {
-                return .signedOut
+                return resolveSignedOutRoute(showsPreAuthOnboardingV3: showsPreAuthOnboardingV3)
             }
 
             return resolveAuthenticatedRoute(
@@ -84,6 +83,16 @@ struct AppRootRouteResolver {
                 freeWeekAccess: freeWeekAccess
             )
         }
+    }
+
+    /// The one decision for a climber with no account, so no state can reach the landing screen
+    /// around the switch.
+    private static func resolveSignedOutRoute(showsPreAuthOnboardingV3: Bool?) -> AppRootRoute {
+        guard let showsPreAuthOnboardingV3 else {
+            return .signedOutHold
+        }
+
+        return showsPreAuthOnboardingV3 ? .preAuthOnboarding : .signedOut
     }
 
     private static func resolveAuthenticatedRoute(

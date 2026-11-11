@@ -89,6 +89,9 @@ struct RootView: View {
             )
         }
         .task {
+            if authVM.user == nil {
+                onboardingV3Coordinator.launchedSignedOut()
+            }
             onboardingV3RouteLatch.beginHold()
             observeColdLaunchSession()
             AppDiagnosticsRecorder.shared.record(
@@ -138,7 +141,6 @@ struct RootView: View {
         }
         #if DEBUG || STAGING
         .onReceive(NotificationCenter.default.publisher(for: .onboardingV3DebugReplayRequested)) { _ in
-            onboardingV3Coordinator.restartFromWelcome()
             onboardingV3RouteLatch.forceFlow()
         }
         #endif
@@ -154,6 +156,9 @@ struct RootView: View {
                 LocalReminderCoordinator.shared.sessionEnded()
                 onboardingV3Coordinator.sessionEnded()
                 monetizationManager.releasePendingPurchaseHold()
+            }
+            if currentUid != nil {
+                onboardingV3Coordinator.sessionBegan()
             }
             // The sheet belongs to the session that opened it, or it re-presents itself unprompted
             // over the next climber's gate. But deletion ends the session at the auth step, several
@@ -306,7 +311,10 @@ struct RootView: View {
             entitlementState: monetizationManager.entitlementStateForRouting,
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
             allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting,
-            showsPreAuthOnboardingV3: onboardingV3Coordinator.isFinished ? false : onboardingV3RouteLatch.showsFlow,
+            // The switch alone. A pass this device once finished says nothing about which screen a
+            // signed-out climber sees: reading it here sent every climber who signed out to the
+            // onboarding the switch replaced, on that launch and on every one after it.
+            showsPreAuthOnboardingV3: onboardingV3RouteLatch.showsFlow,
             freeWeekAccess: monetizationManager.freeWeekAccessForRouting
         )
 

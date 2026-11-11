@@ -44,8 +44,11 @@ final class OnboardingV3Coordinator {
         answers = store.answers()
     }
 
-    /// Whether the climber has signed in at the end of the flow, after which the signed-out screens
-    /// never show again.
+    /// Whether the answers on this device were carried into an account: the climber signed in at the
+    /// end of the flow. It says whose the answers are, and never which screen a signed-out climber
+    /// sees. That is the switch's alone (``OnboardingV3RouteLatch``): a finished pass that hid this
+    /// flow sent every climber who signed out to the onboarding it replaced, on that launch and on
+    /// every one after it.
     var isFinished: Bool { answers.completedAt != nil }
 
     var canGoBack: Bool { !trail.isEmpty }
@@ -116,29 +119,41 @@ final class OnboardingV3Coordinator {
         answers = store.update(change)
     }
 
-    /// The climber signed out. Their answers leave the device and this copy, so neither the next
-    /// account nor a prefilled setup screen receives them. The flow stays finished if it was.
-    func sessionEnded() {
-        answers = store.update { $0 = $0.droppingSessionAnswers }
-        photos.remove()
+    /// An account appeared. The signed-out screens are behind the app's own routes from here, so the
+    /// flow goes back to its first screen now, while nothing shows it: whoever is signed out next
+    /// starts at Welcome, never on the sign-in screen the last climber left by.
+    func sessionBegan() {
+        returnToWelcome()
     }
 
-    #if DEBUG || STAGING
-    /// Debug Tools' replay: back to the first screen with nothing answered, in this launch's
-    /// coordinator, after the store was cleared.
-    func restartFromWelcome() {
+    /// The climber signed out, or their account was deleted or revoked. Everything the flow holds
+    /// leaves the device and this copy - the answers, the photo and the mark that it was finished -
+    /// so the next person on this phone starts clean at Welcome. A climber coming back signs in from
+    /// there, through "Already have an account? Sign in".
+    func sessionEnded() {
         store.clear()
         photos.remove()
         answers = store.answers()
+        returnToWelcome()
+    }
+
+    /// The app launched with nobody signed in. A finished pass still on the device belongs to a
+    /// session that ended where this app could not see it - revoked while the app was closed, or
+    /// ended by a build that kept the pass - so it goes the way a sign-out sends it. An unfinished
+    /// pass is a climber partway through the flow, and stays.
+    func launchedSignedOut() {
+        guard isFinished else { return }
+        sessionEnded()
+    }
+
+    private func returnToWelcome() {
         trail = []
         lastShownProgress = nil
         transitionEnd = nil
         step = .welcome
     }
-    #endif
 
-    /// The climber signed in. The signed-out screens are done for good, and the app resolves its
-    /// route from ``isFinished`` after this.
+    /// The climber signed in at the end of the flow: the answers are that account's from here.
     func finish() {
         guard !isFinished else { return }
         update { $0.completedAt = Date() }
