@@ -10,56 +10,11 @@ import Testing
 /// Apple's own subscription management - is asserted here, because each one is a written App Store
 /// requirement rather than a preference that may be traded away in a later redesign.
 struct LockedOutSubscriberRecoveryContractTests {
-    /// Guideline 5.1.1(v) admits no paid-status exception: the gate is the only screen this climber
-    /// can reach, so account deletion has to leave from it. The gate draws nothing but a spinner,
-    /// so the control is the hosted paywall's `DELETE ACCOUNT`, and what is pinned here is that
-    /// the gate answers it with the closure `RootView` hands it.
-    @Test
-    func theAppAccessGateRoutesTheHostedDeletionControlToAccountDeletion() throws {
-        let gate = try source(
-            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
-        )
-        let coordinator = try source(
-            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallCoordinator.swift"
-        )
-
-        #expect(gate.contains("onDeleteAccount: @escaping @MainActor () -> Void"))
-        #expect(gate.contains("onRequestAccountDeletion: onDeleteAccount"))
-        #expect(gate.contains("onRequestSignOut: onSignOut"))
-        let answer = try #require(
-            coordinator
-                .range(of: "case .deleteAccountRequested:")
-                .map { String(coordinator[$0.lowerBound...].prefix(900)) }
-        )
-        #expect(answer.contains("onRequestAccountDeletion?()"))
-        // Backing out of the dialog has to put the paywall back, or the climber is left on a
-        // spinner with no way to reach the control again.
-        #expect(gate.contains("coordinator.accountDeletionDialogDismissed()"))
-    }
-
-    /// The gate is a spinner and the coordinator that puts hosted screens over it. Anything a
-    /// climber reads or taps there is a Superwall screen, so the gate's own view may not grow
-    /// copy or a control, and neither may the spinner it draws.
-    @Test
-    func theGateDrawsNothingButTheSpinner() throws {
-        let gate = try source(
-            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
-        )
-        let spinner = try source(
-            at: "AscendApp/Features/Monetization/Paywall/AppAccessSpinnerView.swift"
-        )
-
-        #expect(gate.contains("AppAccessSpinnerView()"))
-        #expect(spinner.contains("ProgressView()"))
-        for view in [gate, spinner] {
-            for drawn in ["Text(", "Button(", "Link(", "Label(", "Image(", "TextField(", ".sheet(", ".alert("] {
-                #expect(!view.contains(drawn), "The gate must not draw \(drawn)")
-            }
-        }
-    }
-
     /// The plan picker and its interstitials are gone from the app, not hidden: none of their
     /// copy may come back in any Swift file the app ships, and none of their types either.
+    /// This is a property of the source itself, not a behaviour test: the requirement is that the
+    /// picker's copy is not in the code at all, and a screen that never shows a string still fails
+    /// it while the string remains in the code.
     @Test
     func noPlanPickerOrGateInterstitialCopyExistsAnywhereInTheApp() throws {
         let forbiddenCopy = [

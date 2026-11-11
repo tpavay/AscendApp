@@ -522,6 +522,7 @@ final class AppAccessPaywallCoordinator {
                   self.accessCheckRevision == revision,
                   monetizationManager.identityGeneration == identity else { return }
             self.accessCheckTask = nil
+            // Ask to Buy gets one refresh, a charge an immediate read then 2/4/8/16 s: StoreKit guards the double charge, and an indefinite hold behind a wordless spinner would trap the climber.
             monetizationManager.releasePendingPurchaseHold()
             self.presentHosted(
                 source: hold == .askToBuy ? "ask_to_buy_pending" : "access_unconfirmed"
