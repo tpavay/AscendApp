@@ -82,7 +82,13 @@ struct AscendApp: App {
         // Seeds the store synchronously from the SDK's persisted activation before anything
         // that touches data shape gets a chance to run, so the first pass of sync, restore,
         // and migrations sees whatever the backend last said even with no network.
-        RemoteFeatureFlagService.shared.configure()
+        // The unit-test host keeps the shipped defaults instead: the live template is whatever an
+        // operator last published, and a fetch landing mid-run flips every suite that reads the
+        // shared store - turning `free_week_after_decline_enabled` on in staging failed the
+        // decline tests on a change that never touched them.
+        if !TelemetryManager.isUnitTestHost() {
+            RemoteFeatureFlagService.shared.configure()
+        }
         // The first thing to touch `Firestore.firestore()`, on purpose: the SDK refuses settings
         // after first use, and this decides whether the process gets a LevelDB cache at all. With
         // the memory cache it gets none, so Firestore's commit assertion - which killed a climb
