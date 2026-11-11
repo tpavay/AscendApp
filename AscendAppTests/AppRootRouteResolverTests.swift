@@ -252,3 +252,66 @@ struct AppRootRouteLockoutPrecedenceTests {
         }
     }
 }
+
+/// The server-granted free week at the root route (`docs/free-week-after-decline.md`).
+struct AppRootRouteFreeWeekTests {
+    private func routeAtTheGate(
+        entitlementState: MonetizationEntitlementState,
+        freeWeekAccess: FreeWeekRoutingAccess,
+        postAuthOnboardingPhase: PostAuthOnboardingPhase = .complete
+    ) -> AppRootRoute {
+        AppRootRouteResolver.resolve(
+            updatePresentation: nil,
+            authenticationState: .authenticated,
+            userId: "user-1",
+            postAuthOnboardingPhase: postAuthOnboardingPhase,
+            entitlementState: entitlementState,
+            requiredEntitlementID: "app_access",
+            freeWeekAccess: freeWeekAccess
+        )
+    }
+
+    @Test
+    func aRunningFreeWeekEntersTheAppExactlyAsAPaidEntitlementDoes() {
+        #expect(routeAtTheGate(entitlementState: .inactive, freeWeekAccess: .live) == .mainApp)
+        // The remembered week opens the app before RevenueCat has answered at all.
+        #expect(routeAtTheGate(entitlementState: .unknown, freeWeekAccess: .live) == .mainApp)
+        #expect(routeAtTheGate(entitlementState: .active(["app_access"]), freeWeekAccess: .live) == .mainApp)
+    }
+
+    @Test
+    func aLapsedOrAbsentFreeWeekMeetsThePaywall() {
+        // A week that is over and a week that never was both resolve to `.none`.
+        #expect(routeAtTheGate(entitlementState: .inactive, freeWeekAccess: .none) == .paywall)
+        #expect(routeAtTheGate(entitlementState: .unknown, freeWeekAccess: .none) == .resolving)
+        #expect(routeAtTheGate(entitlementState: .active(["app_access"]), freeWeekAccess: .none) == .mainApp)
+    }
+
+    @Test
+    func anUnreadFreeWeekRecordHoldsRatherThanShowingAPaywallToAClimberMidWeek() {
+        #expect(routeAtTheGate(entitlementState: .inactive, freeWeekAccess: .unresolved) == .resolving)
+        #expect(routeAtTheGate(entitlementState: .unknown, freeWeekAccess: .unresolved) == .resolving)
+        // A paying climber never waits on it.
+        #expect(
+            routeAtTheGate(entitlementState: .active(["app_access"]), freeWeekAccess: .unresolved) == .mainApp
+        )
+    }
+
+    @Test
+    func aFreeWeekNeverSkipsOnboardingOrTheUpdateLockout() {
+        #expect(
+            routeAtTheGate(
+                entitlementState: .inactive,
+                freeWeekAccess: .live,
+                postAuthOnboardingPhase: .onboarding(.first)
+            ) == .onboarding(.first)
+        )
+        #expect(
+            routeAtTheGate(
+                entitlementState: .inactive,
+                freeWeekAccess: .live,
+                postAuthOnboardingPhase: .resolving
+            ) == .resolving
+        )
+    }
+}

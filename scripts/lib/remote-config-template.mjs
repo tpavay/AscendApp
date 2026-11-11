@@ -53,10 +53,13 @@ export const SETTING_PARAMETERS = Object.freeze({
  * `onboarding_v3_enabled` is the first: the 1.3.0 onboarding is built behind it and stays dark
  * until the captain turns it on. `gear_drop_push_enabled` is the second: the gear push stays silent
  * until the captain decides the consent question for climbers who opted in to climb alerts only.
+ * `free_week_after_decline_enabled` is the third: the founder letter and the server-granted free
+ * week stay dark, and the gate keeps its plan picker, until the captain turns it on.
  */
 export const ROLLOUT_PARAMETERS = Object.freeze({
   onboarding_v3_enabled: Object.freeze({ healthyDefault: "false" }),
   gear_drop_push_enabled: Object.freeze({ healthyDefault: "false" }),
+  free_week_after_decline_enabled: Object.freeze({ healthyDefault: "false" }),
 });
 
 export function isRolloutParameter(key) {

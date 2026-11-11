@@ -13,6 +13,11 @@ enum SuperwallCustomAction: String, CaseIterable {
     /// With no close control on the paywall, this is the account-deletion route Guideline
     /// 5.1.1(v) requires for a climber who is locked out and cannot pay.
     case deleteAccount = "delete_account"
+    /// The paywall's `Sign out` control, which also chains nothing after the custom action.
+    ///
+    /// The hosted paywall is the floor once a free week is spent, so this is how a climber signed
+    /// into the wrong account leaves it without deleting it.
+    case signOut = "sign_out"
 
     /// Whether Ascend dismisses the paywall itself the moment this action arrives.
     ///
@@ -31,7 +36,7 @@ enum SuperwallCustomAction: String, CaseIterable {
         switch self {
         case .back:
             return false
-        case .deleteAccount:
+        case .deleteAccount, .signOut:
             return true
         }
     }
@@ -51,6 +56,8 @@ enum PaywallDismissIntent: Equatable {
     case back
     /// The climber asked to delete their Ascend account from the paywall.
     case deleteAccount
+    /// The climber asked to sign out from the paywall.
+    case signOut
     /// Anything else: a system dismissal, a webview failure, or a control Ascend does not model.
     case undifferentiated
 
@@ -68,6 +75,8 @@ enum PaywallDismissIntent: Equatable {
             return .back
         case .deleteAccount:
             return .deleteAccount
+        case .signOut:
+            return .signOut
         }
     }
 
@@ -77,6 +86,8 @@ enum PaywallDismissIntent: Equatable {
             return .backRequested
         case .deleteAccount:
             return .deleteAccountRequested
+        case .signOut:
+            return .signOutRequested
         case .undifferentiated:
             return .dismissedWithoutPurchase
         }

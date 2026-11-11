@@ -1,4 +1,11 @@
 import * as admin from "firebase-admin";
+import {
+  freeWeekGrantFields,
+  freeWeekRecordRef,
+  isFreeWeekGrant,
+  liveFreeWeekWindow,
+} from "./freeWeek";
+import type {FreeWeekWindow} from "./freeWeek";
 import {shouldReplaceProjection} from "./projectionOrdering";
 import {
   ANALYTICS_OUTBOX_COLLECTION,
@@ -124,6 +131,9 @@ implements RevenueCatEntitlementStore {
     const statusRefs = projections.map(
       (projection) => this.statusRef(projection)
     );
+    const freeWeekRefs = projections.map(
+      (projection) => freeWeekRecordRef(this.firestore, projection.uid)
+    );
     const outboxRefs = analyticsEvents.map((analyticsEvent) =>
       this.firestore.collection(ANALYTICS_OUTBOX_COLLECTION)
         .doc(analyticsEvent.insertId)
@@ -137,11 +147,17 @@ implements RevenueCatEntitlementStore {
         throw new Error("RevenueCat event claim was lost before completion");
       }
 
-      const allRefs = [...statusRefs, ...outboxRefs];
+      const allRefs = [...statusRefs, ...freeWeekRefs, ...outboxRefs];
       const existingDocuments = allRefs.length > 0 ?
         await transaction.getAll(...allRefs) : [];
       const existingStatuses = existingDocuments.slice(0, statusRefs.length);
-      const existingOutboxRows = existingDocuments.slice(statusRefs.length);
+      const freeWeekRecords = existingDocuments.slice(
+        statusRefs.length,
+        statusRefs.length + freeWeekRefs.length
+      );
+      const existingOutboxRows = existingDocuments.slice(
+        statusRefs.length + freeWeekRefs.length
+      );
       projections.forEach((projection, index) => {
         if (!shouldReplaceProjection(
           existingStatuses[index]?.get("revenueCatRequestDateMs"),
@@ -153,7 +169,8 @@ implements RevenueCatEntitlementStore {
           transaction,
           projection,
           statusRefs[index],
-          projectionRefs[index]
+          projectionRefs[index],
+          liveFreeWeekWindow(freeWeekRecords[index], now)
         );
       });
 
@@ -218,10 +235,14 @@ implements RevenueCatEntitlementStore {
     const statusRef = this.statusRef(projection);
     const grantRef = this.activeGrantRef(projection);
 
+    const freeWeekRef = freeWeekRecordRef(this.firestore, projection.uid);
+
     return this.firestore.runTransaction(async (transaction) => {
-      const [existingStatus, existingGrant] = await transaction.getAll(
-        statusRef,
-        grantRef
+      const [existingStatus, existingGrant, freeWeekRecord] =
+        await transaction.getAll(statusRef, grantRef, freeWeekRef);
+      const freeWeek = liveFreeWeekWindow(
+        freeWeekRecord,
+        projection.verifiedAt
       );
       if (!shouldReplaceProjection(
         existingStatus.get("revenueCatRequestDateMs"),
@@ -236,11 +257,12 @@ implements RevenueCatEntitlementStore {
       if (isProjectedAccessUnchanged(
         existingStatus,
         existingGrant,
-        projection
+        projection,
+        freeWeek
       )) {
         return false;
       }
-      applyProjection(transaction, projection, statusRef, grantRef);
+      applyProjection(transaction, projection, statusRef, grantRef, freeWeek);
       return true;
     });
   }
@@ -340,12 +362,17 @@ implements RevenueCatEntitlementStore {
   }
 }
 
+type GrantKind = "paid" | "freeWeek" | "none";
+
 function isProjectedAccessUnchanged(
   status: admin.firestore.DocumentSnapshot,
   grant: admin.firestore.DocumentSnapshot,
-  projection: AppAccessProjection
+  projection: AppAccessProjection,
+  freeWeek: FreeWeekWindow | null
 ): boolean {
-  if (!status.exists || grant.exists !== projection.isActive) {
+  const heldGrant: GrantKind = !grant.exists ?
+    "none" : isFreeWeekGrant(grant) ? "freeWeek" : "paid";
+  if (!status.exists || heldGrant !== grantKindFor(projection, freeWeek)) {
     return false;
   }
   const accessUntil = status.get("accessUntil");
@@ -355,16 +382,52 @@ function isProjectedAccessUnchanged(
     accessUntil.toMillis() === projection.accessUntil.getTime();
 }
 
+/**
+ * Which grant a projection leaves behind (`./freeWeek` states the invariant).
+ * @param {AppAccessProjection} projection - Fresh RevenueCat truth
+ * @param {FreeWeekWindow | null} freeWeek - The climber's running free week
+ * @return {GrantKind} The grant that must exist afterwards
+ */
+function grantKindFor(
+  projection: AppAccessProjection,
+  freeWeek: FreeWeekWindow | null
+): GrantKind {
+  if (projection.isActive) {
+    return "paid";
+  }
+  return freeWeek ? "freeWeek" : "none";
+}
+
+/**
+ * Writes one projection and the grant it leaves behind.
+ *
+ * `entitlement_status` always records what RevenueCat said. The grant follows
+ * it except while a free week is running: inactive RevenueCat state is the
+ * normal state of a climber on their week, so it must not delete the week, and
+ * a paid grant that ends inside the week hands the rest of the week back.
+ * @param {admin.firestore.Transaction} transaction - The open transaction
+ * @param {AppAccessProjection} projection - Fresh RevenueCat truth
+ * @param {admin.firestore.DocumentReference} statusRef - Audit document
+ * @param {admin.firestore.DocumentReference} grantRef - Active grant
+ * @param {FreeWeekWindow | null} freeWeek - The climber's running free week
+ * @return {void}
+ */
 function applyProjection(
   transaction: admin.firestore.Transaction,
   projection: AppAccessProjection,
   statusRef: admin.firestore.DocumentReference,
-  grantRef: admin.firestore.DocumentReference
+  grantRef: admin.firestore.DocumentReference,
+  freeWeek: FreeWeekWindow | null
 ): void {
   const serialized = serializeProjection(projection);
   transaction.set(statusRef, serialized);
   if (projection.isActive) {
     transaction.set(grantRef, serialized);
+  } else if (freeWeek) {
+    transaction.set(
+      grantRef,
+      freeWeekGrantFields(projection.uid, freeWeek, projection.verifiedAt)
+    );
   } else {
     transaction.delete(grantRef);
   }

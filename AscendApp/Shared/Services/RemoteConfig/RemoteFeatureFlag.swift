@@ -134,6 +134,13 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// it is still within its window.
     case gearDropPush = "gear_drop_push_enabled"
 
+    /// The free week on the house (`docs/free-week-after-decline.md`): a climber who declines every
+    /// paid offer at the app-access gate is shown the founder letter and let in for seven days on a
+    /// server-owned grant. A rollout, so it ships off, and off is today's gate exactly - the native
+    /// plan picker after a decline, and no week honoured on the device. The `startFreeWeek` Cloud
+    /// Function reads the same parameter and grants nothing while it is off for everybody.
+    case freeWeekAfterDecline = "free_week_after_decline_enabled"
+
     /// Importing stair workouts from Apple Health as climbs: the discovery pass, the automatic
     /// import, the Imports screen's import actions and the observer that wakes the app for a new
     /// workout. Off, every workout already found stays where it is and nothing new is imported or
@@ -164,7 +171,7 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// The value used when the Remote Config backend has never successfully answered on this
     /// device.
     ///
-    /// Every kill switch ships `true`, and the rollouts - ``onboardingV3`` and ``gearDropPush`` - ship `false`. Fetch failure falls back to the app's normal, tested behaviour
+    /// Every kill switch ships `true`, and the rollouts - ``onboardingV3``, ``gearDropPush`` and ``freeWeekAfterDecline`` - ship `false`. Fetch failure falls back to the app's normal, tested behaviour
     /// rather than to "off". The reasoning is written up in
     /// `docs/remote-config-kill-switches.md`; the short version is that a fetch failure almost
     /// always means "this device is offline", and an offline device that silently stopped backing
@@ -172,7 +179,7 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// prevent.
     var shippedDefault: Bool {
         switch self {
-        case .onboardingV3, .gearDropPush: false
+        case .onboardingV3, .gearDropPush, .freeWeekAfterDecline: false
         default: true
         }
     }
@@ -234,6 +241,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Schedules the local reminder two days before a free trial ends."
         case .gearDropPush:
             return "Lets the server push announce a new gear event. Ships off. Read by the Cloud Function, not the app."
+        case .freeWeekAfterDecline:
+            return "Shows the founder letter and gives one free week after every paid offer is declined. Ships off."
         case .appleHealthImport:
             return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
         case .appleHealthHistoryImport:

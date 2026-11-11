@@ -12,7 +12,7 @@ struct AppAccessPaywallPlaceholderView: View {
     private let accountDeletionDismissalRevision: UInt
     private let onAccountDeletionFocusRestored: (() -> Void)?
     private let onDeleteAccount: @MainActor () -> Void
-    private let onSignOut: () -> Void
+    private let onSignOut: @MainActor () -> Void
     private let onRequestOnboardingBack: (@MainActor () -> Bool)?
 
     init(
@@ -25,7 +25,7 @@ struct AppAccessPaywallPlaceholderView: View {
         onAccountDeletionFocusRestored: (() -> Void)? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onDeleteAccount: @escaping @MainActor () -> Void,
-        onSignOut: @escaping () -> Void = {}
+        onSignOut: @escaping @MainActor () -> Void = {}
     ) {
         self.initialPhase = initialPhase
         self.initialRestoreState = initialRestoreState
@@ -63,7 +63,7 @@ private struct AppAccessPaywallContentView: View {
 
     private let manager: MonetizationManager
     private let onDeleteAccount: @MainActor () -> Void
-    private let onSignOut: () -> Void
+    private let onSignOut: @MainActor () -> Void
     private let automaticallyStarts: Bool
     private let accountDeletionDismissalRevision: UInt
     private let onAccountDeletionFocusRestored: (() -> Void)?
@@ -85,7 +85,7 @@ private struct AppAccessPaywallContentView: View {
         onAccountDeletionFocusRestored: (() -> Void)?,
         onRequestOnboardingBack: (@MainActor () -> Bool)?,
         onDeleteAccount: @escaping @MainActor () -> Void,
-        onSignOut: @escaping () -> Void
+        onSignOut: @escaping @MainActor () -> Void
     ) {
         self.manager = manager
         self.automaticallyStarts = automaticallyStarts
@@ -101,7 +101,9 @@ private struct AppAccessPaywallContentView: View {
                 onRequestOnboardingBack: onRequestOnboardingBack,
                 // The hosted paywall's DELETE ACCOUNT control and this screen's own must open the
                 // same dialog, so they are the same closure rather than two routes that can drift.
-                onRequestAccountDeletion: onDeleteAccount
+                onRequestAccountDeletion: onDeleteAccount,
+                // Likewise the hosted paywall's Sign out and this screen's own Sign Out.
+                onRequestSignOut: onSignOut
             )
         )
         self.onDeleteAccount = onDeleteAccount
@@ -115,7 +117,7 @@ private struct AppAccessPaywallContentView: View {
 
                 if coordinator.phase == .accessConfirmed {
                     successContent
-                } else if coordinator.phase == .openingHosted || coordinator.phase == .hostedPresented {
+                } else if showsOpeningContent {
                     openingContent
                 } else {
                     nativeAndRecoveryContent
@@ -193,12 +195,26 @@ private struct AppAccessPaywallContentView: View {
 
     private var openingContent: some View {
         VStack(spacing: 16) {
-            AscendLoadingIndicator(isPaused: coordinator.phase == .hostedPresented)
+            AscendLoadingIndicator(
+                isPaused: coordinator.phase == .hostedPresented || coordinator.phase == .letterPresented
+            )
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
         .accessibilityHidden(true)
         .accessibilityIdentifier("appAccessPaywallLoading")
+    }
+
+    /// The phases with nothing of the gate's own to show: a hosted screen is opening or covering it,
+    /// or the server is being asked for the free week.
+    private var showsOpeningContent: Bool {
+        switch coordinator.phase {
+        case .openingHosted, .hostedPresented, .openingLetter, .letterPresented, .startingFreeWeek:
+            true
+        case .loadingNative, .nativeReady, .purchasing, .verifying, .verificationUnavailable,
+             .pendingApproval, .accessConfirmed, .failed, .backUnavailable:
+            false
+        }
     }
 
     private var successContent: some View {
@@ -443,12 +459,17 @@ private struct AppAccessPaywallContentView: View {
             return "Approval is pending"
         case .accessConfirmed:
             return "Access confirmed"
+        case .openingLetter, .letterPresented:
+            return "One moment"
+        case .startingFreeWeek:
+            return "Opening Ascend"
         }
     }
 
     private var heroMessage: String? {
         switch coordinator.phase {
-        case .openingHosted, .hostedPresented, .loadingNative, .verifying, .accessConfirmed:
+        case .openingHosted, .hostedPresented, .loadingNative, .verifying, .accessConfirmed,
+             .openingLetter, .letterPresented, .startingFreeWeek:
             nil
         case .nativeReady, .purchasing, .verificationUnavailable, .pendingApproval, .failed,
              .backUnavailable:
@@ -474,7 +495,9 @@ private struct AppAccessPaywallContentView: View {
             coordinator.statusMessage ?? "Plans are unavailable."
         case .backUnavailable:
             coordinator.statusMessage ?? "Ascend couldn't reopen the previous step."
-        case .openingHosted, .hostedPresented, .nativeReady:
+        case .startingFreeWeek:
+            "Opening Ascend."
+        case .openingHosted, .hostedPresented, .nativeReady, .openingLetter, .letterPresented:
             nil
         }
         if let announcement {

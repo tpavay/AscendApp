@@ -15,6 +15,11 @@ enum AppAccessGatePhase: CaseIterable, Equatable, Sendable {
     case failed
     /// The climber asked for the onboarding step behind the paywall and it could not be reopened.
     case backUnavailable
+    /// Every paid offer was declined and the founder letter has been asked for.
+    case openingLetter
+    case letterPresented
+    /// The letter is closed, or could not open, and the server is starting the free week.
+    case startingFreeWeek
 }
 
 @MainActor
@@ -42,6 +47,10 @@ final class AppAccessPaywallCoordinator {
     /// update nudge - yield first, rather than reporting a refusal this gate would have nowhere to
     /// render.
     private let onRequestAccountDeletion: (@MainActor () -> Void)?
+    /// Signs the climber out exactly as the gate's own `Sign Out` control does, for the same reason:
+    /// the hosted and native routes must not reach two different destinations. Ascend has already
+    /// dismissed the hosted paywall by the time this is asked.
+    private let onRequestSignOut: (@MainActor () -> Void)?
     private let telemetry: TelemetryManager
     private let hostedOpeningDeadline: Duration
     private let nativeLoadingDeadline: Duration
@@ -58,6 +67,13 @@ final class AppAccessPaywallCoordinator {
     private var purchaseTask: Task<Void, Never>?
     private var restoreTask: Task<Void, Never>?
     private var accessCheckTask: Task<Void, Never>?
+    private var letterWatchdogTask: Task<Void, Never>?
+    private var freeWeekTask: Task<Void, Never>?
+    private var freeWeekRevision: UInt = 0
+    /// Whether the hosted paywall of the current attempt actually reached the screen. A decline
+    /// from one that never did is not a climber saying no.
+    private var didPresentHosted = false
+    private var didShowLetter = false
     private var purchaseRevision: UInt = 0
     private var restoreRevision: UInt = 0
     private var accessCheckRevision: UInt = 0
@@ -73,6 +89,7 @@ final class AppAccessPaywallCoordinator {
         initialStatusMessage: String? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
+        onRequestSignOut: (@MainActor () -> Void)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
         nativeLoadingDeadline: Duration = .seconds(12),
         sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
@@ -86,6 +103,7 @@ final class AppAccessPaywallCoordinator {
         self.restoreService = restoreService ?? .shared
         self.onRequestOnboardingBack = onRequestOnboardingBack
         self.onRequestAccountDeletion = onRequestAccountDeletion
+        self.onRequestSignOut = onRequestSignOut
         self.telemetry = telemetry
         self.phase = initialPhase
         restoreState = initialRestoreState
@@ -100,7 +118,8 @@ final class AppAccessPaywallCoordinator {
 
     var showsProgress: Bool {
         switch phase {
-        case .openingHosted, .hostedPresented, .loadingNative, .purchasing, .verifying:
+        case .openingHosted, .hostedPresented, .loadingNative, .purchasing, .verifying,
+             .openingLetter, .letterPresented, .startingFreeWeek:
             return true
         case .nativeReady, .verificationUnavailable, .pendingApproval, .accessConfirmed, .failed,
              .backUnavailable:
@@ -112,7 +131,8 @@ final class AppAccessPaywallCoordinator {
         if restoreState == .restoring { return true }
         switch phase {
         case .openingHosted, .hostedPresented, .loadingNative, .purchasing, .verifying,
-             .verificationUnavailable, .pendingApproval, .accessConfirmed, .backUnavailable:
+             .verificationUnavailable, .pendingApproval, .accessConfirmed, .backUnavailable,
+             .openingLetter, .letterPresented, .startingFreeWeek:
             return true
         case .nativeReady, .failed:
             return false
@@ -134,6 +154,7 @@ final class AppAccessPaywallCoordinator {
 
     func start() {
         guard phase == .openingHosted else { return }
+        recordFreeWeekExpiredGateIfNeeded()
         presentHosted(source: "app_access_gate")
     }
 
@@ -299,6 +320,11 @@ final class AppAccessPaywallCoordinator {
         purchaseRevision &+= 1
         restoreRevision &+= 1
         accessCheckRevision &+= 1
+        freeWeekRevision &+= 1
+        letterWatchdogTask?.cancel()
+        freeWeekTask?.cancel()
+        letterWatchdogTask = nil
+        freeWeekTask = nil
         watchdogTask?.cancel()
         nativeLoadTask?.cancel()
         nativeLoadDeadlineTask?.cancel()
@@ -351,6 +377,7 @@ final class AppAccessPaywallCoordinator {
         let revision = presentationRevision
         presentationIdentity = identity
         presentationAttemptID = UUID().uuidString.lowercased()
+        didPresentHosted = false
         nativeLoadRevision &+= 1
         nativeLoadTask?.cancel()
         nativeLoadTask = nil
@@ -420,6 +447,7 @@ final class AppAccessPaywallCoordinator {
         switch outcome {
         case .presented:
             watchdogTask?.cancel()
+            didPresentHosted = true
             phase = .hostedPresented
             statusMessage = nil
         case .followOnPaywallOpening:
@@ -459,8 +487,7 @@ final class AppAccessPaywallCoordinator {
             // this climber never walked, so back is a plain close.
             if monetizationManager.onboardingFlowVersion == OnboardingAnalyticsContext.currentFlowVersion {
                 recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
-                beginNativeFallback(
-                    message: "No purchase was made. Choose a plan below.",
+                handlePaidOffersDeclined(
                     presentationRevision: presentationRevision,
                     presentationIdentity: presentationIdentity,
                     reason: .hostedBackRequested
@@ -504,10 +531,22 @@ final class AppAccessPaywallCoordinator {
                 entitlementActive: entitlementPresence
             )
             onRequestAccountDeletion?()
+        case .signOutRequested:
+            // Signing out routes away from the gate entirely, so like a deletion request this never
+            // falls through to the native plan list and does not move the phase.
+            watchdogTask?.cancel()
+            recordGateTerminal(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                providerOutcome: .signOutRequested,
+                recoveryPath: .account,
+                recoveryReason: .hostedSignOutRequested,
+                entitlementActive: entitlementPresence
+            )
+            onRequestSignOut?()
         case .dismissedWithoutPurchase:
             watchdogTask?.cancel()
-            beginNativeFallback(
-                message: "No purchase was made. Choose a plan below.",
+            handlePaidOffersDeclined(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
                 reason: .hostedDismissed
@@ -539,6 +578,260 @@ final class AppAccessPaywallCoordinator {
             outcome,
             presentationRevision: presentationRevision,
             presentationIdentity: presentationIdentity
+        )
+    }
+
+    // MARK: - Free week after decline
+
+    /// The climber closed the last paid offer without buying.
+    ///
+    /// With `free_week_after_decline_enabled` off this is the native plan picker, as it always was.
+    /// On, the plan picker is no longer where a decline lands (`docs/free-week-after-decline.md`):
+    ///
+    /// - An account that has never had its week is shown the founder letter and let in.
+    /// - An account whose week is over gets the hosted paywall again. That paywall is the floor:
+    ///   it carries its own restore, delete-account and sign-out controls, and declining it only
+    ///   reopens it.
+    /// - An account the server could not be asked about gets the plan picker, because showing the
+    ///   letter to a climber who already spent their week would promise a second one.
+    ///
+    /// A pending purchase still wins over all of it: a climber Apple may already have charged is
+    /// told to wait, never offered a free week on top.
+    private func handlePaidOffersDeclined(
+        presentationRevision: UInt,
+        presentationIdentity: MonetizationIdentityTransition,
+        reason: AppAccessGateRecoveryReason,
+        mayReadRecord: Bool = true
+    ) {
+        let freeWeek = monetizationManager.freeWeek
+        guard freeWeek.isEnabled, monetizationManager.pendingPurchaseHold == nil else {
+            beginNativeFallback(
+                message: "No purchase was made. Choose a plan below.",
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                reason: reason
+            )
+            return
+        }
+
+        switch freeWeek.record {
+        case .absent:
+            presentFounderLetter(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                reason: reason
+            )
+        case .granted where freeWeek.liveGrant != nil:
+            // The week is already running; routing is about to say so.
+            phase = .accessConfirmed
+            statusMessage = "Access confirmed. Opening Ascend."
+        case .granted:
+            // A decline from a paywall that never reached the screen would reopen it in a loop
+            // nobody is tapping through, so that one gets the picker and its way out.
+            guard didPresentHosted else {
+                beginNativeFallback(
+                    message: "Plans could not open. Choose a plan below.",
+                    presentationRevision: presentationRevision,
+                    presentationIdentity: presentationIdentity,
+                    reason: reason
+                )
+                return
+            }
+            recordGateTerminal(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                providerOutcome: .paywallFloor,
+                recoveryPath: .hosted,
+                recoveryReason: reason,
+                entitlementActive: entitlementPresence
+            )
+            presentHosted(source: "free_week_ended")
+        case .unknown, .unavailable:
+            guard mayReadRecord else {
+                beginNativeFallback(
+                    message: "No purchase was made. Choose a plan below.",
+                    presentationRevision: presentationRevision,
+                    presentationIdentity: presentationIdentity,
+                    reason: .freeWeekUnavailable
+                )
+                return
+            }
+            freeWeekRevision &+= 1
+            let revision = freeWeekRevision
+            freeWeekTask?.cancel()
+            phase = .startingFreeWeek
+            statusMessage = nil
+            freeWeekTask = Task { @MainActor [weak self, freeWeek] in
+                await freeWeek.refresh()
+                guard let self, !Task.isCancelled,
+                      self.freeWeekRevision == revision,
+                      self.monetizationManager.identityGeneration == presentationIdentity else { return }
+                self.freeWeekTask = nil
+                self.handlePaidOffersDeclined(
+                    presentationRevision: presentationRevision,
+                    presentationIdentity: presentationIdentity,
+                    reason: reason,
+                    mayReadRecord: false
+                )
+            }
+        }
+    }
+
+    /// Asks Superwall for the founder letter, and starts the week whatever comes back.
+    ///
+    /// The letter is a hosted screen with no products, and both of its controls are plain closes,
+    /// so there is no choice to read out of how it ended. If it cannot open at all the week starts
+    /// anyway: the letter is a courtesy, the access is the promise.
+    private func presentFounderLetter(
+        presentationRevision: UInt,
+        presentationIdentity: MonetizationIdentityTransition,
+        reason: AppAccessGateRecoveryReason
+    ) {
+        recordGateTerminal(
+            presentationRevision: presentationRevision,
+            presentationIdentity: presentationIdentity,
+            providerOutcome: .freeWeekOffered,
+            recoveryPath: .freeWeek,
+            recoveryReason: reason,
+            entitlementActive: entitlementPresence
+        )
+        // The paid offers are finished with. Retiring their revision drops any callback still in
+        // flight, and the gate attempt has already reported its one terminal.
+        self.presentationRevision &+= 1
+        lastTerminalPresentationRevision = self.presentationRevision
+        freeWeekRevision &+= 1
+        let revision = freeWeekRevision
+        didShowLetter = false
+        armLetterWatchdog(revision: revision, identity: presentationIdentity)
+
+        monetizationManager.presentPaywall(
+            .founderLetter,
+            params: [
+                "source": "paid_offers_declined",
+                "gate_attempt_id": presentationAttemptID as Any
+            ]
+        ) { [weak self] outcome in
+            guard let self, self.freeWeekRevision == revision,
+                  self.monetizationManager.identityGeneration == presentationIdentity else { return }
+            self.handleLetterOutcome(outcome, revision: revision, identity: presentationIdentity)
+        }
+    }
+
+    /// A letter that never opens must not stand between the climber and the week.
+    private func armLetterWatchdog(
+        revision: UInt,
+        identity: MonetizationIdentityTransition
+    ) {
+        phase = .openingLetter
+        statusMessage = nil
+        letterWatchdogTask?.cancel()
+        letterWatchdogTask = Task { @MainActor [weak self, sleep, hostedOpeningDeadline] in
+            do {
+                try await sleep(hostedOpeningDeadline)
+            } catch {
+                return
+            }
+            guard let self, self.freeWeekRevision == revision,
+                  self.phase == .openingLetter,
+                  self.monetizationManager.identityGeneration == identity else { return }
+            self.monetizationManager.cancelPaywallPresentation()
+            self.startFreeWeek(identity: identity)
+        }
+    }
+
+    private func handleLetterOutcome(
+        _ outcome: PaywallPresentationOutcome,
+        revision: UInt,
+        identity: MonetizationIdentityTransition
+    ) {
+        switch outcome {
+        case .presented:
+            letterWatchdogTask?.cancel()
+            phase = .letterPresented
+            guard !didShowLetter else { return }
+            didShowLetter = true
+            if let userID = identity.userID {
+                telemetry.track(
+                    FreeWeekAnalyticsEvent.letterShown(
+                        flowVersion: monetizationManager.onboardingFlowVersion
+                    ),
+                    ifIdentifiedAs: userID
+                )
+            }
+        case .followOnPaywallOpening:
+            // The dashboard chained another screen onto the letter. It reports through this same
+            // registration, so the week waits for that one to close.
+            armLetterWatchdog(revision: revision, identity: identity)
+        case .purchased, .restored:
+            letterWatchdogTask?.cancel()
+            phase = .accessConfirmed
+            statusMessage = "Access confirmed. Opening Ascend."
+        case .pendingApproval, .verificationUnavailable:
+            letterWatchdogTask?.cancel()
+            showPurchaseHold(outcome == .pendingApproval ? .askToBuy : .unconfirmedCharge)
+        case .signOutRequested:
+            // A climber leaving the account is not accepting a week on it.
+            letterWatchdogTask?.cancel()
+            onRequestSignOut?()
+        case .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .skipped, .failed:
+            letterWatchdogTask?.cancel()
+            startFreeWeek(identity: identity)
+        }
+    }
+
+    private func startFreeWeek(identity: MonetizationIdentityTransition) {
+        freeWeekRevision &+= 1
+        let revision = freeWeekRevision
+        letterWatchdogTask?.cancel()
+        letterWatchdogTask = nil
+        freeWeekTask?.cancel()
+        phase = .startingFreeWeek
+        statusMessage = nil
+        let letterShown = didShowLetter
+
+        freeWeekTask = Task { @MainActor [weak self, monetizationManager] in
+            let outcome = await monetizationManager.startFreeWeek(
+                letterShown: letterShown,
+                identity: identity
+            )
+            guard let self, !Task.isCancelled,
+                  self.freeWeekRevision == revision,
+                  self.monetizationManager.identityGeneration == identity else { return }
+            self.freeWeekTask = nil
+
+            switch outcome {
+            case .started:
+                self.phase = .accessConfirmed
+                self.statusMessage = "Access confirmed. Opening Ascend."
+            case .alreadyUsed:
+                // The server says this account's week is spent, so the paywall is the floor.
+                self.presentHosted(source: "free_week_ended")
+            case .paidActive:
+                // The server already holds paid access for this account; the device has not heard.
+                self.phase = .verificationUnavailable
+                self.checkAccess()
+            case .failed:
+                self.beginNativeFallback(
+                    message: "No purchase was made. Choose a plan below.",
+                    presentationRevision: self.presentationRevision,
+                    presentationIdentity: identity,
+                    reason: .freeWeekUnavailable
+                )
+            }
+        }
+    }
+
+    /// A climber whose week is over is meeting the paywall. Counted once per account, not once per
+    /// launch.
+    private func recordFreeWeekExpiredGateIfNeeded() {
+        guard let userID = monetizationManager.identityGeneration?.userID,
+              monetizationManager.freeWeek.claimExpiredGateReport() else { return }
+
+        telemetry.track(
+            FreeWeekAnalyticsEvent.expiredGated(
+                flowVersion: monetizationManager.freeWeekFlowVersion
+            ),
+            ifIdentifiedAs: userID
         )
     }
 
@@ -725,6 +1018,8 @@ final class AppAccessPaywallCoordinator {
             .native
         case .backUnavailable:
             .hosted
+        case .openingLetter, .letterPresented, .startingFreeWeek:
+            .freeWeek
         case .accessConfirmed:
             .entitlementStream
         }

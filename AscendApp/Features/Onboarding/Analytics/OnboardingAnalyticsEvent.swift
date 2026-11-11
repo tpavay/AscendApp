@@ -134,6 +134,9 @@ enum OnboardingFlowCompletionReason: String, Codable, Equatable, Sendable {
     case purchase
     case restore
     case existingEntitlement = "existing_entitlement"
+    /// The climber declined every paid offer and was let in on the server-granted free week. Not a
+    /// sale and not an entitlement: a later purchase reports as `free_week_purchase_completed`.
+    case freeWeek = "free_week"
     /// Access arrived after the pass asked for it and nothing in the app confirmed how - a comp, a
     /// promotional grant, or a purchase made outside the app. Never counted as a sale.
     case unknown

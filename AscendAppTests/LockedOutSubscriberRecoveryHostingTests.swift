@@ -41,7 +41,10 @@ struct LockedOutSubscriberRecoveryHostingTests {
                 let labels = elements.compactMap(\.accessibilityLabel)
 
                 #expect(labels.contains("Delete account"))
+                // A wrong-account subscriber must be able to leave the gate and authenticate as
+                // the Apple ID that owns the subscription.
                 #expect(labels.contains("Sign Out"))
+                #expect(try await screen.copy().contains("sign out"))
 
                 try activateAccessibilityElement(labelled: "Delete account", in: root)
                 #expect(recorder.didRequestDeletion)

@@ -11,6 +11,9 @@ import SwiftUI
 
 struct AccountView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
+    // Optional so a host that only wants the Settings screen does not have to supply one; without
+    // it there is simply no free-week row.
+    @Environment(MonetizationManager.self) private var monetizationManager: MonetizationManager?
     @Environment(\.dismiss) private var dismiss
     
     @State private var isShowingEditProfile = false
@@ -210,8 +213,11 @@ struct AccountView: View {
     /// `Manage Subscription` stays for everyone, a Lifetime owner included: a climber who bought
     /// Lifetime from the gate while a lapsed subscription was in billing retry still has that
     /// subscription to cancel, and this row is the only route to it inside Ascend.
+    ///
+    /// The free-week row is there only while a week is running, and only says how much of it is
+    /// left.
     private var purchaseOptions: [SettingsOption] {
-        [
+        freeWeekOptions + [
             SettingsOption(
                 icon: .settingsManageSubscription,
                 title: "Manage Subscription",
@@ -230,6 +236,17 @@ struct AccountView: View {
                     }
                 }
             )
+        ]
+    }
+
+    private var freeWeekOptions: [SettingsOption] {
+        guard let monetizationManager,
+              let title = FreeWeekSettingsRow.title(daysLeft: monetizationManager.freeWeek.daysLeft) else {
+            return []
+        }
+
+        return [
+            SettingsOption(icon: .settingsManageSubscription, title: title)
         ]
     }
 
