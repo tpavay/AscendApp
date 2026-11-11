@@ -1,8 +1,10 @@
 import Foundation
 
 /// What Apple is still deciding on: an Ask to Buy waiting for a parent, or a charge RevenueCat has
-/// not confirmed. While one is held the gate offers nothing to buy, so closing a paywall or
-/// relaunching cannot turn one purchase into two.
+/// not confirmed. While one is held the gate re-reads access before it offers anything to buy, so
+/// closing a paywall or relaunching does not walk a climber Apple has charged straight back to a
+/// purchase button. The wait is bounded (`AppAccessPaywallCoordinator`), and the gate releases the
+/// hold when it runs out.
 enum PendingPurchaseHold: String, Codable, Sendable {
     case askToBuy
     case unconfirmedCharge

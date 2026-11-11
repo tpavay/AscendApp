@@ -1,287 +1,103 @@
 import Foundation
-import Observation
-import SuperwallKit
 
-enum AppAccessGatePhase: CaseIterable, Equatable, Sendable {
-    case openingHosted
-    case hostedPresented
-    case loadingNative
-    case nativeReady
-    case purchasing
-    case verifying
-    case verificationUnavailable
-    case pendingApproval
-    case accessConfirmed
-    case failed
-    /// The climber asked for the onboarding step behind the paywall and it could not be reopened.
-    case backUnavailable
-    /// Every paid offer was declined and the founder letter has been asked for.
-    case openingLetter
-    case letterPresented
-    /// The letter is closed, or could not open, and the server is starting the free week.
-    case startingFreeWeek
-}
-
+/// Drives the app-access gate.
+///
+/// The gate has no screen of its own: everything a climber reads or taps there is a hosted
+/// Superwall screen, and the only thing Ascend draws behind and between them is
+/// ``AppAccessSpinnerView``. So no outcome may end somewhere that needs words or a control. Every
+/// path through this type ends in one of three places - the app, a hosted screen, or the spinner
+/// while the gate tries again on a clock (``AppAccessGateRetryPolicy``).
 @MainActor
-@Observable
 final class AppAccessPaywallCoordinator {
     typealias Sleep = @Sendable (Duration) async throws -> Void
 
-    private(set) var phase: AppAccessGatePhase
-    private(set) var plans: [NativePaywallPlan] = []
-    private(set) var selectedPlanID: String?
-    private(set) var statusMessage: String?
-    private(set) var restoreState: AppAccessRestoreState = .idle
+    private(set) var phase: AppAccessGatePhase = .openingHosted
 
     private let monetizationManager: MonetizationManager
-    private let nativeProvider: any NativePaywallPlanProviding
-    private let restoreService: AppAccessRestoreService
     /// Returns whether the onboarding step behind the paywall actually reopened, so the gate
     /// never leaves a climber on a hosted paywall that is already gone.
     private let onRequestOnboardingBack: (@MainActor () -> Bool)?
-    /// Opens the same account-deletion dialog the gate's own `Delete account` control opens, so the
-    /// hosted and native routes can never reach two different destinations.
+    /// Opens the account-deletion dialog for the hosted paywall's `DELETE ACCOUNT` control.
     ///
     /// Ascend has already dismissed the hosted paywall by the time this is asked, so the dialog has
     /// to open. `RootView` guarantees that by making the only sheet that could defer it - the soft
     /// update nudge - yield first, rather than reporting a refusal this gate would have nowhere to
     /// render.
     private let onRequestAccountDeletion: (@MainActor () -> Void)?
-    /// Signs the climber out exactly as the gate's own `Sign Out` control does, for the same reason:
-    /// the hosted and native routes must not reach two different destinations. Ascend has already
+    /// Signs the climber out for the hosted paywall's `Sign out` control. Ascend has already
     /// dismissed the hosted paywall by the time this is asked.
     private let onRequestSignOut: (@MainActor () -> Void)?
     private let telemetry: TelemetryManager
     private let hostedOpeningDeadline: Duration
-    private let nativeLoadingDeadline: Duration
+    private let retryPolicy: AppAccessGateRetryPolicy
     private let sleep: Sleep
-    private let nativeLoadSleep: Sleep
     private var presentationRevision: UInt = 0
     private var presentationIdentity: MonetizationIdentityTransition?
     private var presentationAttemptID: String?
     private var lastTerminalPresentationRevision: UInt?
-    private var nativeLoadRevision: UInt = 0
     private var watchdogTask: Task<Void, Never>?
-    private var nativeLoadTask: Task<Void, Never>?
-    private var nativeLoadDeadlineTask: Task<Void, Never>?
-    private var purchaseTask: Task<Void, Never>?
-    private var restoreTask: Task<Void, Never>?
+    private var hostedRetryTask: Task<Void, Never>?
     private var accessCheckTask: Task<Void, Never>?
+    private var routeTask: Task<Void, Never>?
     private var letterWatchdogTask: Task<Void, Never>?
     private var freeWeekTask: Task<Void, Never>?
     private var freeWeekRevision: UInt = 0
+    private var accessCheckRevision: UInt = 0
+    /// Attempts to open the access paywall that have failed in a row, which is what the wait
+    /// before the next one grows with.
+    private var failedHostedPresentations = 0
     /// Whether the hosted paywall of the current attempt actually reached the screen. A decline
     /// from one that never did is not a climber saying no.
     private var didPresentHosted = false
     private var didShowLetter = false
-    private var purchaseRevision: UInt = 0
-    private var restoreRevision: UInt = 0
-    private var accessCheckRevision: UInt = 0
 
     init(
         monetizationManager: MonetizationManager,
-        nativeProvider: (any NativePaywallPlanProviding)? = nil,
-        restoreService: AppAccessRestoreService? = nil,
         telemetry: TelemetryManager = .shared,
-        initialPhase: AppAccessGatePhase = .openingHosted,
-        initialRestoreState: AppAccessRestoreState = .idle,
-        initialPlans: [NativePaywallPlan] = [],
-        initialStatusMessage: String? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
         onRequestSignOut: (@MainActor () -> Void)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
-        nativeLoadingDeadline: Duration = .seconds(12),
-        sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
-        nativeLoadSleep: @escaping Sleep = { try await Task.sleep(for: $0) }
+        retryPolicy: AppAccessGateRetryPolicy = AppAccessGateRetryPolicy(),
+        sleep: @escaping Sleep = { try await Task.sleep(for: $0) }
     ) {
         self.monetizationManager = monetizationManager
-        self.nativeProvider = nativeProvider ?? RevenueCatNativePaywallPlanProvider(
-            configuration: monetizationManager.configuration,
-            coordinator: { monetizationManager }
-        )
-        self.restoreService = restoreService ?? .shared
         self.onRequestOnboardingBack = onRequestOnboardingBack
         self.onRequestAccountDeletion = onRequestAccountDeletion
         self.onRequestSignOut = onRequestSignOut
         self.telemetry = telemetry
-        self.phase = initialPhase
-        restoreState = initialRestoreState
-        plans = initialPlans
-        selectedPlanID = initialPlans.first?.id
-        statusMessage = initialStatusMessage
         self.hostedOpeningDeadline = hostedOpeningDeadline
-        self.nativeLoadingDeadline = nativeLoadingDeadline
+        self.retryPolicy = retryPolicy
         self.sleep = sleep
-        self.nativeLoadSleep = nativeLoadSleep
-    }
-
-    var showsProgress: Bool {
-        switch phase {
-        case .openingHosted, .hostedPresented, .loadingNative, .purchasing, .verifying,
-             .openingLetter, .letterPresented, .startingFreeWeek:
-            return true
-        case .nativeReady, .verificationUnavailable, .pendingApproval, .accessConfirmed, .failed,
-             .backUnavailable:
-            return false
-        }
-    }
-
-    var disablesPurchase: Bool {
-        if restoreState == .restoring { return true }
-        switch phase {
-        case .openingHosted, .hostedPresented, .loadingNative, .purchasing, .verifying,
-             .verificationUnavailable, .pendingApproval, .accessConfirmed, .backUnavailable,
-             .openingLetter, .letterPresented, .startingFreeWeek:
-            return true
-        case .nativeReady, .failed:
-            return false
-        }
-    }
-
-    var disablesRestore: Bool {
-        restoreState == .restoring || phase == .purchasing || phase == .accessConfirmed
-    }
-
-    var showsPurchaseControls: Bool {
-        phase == .nativeReady
-    }
-
-    var selectedPlan: NativePaywallPlan? {
-        guard let selectedPlanID else { return nil }
-        return plans.first { $0.id == selectedPlanID }
     }
 
     func start() {
-        guard phase == .openingHosted else { return }
+        guard phase == .openingHosted, presentationIdentity == nil else { return }
         recordFreeWeekExpiredGateIfNeeded()
         presentHosted(source: "app_access_gate")
     }
 
-    func retryHosted() {
-        presentHosted(source: "paywall_placeholder_retry")
+    /// The app came back to the foreground.
+    ///
+    /// The gate has no control to tap, so leaving and coming back is the one thing a climber can
+    /// do to a spinner. A paywall the gate is waiting to ask for again is asked for now, from the
+    /// start of the schedule, instead of after whatever is left of the wait.
+    func appWillEnterForeground() {
+        guard phase == .awaitingHostedRetry else { return }
+        failedHostedPresentations = 0
+        presentHosted(source: "foreground_retry")
     }
 
     /// The account-deletion dialog closed and this gate is still on screen, so the deletion did not
     /// happen - a completed one ends the session and routes away from here entirely.
     ///
     /// Ascend dismissed the hosted paywall itself to raise that dialog, so backing out of it would
-    /// otherwise leave the opening spinner with no controls at all: no plans, no restore, no
-    /// support links, and not even the account-deletion route Guideline 5.1.1(v) requires. Cancelling
-    /// a deletion means nothing happened, so the paywall the climber was reading comes back.
-    ///
-    /// Only from a hosted phase. A deletion raised from the gate's own control leaves the native
-    /// recovery surface exactly where it was.
-    ///
-    /// Returns whether the hosted paywall is coming back, because the control the climber was
-    /// focused on is about to stop being rendered when it is.
-    @discardableResult
-    func accountDeletionDialogDismissed() -> Bool {
-        guard phase == .hostedPresented || phase == .openingHosted else { return false }
+    /// otherwise leave the spinner with nothing behind it: no plans, no restore, and not even the
+    /// account-deletion route Guideline 5.1.1(v) requires. Cancelling a deletion means nothing
+    /// happened, so the paywall the climber was reading comes back.
+    func accountDeletionDialogDismissed() {
+        guard phase == .hostedPresented || phase == .openingHosted else { return }
         presentHosted(source: "account_deletion_dismissed")
-        return phase == .openingHosted
-    }
-
-    func selectPlan(_ planID: String) {
-        guard restoreState != .restoring,
-              !disablesPurchase,
-              plans.contains(where: { $0.id == planID }) else { return }
-        selectedPlanID = planID
-    }
-
-    func purchaseSelectedPlan() {
-        guard phase == .nativeReady,
-              restoreState != .restoring,
-              let selectedPlanID,
-              let identity = monetizationManager.identityGeneration else { return }
-        purchaseRevision &+= 1
-        let revision = purchaseRevision
-        purchaseTask?.cancel()
-        phase = .purchasing
-        statusMessage = "Apple is opening checkout."
-
-        purchaseTask = Task { @MainActor [weak self, nativeProvider] in
-            guard let self else { return }
-            PaywallTransactionContextStore.shared.record(
-                placement: SuperwallPlacement.appAccessGate.rawValue,
-                presentationID: nil,
-                gateAttemptID: self.presentationAttemptID,
-                recoveryPath: .native,
-                identity: identity,
-                productID: selectedPlanID
-            )
-            let result = await nativeProvider.purchase(planID: selectedPlanID)
-            guard !Task.isCancelled,
-                  self.purchaseRevision == revision,
-                  self.monetizationManager.identityGeneration == identity else { return }
-            self.purchaseTask = nil
-
-            self.handlePurchaseResult(result)
-        }
-    }
-
-    func restore() {
-        guard !disablesRestore,
-              let identity = monetizationManager.identityGeneration else { return }
-        restoreRevision &+= 1
-        let revision = restoreRevision
-        restoreTask?.cancel()
-        restoreState = .restoring
-        restoreTask = Task { @MainActor [weak self, restoreService] in
-            let outcome = await restoreService.restore(
-                context: .appAccessGate(
-                    gateAttemptID: self?.presentationAttemptID,
-                    identity: identity
-                )
-            )
-            guard let self, !Task.isCancelled,
-                  self.restoreRevision == revision,
-                  self.monetizationManager.identityGeneration == identity else { return }
-            self.restoreTask = nil
-            self.restoreState = AppAccessRestoreState(outcome: outcome)
-            if case .restored = outcome {
-                self.phase = .accessConfirmed
-                self.statusMessage = "Access restored. Opening Ascend."
-            } else if case .notFound = outcome,
-                      self.monetizationManager.pendingPurchaseHold == .askToBuy {
-                // An undecided Ask to Buy and a declined one read the same, and a declined one must
-                // not stay locked. A charge RevenueCat has not attached looks like nothing found too,
-                // so that hold stays.
-                self.monetizationManager.releasePendingPurchaseHold()
-                self.phase = .failed
-                self.statusMessage = "Apple has no approved purchase for this account. Load plans again, restore, or contact support."
-            }
-        }
-    }
-
-    func checkAccess() {
-        guard phase == .verificationUnavailable || phase == .pendingApproval,
-              let identity = monetizationManager.identityGeneration else { return }
-        accessCheckRevision &+= 1
-        let revision = accessCheckRevision
-        accessCheckTask?.cancel()
-        phase = .verifying
-        statusMessage = "Checking your access."
-        accessCheckTask = Task { @MainActor [weak self, monetizationManager] in
-            let refresh = await monetizationManager.refreshEntitlements(
-                force: true,
-                waitsForPendingIdentity: true
-            )
-            guard let self, !Task.isCancelled,
-                  self.accessCheckRevision == revision,
-                  self.monetizationManager.identityGeneration == identity else { return }
-            self.accessCheckTask = nil
-            switch refresh {
-            case .refreshed(let state) where state.hasActiveEntitlement(
-                self.monetizationManager.configuration.revenueCatEntitlementID
-            ):
-                self.phase = .accessConfirmed
-                self.statusMessage = "Access confirmed. Opening Ascend."
-            case .refreshed, .unavailable:
-                self.phase = .verificationUnavailable
-                self.statusMessage = "Payment may still be processing. Do not purchase again. Check access again, restore, manage your subscription, or contact support."
-            }
-        }
     }
 
     func identityDidChange() {
@@ -289,19 +105,21 @@ final class AppAccessPaywallCoordinator {
             providerOutcome: .staleIdentity,
             entitlementActive: entitlementPresence
         )
-        plans = []
-        selectedPlanID = nil
-        restoreState = .idle
+        failedHostedPresentations = 0
         phase = .openingHosted
-        statusMessage = "Opening plans."
         start()
     }
 
+    /// The gate left the screen. Everything it owned is stopped, and it is left where `start()`
+    /// begins, so a gate shown again asks for the paywall again instead of sitting on a spinner
+    /// that nothing is driving.
     func cancelOwnedWork() {
         cancelOwnedWork(
             providerOutcome: .cancelled,
             entitlementActive: entitlementPresence
         )
+        failedHostedPresentations = 0
+        phase = .openingHosted
     }
 
     private func cancelOwnedWork(
@@ -316,27 +134,20 @@ final class AppAccessPaywallCoordinator {
         presentationRevision &+= 1
         presentationIdentity = nil
         presentationAttemptID = nil
-        nativeLoadRevision &+= 1
-        purchaseRevision &+= 1
-        restoreRevision &+= 1
         accessCheckRevision &+= 1
         freeWeekRevision &+= 1
         letterWatchdogTask?.cancel()
         freeWeekTask?.cancel()
+        watchdogTask?.cancel()
+        hostedRetryTask?.cancel()
+        accessCheckTask?.cancel()
+        routeTask?.cancel()
         letterWatchdogTask = nil
         freeWeekTask = nil
-        watchdogTask?.cancel()
-        nativeLoadTask?.cancel()
-        nativeLoadDeadlineTask?.cancel()
-        purchaseTask?.cancel()
-        restoreTask?.cancel()
-        accessCheckTask?.cancel()
         watchdogTask = nil
-        nativeLoadTask = nil
-        nativeLoadDeadlineTask = nil
-        purchaseTask = nil
-        restoreTask = nil
+        hostedRetryTask = nil
         accessCheckTask = nil
+        routeTask = nil
         monetizationManager.cancelPaywallPresentation()
     }
 
@@ -345,24 +156,51 @@ final class AppAccessPaywallCoordinator {
             monetizationManager.configuration.revenueCatEntitlementID
         ) else { return }
         // Active entitlement truth wins every presentation state. Retire all callback authority
-        // before publishing confirmation so a late hosted terminal or plan load cannot re-enable
-        // checkout for a climber who already has access.
+        // before publishing confirmation so a late hosted terminal or retry cannot reopen a
+        // paywall over a climber who already has access.
         cancelOwnedWork(
             providerOutcome: .entitlementActive,
             entitlementActive: true
         )
-        phase = .accessConfirmed
-        statusMessage = "Access confirmed. Opening Ascend."
+        awaitRoute()
     }
 
+    /// Access is confirmed, and routing is about to take the climber into the app.
+    ///
+    /// Routing reads the same entitlement and free week this gate just heard about, so it leaves
+    /// in the same turn and this wait is never seen. It is here because the gate cannot be where
+    /// anything ends: if routing does not agree, the paywall reopens rather than leaving a spinner
+    /// with nothing behind it.
+    private func awaitRoute() {
+        phase = .accessConfirmed
+        routeTask?.cancel()
+        routeTask = Task { @MainActor [weak self, sleep, deadline = retryPolicy.routeResolutionDeadline] in
+            do {
+                try await sleep(deadline)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled, self.phase == .accessConfirmed else { return }
+            self.routeTask = nil
+            self.presentHosted(source: "access_route_unresolved")
+        }
+    }
+
+    // MARK: - Access paywall
+
     private func presentHosted(source: String) {
+        hostedRetryTask?.cancel()
+        hostedRetryTask = nil
+        routeTask?.cancel()
+        routeTask = nil
         if let hold = monetizationManager.pendingPurchaseHold {
-            showPurchaseHold(hold)
+            confirmAccess(holding: hold)
             return
         }
         guard let identity = monetizationManager.identityGeneration else {
-            phase = .failed
-            statusMessage = "Ascend is still confirming your account. Load plans again when the account check finishes."
+            // The account check has not finished. `identityDidChange()` restarts the gate when it
+            // does; the retry covers an answer that lands without that change.
+            scheduleHostedRetry()
             return
         }
         recordCurrentGateTerminal(
@@ -378,9 +216,6 @@ final class AppAccessPaywallCoordinator {
         presentationIdentity = identity
         presentationAttemptID = UUID().uuidString.lowercased()
         didPresentHosted = false
-        nativeLoadRevision &+= 1
-        nativeLoadTask?.cancel()
-        nativeLoadTask = nil
         armOpeningWatchdog(presentationRevision: revision, presentationIdentity: identity)
 
         monetizationManager.presentPaywall(
@@ -401,13 +236,12 @@ final class AppAccessPaywallCoordinator {
         }
     }
 
-    /// A paywall that never opens must not leave the climber behind a spinner with no controls.
+    /// A paywall that never opens is asked for again rather than waited on forever.
     private func armOpeningWatchdog(
         presentationRevision revision: UInt,
         presentationIdentity identity: MonetizationIdentityTransition
     ) {
         phase = .openingHosted
-        statusMessage = "Opening plans."
         watchdogTask?.cancel()
         watchdogTask = Task { @MainActor [weak self, sleep, hostedOpeningDeadline] in
             do {
@@ -415,12 +249,12 @@ final class AppAccessPaywallCoordinator {
             } catch {
                 return
             }
-            guard let self, self.presentationRevision == revision,
+            guard let self, !Task.isCancelled,
+                  self.presentationRevision == revision,
                   self.phase == .openingHosted,
                   self.monetizationManager.identityGeneration == identity else { return }
             self.monetizationManager.cancelPaywallPresentation()
-            self.beginNativeFallback(
-                message: "Plans took too long to open. Choose a plan below.",
+            self.retryHostedAfterBackoff(
                 presentationRevision: revision,
                 presentationIdentity: identity,
                 reason: .watchdogTimeout
@@ -428,15 +262,73 @@ final class AppAccessPaywallCoordinator {
         }
     }
 
-    private func showPurchaseHold(_ hold: PendingPurchaseHold) {
-        switch hold {
-        case .askToBuy:
-            phase = .pendingApproval
-            statusMessage = "Apple is still waiting for approval or confirmation. Do not purchase again."
-        case .unconfirmedCharge:
-            phase = .verificationUnavailable
-            statusMessage = "Payment may still be processing. Do not purchase again while Ascend confirms access."
+    /// The access paywall did not reach the screen. The spinner stays, and the gate asks again.
+    private func retryHostedAfterBackoff(
+        presentationRevision: UInt,
+        presentationIdentity: MonetizationIdentityTransition,
+        reason: AppAccessGateRecoveryReason
+    ) {
+        recordGateTerminal(
+            presentationRevision: presentationRevision,
+            presentationIdentity: presentationIdentity,
+            providerOutcome: .hostedUnavailable,
+            recoveryPath: .hosted,
+            recoveryReason: reason,
+            entitlementActive: entitlementPresence
+        )
+        // Retires the attempt, so a callback it still has in flight cannot land on the next one.
+        self.presentationRevision &+= 1
+        self.presentationIdentity = nil
+        scheduleHostedRetry()
+    }
+
+    private func scheduleHostedRetry() {
+        let delay = retryPolicy.hostedPresentationDelay(afterFailures: failedHostedPresentations)
+        failedHostedPresentations += 1
+        watchdogTask?.cancel()
+        hostedRetryTask?.cancel()
+        phase = .awaitingHostedRetry
+        hostedRetryTask = Task { @MainActor [weak self, sleep] in
+            do {
+                try await sleep(delay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled, self.phase == .awaitingHostedRetry else { return }
+            self.hostedRetryTask = nil
+            self.presentHosted(source: "presentation_retry")
         }
+    }
+
+    /// Reopens the access paywall for a climber who has nowhere else to go.
+    ///
+    /// The paywall is the floor: it carries its own restore, delete-account and sign-out controls.
+    /// One that reached the screen reopens at once, because the climber closed it themselves. One
+    /// that never did would reopen in a loop nobody is tapping through, so it waits out the
+    /// backoff like any other paywall that could not open.
+    private func returnToHosted(
+        source: String,
+        presentationRevision: UInt,
+        presentationIdentity: MonetizationIdentityTransition,
+        reason: AppAccessGateRecoveryReason
+    ) {
+        guard didPresentHosted else {
+            retryHostedAfterBackoff(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                reason: reason
+            )
+            return
+        }
+        recordGateTerminal(
+            presentationRevision: presentationRevision,
+            presentationIdentity: presentationIdentity,
+            providerOutcome: .paywallFloor,
+            recoveryPath: .hosted,
+            recoveryReason: reason,
+            entitlementActive: entitlementPresence
+        )
+        presentHosted(source: source)
     }
 
     private func handleHostedOutcome(
@@ -448,8 +340,8 @@ final class AppAccessPaywallCoordinator {
         case .presented:
             watchdogTask?.cancel()
             didPresentHosted = true
+            failedHostedPresentations = 0
             phase = .hostedPresented
-            statusMessage = nil
         case .followOnPaywallOpening:
             armOpeningWatchdog(
                 presentationRevision: presentationRevision,
@@ -464,8 +356,7 @@ final class AppAccessPaywallCoordinator {
                 recoveryPath: .hosted,
                 entitlementActive: true
             )
-            phase = .accessConfirmed
-            statusMessage = "Access confirmed. Opening Ascend."
+            awaitRoute()
         case .pendingApproval, .verificationUnavailable:
             watchdogTask?.cancel()
             let providerOutcome: AppAccessGateProviderOutcome = outcome == .pendingApproval
@@ -480,7 +371,7 @@ final class AppAccessPaywallCoordinator {
             )
             self.presentationRevision &+= 1
             self.presentationIdentity = nil
-            showPurchaseHold(outcome == .pendingApproval ? .askToBuy : .unconfirmedCharge)
+            confirmAccess(holding: outcome == .pendingApproval ? .askToBuy : .unconfirmedCharge)
         case .backRequested:
             watchdogTask?.cancel()
             // A flow that ends at sign-in has no stage behind the gate, and the v1 stages are ones
@@ -495,7 +386,6 @@ final class AppAccessPaywallCoordinator {
                 return
             }
             // The climber asked for the onboarding step behind the paywall, not for a second one.
-            // Deliberately never falls through to the native plan list.
             recordGateTerminal(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
@@ -508,18 +398,15 @@ final class AppAccessPaywallCoordinator {
             self.presentationIdentity = nil
             guard onRequestOnboardingBack?() == true else {
                 // The hosted paywall is already dismissed, so a back that could not land would
-                // leave the gate with no controls at all - not even the account-deletion route
-                // Guideline 5.1.1(v) requires. Recovery, never the native plan list.
-                phase = .backUnavailable
-                statusMessage = "Ascend couldn't reopen the previous step. Load plans again, restore, manage your subscription, or contact support."
+                // leave the spinner with nothing behind it. The paywall the climber left comes
+                // back instead.
+                presentHosted(source: "onboarding_back_unavailable")
                 return
             }
             recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
         case .deleteAccountRequested:
-            // The climber asked to delete their account, not to shop. Deliberately never falls
-            // through to the native plan list, and deliberately does not move the phase: the
-            // deletion dialog covers the gate, and a phase change here would announce
-            // "Loading plans." over that dialog to a VoiceOver climber.
+            // The climber asked to delete their account, not to shop. Deliberately does not move
+            // the phase: the deletion dialog covers the gate, and
             // `accountDeletionDialogDismissed()` answers what happens if they back out.
             watchdogTask?.cancel()
             recordGateTerminal(
@@ -532,8 +419,8 @@ final class AppAccessPaywallCoordinator {
             )
             onRequestAccountDeletion?()
         case .signOutRequested:
-            // Signing out routes away from the gate entirely, so like a deletion request this never
-            // falls through to the native plan list and does not move the phase.
+            // Signing out routes away from the gate entirely, so like a deletion request this does
+            // not move the phase.
             watchdogTask?.cancel()
             recordGateTerminal(
                 presentationRevision: presentationRevision,
@@ -553,16 +440,14 @@ final class AppAccessPaywallCoordinator {
             )
         case .skipped:
             watchdogTask?.cancel()
-            beginNativeFallback(
-                message: "Plans could not open. Choose a plan below.",
+            retryHostedAfterBackoff(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
                 reason: .hostedSkipped
             )
         case .failed:
             watchdogTask?.cancel()
-            beginNativeFallback(
-                message: "Plans could not open. Choose a plan below.",
+            retryHostedAfterBackoff(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
                 reason: .hostedError
@@ -581,32 +466,111 @@ final class AppAccessPaywallCoordinator {
         )
     }
 
+    // MARK: - Unconfirmed purchases
+
+    /// Apple, or the server, says this account may already have paid and the device has not heard.
+    ///
+    /// The gate re-reads access behind the spinner rather than offering anything to buy. A charge
+    /// RevenueCat has not confirmed usually lands within seconds, so it is asked about on the
+    /// schedule. An Ask to Buy waits on a person, who may take days or say no, so it is asked about
+    /// once.
+    ///
+    /// Either way the wait is bounded, and it ends on the access paywall: that is the only place
+    /// restore, sign out and account deletion live, so a climber held behind the spinner any
+    /// longer would have no way to do any of them. The hold is released on the way, or the paywall
+    /// could never reopen. Access that lands later still opens the app, through
+    /// `entitlementDidChange(_:)`.
+    private func confirmAccess(holding hold: PendingPurchaseHold?) {
+        guard let identity = monetizationManager.identityGeneration else {
+            scheduleHostedRetry()
+            return
+        }
+        accessCheckRevision &+= 1
+        let revision = accessCheckRevision
+        accessCheckTask?.cancel()
+        watchdogTask?.cancel()
+        phase = .confirmingAccess
+        let waits: [Duration?] = hold == .askToBuy
+            ? [nil]
+            : [nil] + retryPolicy.accessCheckDelays.map(Optional.some)
+
+        accessCheckTask = Task { @MainActor [weak self, monetizationManager, sleep] in
+            let entitlementID = monetizationManager.configuration.revenueCatEntitlementID
+            for wait in waits {
+                if let wait {
+                    do {
+                        try await sleep(wait)
+                    } catch {
+                        return
+                    }
+                }
+                let refresh = await monetizationManager.refreshEntitlements(
+                    force: true,
+                    waitsForPendingIdentity: true
+                )
+                guard let self, !Task.isCancelled,
+                      self.accessCheckRevision == revision,
+                      monetizationManager.identityGeneration == identity else { return }
+                if case .refreshed(let state) = refresh,
+                   state.hasActiveEntitlement(entitlementID) {
+                    self.accessCheckTask = nil
+                    self.awaitRoute()
+                    return
+                }
+            }
+            guard let self, !Task.isCancelled,
+                  self.accessCheckRevision == revision,
+                  monetizationManager.identityGeneration == identity else { return }
+            self.accessCheckTask = nil
+            // Ask to Buy gets one refresh, a charge an immediate read then 2/4/8/16 s: StoreKit guards the double charge, and an indefinite hold behind a wordless spinner would trap the climber.
+            monetizationManager.releasePendingPurchaseHold()
+            self.presentHosted(
+                source: hold == .askToBuy ? "ask_to_buy_pending" : "access_unconfirmed"
+            )
+        }
+    }
+
     // MARK: - Free week after decline
 
     /// The climber closed the last paid offer without buying.
     ///
-    /// With `free_week_after_decline_enabled` off this is the native plan picker, as it always was.
-    /// On, the plan picker is no longer where a decline lands (`docs/free-week-after-decline.md`):
+    /// With `free_week_after_decline_enabled` off the paywall reopens: it is a hard paywall, and
+    /// the hosted screen is the only one there is. On (`docs/free-week-after-decline.md`):
     ///
     /// - An account that has never had its week is shown the founder letter and let in.
     /// - An account whose week is over gets the hosted paywall again. That paywall is the floor:
     ///   it carries its own restore, delete-account and sign-out controls, and declining it only
     ///   reopens it.
-    /// - An account the server could not be asked about gets the plan picker, because showing the
-    ///   letter to a climber who already spent their week would promise a second one.
+    /// - An account the server could not be asked about is asked about again on a bounded
+    ///   schedule, then gets the hosted paywall again, because showing the letter to a climber who
+    ///   already spent their week would promise a second one.
     ///
     /// A pending purchase still wins over all of it: a climber Apple may already have charged is
-    /// told to wait, never offered a free week on top.
+    /// checked for access, never offered a free week on top.
     private func handlePaidOffersDeclined(
         presentationRevision: UInt,
         presentationIdentity: MonetizationIdentityTransition,
         reason: AppAccessGateRecoveryReason,
         mayReadRecord: Bool = true
     ) {
+        if let hold = monetizationManager.pendingPurchaseHold {
+            // A paywall whose recovery could not reach this gate still lands here when it closes.
+            recordGateTerminal(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                providerOutcome: hold == .askToBuy ? .pendingApproval : .verificationUnavailable,
+                recoveryPath: .hosted,
+                recoveryReason: reason,
+                entitlementActive: entitlementPresence
+            )
+            confirmAccess(holding: hold)
+            return
+        }
+
         let freeWeek = monetizationManager.freeWeek
-        guard freeWeek.isEnabled, monetizationManager.pendingPurchaseHold == nil else {
-            beginNativeFallback(
-                message: "No purchase was made. Choose a plan below.",
+        guard freeWeek.isEnabled else {
+            returnToHosted(
+                source: "paid_offers_declined",
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
                 reason: reason
@@ -623,57 +587,71 @@ final class AppAccessPaywallCoordinator {
             )
         case .granted where freeWeek.liveGrant != nil:
             // The week is already running; routing is about to say so.
-            phase = .accessConfirmed
-            statusMessage = "Access confirmed. Opening Ascend."
+            awaitRoute()
         case .granted:
-            // A decline from a paywall that never reached the screen would reopen it in a loop
-            // nobody is tapping through, so that one gets the picker and its way out.
-            guard didPresentHosted else {
-                beginNativeFallback(
-                    message: "Plans could not open. Choose a plan below.",
-                    presentationRevision: presentationRevision,
-                    presentationIdentity: presentationIdentity,
-                    reason: reason
-                )
-                return
-            }
-            recordGateTerminal(
+            returnToHosted(
+                source: "free_week_ended",
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
-                providerOutcome: .paywallFloor,
-                recoveryPath: .hosted,
-                recoveryReason: reason,
-                entitlementActive: entitlementPresence
+                reason: reason
             )
-            presentHosted(source: "free_week_ended")
         case .unknown, .unavailable:
             guard mayReadRecord else {
-                beginNativeFallback(
-                    message: "No purchase was made. Choose a plan below.",
+                returnToHosted(
+                    source: "free_week_unavailable",
                     presentationRevision: presentationRevision,
                     presentationIdentity: presentationIdentity,
                     reason: .freeWeekUnavailable
                 )
                 return
             }
-            freeWeekRevision &+= 1
-            let revision = freeWeekRevision
-            freeWeekTask?.cancel()
-            phase = .startingFreeWeek
-            statusMessage = nil
-            freeWeekTask = Task { @MainActor [weak self, freeWeek] in
+            readFreeWeekRecord(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                reason: reason
+            )
+        }
+    }
+
+    /// Asks the server whether this account has had its week, again on the schedule until it
+    /// answers or the schedule runs out.
+    private func readFreeWeekRecord(
+        presentationRevision: UInt,
+        presentationIdentity: MonetizationIdentityTransition,
+        reason: AppAccessGateRecoveryReason
+    ) {
+        freeWeekRevision &+= 1
+        let revision = freeWeekRevision
+        freeWeekTask?.cancel()
+        phase = .startingFreeWeek
+        let waits: [Duration?] = [nil] + retryPolicy.freeWeekDelays.map(Optional.some)
+
+        freeWeekTask = Task { @MainActor [weak self, monetizationManager, sleep] in
+            let freeWeek = monetizationManager.freeWeek
+            for wait in waits {
+                if let wait {
+                    do {
+                        try await sleep(wait)
+                    } catch {
+                        return
+                    }
+                }
                 await freeWeek.refresh()
                 guard let self, !Task.isCancelled,
                       self.freeWeekRevision == revision,
-                      self.monetizationManager.identityGeneration == presentationIdentity else { return }
-                self.freeWeekTask = nil
-                self.handlePaidOffersDeclined(
-                    presentationRevision: presentationRevision,
-                    presentationIdentity: presentationIdentity,
-                    reason: reason,
-                    mayReadRecord: false
-                )
+                      monetizationManager.identityGeneration == presentationIdentity else { return }
+                if freeWeek.record != .unknown, freeWeek.record != .unavailable { break }
             }
+            guard let self, !Task.isCancelled,
+                  self.freeWeekRevision == revision,
+                  monetizationManager.identityGeneration == presentationIdentity else { return }
+            self.freeWeekTask = nil
+            self.handlePaidOffersDeclined(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                reason: reason,
+                mayReadRecord: false
+            )
         }
     }
 
@@ -723,7 +701,6 @@ final class AppAccessPaywallCoordinator {
         identity: MonetizationIdentityTransition
     ) {
         phase = .openingLetter
-        statusMessage = nil
         letterWatchdogTask?.cancel()
         letterWatchdogTask = Task { @MainActor [weak self, sleep, hostedOpeningDeadline] in
             do {
@@ -731,7 +708,8 @@ final class AppAccessPaywallCoordinator {
             } catch {
                 return
             }
-            guard let self, self.freeWeekRevision == revision,
+            guard let self, !Task.isCancelled,
+                  self.freeWeekRevision == revision,
                   self.phase == .openingLetter,
                   self.monetizationManager.identityGeneration == identity else { return }
             self.monetizationManager.cancelPaywallPresentation()
@@ -764,11 +742,10 @@ final class AppAccessPaywallCoordinator {
             armLetterWatchdog(revision: revision, identity: identity)
         case .purchased, .restored:
             letterWatchdogTask?.cancel()
-            phase = .accessConfirmed
-            statusMessage = "Access confirmed. Opening Ascend."
+            awaitRoute()
         case .pendingApproval, .verificationUnavailable:
             letterWatchdogTask?.cancel()
-            showPurchaseHold(outcome == .pendingApproval ? .askToBuy : .unconfirmedCharge)
+            confirmAccess(holding: outcome == .pendingApproval ? .askToBuy : .unconfirmedCharge)
         case .signOutRequested:
             // A climber leaving the account is not accepting a week on it.
             letterWatchdogTask?.cancel()
@@ -779,6 +756,10 @@ final class AppAccessPaywallCoordinator {
         }
     }
 
+    /// Starts the week, again on the schedule while the call fails outright.
+    ///
+    /// A week that still cannot be started ends on the access paywall, never on a screen of the
+    /// gate's own: the climber can decline it again, which asks for the week again.
     private func startFreeWeek(identity: MonetizationIdentityTransition) {
         freeWeekRevision &+= 1
         let revision = freeWeekRevision
@@ -786,37 +767,45 @@ final class AppAccessPaywallCoordinator {
         letterWatchdogTask = nil
         freeWeekTask?.cancel()
         phase = .startingFreeWeek
-        statusMessage = nil
         let letterShown = didShowLetter
+        let waits: [Duration?] = [nil] + retryPolicy.freeWeekDelays.map(Optional.some)
 
-        freeWeekTask = Task { @MainActor [weak self, monetizationManager] in
-            let outcome = await monetizationManager.startFreeWeek(
-                letterShown: letterShown,
-                identity: identity
-            )
+        freeWeekTask = Task { @MainActor [weak self, monetizationManager, sleep] in
+            var outcome = FreeWeekStartOutcome.failed
+            for wait in waits {
+                if let wait {
+                    do {
+                        try await sleep(wait)
+                    } catch {
+                        return
+                    }
+                }
+                outcome = await monetizationManager.startFreeWeek(
+                    letterShown: letterShown,
+                    identity: identity
+                )
+                guard let self, !Task.isCancelled,
+                      self.freeWeekRevision == revision,
+                      monetizationManager.identityGeneration == identity else { return }
+                // A switch turned off mid-wait is an answer, not a failure worth asking about again.
+                if outcome != .failed || !monetizationManager.freeWeek.isEnabled { break }
+            }
             guard let self, !Task.isCancelled,
                   self.freeWeekRevision == revision,
-                  self.monetizationManager.identityGeneration == identity else { return }
+                  monetizationManager.identityGeneration == identity else { return }
             self.freeWeekTask = nil
 
             switch outcome {
             case .started:
-                self.phase = .accessConfirmed
-                self.statusMessage = "Access confirmed. Opening Ascend."
+                self.awaitRoute()
             case .alreadyUsed:
                 // The server says this account's week is spent, so the paywall is the floor.
                 self.presentHosted(source: "free_week_ended")
             case .paidActive:
                 // The server already holds paid access for this account; the device has not heard.
-                self.phase = .verificationUnavailable
-                self.checkAccess()
+                self.confirmAccess(holding: nil)
             case .failed:
-                self.beginNativeFallback(
-                    message: "No purchase was made. Choose a plan below.",
-                    presentationRevision: self.presentationRevision,
-                    presentationIdentity: identity,
-                    reason: .freeWeekUnavailable
-                )
+                self.presentHosted(source: "free_week_unavailable")
             }
         }
     }
@@ -835,168 +824,7 @@ final class AppAccessPaywallCoordinator {
         )
     }
 
-    private func beginNativeFallback(
-        message: String,
-        presentationRevision: UInt,
-        presentationIdentity: MonetizationIdentityTransition,
-        reason: AppAccessGateRecoveryReason
-    ) {
-        // A paywall whose recovery could not reach this gate still lands here when it closes, so the
-        // plan list is refused at the door rather than at each way in.
-        if let hold = monetizationManager.pendingPurchaseHold {
-            recordGateTerminal(
-                presentationRevision: presentationRevision,
-                presentationIdentity: presentationIdentity,
-                providerOutcome: hold == .askToBuy ? .pendingApproval : .verificationUnavailable,
-                recoveryPath: .hosted,
-                recoveryReason: reason,
-                entitlementActive: entitlementPresence
-            )
-            showPurchaseHold(hold)
-            return
-        }
-        guard let identity = monetizationManager.identityGeneration else {
-            phase = .failed
-            statusMessage = "Ascend is still confirming your account. Try again when the account check finishes."
-            return
-        }
-        nativeLoadRevision &+= 1
-        let revision = nativeLoadRevision
-        nativeLoadTask?.cancel()
-        nativeLoadDeadlineTask?.cancel()
-        phase = .loadingNative
-        statusMessage = message
-        nativeLoadDeadlineTask = Task {
-            @MainActor [weak self, nativeLoadSleep, nativeLoadingDeadline] in
-            do {
-                try await nativeLoadSleep(nativeLoadingDeadline)
-            } catch {
-                return
-            }
-            guard let self,
-                  self.nativeLoadRevision == revision,
-                  self.phase == .loadingNative,
-                  self.monetizationManager.identityGeneration == identity else { return }
-            self.nativeLoadRevision &+= 1
-            self.nativeLoadTask?.cancel()
-            self.nativeLoadTask = nil
-            self.nativeLoadDeadlineTask = nil
-            self.recordGateTerminal(
-                presentationRevision: presentationRevision,
-                presentationIdentity: presentationIdentity,
-                providerOutcome: .nativeUnavailable,
-                recoveryPath: .native,
-                recoveryReason: reason,
-                entitlementActive: self.entitlementPresence
-            )
-            self.phase = .failed
-            self.statusMessage = "Plans took too long to load. Try again, restore purchases, manage your subscription, or contact support."
-        }
-        nativeLoadTask = Task { @MainActor [weak self, nativeProvider] in
-            do {
-                let loadedPlans = try await nativeProvider.loadPlans()
-                guard let self, !Task.isCancelled,
-                      self.nativeLoadRevision == revision,
-                      self.monetizationManager.identityGeneration == identity else { return }
-                self.nativeLoadDeadlineTask?.cancel()
-                self.nativeLoadDeadlineTask = nil
-                guard !loadedPlans.isEmpty else {
-                    self.recordGateTerminal(
-                        presentationRevision: presentationRevision,
-                        presentationIdentity: presentationIdentity,
-                        providerOutcome: .nativeUnavailable,
-                        recoveryPath: .native,
-                        recoveryReason: reason,
-                        entitlementActive: self.entitlementPresence
-                    )
-                    self.phase = .failed
-                    self.statusMessage = "Plans are unavailable right now. Restore, manage your subscription, or contact support."
-                    return
-                }
-                self.plans = loadedPlans
-                self.selectedPlanID = loadedPlans.first?.id
-                self.recordGateTerminal(
-                    presentationRevision: presentationRevision,
-                    presentationIdentity: presentationIdentity,
-                    providerOutcome: .nativeReady,
-                    recoveryPath: .native,
-                    recoveryReason: reason,
-                    entitlementActive: self.entitlementPresence
-                )
-                self.phase = .nativeReady
-                self.statusMessage = Self.plansReadyMessage(for: loadedPlans)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard let self, !Task.isCancelled,
-                      self.nativeLoadRevision == revision,
-                      self.monetizationManager.identityGeneration == identity else { return }
-                self.nativeLoadDeadlineTask?.cancel()
-                self.nativeLoadDeadlineTask = nil
-                self.recordGateTerminal(
-                    presentationRevision: presentationRevision,
-                    presentationIdentity: presentationIdentity,
-                    providerOutcome: .nativeUnavailable,
-                    recoveryPath: .native,
-                    recoveryReason: reason,
-                    entitlementActive: self.entitlementPresence
-                )
-                self.phase = .failed
-                self.statusMessage = "Plans are unavailable right now. Check your connection, restore, or contact support."
-            }
-        }
-    }
-
-    /// Names what is on offer and, for a plan that renews, how the climber gets out of it.
-    ///
-    /// Cancellation is promised only for a plan that renews, and by name once a one-time purchase
-    /// sits beside it: "Cancel anytime" over a Lifetime card would describe a charge that cannot
-    /// be cancelled. Each card already carries its own terms, so this stays one short line - at an
-    /// accessibility text size a longer one pushes the plans themselves off the first screen.
-    nonisolated static func plansReadyMessage(for plans: [NativePaywallPlan]) -> String {
-        let offer = plans.count == 1
-            ? "\(plans[0].title) is available."
-            : "Choose from \(plans.map(\.title).formatted(.list(type: .and)))."
-        let renewing = plans.filter { $0.billing == .subscription }.map(\.title)
-        let sellsOneTimePurchase = plans.contains { $0.billing == .oneTime }
-
-        switch (renewing.isEmpty, sellsOneTimePurchase) {
-        case (false, false):
-            return "\(offer) Cancel anytime in Apple subscriptions."
-        case (false, true):
-            let renewingNames = renewing.formatted(.list(type: .and))
-            return "\(offer) Cancel \(renewingNames) anytime in Apple subscriptions."
-        case (true, true):
-            return "\(offer) One payment. No renewal."
-        case (true, false):
-            return offer
-        }
-    }
-
-    private func handlePurchaseResult(_ result: PurchaseResult) {
-        switch result {
-        case .purchased:
-            phase = .accessConfirmed
-            statusMessage = "Access confirmed. Opening Ascend."
-        case .cancelled:
-            phase = .nativeReady
-            statusMessage = "No purchase was made. Choose a plan when you are ready."
-        case .pending:
-            showPurchaseHold(.askToBuy)
-        case .failed(let error):
-            if let controllerError = error as? RevenueCatPurchaseControllerError,
-               case .entitlementUnconfirmed = controllerError {
-                showPurchaseHold(.unconfirmedCharge)
-            } else {
-                phase = .nativeReady
-                statusMessage = "Checkout could not finish. Check your connection and try again."
-            }
-        @unknown default:
-            phase = .nativeReady
-            statusMessage = "Checkout could not finish. Check your connection and try again."
-        }
-    }
-
+    // MARK: - Analytics
 
     private var entitlementPresence: Bool? {
         switch monetizationManager.entitlementStateForRouting {
@@ -1011,12 +839,7 @@ final class AppAccessPaywallCoordinator {
 
     private var currentRecoveryPath: AppAccessGateRecoveryPath {
         switch phase {
-        case .openingHosted, .hostedPresented:
-            .hosted
-        case .loadingNative, .nativeReady, .purchasing, .verifying,
-             .verificationUnavailable, .pendingApproval, .failed:
-            .native
-        case .backUnavailable:
+        case .openingHosted, .hostedPresented, .awaitingHostedRetry, .confirmingAccess:
             .hosted
         case .openingLetter, .letterPresented, .startingFreeWeek:
             .freeWeek

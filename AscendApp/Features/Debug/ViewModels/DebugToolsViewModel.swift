@@ -26,7 +26,6 @@ class DebugToolsViewModel {
         static let completePostAuthOnboarding = "Complete Post-Auth Onboarding"
         static let resetRoutineBuilderWalkthrough = "Reset Routine Builder Walkthrough"
         static let forceAppAccessGate = "Force App Access Gate"
-        static let clearAppAccessGateOverride = "Clear App Access Gate Override"
         static let presentAppAccessPaywall = "Present App Access Paywall"
         static let refreshEntitlements = "Refresh Entitlements"
         static let restorePurchases = "Restore Purchases"
@@ -118,15 +117,9 @@ class DebugToolsViewModel {
             actions: [
                 DebugAction(
                     title: ActionTitle.forceAppAccessGate,
-                    description: "Routes the dev app through the same hard-gate fallback screen used by staging, even when Debug would normally bypass app access.",
+                    description: "Routes the dev app through the app-access gate, even when Debug would normally bypass app access. The gate is a spinner behind Superwall's screens, so relaunch the app to clear it.",
                     icon: "lock.fill",
                     iconColor: .orange
-                ),
-                DebugAction(
-                    title: ActionTitle.clearAppAccessGateOverride,
-                    description: "Clears the Debug-only hard-gate override and returns the dev app to normal unentitled access.",
-                    icon: "lock.open.fill",
-                    iconColor: .green
                 ),
                 DebugAction(
                     title: ActionTitle.presentAppAccessPaywall,
@@ -240,11 +233,7 @@ class DebugToolsViewModel {
 
             case ActionTitle.forceAppAccessGate:
                 MonetizationManager.shared.setDebugForcesAppAccessPaywall(true)
-                successMessage = "Forced the app-access gate. The root view should switch to the paywall fallback screen."
-
-            case ActionTitle.clearAppAccessGateOverride:
-                MonetizationManager.shared.setDebugForcesAppAccessPaywall(false)
-                successMessage = "Cleared the app-access gate override."
+                successMessage = "Forced the app-access gate. Relaunch the app to clear it."
 
             case ActionTitle.refreshEntitlements:
                 guard MonetizationManager.shared.isRevenueCatConfigured else {

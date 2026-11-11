@@ -61,9 +61,10 @@ struct MonetizationConfiguration: Equatable {
         revenueCatAPIKey != nil && superwallAPIKey != nil
     }
 
-    /// The plans Ascend's own paywall sells, in the order it lists them: the annual subscription and
-    /// the one-time Lifetime purchase. Monthly is still on sale in App Store Connect and still
-    /// unlocks `app_access`, but this paywall does not sell it, so nothing here names it.
+    /// The plans the launch offering has to carry, which is what the offering audit checks: the
+    /// annual subscription and the one-time Lifetime purchase. Monthly is still on sale in App
+    /// Store Connect and still unlocks `app_access`, but no Ascend paywall sells it, so nothing
+    /// here names it.
     var launchProductIDs: [String] {
         [revenueCatYearlyProductID, revenueCatLifetimeProductID]
     }

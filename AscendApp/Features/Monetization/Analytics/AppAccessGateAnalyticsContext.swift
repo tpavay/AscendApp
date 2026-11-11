@@ -2,9 +2,7 @@ import Foundation
 
 enum AppAccessGateRecoveryPath: String, Sendable {
     case hosted
-    case native
     case entitlementStream = "entitlement_stream"
-    case restore
     case account
     case freeWeek = "free_week"
 }
@@ -12,8 +10,8 @@ enum AppAccessGateRecoveryPath: String, Sendable {
 enum AppAccessGateProviderOutcome: String, Sendable {
     case purchased
     case restored
-    case nativeReady = "native_ready"
-    case nativeUnavailable = "native_unavailable"
+    /// The access paywall did not reach the screen, and the gate is about to ask for it again.
+    case hostedUnavailable = "hosted_unavailable"
     case entitlementActive = "entitlement_active"
     case cancelled
     case backRequested = "back_requested"
@@ -24,8 +22,8 @@ enum AppAccessGateProviderOutcome: String, Sendable {
     case verificationUnavailable = "verification_unavailable"
     /// Every paid offer was declined and the account has never had its free week.
     case freeWeekOffered = "free_week_offered"
-    /// Every paid offer was declined by an account whose free week is spent, so the hosted
-    /// paywall reopens.
+    /// Every paid offer was declined and there is no free week to give - the rollout is off, the
+    /// account's week is spent, or the server could not be asked - so the hosted paywall reopens.
     case paywallFloor = "paywall_floor"
 }
 

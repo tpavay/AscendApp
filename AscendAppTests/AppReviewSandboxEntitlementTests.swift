@@ -264,7 +264,11 @@ private extension AppReviewSandboxEntitlementTests {
             ),
             .revenueCatRestoreNotFound(
                 entitlementID: entitlementID,
-                context: .appAccessGate(gateAttemptID: "review-gate"),
+                context: .hostedPaywall(
+                    placement: "app_access_gate",
+                    presentationID: nil,
+                    gateAttemptID: "review-gate"
+                ),
                 identityMatches: true
             )
         ]

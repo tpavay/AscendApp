@@ -208,7 +208,7 @@
         "value": "false"
       },
       "valueType": "BOOLEAN",
-      "description": "Rollout switch, ships off. On gives a climber who declines every paid offer the founder letter and one free week of access, granted by the server. Off keeps the plan picker. Read by the app and by the startFreeWeek Cloud Function."
+      "description": "Rollout switch, ships off. On gives a climber who declines every paid offer the founder letter and one free week of access, granted by the server. Off reopens the paywall. Read by the app and by the startFreeWeek Cloud Function."
     },
     "apple_health_import_enabled": {
       "defaultValue": {

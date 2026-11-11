@@ -44,8 +44,8 @@ struct LifetimeAccessTests {
         #expect(route == .mainApp)
     }
 
-    /// The verdict both paywalls share: the hosted Superwall paywall and the native fallback each
-    /// hand their purchase to this executor, so one Lifetime purchase proves both.
+    /// The verdict every hosted paywall shares: each hands its purchase to this executor, so one
+    /// Lifetime purchase proves them all.
     @Test(arguments: [true, false])
     func buyingLifetimeIsVerifiedAndPublishedLikeAnyOtherPurchase(isSandbox: Bool) async {
         let state = Self.customerInfo(holding: Self.lifetimeEntitlement(isSandbox: isSandbox))
@@ -119,9 +119,8 @@ struct LifetimeAccessTests {
             Issue.record("A Lifetime purchase must restore: \(outcome)")
             return
         }
+        // The hosted paywall's Restore reads this outcome.
         #expect(entitlementIDs == [Self.entitlementID])
-        // The app-access gate and the hosted paywall's Restore both read this outcome.
-        #expect(AppAccessRestoreState(outcome: outcome) == .restored)
 
         // Settings -> Restore Purchases.
         let settings = RestorePurchasesViewModel(restoreService: Self.restoreService(restoring: state))
@@ -140,7 +139,6 @@ struct LifetimeAccessTests {
         await settings.restorePurchases()
 
         #expect(settings.result?.title == expected)
-        #expect(AppAccessRestoreState.noPurchasesFound.statusMessage == expected)
         #expect(RevenueCatPurchaseControllerError.noPurchasesFound.errorDescription == expected)
     }
 

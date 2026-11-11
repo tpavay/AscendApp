@@ -1,5 +1,4 @@
 import Foundation
-import SuperwallKit
 import Testing
 @testable import AscendApp
 
@@ -42,6 +41,8 @@ struct OnboardingGateHandOffTests {
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: presenter,
+            // No free week here, so closing the paywall is the hard paywall reopening.
+            freeWeek: FreeWeekTestHarness(isEnabled: false).store,
             telemetry: telemetry,
             onboardingLifecycle: lifecycle,
             userDefaults: defaults
@@ -122,13 +123,11 @@ struct OnboardingGateHandOffTests {
     }
 
     @Test
-    func backDuringAV3PassIsAPlainCloseThatNeverReopensALegacyStage() async {
+    func backDuringAV3PassIsAPlainCloseThatNeverReopensALegacyStage() {
         let f = fixture(passFlowVersion: "v3")
         var reopenCount = 0
-        let provider = HandOffNativeProvider()
         let coordinator = AppAccessPaywallCoordinator(
             monetizationManager: f.manager,
-            nativeProvider: provider,
             telemetry: f.telemetry,
             onRequestOnboardingBack: {
                 reopenCount += 1
@@ -141,11 +140,12 @@ struct OnboardingGateHandOffTests {
         coordinator.handleHostedOutcomeForTesting(.presented)
         coordinator.handleHostedOutcomeForTesting(.backRequested)
 
+        // A plain close: no legacy stage reopens, and with no free week on offer the paywall the
+        // climber closed is the one that comes back.
         #expect(reopenCount == 0)
-        #expect(coordinator.phase == .loadingNative)
-        await provider.waitUntilLoaded()
-        await waitUntil { coordinator.phase == .nativeReady }
-        #expect(coordinator.statusMessage?.isEmpty == false)
+        #expect(f.presenter.registrations == [.appAccessGate, .appAccessGate])
+        #expect(f.presenter.registeredSource == "paid_offers_declined")
+        #expect(coordinator.phase == .openingHosted)
 
         let back = f.sink.records.filter { $0.name == "onboarding_back_tapped" }
         #expect(back.count == 1)
@@ -160,7 +160,6 @@ struct OnboardingGateHandOffTests {
         var reopenCount = 0
         let coordinator = AppAccessPaywallCoordinator(
             monetizationManager: f.manager,
-            nativeProvider: HandOffNativeProvider(),
             telemetry: f.telemetry,
             onRequestOnboardingBack: {
                 reopenCount += 1
@@ -185,7 +184,6 @@ struct OnboardingGateHandOffTests {
         var reopenCount = 0
         let coordinator = AppAccessPaywallCoordinator(
             monetizationManager: f.manager,
-            nativeProvider: HandOffNativeProvider(),
             telemetry: f.telemetry,
             onRequestOnboardingBack: {
                 reopenCount += 1
@@ -202,40 +200,4 @@ struct OnboardingGateHandOffTests {
         #expect(coordinator.phase == .openingHosted)
         #expect(f.sink.records.contains { $0.name == "onboarding_back_tapped" } == false)
     }
-}
-
-@MainActor
-private final class HandOffNativeProvider: NativePaywallPlanProviding {
-    private var loaded = false
-    private var observers: [CheckedContinuation<Void, Never>] = []
-
-    func loadPlans() async throws -> [NativePaywallPlan] {
-        loaded = true
-        observers.forEach { $0.resume() }
-        observers = []
-        return [
-            NativePaywallPlan(
-                id: "ascend_yearly",
-                title: "Yearly",
-                localizedPrice: "$29.99",
-                billingDescription: "per year",
-                trialDescription: nil
-            )
-        ]
-    }
-
-    func purchase(planID: String) async -> PurchaseResult { .cancelled }
-
-    func waitUntilLoaded() async {
-        if loaded { return }
-        await withCheckedContinuation { observers.append($0) }
-    }
-}
-
-@MainActor
-private func waitUntil(_ condition: @MainActor () -> Bool) async {
-    for _ in 0..<500 where !condition() {
-        try? await Task.sleep(for: .milliseconds(10))
-    }
-    #expect(condition())
 }

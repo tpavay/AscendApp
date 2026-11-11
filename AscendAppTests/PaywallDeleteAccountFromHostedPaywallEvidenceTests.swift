@@ -81,7 +81,7 @@ struct PaywallDeleteAccountFromHostedPaywallEvidenceTests {
                 // harness-owned sink.
 
                 // Backing out means nothing happened, so the paywall the climber was reading comes
-                // back rather than an opening spinner with no controls on it.
+                // back rather than a spinner with nothing behind it.
                 let sheet = try #require(controller.presentedViewController)
                 try activateAccessibilityElement(labelled: "Cancel", in: sheet.view)
                 #expect(
@@ -366,7 +366,7 @@ private struct HostedPaywallStandIn: View {
 
             Spacer()
 
-            Text("Choose your Ascend plan")
+            Text("Rank every climb")
                 .font(.montserratSemiBold(size: 17))
                 .foregroundStyle(.white.opacity(0.85))
 

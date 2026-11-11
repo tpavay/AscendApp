@@ -13,9 +13,10 @@ import UIKit
 /// StoreKit environment is *not* the one `BundleSandboxEnvironmentDetector` reads off this binary
 /// - is run twice through the shipped `RevenueCatPurchaseExecutor` and `AppAccessRestoreService`:
 /// once resolved with the deleted `Set(entitlements.activeInCurrentEnvironment.keys)` line, once
-/// with the shipped `appAccessEntitlementState`. The alert copy and the gate's restore line are
-/// the ones those production calls returned, not strings this file wrote. The photographs of both
-/// are taken through `RenderedScreen` only when `ASCEND_EVIDENCE_DIR` is set.
+/// with the shipped `appAccessEntitlementState`. The purchase alert's copy and the restore alert's
+/// are the ones those production calls and the shipped Superwall options returned, not strings
+/// this file wrote. The photographs of both are taken through `RenderedScreen` only when
+/// `ASCEND_EVIDENCE_DIR` is set.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct AppReviewSandboxEntitlementEvidenceTests {
@@ -70,49 +71,53 @@ struct AppReviewSandboxEntitlementEvidenceTests {
     }
 
     /// The restore half: the reviewer's own workaround, which produced a second error.
+    ///
+    /// Restore lives on the hosted paywall, so this runs the paywall's own restore - the shipped
+    /// `RevenueCatPurchaseController.restorePurchases()` - and reads the alert Superwall raises
+    /// for a failed one out of the shipped options.
     @Test
-    func photographsTheGateRestoreLineTheReviewerWouldHaveHitNext() async throws {
+    func photographsTheRestoreAlertTheReviewerWouldHaveHitNext() async throws {
         let entitlements = try #require(Self.crossEnvironmentEntitlements())
 
         let rejected = await Self.restore(resolving: Self.oldRuleState(for: entitlements))
         let shipped = await Self.restore(resolving: entitlements.appAccessEntitlementState)
 
-        #expect(rejected.state == .noPurchasesFound)
-        #expect(
-            rejected.state.statusMessage
-                == "No active Ascend subscription or Lifetime purchase was found for this Apple ID."
-        )
+        #expect(Self.isRestoreFailed(rejected.result))
         #expect(rejected.events.contains("revenuecat_restore_not_found"))
+        let alert = Self.restoreFailedAlert
+        #expect(alert.title == "Nothing Restored")
+        #expect(alert.message.contains("no active subscription or Lifetime purchase"))
 
-        #expect(shipped.state == .restored)
-        #expect(shipped.state.statusMessage == nil)
+        #expect(Self.isRestored(shipped.result))
         #expect(shipped.events.contains("revenuecat_restore_completed"))
 
         guard RenderedScreen.isPhotographing else { return }
 
-        let manager = MonetizationManager(
-            entitlementService: EntitlementServiceStub(),
-            paywallPresenter: PaywallPresenterSpy(),
-            telemetry: makeTestTelemetry(sink: InMemoryTelemetrySink(destination: .analytics))
-        )
-
-        try RenderedScreen.photograph(
-            GateRestoreProof(
-                monetizationManager: manager,
-                before: .init(
-                    caption: "Build 2026081401 · rejected",
-                    detail: "AppAccessRestoreService → .notFound",
-                    state: rejected.state,
-                    events: rejected.events
-                ),
-                after: .init(
-                    caption: "This build",
-                    detail: "AppAccessRestoreService → .restored([app_access])",
-                    state: shipped.state,
-                    events: shipped.events
-                )
+        let subtitle = Self.environmentSubtitle(for: entitlements)
+        let heading = "App Review taps Restore on the paywall · what the reviewer sees"
+        try await Self.photographAlert(
+            heading: heading,
+            alertTitle: alert.title,
+            message: alert.message,
+            annotation: .init(
+                subtitle: subtitle,
+                caption: "Build 2026081401 · rejected",
+                detail: "Superwall .failed → its restore-failed alert",
+                events: rejected.events
             ),
-            named: "app-review-gate-restore-before-after"
+            named: "app-review-restore-alert-before"
+        )
+        try await Self.photographAlert(
+            heading: heading,
+            alertTitle: alert.title,
+            message: nil,
+            annotation: .init(
+                subtitle: subtitle,
+                caption: "This build",
+                detail: "Superwall .restored → no alert presented, paywall dismisses, app unlocks",
+                events: shipped.events
+            ),
+            named: "app-review-restore-alert-after"
         )
     }
 
@@ -162,7 +167,7 @@ struct AppReviewSandboxEntitlementEvidenceTests {
             lines.append("")
             lines.append("RESTORE")
             lines.append(contentsOf: restore.records.map { "  " + Self.describe($0) })
-            lines.append("  climber sees               \(restore.state.statusMessage ?? "\"\(restore.state.buttonTitle(isRevenueCatConfigured: true))\" - gate unlocks")")
+            lines.append("  climber sees               \(Self.isRestored(restore.result) ? "no alert - paywall dismisses, app unlocks" : "\"\(Self.restoreFailedAlert.title)\" - \(Self.restoreFailedAlert.message)")")
             lines.append("")
         }
 
@@ -203,7 +208,7 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
     }
 
     struct RestoreRun {
-        let state: AppAccessRestoreState
+        let result: SuperwallKit.RestorationResult
         let records: [EnvelopedTelemetryRecord]
         var events: [String] { records.map(\.name) }
     }
@@ -252,11 +257,41 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
             entitlementID: entitlementID,
             restorer: { RestorerStub(state: state) }
         )
-
-        return RestoreRun(
-            state: AppAccessRestoreState(outcome: await service.restore()),
-            records: sink.records
+        // The hosted paywall's Restore, exactly as Superwall calls it.
+        let controller = RevenueCatPurchaseController(
+            applySuperwallStatus: { _ in },
+            restoreService: service,
+            restoreAnalyticsContext: {
+                .hostedPaywall(
+                    placement: SuperwallPlacement.appAccessGate.rawValue,
+                    presentationID: "review-presentation",
+                    gateAttemptID: "review-gate"
+                )
+            },
+            isPurchasesConfigured: { true }
         )
+
+        return RestoreRun(result: await controller.restorePurchases(), records: sink.records)
+    }
+
+    /// The alert Superwall raises for every failed restore, read out of the options Ascend
+    /// configures it with. Superwall discards the error it was handed, so this copy is the whole
+    /// of what the reviewer was told.
+    static var restoreFailedAlert: (title: String, message: String) {
+        let options = SuperwallPaywallPresenter.makeOptions(
+            configuration: MonetizationConfiguration(infoDictionary: [:])
+        )
+        return (options.paywalls.restoreFailed.title, options.paywalls.restoreFailed.message)
+    }
+
+    static func isRestored(_ result: SuperwallKit.RestorationResult) -> Bool {
+        if case .restored = result { return true }
+        return false
+    }
+
+    static func isRestoreFailed(_ result: SuperwallKit.RestorationResult) -> Bool {
+        if case .failed = result { return true }
+        return false
     }
 
     /// The reviewer's entitlement on whichever host runs the suite: active, and in the environment
@@ -331,7 +366,11 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
             ),
             .revenueCatRestoreNotFound(
                 entitlementID: entitlementID,
-                context: .appAccessGate(gateAttemptID: "review-gate"),
+                context: .hostedPaywall(
+                    placement: "app_access_gate",
+                    presentationID: nil,
+                    gateAttemptID: "review-gate"
+                ),
                 identityMatches: true
             )
         ]
@@ -371,12 +410,19 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
     /// window. `message: nil` presents nothing, which is precisely the "after" surface: a reviewer
     /// who buys today is shown no alert at all. Called only when this run keeps photographs.
     static func photographAlert(
+        heading: String = "App Review buys app_access · what the reviewer sees",
+        alertTitle: String = "An error occurred",
         message: String?,
         annotation: PurchaseAlertHost.Annotation,
         named name: String
     ) async throws {
         let controller = UIHostingController(
-            rootView: PurchaseAlertHost(message: message, annotation: annotation)
+            rootView: PurchaseAlertHost(
+                heading: heading,
+                alertTitle: alertTitle,
+                message: message,
+                annotation: annotation
+            )
         )
 
         try await RenderedScreen.host(
@@ -387,7 +433,7 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
             if message != nil {
                 try #require(
                     controller.presentedViewController != nil,
-                    "The purchase-failure alert never presented"
+                    "The alert never presented"
                 )
             }
 
@@ -401,7 +447,7 @@ private extension AppReviewSandboxEntitlementEvidenceTests {
 
 // MARK: - Views
 
-/// A stand-in for the paywall behind Superwall's purchase-failure alert, captioned with the run it
+/// A stand-in for the paywall behind one of Superwall's failure alerts, captioned with the run it
 /// stands for so each photograph carries its own evidence. The backdrop is a mid grey: the alert
 /// is a translucent system material, and over pure black it would render black on black.
 private struct PurchaseAlertHost: View {
@@ -413,10 +459,14 @@ private struct PurchaseAlertHost: View {
     }
 
     @State private var message: String?
+    let heading: String
+    let alertTitle: String
     let annotation: Annotation
 
-    init(message: String?, annotation: Annotation) {
+    init(heading: String, alertTitle: String, message: String?, annotation: Annotation) {
         _message = State(initialValue: message)
+        self.heading = heading
+        self.alertTitle = alertTitle
         self.annotation = annotation
     }
 
@@ -426,7 +476,7 @@ private struct PurchaseAlertHost: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("App Review buys app_access · what the reviewer sees")
+                Text(heading)
                     .font(.montserratBold(size: 16))
                     .foregroundStyle(.white)
 
@@ -450,7 +500,7 @@ private struct PurchaseAlertHost: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .alert(
-            "An error occurred",
+            alertTitle,
             isPresented: .constant(message != nil),
             presenting: message
         ) { _ in
@@ -471,97 +521,6 @@ private struct EventList: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.7))
             }
-        }
-    }
-}
-
-private struct ProofColumn<Content: View>: View {
-    let caption: String
-    let detail: String
-    let events: [String]
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(caption.uppercased())
-                .font(.montserratSemiBold(size: 11))
-                .foregroundStyle(Color.ascendAccent.opacity(0.9))
-
-            content
-
-            Text(detail)
-                .font(.montserratMedium(size: 12))
-                .foregroundStyle(.white.opacity(0.78))
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            EventList(events: events)
-        }
-        .padding(16)
-        .frame(width: 372, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.white.opacity(0.05))
-        )
-    }
-}
-
-private struct ProofSheet<Content: View>: View {
-    let title: String
-    let subtitle: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(title)
-                .font(.montserratBold(size: 20))
-                .foregroundStyle(.white)
-
-            Text(subtitle)
-                .font(.montserratMedium(size: 13))
-                .foregroundStyle(.white.opacity(0.72))
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(alignment: .top, spacing: 16) { content }
-        }
-        .padding(28)
-        .frame(width: 828, alignment: .topLeading)
-        .background(Color.black)
-    }
-}
-
-private struct GateRestoreProof: View {
-    struct Column {
-        let caption: String
-        let detail: String
-        let state: AppAccessRestoreState
-        let events: [String]
-    }
-
-    let monetizationManager: MonetizationManager
-    let before: Column
-    let after: Column
-
-    var body: some View {
-        ProofSheet(
-            title: "App Review taps Restore Purchases · what the reviewer sees",
-            subtitle: "The real AppAccessPaywallPlaceholderView, seeded with the AppAccessRestoreState the shipped AppAccessRestoreService returned for the same entitlement under each reading."
-        ) {
-            column(before)
-            column(after)
-        }
-    }
-
-    private func column(_ column: Column) -> some View {
-        ProofColumn(caption: column.caption, detail: column.detail, events: column.events) {
-            AppAccessPaywallPlaceholderView(
-                initialPhase: .failed,
-                initialRestoreState: column.state,
-                onDeleteAccount: {}
-            )
-            .environment(monetizationManager)
-            .frame(width: 340, height: 520)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 }

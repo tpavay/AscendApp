@@ -1,5 +1,11 @@
 # Feature Contract: Reliable subscription purchase and app-access gate
 
+> **Partly superseded on 2026-11-11.**
+> This contract is the record of what #554 shipped, and it is kept as written.
+> The native fallback it describes - the plan list, its status copy, and the gate's own Restore, Manage Subscription, Sign Out and Delete Account controls (AC-7, AC-8, AC-11, AC-12, and the hosted-paywall and native-plan rows of the state matrix) - was removed.
+> The app-access gate now draws a spinner and nothing else, retries a paywall Superwall cannot present, and leaves every control to the hosted paywall.
+> `docs/superwall-paywall-setup.md` ("The gate draws a spinner and nothing else") owns the current behaviour.
+
 - Issue: #554
 - Base branch: `develop`
 - Change type: fix

@@ -136,8 +136,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
 
     /// The free week on the house (`docs/free-week-after-decline.md`): a climber who declines every
     /// paid offer at the app-access gate is shown the founder letter and let in for seven days on a
-    /// server-owned grant. A rollout, so it ships off, and off is today's gate exactly - the native
-    /// plan picker after a decline, and no week honoured on the device. The `startFreeWeek` Cloud
+    /// server-owned grant. A rollout, so it ships off, and off is the hard paywall - a decline
+    /// reopens the hosted paywall, and no week is honoured on the device. The `startFreeWeek` Cloud
     /// Function reads the same parameter and grants nothing while it is off for everybody.
     case freeWeekAfterDecline = "free_week_after_decline_enabled"
 

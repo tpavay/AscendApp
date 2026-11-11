@@ -1,7 +1,6 @@
 import Foundation
 
 enum AppAccessRestoreSource: String, Sendable {
-    case appAccessGate = "app_access_gate"
     case hostedPaywall = "hosted_paywall"
     case accountSettings = "account_settings"
 }
@@ -15,21 +14,6 @@ struct AppAccessRestoreAnalyticsContext: Equatable, Sendable {
     let recoveryPath: AppAccessGateRecoveryPath
     /// Internal delivery owner. Never included in `parameters`.
     let identity: MonetizationIdentityTransition?
-
-    static func appAccessGate(
-        gateAttemptID: String?,
-        identity: MonetizationIdentityTransition? = nil
-    ) -> Self {
-        Self(
-            restoreAttemptID: makeAttemptID(),
-            gateAttemptID: boundedIdentifier(gateAttemptID),
-            placement: RevenueCatPurchasePlacement(SuperwallPlacement.appAccessGate.rawValue),
-            presentationID: nil,
-            source: .appAccessGate,
-            recoveryPath: .restore,
-            identity: identity
-        )
-    }
 
     static func hostedPaywall(
         placement: String?,
