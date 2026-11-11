@@ -130,7 +130,9 @@ struct FreeWeekGateCoordinatorTests {
         #expect(harness.freeWeek.granter.callCount == 3)
         #expect(harness.freeWeek.store.routingAccess == .live)
         #expect(harness.presenter.placements == [.appAccessGate, .founderLetter])
-        #expect(harness.clock.pending == [gateRouteDeadline])
+        // The route deadline is started by the gate's own route task, which may not have had its
+        // turn yet in the same turn the phase became `.accessConfirmed`.
+        #expect(await freeWeekWaitUntil { harness.clock.pending == [gateRouteDeadline] })
     }
 
     @Test
