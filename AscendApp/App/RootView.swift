@@ -88,10 +88,14 @@ struct RootView: View {
                 onDeletionUnresolvedChange: gateAccountDeletionDidChangeResolution
             )
         }
+        .task(id: authVM.firstAuthCallback) {
+            guard let callback = authVM.firstAuthCallback else { return }
+            onboardingV3Coordinator.firstAuthCallbackArrived(
+                callback,
+                protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable
+            )
+        }
         .task {
-            if authVM.user == nil {
-                onboardingV3Coordinator.launchedSignedOut()
-            }
             onboardingV3RouteLatch.beginHold()
             observeColdLaunchSession()
             AppDiagnosticsRecorder.shared.record(

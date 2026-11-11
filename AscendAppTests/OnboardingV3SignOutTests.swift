@@ -26,6 +26,19 @@ private struct SignOutDevice {
     /// A cold launch. `switchAnswer` is what the backend last told this device about
     /// `onboarding_v3_enabled`, or `nil` for a device it has never answered.
     func launch(signedIn: Bool, switchAnswer: Bool? = true) -> SignOutLaunch {
+        launch(
+            firstCallback: FirstAuthCallback(reportedUser: signedIn, followedRestoredUser: signedIn),
+            switchAnswer: switchAnswer
+        )
+    }
+
+    /// A cold launch whose first auth-state callback reports `firstCallback`, delivered the way the
+    /// root forwards it.
+    func launch(
+        firstCallback: FirstAuthCallback,
+        protectedDataAvailable: Bool = true,
+        switchAnswer: Bool? = true
+    ) -> SignOutLaunch {
         let flags = switchAnswer.map { answer in
             RemoteFeatureFlagStore(snapshot: .resolving(remoteValues: [RemoteFeatureFlag.onboardingV3.key: answer]))
         } ?? RemoteFeatureFlagStore()
@@ -37,8 +50,7 @@ private struct SignOutDevice {
             ),
             latch: OnboardingV3RouteLatch(store: flags, firstFetch: {}, holdLimit: .seconds(600))
         )
-        // What the root's first task does before anything is routed.
-        if !signedIn { launch.coordinator.launchedSignedOut() }
+        launch.coordinator.firstAuthCallbackArrived(firstCallback, protectedDataAvailable: protectedDataAvailable)
         return launch
     }
 }
@@ -223,6 +235,95 @@ struct OnboardingV3SignOutTests {
         #expect(device.store.answers().completedAt == finishedAt)
         #expect(device.store.answers().gender == .man)
         #expect(device.store.answers().weeklyTargetDays == 4)
+    }
+
+    /// The launch-time discard waits for Firebase: the synchronous read at launch can see nobody
+    /// for a climber who is still signed in.
+    @Test("Firebase's first callback reporting nobody signed in discards a finished pass")
+    func aFirstCallbackReportingNobodyDiscardsAFinishedPass() throws {
+        let device = try SignOutDevice()
+        let photo = try #require(device.photos.save(try Self.jpegData()))
+        device.store.update {
+            $0.completedAt = Date(timeIntervalSinceReferenceDate: 816_113_420)
+            $0.profilePhotoFileName = photo
+        }
+
+        let launch = device.launch(firstCallback: FirstAuthCallback(reportedUser: false, followedRestoredUser: false))
+
+        #expect(!launch.coordinator.isFinished)
+        #expect(device.store.answers() == PreAuthOnboardingAnswers())
+        #expect(device.photos.url(for: photo) == nil)
+    }
+
+    @Test(
+        "A launch that restored a user keeps the finished pass and what it still owes the account",
+        arguments: [
+            FirstAuthCallback(reportedUser: true, followedRestoredUser: false),
+            FirstAuthCallback(reportedUser: true, followedRestoredUser: true),
+            FirstAuthCallback(reportedUser: false, followedRestoredUser: true)
+        ]
+    )
+    func aLaunchThatRestoredAUserKeepsAFinishedPass(callback: FirstAuthCallback) throws {
+        let device = try SignOutDevice()
+        let photo = try #require(device.photos.save(try Self.jpegData()))
+        device.store.update {
+            $0.completedAt = Date(timeIntervalSinceReferenceDate: 816_113_420)
+            $0.weeklyTargetDays = 4
+            $0.profilePhotoFileName = photo
+            $0.recordFoundHealthHistory(.reportedByEveryWorkout(workoutIDs: ["w1"], knownSteps: 2_000))
+        }
+        let before = device.store.answers()
+
+        let launch = device.launch(firstCallback: callback)
+
+        #expect(launch.coordinator.isFinished)
+        #expect(device.store.answers() == before)
+        #expect(device.photos.url(for: photo) != nil)
+    }
+
+    /// Before first unlock Firebase cannot read its keychain and reports nobody for a climber who
+    /// is still signed in, then restores them once the phone unlocks.
+    @Test("A launch without protected data keeps a finished pass even when Firebase reports nobody")
+    func aLaunchWithoutProtectedDataKeepsAFinishedPass() throws {
+        let device = try SignOutDevice()
+        device.store.update {
+            $0.completedAt = Date(timeIntervalSinceReferenceDate: 816_113_420)
+            $0.weeklyTargetDays = 4
+        }
+        let before = device.store.answers()
+
+        let launch = device.launch(
+            firstCallback: FirstAuthCallback(reportedUser: false, followedRestoredUser: false),
+            protectedDataAvailable: false
+        )
+
+        #expect(launch.coordinator.isFinished)
+        #expect(device.store.answers() == before)
+        #expect(launch.route(.unauthenticated) == .preAuthOnboarding)
+    }
+
+    @Test(
+        "An unfinished pass survives every launch",
+        arguments: [
+            FirstAuthCallback(reportedUser: false, followedRestoredUser: false),
+            FirstAuthCallback(reportedUser: true, followedRestoredUser: false),
+            FirstAuthCallback(reportedUser: false, followedRestoredUser: true),
+            FirstAuthCallback(reportedUser: true, followedRestoredUser: true)
+        ],
+        [true, false]
+    )
+    func anUnfinishedPassIsAlwaysKept(callback: FirstAuthCallback, protectedDataAvailable: Bool) throws {
+        let device = try SignOutDevice()
+        device.store.update {
+            $0.gender = .woman
+            $0.weeklyTargetDays = 3
+        }
+        let before = device.store.answers()
+
+        let launch = device.launch(firstCallback: callback, protectedDataAvailable: protectedDataAvailable)
+
+        #expect(launch.coordinator.answers == before)
+        #expect(device.store.answers() == before)
     }
 
     // MARK: - The route

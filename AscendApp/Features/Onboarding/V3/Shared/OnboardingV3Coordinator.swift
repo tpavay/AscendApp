@@ -137,12 +137,14 @@ final class OnboardingV3Coordinator {
         returnToWelcome()
     }
 
-    /// The app launched with nobody signed in. A finished pass still on the device belongs to a
-    /// session that ended where this app could not see it - revoked while the app was closed, or
-    /// ended by a build that kept the pass - so it goes the way a sign-out sends it. An unfinished
-    /// pass is a climber partway through the flow, and stays.
-    func launchedSignedOut() {
-        guard isFinished else { return }
+    /// Firebase settled who is signed in at launch. When that is nobody, a finished pass still on the
+    /// device belongs to a session that ended where this app could not see it - revoked while the
+    /// app was closed, or ended by a build that kept the pass - so it goes the way a sign-out sends
+    /// it. Without protected data Firebase cannot read its keychain and reports nobody for a climber
+    /// who is still signed in, so that launch keeps the pass: it no longer decides any route. An
+    /// unfinished pass is a climber partway through the flow, and stays.
+    func firstAuthCallbackArrived(_ callback: FirstAuthCallback, protectedDataAvailable: Bool) {
+        guard callback.reportsNobodySignedIn, protectedDataAvailable, isFinished else { return }
         sessionEnded()
     }
 
