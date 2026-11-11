@@ -1,5 +1,4 @@
 import Foundation
-import enum SuperwallKit.PurchaseResult
 import Testing
 @testable import AscendApp
 
@@ -117,40 +116,39 @@ struct PaywallBackToOnboardingTests {
         #expect(!coordinator.isReopenedByClimber)
     }
 
-    /// Back must never fall through to `beginNativeFallback`. The captain's rule is that the native
-    /// plan list is a failure fallback and nothing else.
+    /// Back leaves for the onboarding step behind the gate, and asks Superwall for nothing more.
     @MainActor
     @Test
-    func backLeavesTheGateForOnboardingWithoutLoadingTheNativePlanList() {
+    func backLeavesTheGateForOnboardingWithoutOpeningAnotherPaywall() {
         let harness = GateBackHarness(reopensOnboarding: true)
 
         harness.openHostedPaywall()
         harness.coordinator.handleHostedOutcomeForTesting(.backRequested)
 
         #expect(harness.reopenCount == 1)
-        #expect(harness.nativeProvider.loadCount == 0)
+        #expect(harness.presenter.registrations == [.appAccessGate])
         #expect(harness.coordinator.phase == .hostedPresented)
         #expect(harness.backTapped.count == 1)
         #expect(harness.backTapped[0].parameters["from_step"] == .string("paywall"))
         #expect(harness.backTapped[0].parameters["input_type"] == .string("button"))
     }
 
-    /// A back that cannot land must still leave the climber a gate with controls - including the
-    /// account-deletion route Guideline 5.1.1(v) requires - and must not report a back that did
-    /// not happen.
+    /// Ascend has already dismissed the hosted paywall by the time back is answered, so a back
+    /// that cannot land would leave the spinner with nothing behind it - not even the
+    /// account-deletion route Guideline 5.1.1(v) requires, which lives on that paywall. The
+    /// paywall comes back, and no back that did not happen is reported.
     @MainActor
     @Test
-    func aBackThatCannotReopenOnboardingLandsOnRecoveryRatherThanADeadEnd() {
+    func aBackThatCannotReopenOnboardingPutsThePaywallBackRatherThanADeadEnd() {
         let harness = GateBackHarness(reopensOnboarding: false)
 
         harness.openHostedPaywall()
         harness.coordinator.handleHostedOutcomeForTesting(.backRequested)
 
         #expect(harness.reopenCount == 1)
-        #expect(harness.nativeProvider.loadCount == 0)
-        #expect(harness.coordinator.phase == .backUnavailable)
-        #expect(harness.coordinator.showsPurchaseControls == false)
-        #expect(harness.coordinator.statusMessage?.isEmpty == false)
+        #expect(harness.presenter.registrations == [.appAccessGate, .appAccessGate])
+        #expect(harness.presenter.registeredSource == "onboarding_back_unavailable")
+        #expect(harness.coordinator.phase == .openingHosted)
         #expect(harness.backTapped.isEmpty)
     }
 }
@@ -158,7 +156,7 @@ struct PaywallBackToOnboardingTests {
 @MainActor
 private final class GateBackHarness {
     let coordinator: AppAccessPaywallCoordinator
-    let nativeProvider = BackNativeProviderSpy()
+    let presenter = PaywallPresenterSpy()
     private let sink = InMemoryTelemetrySink(destination: .analytics)
     private let reopenSpy: OnboardingReopenSpy
 
@@ -172,7 +170,7 @@ private final class GateBackHarness {
                 MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
             ]),
             entitlementService: EntitlementServiceStub(entitlementState: .inactive),
-            paywallPresenter: PaywallPresenterSpy(),
+            paywallPresenter: presenter,
             telemetry: telemetry,
             onboardingLifecycle: makeScratchOnboardingLifecycle(telemetry: telemetry),
             userDefaults: UserDefaults(
@@ -183,7 +181,6 @@ private final class GateBackHarness {
         reopenSpy = reopen
         coordinator = AppAccessPaywallCoordinator(
             monetizationManager: manager,
-            nativeProvider: nativeProvider,
             telemetry: telemetry,
             onRequestOnboardingBack: { reopen.reopen() },
             sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
@@ -214,16 +211,4 @@ private final class OnboardingReopenSpy {
         count += 1
         return reopens
     }
-}
-
-@MainActor
-private final class BackNativeProviderSpy: NativePaywallPlanProviding {
-    private(set) var loadCount = 0
-
-    func loadPlans() async throws -> [NativePaywallPlan] {
-        loadCount += 1
-        return []
-    }
-
-    func purchase(planID: String) async -> PurchaseResult { .cancelled }
 }

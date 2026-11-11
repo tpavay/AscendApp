@@ -1,27 +1,61 @@
 import Foundation
-import enum SuperwallKit.PurchaseResult
 import Testing
 @testable import AscendApp
 
+/// What the app-access gate does with every answer Superwall, Apple and the server can give it.
+///
+/// The gate draws a spinner and nothing else, so no answer may end somewhere that needs words or a
+/// control. Each test here ends in one of the only three places there are: the app, a hosted
+/// screen, or the spinner while the gate asks again on a clock.
 @MainActor
 @Suite(.serialized)
 struct AppAccessPaywallCoordinatorTests {
+    // MARK: - Opening the paywall
+
     @Test
-    func missingHostedCallbackCancelsPresentationAndLoadsNativeFallback() async {
-        let harness = makeHarness(sleep: { _ in })
+    func startingAsksSuperwallForTheAccessPaywallAndWaitsBehindIt() async {
+        let harness = makeHarness()
 
         harness.coordinator.start()
-        await harness.provider.waitUntilLoadCount(1)
-        await waitUntil { harness.coordinator.phase == .nativeReady }
+        #expect(harness.presenter.placements == [.appAccessGate])
+        #expect(harness.presenter.sources == ["app_access_gate"])
+        #expect(harness.coordinator.phase == .openingHosted)
+
+        harness.presenter.send(.presented, registration: 0)
+        await gateSettle()
+
+        #expect(harness.coordinator.phase == .hostedPresented)
+        #expect(harness.presenter.cancelCount == 0)
+        // The opening deadline was stood down, and nothing else was put on a clock.
+        #expect(harness.clock.pending.isEmpty)
+    }
+
+    @Test
+    func startingTwiceAsksOnce() {
+        let harness = makeHarness()
+
+        harness.coordinator.start()
+        harness.coordinator.start()
+
+        #expect(harness.presenter.placements == [.appAccessGate])
+    }
+
+    // MARK: - A paywall Superwall cannot present
+
+    @Test
+    func aPaywallThatNeverOpensIsCancelledAndAskedForAgainAfterTheBackoff() async {
+        let harness = makeHarness()
+
+        harness.coordinator.start()
+        await harness.clock.fire(gateOpeningDeadline)
+        #expect(await gateWaitUntil { harness.coordinator.phase == .awaitingHostedRetry })
 
         #expect(harness.presenter.cancelCount == 1)
-        #expect(harness.coordinator.showsPurchaseControls)
-        let terminals = harness.sink.records.filter {
-            $0.name == "app_access_gate_attempt_terminal"
-        }
+        #expect(harness.presenter.placements == [.appAccessGate])
+        let terminals = harness.terminals
         #expect(terminals.count == 1)
-        #expect(terminals[0].parameters["provider_outcome"] == .string("native_ready"))
-        #expect(terminals[0].parameters["recovery_path"] == .string("native"))
+        #expect(terminals[0].parameters["provider_outcome"] == .string("hosted_unavailable"))
+        #expect(terminals[0].parameters["recovery_path"] == .string("hosted"))
         #expect(terminals[0].parameters["recovery_reason"] == .string("watchdog_timeout"))
         #expect(terminals[0].parameters["identity_match"] == .bool(true))
         #expect(terminals[0].parameters["entitlement_active"] == .bool(false))
@@ -31,346 +65,349 @@ struct AppAccessPaywallCoordinatorTests {
             Issue.record("Gate terminal must carry a bounded attempt correlation ID")
         }
         #expect(terminals[0].parameters["storekit_receipt_name"] != nil)
-    }
 
-    @Test
-    func presentedCallbackCancelsOpeningDeadlineAndRemainsHosted() async {
-        let presenter = CoordinatorPaywallPresenter(automaticOutcome: .presented)
-        let harness = makeHarness(presenter: presenter, sleep: { _ in })
+        await harness.clock.fire(.seconds(101))
+        #expect(await gateWaitUntil { harness.presenter.placements.count == 2 })
 
-        harness.coordinator.start()
-        await Task.yield()
-
-        #expect(harness.coordinator.phase == .hostedPresented)
-        #expect(harness.provider.loadCount == 0)
-        #expect(harness.presenter.cancelCount == 0)
-    }
-
-    @Test
-    func cancellationPreventsLateNativeLoadAndHostedCallbackMutation() async {
-        let provider = CoordinatorNativeProvider(suspendsPlanLoad: true)
-        let harness = makeHarness(provider: provider)
-        harness.coordinator.start()
-        harness.presenter.send(.skipped(reason: "test"), registration: 0)
-        await provider.waitUntilLoadCount(1)
-        let cancelledPhase = harness.coordinator.phase
-
-        harness.coordinator.cancelOwnedWork()
-        provider.completePlanLoad()
-        harness.presenter.send(.dismissedWithoutPurchase, registration: 0)
-        await Task.yield()
-
-        #expect(cancelledPhase == .loadingNative)
-        #expect(harness.coordinator.phase == cancelledPhase)
-        #expect(harness.coordinator.plans.isEmpty)
-    }
-
-    @Test
-    func retryIgnoresAnOlderSlowNativePlanLoad() async {
-        let provider = CoordinatorNativeProvider(suspendsPlanLoad: true)
-        let harness = makeHarness(provider: provider)
-        harness.coordinator.start()
-        harness.presenter.send(.skipped(reason: "first"), registration: 0)
-        await provider.waitUntilLoadCount(1)
-
-        harness.coordinator.retryHosted()
-        harness.presenter.send(.skipped(reason: "retry"), registration: 1)
-        await provider.waitUntilLoadCount(2)
-        provider.completePlanLoad(at: 1)
-        await waitUntil { harness.coordinator.phase == .nativeReady }
-
-        provider.completePlanLoad(
-            with: [
-                NativePaywallPlan(
-                    id: "stale_product",
-                    title: "Stale",
-                    localizedPrice: "$0.00",
-                    billingDescription: "Stale provider result.",
-                    trialDescription: nil
-                )
-            ]
-        )
-        await Task.yield()
-
-        #expect(harness.coordinator.phase == .nativeReady)
-        #expect(harness.coordinator.plans.count == 2)
-        #expect(harness.coordinator.plans.contains { $0.id == "stale_product" } == false)
-    }
-
-    @Test
-    func nativePlanDeadlineFailsActionablyAndALateOldLoadCannotBeatRetry() async {
-        let provider = CoordinatorNativeProvider(suspendsPlanLoad: true)
-        let deadline = CoordinatorControlledSleep()
-        let harness = makeHarness(provider: provider, nativeLoadSleep: deadline.sleep)
-
-        harness.coordinator.start()
-        harness.presenter.send(.skipped(reason: "first"), registration: 0)
-        await provider.waitUntilLoadCount(1)
-        await deadline.waitUntilCallCount(1)
-        deadline.fire(call: 1)
-        await waitUntil { harness.coordinator.phase == .failed }
-
-        #expect(harness.coordinator.statusMessage?.contains("too long") == true)
-        #expect(harness.coordinator.disablesRestore == false)
-        #expect(harness.coordinator.showsPurchaseControls == false)
-
-        harness.coordinator.retryHosted()
-        harness.presenter.send(.skipped(reason: "retry"), registration: 1)
-        await provider.waitUntilLoadCount(2)
-        provider.completePlanLoad(at: 1)
-        await waitUntil { harness.coordinator.phase == .nativeReady }
-
-        provider.completePlanLoad(
-            with: [.init(
-                id: "stale",
-                title: "Stale",
-                localizedPrice: "$0",
-                billingDescription: "Stale",
-                trialDescription: nil
-            )],
-            at: 0
-        )
-        await Task.yield()
-
-        #expect(harness.coordinator.phase == .nativeReady)
-        #expect(harness.coordinator.plans.contains { $0.id == "stale" } == false)
-    }
-
-    @Test
-    func restoreInFlightRefusesPlanSelectionAndProgrammaticPurchase() async {
-        let identity = MonetizationIdentityTransition(revision: 1, userID: "user-a")
-        let restorer = CoordinatorRestoreProvider(identity: identity)
-        let restoreService = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(
-                sink: InMemoryTelemetrySink(destination: .analytics)
-            ),
-            entitlementID: "app_access",
-            restorer: { restorer }
-        )
-        let harness = makeHarness(identity: identity, restoreService: restoreService)
-        await openNativePlans(harness)
-        let originalSelection = harness.coordinator.selectedPlanID
-
-        harness.coordinator.restore()
-        await restorer.waitUntilStarted()
-        harness.coordinator.selectPlan("ascend_staging_lifetime")
-        harness.coordinator.purchaseSelectedPlan()
-
-        #expect(harness.coordinator.restoreState == .restoring)
-        #expect(harness.coordinator.selectedPlanID == originalSelection)
-        #expect(harness.provider.purchaseCount == 0)
-
-        restorer.complete(.inactive)
-        await waitUntil { harness.coordinator.restoreState == .noPurchasesFound }
-        #expect(harness.coordinator.disablesPurchase == false)
+        #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
+        #expect(harness.presenter.sources.last == "presentation_retry")
+        #expect(harness.coordinator.phase == .openingHosted)
     }
 
     @Test(arguments: [
-        PaywallPresentationOutcome.skipped(reason: "rule"),
-        PaywallPresentationOutcome.failed(message: "provider"),
-        PaywallPresentationOutcome.dismissedWithoutPurchase
+        (PaywallPresentationOutcome.skipped(reason: "rule"), "hosted_skipped"),
+        (PaywallPresentationOutcome.failed(message: "provider"), "hosted_error")
     ])
-    func hostedTerminalLoadsNativeFallback(
-        outcome: PaywallPresentationOutcome
+    func aPaywallSuperwallRefusesIsAskedForAgainAfterTheBackoff(
+        outcome: PaywallPresentationOutcome,
+        reason: String
     ) async {
         let harness = makeHarness()
         harness.coordinator.start()
 
         harness.presenter.send(outcome, registration: 0)
-        await harness.provider.waitUntilLoadCount(1)
-        await waitUntil { harness.coordinator.phase == .nativeReady }
 
-        #expect(harness.coordinator.showsPurchaseControls)
+        #expect(harness.coordinator.phase == .awaitingHostedRetry)
+        #expect(harness.presenter.placements == [.appAccessGate])
+        #expect(harness.terminals.map { $0.parameters["provider_outcome"] } == [.string("hosted_unavailable")])
+        #expect(harness.terminals.first?.parameters["recovery_reason"] == .string(reason))
+
+        await harness.clock.fire(.seconds(101))
+        #expect(await gateWaitUntil { harness.presenter.placements.count == 2 })
+        #expect(harness.coordinator.phase == .openingHosted)
     }
 
-    @Test(arguments: [
-        PurchaseResult.pending,
-        PurchaseResult.failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
-    ])
-    func pendingAndUnconfirmedPurchaseNeverInviteRepurchase(
-        result: PurchaseResult
-    ) async {
-        let provider = CoordinatorNativeProvider(automaticPurchaseResult: result)
-        let harness = makeHarness(provider: provider)
-        await openNativePlans(harness)
+    @Test
+    func theWaitGrowsWithEveryFailureAndThenHoldsAtItsCeilingForAsLongAsTheGateIsUp() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
 
-        harness.coordinator.selectPlan("ascend_staging_yearly")
-        harness.coordinator.purchaseSelectedPlan()
-        await provider.waitUntilPurchaseCount(1)
-        await waitUntil {
-            harness.coordinator.phase == .pendingApproval ||
-                harness.coordinator.phase == .verificationUnavailable
+        for (attempt, wait) in [101, 102, 103, 103, 103].enumerated() {
+            harness.presenter.send(.skipped(reason: "rule"), registration: attempt)
+            #expect(harness.coordinator.phase == .awaitingHostedRetry)
+            await harness.clock.fire(.seconds(wait))
+            #expect(await gateWaitUntil { harness.presenter.placements.count == attempt + 2 })
         }
 
-        #expect(harness.coordinator.disablesPurchase)
-        #expect(!harness.coordinator.showsPurchaseControls)
-
-        harness.coordinator.entitlementDidChange(.active(["app_access"]))
-        #expect(harness.coordinator.phase == .accessConfirmed)
-    }
-
-    @Test
-    func theFallbackOffersAnnualFirstThenLifetimeAndSaysWhatEachCommitsTo() async {
-        let harness = makeHarness()
-        await openNativePlans(harness)
-
-        #expect(harness.coordinator.plans.map(\.title) == ["Annual", "Lifetime"])
-        #expect(harness.coordinator.selectedPlanID == "ascend_staging_yearly")
+        // Six asks, and the gate is still asking: there is nothing to fall back to.
+        #expect(harness.presenter.placements.count == 6)
+        #expect(harness.coordinator.phase == .openingHosted)
         #expect(
-            harness.coordinator.statusMessage
-                == "Choose from Annual and Lifetime. Cancel Annual anytime in Apple subscriptions."
+            harness.clock.requested.filter { $0 != gateOpeningDeadline }
+                == [101, 102, 103, 103, 103].map { Duration.seconds($0) }
         )
     }
 
     @Test
-    func cancellationIsPromisedOnlyForAPlanThatRenews() {
-        let annual = NativePaywallPlan(
-            id: "annual",
-            title: "Annual",
-            localizedPrice: "$29.99",
-            billingDescription: "Renews annually",
-            trialDescription: nil
-        )
-        let lifetime = NativePaywallPlan(
-            id: "lifetime",
-            title: "Lifetime",
-            localizedPrice: "$49.99",
-            billing: .oneTime,
-            billingDescription: "Pay once. No renewal.",
-            trialDescription: nil
-        )
-
-        #expect(
-            AppAccessPaywallCoordinator.plansReadyMessage(for: [annual])
-                == "Annual is available. Cancel anytime in Apple subscriptions."
-        )
-        let lifetimeOnly = AppAccessPaywallCoordinator.plansReadyMessage(for: [lifetime])
-        #expect(lifetimeOnly == "Lifetime is available. One payment. No renewal.")
-        #expect(!lifetimeOnly.localizedCaseInsensitiveContains("cancel"))
-        #expect(!lifetimeOnly.localizedCaseInsensitiveContains("trial"))
-    }
-
-    @Test
-    func buyingLifetimeFromTheFallbackPurchasesTheLifetimeProductAndOpensTheApp() async {
-        let provider = CoordinatorNativeProvider(automaticPurchaseResult: .purchased)
-        let harness = makeHarness(provider: provider)
-        await openNativePlans(harness)
-
-        harness.coordinator.selectPlan("ascend_staging_lifetime")
-        #expect(harness.coordinator.selectedPlan?.purchaseActionTitle == "Buy Lifetime")
-        harness.coordinator.purchaseSelectedPlan()
-        await provider.waitUntilPurchaseCount(1)
-        await waitUntil { harness.coordinator.phase == .accessConfirmed }
-
-        #expect(provider.purchasedPlanIDs == ["ascend_staging_lifetime"])
-        #expect(harness.coordinator.statusMessage == "Access confirmed. Opening Ascend.")
-        #expect(harness.coordinator.disablesPurchase)
-    }
-
-    @Test
-    func aLifetimeChargeRevenueCatCannotConfirmNeverInvitesASecondPurchase() async {
-        // A one-time purchase cannot be bought twice by accident and refunded by cancelling, so
-        // an unconfirmed Lifetime charge has to leave the gate with no purchase control at all.
-        let provider = CoordinatorNativeProvider(
-            automaticPurchaseResult: .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
-        )
-        let harness = makeHarness(provider: provider)
-        await openNativePlans(harness)
-
-        harness.coordinator.selectPlan("ascend_staging_lifetime")
-        harness.coordinator.purchaseSelectedPlan()
-        await provider.waitUntilPurchaseCount(1)
-        await waitUntil { harness.coordinator.phase == .verificationUnavailable }
-
-        #expect(!harness.coordinator.showsPurchaseControls)
-        #expect(harness.coordinator.statusMessage?.contains("Do not purchase again") == true)
-
-        harness.coordinator.entitlementDidChange(.active(["app_access"]))
-        #expect(harness.coordinator.phase == .accessConfirmed)
-    }
-
-    @Test
-    func cancelledPurchaseReturnsToPlans() async {
-        let provider = CoordinatorNativeProvider(automaticPurchaseResult: .cancelled)
-        let harness = makeHarness(provider: provider)
-        await openNativePlans(harness)
-
-        harness.coordinator.selectPlan("ascend_staging_yearly")
-        harness.coordinator.purchaseSelectedPlan()
-        await provider.waitUntilPurchaseCount(1)
-        await waitUntil { harness.coordinator.phase == .nativeReady }
-
-        #expect(harness.coordinator.showsPurchaseControls)
-    }
-
-    @Test
-    func stalePurchaseCompletionCannotConfirmAccessForANewIdentity() async {
+    func aPaywallThatOpensResetsTheBackoff() async {
         let harness = makeHarness()
         harness.coordinator.start()
-        harness.presenter.send(.skipped(reason: "test"), registration: 0)
-        await harness.provider.waitUntilLoadCount(1)
-        await waitUntil { harness.coordinator.phase == .nativeReady }
+        harness.presenter.send(.skipped(reason: "rule"), registration: 0)
+        await harness.clock.fire(.seconds(101))
+        #expect(await gateWaitUntil { harness.presenter.placements.count == 2 })
+        harness.presenter.send(.skipped(reason: "rule"), registration: 1)
+        await harness.clock.fire(.seconds(102))
+        #expect(await gateWaitUntil { harness.presenter.placements.count == 3 })
 
-        harness.coordinator.selectPlan("ascend_staging_yearly")
-        harness.coordinator.purchaseSelectedPlan()
-        await harness.provider.waitUntilPurchaseCount(1)
+        harness.presenter.send(.presented, registration: 2)
+        // The climber closes it, and with no free week on offer it reopens at once.
+        harness.presenter.send(.dismissedWithoutPurchase, registration: 2)
+        #expect(harness.presenter.placements.count == 4)
+        harness.presenter.send(.skipped(reason: "rule"), registration: 3)
+
+        #expect(harness.coordinator.phase == .awaitingHostedRetry)
+        #expect(await harness.clock.waitUntilPending(.seconds(101)))
+        #expect(!harness.clock.pending.contains(.seconds(103)))
+    }
+
+    @Test
+    func comingBackToTheAppAsksAgainAtOnceAndRestartsTheBackoff() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        harness.presenter.send(.skipped(reason: "rule"), registration: 0)
+        await harness.clock.fire(.seconds(101))
+        #expect(await gateWaitUntil { harness.presenter.placements.count == 2 })
+        harness.presenter.send(.skipped(reason: "rule"), registration: 1)
+        #expect(await harness.clock.waitUntilPending(.seconds(102)))
+
+        harness.coordinator.appWillEnterForeground()
+
+        #expect(harness.presenter.placements.count == 3)
+        #expect(harness.presenter.sources.last == "foreground_retry")
+        #expect(harness.coordinator.phase == .openingHosted)
+        // The wait that was running is gone rather than left to ask a second time.
+        #expect(await gateWaitUntil { !harness.clock.pending.contains(.seconds(102)) })
+
+        harness.presenter.send(.skipped(reason: "rule"), registration: 2)
+        #expect(await harness.clock.waitUntilPending(.seconds(101)))
+    }
+
+    @Test(arguments: [false, true])
+    func comingBackToTheAppLeavesAPaywallThatIsOpeningOrOpenAlone(isPresented: Bool) async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        if isPresented {
+            harness.presenter.send(.presented, registration: 0)
+        }
+
+        harness.coordinator.appWillEnterForeground()
+        await gateSettle()
+
+        #expect(harness.presenter.placements == [.appAccessGate])
+        #expect(harness.presenter.cancelCount == 0)
+        #expect(harness.coordinator.phase == (isPresented ? .hostedPresented : .openingHosted))
+    }
+
+    @Test
+    func aLateCallbackFromAPaywallThatFailedCannotMoveTheGate() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        await harness.clock.fire(gateOpeningDeadline)
+        #expect(await gateWaitUntil { harness.coordinator.phase == .awaitingHostedRetry })
+
+        harness.presenter.send(.presented, registration: 0)
+        harness.presenter.send(.dismissedWithoutPurchase, registration: 0)
+        await gateSettle()
+
+        #expect(harness.coordinator.phase == .awaitingHostedRetry)
+        #expect(harness.presenter.placements == [.appAccessGate])
+        #expect(harness.terminals.count == 1)
+    }
+
+    @Test
+    func leavingTheGateStopsItAskingAgain() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        harness.presenter.send(.skipped(reason: "rule"), registration: 0)
+        #expect(await harness.clock.waitUntilPending(.seconds(101)))
+
+        harness.coordinator.cancelOwnedWork()
+
+        #expect(await gateWaitUntil { harness.clock.pending.isEmpty })
+        await gateSettle()
+        #expect(harness.presenter.placements == [.appAccessGate])
+    }
+
+    @Test
+    func anAccountCheckThatHasNotFinishedWaitsBehindTheSpinnerAndOpensThePaywallWhenItLands() async {
+        let harness = makeHarness(identity: nil)
+
+        harness.coordinator.start()
+        #expect(harness.presenter.placements.isEmpty)
+        #expect(harness.coordinator.phase == .awaitingHostedRetry)
+
+        // Still no account when the wait ends, so the gate waits again rather than giving up.
+        await harness.clock.fire(.seconds(101))
+        #expect(await harness.clock.waitUntilPending(.seconds(102)))
+        #expect(harness.presenter.placements.isEmpty)
 
         harness.entitlements.identityGeneration = MonetizationIdentityTransition(
-            revision: 2,
-            userID: "user-b"
+            revision: 1,
+            userID: "user-a"
         )
         harness.coordinator.identityDidChange()
-        harness.provider.completePurchase(.purchased)
-        await Task.yield()
 
+        #expect(harness.presenter.placements == [.appAccessGate])
         #expect(harness.coordinator.phase == .openingHosted)
-        #expect(!harness.coordinator.showsPurchaseControls)
+        #expect(await gateWaitUntil { !harness.clock.pending.contains(.seconds(102)) })
     }
 
-    @Test
-    func staleRestoreCompletionCannotConfirmAccessForANewIdentity() async {
-        let identity = MonetizationIdentityTransition(revision: 1, userID: "user-a")
-        let restorer = CoordinatorRestoreProvider(identity: identity)
-        let restoreService = AppAccessRestoreService(
-            telemetry: makeTestTelemetry(
-                sink: InMemoryTelemetrySink(destination: .analytics)
-            ),
-            entitlementID: "app_access",
-            restorer: { restorer }
-        )
-        let harness = makeHarness(identity: identity, restoreService: restoreService)
-
-        harness.coordinator.restore()
-        await restorer.waitUntilStarted()
-
-        let newIdentity = MonetizationIdentityTransition(revision: 2, userID: "user-b")
-        harness.entitlements.identityGeneration = newIdentity
-        restorer.identityGeneration = newIdentity
-        harness.coordinator.identityDidChange()
-        restorer.complete(.active(["app_access"]))
-        await Task.yield()
-
-        #expect(harness.coordinator.phase == .openingHosted)
-        #expect(harness.coordinator.restoreState == .idle)
-    }
+    // MARK: - A purchase that has not turned into access
 
     @Test
-    func activeEntitlementRetiresLateNativeLoadAndHostedCallbacks() async {
-        let provider = CoordinatorNativeProvider(suspendsPlanLoad: true)
-        let harness = makeHarness(provider: provider)
+    func anUnconfirmedChargeIsCheckedOnTheScheduleBehindTheSpinnerThenThePaywallReopens() async {
+        let harness = makeHarness()
         harness.coordinator.start()
-        harness.presenter.send(.skipped(reason: "test"), registration: 0)
-        await provider.waitUntilLoadCount(1)
+        harness.presenter.send(.presented, registration: 0)
+        harness.manager.holdPendingPurchase(.unconfirmedCharge)
+
+        harness.presenter.send(.verificationUnavailable, registration: 0)
+
+        #expect(harness.coordinator.phase == .confirmingAccess)
+        #expect(await gateWaitUntil { harness.entitlements.refreshCount == 1 })
+        await harness.clock.fire(.seconds(301))
+        #expect(await gateWaitUntil { harness.entitlements.refreshCount == 2 })
+        #expect(harness.coordinator.phase == .confirmingAccess)
+        #expect(harness.presenter.placements == [.appAccessGate])
+        await harness.clock.fire(.seconds(302))
+
+        #expect(await gateWaitUntil { harness.presenter.placements.count == 2 })
+        #expect(harness.entitlements.refreshCount == 3)
+        #expect(harness.presenter.sources.last == "access_unconfirmed")
+        #expect(harness.coordinator.phase == .openingHosted)
+        // Released, or the paywall could never reopen and the climber could never reach restore,
+        // sign out or account deletion.
+        #expect(harness.manager.pendingPurchaseHold == nil)
+        #expect(
+            harness.terminals.map { $0.parameters["provider_outcome"] }
+                == [.string("verification_unavailable")]
+        )
+    }
+
+    @Test
+    func anUnconfirmedChargeThatConfirmsOnALaterCheckOpensTheApp() async {
+        let harness = makeHarness()
+        harness.entitlements.stateAfterRefresh = [2: .active(["app_access"])]
+        harness.coordinator.start()
+        harness.presenter.send(.presented, registration: 0)
+
+        harness.presenter.send(.verificationUnavailable, registration: 0)
+        #expect(await gateWaitUntil { harness.entitlements.refreshCount == 1 })
+        #expect(harness.coordinator.phase == .confirmingAccess)
+        await harness.clock.fire(.seconds(301))
+
+        #expect(await gateWaitUntil { harness.coordinator.phase == .accessConfirmed })
+        await gateSettle()
+        #expect(harness.presenter.placements == [.appAccessGate])
+        // Nothing is left running but the wait for routing to leave the gate.
+        #expect(harness.clock.pending == [gateRouteDeadline])
+    }
+
+    @Test
+    func anAskToBuyIsCheckedOnceAndThenThePaywallComesBack() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        harness.presenter.send(.presented, registration: 0)
+        harness.manager.holdPendingPurchase(.askToBuy)
+
+        harness.presenter.send(.pendingApproval, registration: 0)
+        #expect(harness.coordinator.phase == .confirmingAccess)
+
+        #expect(await gateWaitUntil { harness.presenter.placements.count == 2 })
+        #expect(harness.entitlements.refreshCount == 1)
+        #expect(harness.presenter.sources.last == "ask_to_buy_pending")
+        #expect(harness.manager.pendingPurchaseHold == nil)
+        // Approval is a person's decision; no clock is spent waiting on it.
+        #expect(!harness.clock.requested.contains(.seconds(301)))
+    }
+
+    @Test
+    func aChargeLeftUnconfirmedByTheLastLaunchIsCheckedBeforeAnythingIsOffered() async {
+        let harness = makeHarness()
+        harness.manager.holdPendingPurchase(.unconfirmedCharge)
+
+        harness.coordinator.start()
+
+        #expect(harness.presenter.placements.isEmpty)
+        #expect(harness.coordinator.phase == .confirmingAccess)
+        #expect(await gateWaitUntil { harness.entitlements.refreshCount == 1 })
+        await harness.clock.fire(.seconds(301))
+        await harness.clock.fire(.seconds(302))
+
+        #expect(await gateWaitUntil { harness.presenter.placements == [.appAccessGate] })
+        #expect(harness.manager.pendingPurchaseHold == nil)
+    }
+
+    @Test
+    func accessLandingWhileAChargeIsBeingCheckedOpensTheAppAndNothingReopens() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        harness.presenter.send(.presented, registration: 0)
+        harness.presenter.send(.verificationUnavailable, registration: 0)
+        #expect(await harness.clock.waitUntilPending(.seconds(301)))
 
         harness.coordinator.entitlementDidChange(.active(["app_access"]))
-        provider.completePlanLoad()
-        harness.presenter.send(.dismissedWithoutPurchase, registration: 0)
-        await Task.yield()
 
         #expect(harness.coordinator.phase == .accessConfirmed)
-        #expect(!harness.coordinator.showsPurchaseControls)
-        #expect(harness.coordinator.disablesPurchase)
+        #expect(await gateWaitUntil { harness.clock.pending == [gateRouteDeadline] })
+        await gateSettle()
+        #expect(harness.presenter.placements == [.appAccessGate])
     }
+
+    // MARK: - Access
+
+    @Test(arguments: [
+        (PaywallPresentationOutcome.purchased, "purchased"),
+        (PaywallPresentationOutcome.restored, "restored")
+    ])
+    func aPurchaseOrRestoreFromTheHostedPaywallWaitsBehindTheSpinnerForTheRoute(
+        outcome: PaywallPresentationOutcome,
+        providerOutcome: String
+    ) async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        harness.presenter.send(.presented, registration: 0)
+
+        harness.presenter.send(outcome, registration: 0)
+        await gateSettle()
+
+        #expect(harness.coordinator.phase == .accessConfirmed)
+        #expect(harness.presenter.placements == [.appAccessGate])
+        #expect(harness.clock.pending == [gateRouteDeadline])
+        #expect(harness.terminals.map { $0.parameters["provider_outcome"] } == [.string(providerOutcome)])
+        #expect(harness.terminals.first?.parameters["entitlement_active"] == .bool(true))
+    }
+
+    /// Routing reads what the gate reads, so it leaves in the same turn. If it ever does not, the
+    /// spinner must not be where the climber is left.
+    @Test
+    func aConfirmationRoutingNeverActsOnReopensThePaywallRatherThanLeavingASpinner() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        harness.presenter.send(.presented, registration: 0)
+        harness.presenter.send(.purchased, registration: 0)
+        #expect(harness.coordinator.phase == .accessConfirmed)
+
+        await harness.clock.fire(gateRouteDeadline)
+
+        #expect(await gateWaitUntil { harness.presenter.placements.count == 2 })
+        #expect(harness.presenter.sources.last == "access_route_unresolved")
+        #expect(harness.coordinator.phase == .openingHosted)
+    }
+
+    /// A gate that left the screen and is shown again starts over, instead of sitting on a spinner
+    /// that nothing is driving.
+    @Test
+    func aGateThatLeftTheScreenStartsOverWhenItIsShownAgain() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        harness.presenter.send(.presented, registration: 0)
+
+        harness.coordinator.cancelOwnedWork()
+        #expect(harness.coordinator.phase == .openingHosted)
+        harness.coordinator.start()
+
+        #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
+        #expect(harness.presenter.sources.last == "app_access_gate")
+    }
+
+    @Test
+    func activeEntitlementRetiresTheRetryAndEveryLateHostedCallback() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        harness.presenter.send(.skipped(reason: "test"), registration: 0)
+        #expect(await harness.clock.waitUntilPending(.seconds(101)))
+
+        harness.coordinator.entitlementDidChange(.active(["app_access"]))
+        harness.presenter.send(.dismissedWithoutPurchase, registration: 0)
+        await gateSettle()
+
+        #expect(harness.coordinator.phase == .accessConfirmed)
+        #expect(await gateWaitUntil { harness.clock.pending == [gateRouteDeadline] })
+        #expect(harness.presenter.placements == [.appAccessGate])
+    }
+
+    // MARK: - Identity
 
     @Test
     func identityChangeRecordsOneRedactedStaleTerminalAndIgnoresOldCallback() async {
@@ -383,17 +420,37 @@ struct AppAccessPaywallCoordinatorTests {
         )
         harness.coordinator.identityDidChange()
         harness.presenter.send(.failed(message: "raw provider detail"), registration: 0)
-        await Task.yield()
+        await gateSettle()
 
-        let terminals = harness.sink.records.filter {
-            $0.name == "app_access_gate_attempt_terminal"
-        }
+        #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
+        #expect(harness.coordinator.phase == .openingHosted)
+        let terminals = harness.terminals
         #expect(terminals.count == 1)
         #expect(terminals[0].parameters["provider_outcome"] == .string("stale_identity"))
         #expect(terminals[0].parameters["identity_match"] == .bool(false))
         #expect(terminals[0].parameters.values.contains(.string("user-a")) == false)
         #expect(terminals[0].parameters.values.contains(.string("user-b")) == false)
         #expect(terminals[0].parameters.values.contains(.string("raw provider detail")) == false)
+    }
+
+    @Test
+    func anAccessCheckStillRunningCannotAnswerForANewIdentity() async {
+        let harness = makeHarness()
+        harness.coordinator.start()
+        harness.presenter.send(.presented, registration: 0)
+        harness.presenter.send(.verificationUnavailable, registration: 0)
+        #expect(await harness.clock.waitUntilPending(.seconds(301)))
+
+        harness.entitlements.identityGeneration = MonetizationIdentityTransition(
+            revision: 2,
+            userID: "user-b"
+        )
+        harness.coordinator.identityDidChange()
+        await gateSettle()
+
+        #expect(harness.coordinator.phase == .openingHosted)
+        #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
+        #expect(!harness.clock.pending.contains(.seconds(301)))
     }
 
     @Test
@@ -409,8 +466,7 @@ struct AppAccessPaywallCoordinatorTests {
         )
         harness.coordinator.identityDidChange()
         harness.presenter.send(.skipped(reason: "new-account"), registration: 1)
-        await harness.provider.waitUntilLoadCount(1)
-        await waitUntil { harness.coordinator.phase == .nativeReady }
+        #expect(harness.coordinator.phase == .awaitingHostedRetry)
 
         let terminals = attributionSink.attributions.filter {
             $0.name == "app_access_gate_attempt_terminal"
@@ -421,11 +477,13 @@ struct AppAccessPaywallCoordinatorTests {
         #expect(reached.map(\.userID) == ["user-a", "user-b"])
         #expect(terminals.count == 1)
         #expect(terminals.first?.userID == "user-b")
-        #expect(terminals.first?.parameters["provider_outcome"] == .string("native_ready"))
+        #expect(terminals.first?.parameters["provider_outcome"] == .string("hosted_unavailable"))
         #expect(terminals.first?.parameters["identity_match"] == .bool(true))
         #expect(terminals.first?.parameters["user_id"] == nil)
         #expect(terminals.first?.parameters["identity_revision"] == nil)
     }
+
+    // MARK: - Diagnostics and the shipped schedule
 
     @Test
     func rawPaywallLifecycleRecordsCarryStoreKitDiagnosticsWithoutRawErrors() {
@@ -447,21 +505,48 @@ struct AppAccessPaywallCoordinatorTests {
         }
     }
 
+    @Test
+    func theShippedScheduleBacksOffToAMinuteAndBoundsEveryOtherWait() {
+        let policy = AppAccessGateRetryPolicy()
+
+        #expect(policy.hostedPresentationDelays == [2, 4, 8, 16, 32, 60].map { Duration.seconds($0) })
+        #expect(policy.hostedPresentationDelay(afterFailures: 0) == .seconds(2))
+        #expect(policy.hostedPresentationDelay(afterFailures: 5) == .seconds(60))
+        // The ceiling repeats: the gate never stops asking for its only way through.
+        #expect(policy.hostedPresentationDelay(afterFailures: 6) == .seconds(60))
+        #expect(policy.hostedPresentationDelay(afterFailures: 600) == .seconds(60))
+        #expect(policy.freeWeekDelays == [2, 4, 8].map { Duration.seconds($0) })
+        #expect(policy.accessCheckDelays == [2, 4, 8, 16].map { Duration.seconds($0) })
+        #expect(policy.routeResolutionDeadline == .seconds(10))
+        // A wait of nothing would turn a failing paywall into a spin.
+        #expect((policy.hostedPresentationDelays + policy.freeWeekDelays + policy.accessCheckDelays)
+            .allSatisfy { $0 >= .seconds(1) })
+    }
+
+    /// Every phase is a wait behind the same spinner, so none of them may be a place the gate
+    /// stops and shows something of its own.
+    @Test
+    func noPhaseIsANativeScreen() {
+        #expect(AppAccessGatePhase.allCases == [
+            .openingHosted,
+            .hostedPresented,
+            .awaitingHostedRetry,
+            .confirmingAccess,
+            .accessConfirmed,
+            .openingLetter,
+            .letterPresented,
+            .startingFreeWeek
+        ])
+    }
+
+    // MARK: - Harness
+
     private func makeHarness(
-        identity: MonetizationIdentityTransition = MonetizationIdentityTransition(
+        identity: MonetizationIdentityTransition? = MonetizationIdentityTransition(
             revision: 1,
             userID: "user-a"
         ),
-        provider: CoordinatorNativeProvider = CoordinatorNativeProvider(),
-        restoreService: AppAccessRestoreService? = nil,
-        presenter: CoordinatorPaywallPresenter = CoordinatorPaywallPresenter(),
-        attributionSink: IdentityAttributingTelemetrySink? = nil,
-        sleep: @escaping AppAccessPaywallCoordinator.Sleep = {
-            try await Task.sleep(for: $0)
-        },
-        nativeLoadSleep: @escaping AppAccessPaywallCoordinator.Sleep = {
-            try await Task.sleep(for: $0)
-        }
+        attributionSink: IdentityAttributingTelemetrySink? = nil
     ) -> CoordinatorHarness {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         var sinks: [any TelemetrySink] = [sink]
@@ -475,344 +560,51 @@ struct AppAccessPaywallCoordinatorTests {
             identityStore: makeTestIdentityStore()
         )
         telemetry.configure()
-        if let userID = identity.userID {
-            telemetry.setUserId(userID)
-        }
-        let entitlements = CoordinatorEntitlementService(identity: identity)
+        telemetry.setUserId(identity?.userID ?? "user-a")
+        let entitlements = GateTestEntitlementService(identity: identity)
+        let presenter = GateTestPresenter()
+        let clock = GateTestClock()
         let manager = MonetizationManager(
-            configuration: testConfiguration,
+            configuration: makeGateTestConfiguration(),
             entitlementService: entitlements,
             paywallPresenter: presenter,
-            appAccessReconciler: CoordinatorReconciler(),
+            appAccessReconciler: GateTestReconciler(),
+            // The free week has its own suite; here a decline is the hard paywall reopening.
+            freeWeek: FreeWeekTestHarness(isEnabled: false).store,
             telemetry: telemetry,
             userDefaults: UserDefaults(
                 suiteName: "AppAccessPaywallCoordinatorTests-\(UUID().uuidString)"
             )!
         )
-        let service = restoreService ?? AppAccessRestoreService(
-            telemetry: telemetry,
-            entitlementID: "app_access",
-            restorer: { manager }
-        )
         let coordinator = AppAccessPaywallCoordinator(
             monetizationManager: manager,
-            nativeProvider: provider,
-            restoreService: service,
             telemetry: telemetry,
-            sleep: sleep,
-            nativeLoadSleep: nativeLoadSleep
+            retryPolicy: .test,
+            sleep: clock.sleep
         )
         return CoordinatorHarness(
             coordinator: coordinator,
+            manager: manager,
             entitlements: entitlements,
             presenter: presenter,
-            provider: provider,
+            clock: clock,
             sink: sink,
             telemetry: telemetry
         )
-    }
-
-    private func openNativePlans(_ harness: CoordinatorHarness) async {
-        harness.coordinator.start()
-        harness.presenter.send(.skipped(reason: "test"), registration: 0)
-        await harness.provider.waitUntilLoadCount(1)
-        await waitUntil { harness.coordinator.phase == .nativeReady }
-    }
-
-    private var testConfiguration: MonetizationConfiguration {
-        MonetizationConfiguration(
-            infoDictionary: [
-                MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test",
-                MonetizationConfiguration.superwallAPIKeyInfoKey: "pk_test",
-                MonetizationConfiguration.revenueCatYearlyProductIDInfoKey:
-                    "ascend_staging_yearly",
-                MonetizationConfiguration.revenueCatLifetimeProductIDInfoKey:
-                    "ascend_staging_lifetime",
-                MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
-            ]
-        )
-    }
-
-    private func waitUntil(
-        _ condition: @escaping @MainActor () -> Bool
-    ) async {
-        for _ in 0..<50 {
-            if condition() { return }
-            await Task.yield()
-        }
-        Issue.record("Condition did not become true after deterministic task yields.")
     }
 }
 
 @MainActor
 private struct CoordinatorHarness {
     let coordinator: AppAccessPaywallCoordinator
-    let entitlements: CoordinatorEntitlementService
-    let presenter: CoordinatorPaywallPresenter
-    let provider: CoordinatorNativeProvider
+    let manager: MonetizationManager
+    let entitlements: GateTestEntitlementService
+    let presenter: GateTestPresenter
+    let clock: GateTestClock
     let sink: InMemoryTelemetrySink
     let telemetry: TelemetryManager
-}
 
-@MainActor
-private final class CoordinatorNativeProvider: NativePaywallPlanProviding {
-    private(set) var loadCount = 0
-    private(set) var purchaseCount = 0
-    private(set) var purchasedPlanIDs: [String] = []
-    private let suspendsPlanLoad: Bool
-    private let automaticPurchaseResult: PurchaseResult?
-    private var loadContinuations: [CheckedContinuation<[NativePaywallPlan], Never>] = []
-    private var purchaseContinuation: CheckedContinuation<PurchaseResult, Never>?
-    private var loadObservers: [CheckedContinuation<Void, Never>] = []
-    private var purchaseObservers: [CheckedContinuation<Void, Never>] = []
-
-    init(
-        suspendsPlanLoad: Bool = false,
-        automaticPurchaseResult: PurchaseResult? = nil
-    ) {
-        self.suspendsPlanLoad = suspendsPlanLoad
-        self.automaticPurchaseResult = automaticPurchaseResult
+    var terminals: [EnvelopedTelemetryRecord] {
+        sink.records.filter { $0.name == "app_access_gate_attempt_terminal" }
     }
-
-    func loadPlans() async throws -> [NativePaywallPlan] {
-        loadCount += 1
-        loadObservers.forEach { $0.resume() }
-        loadObservers = []
-        guard suspendsPlanLoad else { return Self.plans }
-        return await withCheckedContinuation { loadContinuations.append($0) }
-    }
-
-    func purchase(planID: String) async -> PurchaseResult {
-        purchaseCount += 1
-        purchasedPlanIDs.append(planID)
-        purchaseObservers.forEach { $0.resume() }
-        purchaseObservers = []
-        if let automaticPurchaseResult { return automaticPurchaseResult }
-        return await withCheckedContinuation { purchaseContinuation = $0 }
-    }
-
-    func waitUntilLoadCount(_ expected: Int) async {
-        guard loadCount < expected else { return }
-        await withCheckedContinuation { loadObservers.append($0) }
-    }
-
-    func waitUntilPurchaseCount(_ expected: Int) async {
-        guard purchaseCount < expected else { return }
-        await withCheckedContinuation { purchaseObservers.append($0) }
-    }
-
-    func completePlanLoad(
-        with plans: [NativePaywallPlan]? = nil,
-        at index: Int = 0
-    ) {
-        guard loadContinuations.indices.contains(index) else { return }
-        loadContinuations.remove(at: index).resume(returning: plans ?? Self.plans)
-    }
-
-    func completePurchase(_ result: PurchaseResult) {
-        purchaseContinuation?.resume(returning: result)
-        purchaseContinuation = nil
-    }
-
-    private static let plans = [
-        NativePaywallPlan(
-            id: "ascend_staging_yearly",
-            title: "Annual",
-            localizedPrice: "$29.99",
-            billingDescription: "Renews annually",
-            trialDescription: "1 month free"
-        ),
-        NativePaywallPlan(
-            id: "ascend_staging_lifetime",
-            title: "Lifetime",
-            localizedPrice: "$49.99",
-            billing: .oneTime,
-            billingDescription: "Pay once. No renewal.",
-            trialDescription: nil
-        )
-    ]
-}
-
-private final class CoordinatorControlledSleep: @unchecked Sendable {
-    private let lock = NSLock()
-    private var nextCall = 0
-    private var reachableCallCount = 0
-    private var continuations: [Int: CheckedContinuation<Void, any Error>] = [:]
-    private var observers: [CheckedContinuation<Void, Never>] = []
-
-    func sleep(for duration: Duration) async throws {
-        let call = lock.withLock { () -> Int in
-            nextCall += 1
-            return nextCall
-        }
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<Void, any Error>) in
-                // A sleep is announced to `waitUntilCallCount` only once `fire`
-                // and `onCancel` can reach it. Announcing it earlier let a test
-                // fire an unstored sleep, which then waited forever (a CI hang).
-                let isCancelled = lock.withLock { () -> Bool in
-                    let isCancelled = Task.isCancelled
-                    if !isCancelled { continuations[call] = continuation }
-                    reachableCallCount += 1
-                    observers.forEach { $0.resume() }
-                    observers = []
-                    return isCancelled
-                }
-                if isCancelled {
-                    continuation.resume(throwing: CancellationError())
-                }
-            }
-        } onCancel: {
-            let continuation = lock.withLock { continuations.removeValue(forKey: call) }
-            continuation?.resume(throwing: CancellationError())
-        }
-    }
-
-    func fire(call: Int) {
-        lock.withLock { continuations.removeValue(forKey: call) }?.resume()
-    }
-
-    func waitUntilCallCount(_ expected: Int) async {
-        if lock.withLock({ reachableCallCount >= expected }) { return }
-        await withCheckedContinuation { continuation in
-            let ready = lock.withLock { () -> Bool in
-                if reachableCallCount >= expected { return true }
-                observers.append(continuation)
-                return false
-            }
-            if ready { continuation.resume() }
-        }
-    }
-}
-
-@MainActor
-private final class CoordinatorRestoreProvider: PurchaseRestoring {
-    let isRevenueCatConfigured = true
-    var identityGeneration: MonetizationIdentityTransition?
-    private var startObservers: [CheckedContinuation<Void, Never>] = []
-    private var completion: CheckedContinuation<MonetizationEntitlementState, Never>?
-
-    init(identity: MonetizationIdentityTransition) {
-        identityGeneration = identity
-    }
-
-    func restorePurchases(
-        for identity: MonetizationIdentityTransition
-    ) async -> MonetizationEntitlementState {
-        startObservers.forEach { $0.resume() }
-        startObservers = []
-        return await withCheckedContinuation { completion = $0 }
-    }
-
-    func restorePurchases() async -> MonetizationEntitlementState {
-        .unknown
-    }
-
-    func waitUntilStarted() async {
-        guard completion == nil else { return }
-        await withCheckedContinuation { startObservers.append($0) }
-    }
-
-    func complete(_ state: MonetizationEntitlementState) {
-        completion?.resume(returning: state)
-        completion = nil
-    }
-}
-
-@MainActor
-private final class CoordinatorEntitlementService: EntitlementServicing {
-    var entitlementState: MonetizationEntitlementState = .inactive
-    var hasFailedIdentityResolution = false
-    var identityGeneration: MonetizationIdentityTransition?
-    var isConfigured = true
-
-    init(identity: MonetizationIdentityTransition) {
-        identityGeneration = identity
-    }
-
-    func configure(configuration: MonetizationConfiguration) {}
-
-    func refreshCustomerInfo(
-        waitsForPendingIdentity: Bool
-    ) async -> MonetizationEntitlementRefresh {
-        .refreshed(entitlementState)
-    }
-
-    func prepareIdentity(
-        _ customer: MonetizationCustomerIdentity
-    ) -> MonetizationIdentityTransition {
-        identityGeneration ?? MonetizationIdentityTransition(
-            revision: 0,
-            userID: customer.userID
-        )
-    }
-
-    func identify(
-        _ customer: MonetizationCustomerIdentity,
-        transition: MonetizationIdentityTransition
-    ) async {}
-
-    func prepareIdentityReset() -> MonetizationIdentityTransition {
-        MonetizationIdentityTransition(revision: 0, userID: nil)
-    }
-
-    func resetIdentity(transition: MonetizationIdentityTransition) async {}
-    func retryIdentityResolution() async {}
-
-    func adoptTransactionState(
-        _ state: MonetizationEntitlementState,
-        for identity: MonetizationIdentityTransition
-    ) -> Bool {
-        guard identityGeneration == identity else { return false }
-        entitlementState = state
-        return true
-    }
-
-    func restorePurchases(
-        for identity: MonetizationIdentityTransition
-    ) async -> MonetizationEntitlementState {
-        guard identityGeneration == identity else { return .unknown }
-        return entitlementState
-    }
-
-    func restorePurchases() async -> MonetizationEntitlementState {
-        entitlementState
-    }
-}
-
-@MainActor
-private final class CoordinatorPaywallPresenter: PaywallPresenting {
-    let isConfigured = true
-    private(set) var cancelCount = 0
-    private var handlers: [@MainActor (PaywallPresentationOutcome) -> Void] = []
-    private let automaticOutcome: PaywallPresentationOutcome?
-
-    init(automaticOutcome: PaywallPresentationOutcome? = nil) {
-        self.automaticOutcome = automaticOutcome
-    }
-
-    func configure(configuration: MonetizationConfiguration) {}
-    func identify(userId: String) {}
-    func resetIdentity() {}
-    func cancelPresentation() { cancelCount += 1 }
-
-    func register(
-        placement: SuperwallPlacement,
-        params: [String: Any]?,
-        onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
-    ) {
-        handlers.append(onOutcome)
-        if let automaticOutcome { onOutcome(automaticOutcome) }
-    }
-
-    func send(_ outcome: PaywallPresentationOutcome, registration: Int) {
-        guard handlers.indices.contains(registration) else { return }
-        handlers[registration](outcome)
-    }
-}
-
-@MainActor
-private final class CoordinatorReconciler: AppAccessReconciling {
-    func reconcileAppAccess(force: Bool) async {}
 }

@@ -1,27 +1,24 @@
 import Foundation
-import enum SuperwallKit.PurchaseResult
 import Testing
 @testable import AscendApp
 
 /// What the app-access gate does when a climber closes the last paid offer without buying.
 ///
-/// The dead end this replaces: a second decline used to land on the native plan picker, whose only
-/// other ways out were deleting the account or signing out.
+/// Every outcome here ends on a hosted screen, in the app, or behind the spinner while the gate
+/// asks the server again. The gate has no screen of its own to fall back to.
 @MainActor
 @Suite(.serialized)
 struct FreeWeekGateCoordinatorTests {
     // MARK: - A climber who has never had their week
 
     @Test
-    func decliningEveryPaidOfferOpensTheFounderLetterAndNeverThePlanPicker() async {
+    func decliningEveryPaidOfferOpensTheFounderLetter() async {
         let harness = await makeHarness()
 
         declinePaidOffers(harness)
 
         #expect(harness.presenter.placements == [.appAccessGate, .founderLetter])
         #expect(harness.coordinator.phase == .openingLetter)
-        #expect(harness.provider.loadCount == 0)
-        #expect(harness.coordinator.showsPurchaseControls == false)
         #expect(harness.presenter.params(at: 1)?["source"] as? String == "paid_offers_declined")
     }
 
@@ -46,7 +43,6 @@ struct FreeWeekGateCoordinatorTests {
         #expect(harness.freeWeek.granter.callCount == 1)
         #expect(harness.freeWeek.store.routingAccess == .live)
         #expect(harness.manager.hasAppAccess)
-        #expect(harness.provider.loadCount == 0)
         #expect(harness.eventNames == [
             "free_week_letter_shown",
             "free_week_granted"
@@ -69,21 +65,20 @@ struct FreeWeekGateCoordinatorTests {
 
         #expect(await freeWeekWaitUntil { harness.coordinator.phase == .accessConfirmed })
         #expect(harness.freeWeek.store.routingAccess == .live)
-        #expect(harness.provider.loadCount == 0)
         #expect(harness.eventNames == ["free_week_granted"])
         #expect(harness.event("free_week_granted")?.parameters["letter_shown"] == .bool(false))
     }
 
     @Test
     func aLetterThatNeverOpensIsNotWaitedOnPastItsDeadline() async {
-        let deadline = FreeWeekDeadline()
-        let harness = await makeHarness(sleep: deadline.sleep)
+        let harness = await makeHarness()
         harness.freeWeek.granter.responses = [.success(.granted(harness.freeWeek.week()))]
 
         declinePaidOffers(harness)
         #expect(harness.coordinator.phase == .openingLetter)
-        // Calls 1 and 2 guard the Lifetime paywall's opening and the welcome offer's; 3 is the letter's.
-        await deadline.fire(call: 3)
+        // The paywall's and the welcome offer's deadlines were stood down when each opened, so
+        // the one still running is the letter's.
+        await harness.clock.fire(gateOpeningDeadline)
 
         #expect(await freeWeekWaitUntil { harness.coordinator.phase == .accessConfirmed })
         #expect(harness.presenter.cancelCount == 1)
@@ -91,20 +86,66 @@ struct FreeWeekGateCoordinatorTests {
     }
 
     @Test
-    func aGrantThatFailsTwiceFallsThroughToThePlanPickerWithItsMessage() async {
+    func aWeekThatCannotBeStartedIsAskedForAgainOnTheScheduleThenThePaywallReopens() async {
         let harness = await makeHarness()
         harness.freeWeek.granter.responses = [.failure(FreeWeekTestError())]
 
         declinePaidOffers(harness)
         harness.presenter.send(.dismissedWithoutPurchase, registration: 1)
 
-        #expect(await freeWeekWaitUntil { harness.coordinator.phase == .nativeReady })
-        // One call and one retry, and then the climber is given something to tap.
-        #expect(harness.freeWeek.granter.callCount == 2)
-        #expect(harness.provider.loadCount == 1)
-        #expect(harness.coordinator.showsPurchaseControls)
-        #expect(harness.coordinator.plans.isEmpty == false)
+        // Each attempt is the store's one call and one retry.
+        #expect(await freeWeekWaitUntil { harness.freeWeek.granter.callCount == 2 })
+        #expect(harness.coordinator.phase == .startingFreeWeek)
+        await harness.clock.fire(.seconds(201))
+        #expect(await freeWeekWaitUntil { harness.freeWeek.granter.callCount == 4 })
+        #expect(harness.presenter.placements == [.appAccessGate, .founderLetter])
+        await harness.clock.fire(.seconds(202))
+
+        // The schedule is spent, and the climber is put back on a hosted screen - never on one of
+        // the gate's own.
+        #expect(await freeWeekWaitUntil { harness.presenter.placements.count == 3 })
+        #expect(harness.freeWeek.granter.callCount == 6)
+        #expect(harness.presenter.placements.last == .appAccessGate)
+        #expect(harness.presenter.sources.last == "free_week_unavailable")
+        #expect(harness.coordinator.phase == .openingHosted)
         #expect(harness.freeWeek.store.routingAccess == .none)
+        #expect(harness.eventNames.contains("free_week_granted") == false)
+    }
+
+    @Test
+    func aWeekThatStartsOnALaterAttemptOpensTheApp() async {
+        let harness = await makeHarness()
+        harness.freeWeek.granter.responses = [
+            .failure(FreeWeekTestError()),
+            .failure(FreeWeekTestError()),
+            .success(.granted(harness.freeWeek.week()))
+        ]
+
+        declinePaidOffers(harness)
+        harness.presenter.send(.dismissedWithoutPurchase, registration: 1)
+        #expect(await freeWeekWaitUntil { harness.freeWeek.granter.callCount == 2 })
+        await harness.clock.fire(.seconds(201))
+
+        #expect(await freeWeekWaitUntil { harness.coordinator.phase == .accessConfirmed })
+        #expect(harness.freeWeek.granter.callCount == 3)
+        #expect(harness.freeWeek.store.routingAccess == .live)
+        #expect(harness.presenter.placements == [.appAccessGate, .founderLetter])
+        #expect(harness.clock.pending == [gateRouteDeadline])
+    }
+
+    @Test
+    func theServerHoldingPaidAccessTheDeviceHasNotHeardOfIsCheckedBehindTheSpinner() async {
+        let harness = await makeHarness()
+        harness.freeWeek.granter.responses = [.success(.paidActive)]
+        harness.entitlements.stateAfterRefresh = [2: .active(["app_access"])]
+
+        declinePaidOffers(harness)
+        harness.presenter.send(.dismissedWithoutPurchase, registration: 1)
+
+        #expect(await freeWeekWaitUntil { harness.coordinator.phase == .confirmingAccess })
+        await harness.clock.fire(.seconds(301))
+        #expect(await freeWeekWaitUntil { harness.coordinator.phase == .accessConfirmed })
+        #expect(harness.presenter.placements == [.appAccessGate, .founderLetter])
         #expect(harness.eventNames.contains("free_week_granted") == false)
     }
 
@@ -122,7 +163,6 @@ struct FreeWeekGateCoordinatorTests {
         #expect(harness.coordinator.phase != .startingFreeWeek)
         #expect(harness.freeWeek.granter.callCount == 0)
         #expect(harness.freeWeek.store.routingAccess == .none)
-        #expect(harness.provider.loadCount == 0)
     }
 
     @Test
@@ -146,7 +186,7 @@ struct FreeWeekGateCoordinatorTests {
     // MARK: - A climber whose week is over
 
     @Test
-    func aSpentWeekGetsThePaywallAgainAndNeverTheLetterOrThePicker() async {
+    func aSpentWeekGetsThePaywallAgainAndNeverTheLetter() async {
         let harness = await makeHarness(spentWeek: true)
 
         harness.coordinator.start()
@@ -159,18 +199,16 @@ struct FreeWeekGateCoordinatorTests {
         #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
         #expect(harness.presenter.params(at: 1)?["source"] as? String == "free_week_ended")
         #expect(harness.coordinator.phase == .openingHosted)
-        #expect(harness.provider.loadCount == 0)
         #expect(harness.freeWeek.granter.callCount == 0)
 
         // And the floor holds for as long as the climber keeps declining.
         harness.presenter.send(.presented, registration: 1)
         harness.presenter.send(.dismissedWithoutPurchase, registration: 1)
         #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate, .appAccessGate])
-        #expect(harness.provider.loadCount == 0)
     }
 
-    /// Declining the floor only reopens it, so the native gate's Sign Out is never reached: the
-    /// floor's own Sign out is how a climber on the wrong account leaves it without deleting it.
+    /// Declining the floor only reopens it, so the floor's own Sign out is how a climber on the
+    /// wrong account leaves it without deleting it.
     @Test
     func aSignOutFromTheFloorSignsOutAndDoesNotReopenThePaywall() async {
         let harness = await makeHarness(spentWeek: true)
@@ -185,7 +223,6 @@ struct FreeWeekGateCoordinatorTests {
 
         #expect(harness.signOut.count == 1)
         #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
-        #expect(harness.provider.loadCount == 0)
         #expect(harness.freeWeek.granter.callCount == 0)
         let terminals = harness.sink.records.filter { $0.name == "app_access_gate_attempt_terminal" }
         #expect(terminals.last?.parameters["provider_outcome"] == .string("sign_out_requested"))
@@ -200,7 +237,8 @@ struct FreeWeekGateCoordinatorTests {
         #expect(harness.eventNames == ["free_week_expired_gated"])
         #expect(harness.event("free_week_expired_gated")?.parameters["flow_version"] == .string("v3"))
 
-        harness.coordinator.retryHosted()
+        // The gate starting over - here for a refreshed identity - is not a second week ending.
+        harness.coordinator.identityDidChange()
         harness.coordinator.cancelOwnedWork()
         #expect(harness.eventNames == ["free_week_expired_gated"])
     }
@@ -212,8 +250,13 @@ struct FreeWeekGateCoordinatorTests {
         harness.coordinator.start()
         harness.presenter.send(.dismissedWithoutPurchase, registration: 0)
 
-        #expect(await freeWeekWaitUntil { harness.coordinator.phase == .nativeReady })
+        // Nobody tapped anything, so reopening at once would be a loop. It waits out the backoff
+        // like any other paywall that could not open.
+        #expect(harness.coordinator.phase == .awaitingHostedRetry)
         #expect(harness.presenter.placements == [.appAccessGate])
+        await harness.clock.fire(.seconds(101))
+        #expect(await freeWeekWaitUntil { harness.presenter.placements.count == 2 })
+        #expect(harness.presenter.sources.last == "presentation_retry")
     }
 
     @Test
@@ -228,51 +271,85 @@ struct FreeWeekGateCoordinatorTests {
 
         #expect(await freeWeekWaitUntil { harness.presenter.placements.count == 3 })
         #expect(harness.presenter.placements.last == .appAccessGate)
-        #expect(harness.provider.loadCount == 0)
         #expect(harness.freeWeek.store.hasSpentWeek)
     }
 
-    // MARK: - What still reaches the plan picker
+    // MARK: - What gets the paywall instead of the week
 
     @Test
-    func aPaywallSuperwallCouldNotPresentStillFallsBackToThePlanPicker() async {
+    func aPaywallSuperwallCouldNotPresentIsNotADeclineAndGrantsNothing() async {
         let harness = await makeHarness()
 
         harness.coordinator.start()
         harness.presenter.send(.skipped(reason: "test"), registration: 0)
 
-        #expect(await freeWeekWaitUntil { harness.coordinator.phase == .nativeReady })
+        #expect(harness.coordinator.phase == .awaitingHostedRetry)
         #expect(harness.presenter.placements == [.appAccessGate])
         #expect(harness.freeWeek.granter.callCount == 0)
     }
 
     @Test
-    func withTheSwitchOffADeclineIsThePlanPickerExactlyAsBefore() async {
+    func withTheSwitchOffADeclineReopensThePaywallAndTheWeekStaysDark() async {
         let harness = await makeHarness(isEnabled: false)
 
         declinePaidOffers(harness)
 
-        #expect(await freeWeekWaitUntil { harness.coordinator.phase == .nativeReady })
-        #expect(harness.presenter.placements == [.appAccessGate])
-        #expect(harness.coordinator.statusMessage?.contains("Choose from") == true)
+        #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
+        #expect(harness.presenter.sources.last == "paid_offers_declined")
+        #expect(harness.coordinator.phase == .openingHosted)
         #expect(harness.freeWeek.granter.callCount == 0)
         #expect(harness.freeWeek.reader.readCount == 0)
         #expect(harness.eventNames.isEmpty)
+        let terminals = harness.sink.records.filter { $0.name == "app_access_gate_attempt_terminal" }
+        #expect(terminals.map { $0.parameters["provider_outcome"] } == [.string("paywall_floor")])
+        #expect(terminals.first?.parameters["recovery_reason"] == .string("hosted_dismissed"))
+
+        // And it keeps reopening for as long as the climber keeps declining.
+        harness.presenter.send(.presented, registration: 1)
+        harness.presenter.send(.dismissedWithoutPurchase, registration: 1)
+        #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate, .appAccessGate])
     }
 
     @Test
-    func aRecordThatCannotBeReadGetsThePickerRatherThanAPromiseItMayNotKeep() async {
+    func aRecordThatCannotBeReadIsAskedForAgainThenGetsThePaywallRatherThanAPromiseItMayNotKeep() async {
         let harness = await makeHarness(record: .failure(FreeWeekTestError()))
+        let readsBeforeDecline = harness.freeWeek.reader.readCount
 
         declinePaidOffers(harness)
 
-        #expect(await freeWeekWaitUntil { harness.coordinator.phase == .nativeReady })
-        #expect(harness.presenter.placements == [.appAccessGate])
+        #expect(harness.coordinator.phase == .startingFreeWeek)
+        #expect(await freeWeekWaitUntil { harness.freeWeek.reader.readCount == readsBeforeDecline + 1 })
+        await harness.clock.fire(.seconds(201))
+        #expect(await freeWeekWaitUntil { harness.freeWeek.reader.readCount == readsBeforeDecline + 2 })
+        await harness.clock.fire(.seconds(202))
+
+        #expect(await freeWeekWaitUntil { harness.presenter.placements.count == 2 })
+        #expect(harness.freeWeek.reader.readCount == readsBeforeDecline + 3)
+        #expect(harness.presenter.placements == [.appAccessGate, .appAccessGate])
+        #expect(harness.presenter.sources.last == "free_week_unavailable")
         #expect(harness.freeWeek.granter.callCount == 0)
+        let terminals = harness.sink.records.filter { $0.name == "app_access_gate_attempt_terminal" }
+        #expect(terminals.last?.parameters["provider_outcome"] == .string("paywall_floor"))
+        #expect(terminals.last?.parameters["recovery_reason"] == .string("free_week_unavailable"))
     }
 
     @Test
-    func aPendingChargeIsToldToWaitAndIsNotOfferedAWeekOnTop() async {
+    func aRecordThatAnswersOnALaterReadStillGetsTheLetter() async {
+        let harness = await makeHarness(record: .failure(FreeWeekTestError()))
+        let readsBeforeDecline = harness.freeWeek.reader.readCount
+
+        declinePaidOffers(harness)
+        #expect(await freeWeekWaitUntil { harness.freeWeek.reader.readCount == readsBeforeDecline + 1 })
+        harness.freeWeek.reader.result = .success(nil)
+        await harness.clock.fire(.seconds(201))
+
+        #expect(await freeWeekWaitUntil { harness.presenter.placements.count == 2 })
+        #expect(harness.presenter.placements == [.appAccessGate, .founderLetter])
+        #expect(harness.coordinator.phase == .openingLetter)
+    }
+
+    @Test
+    func aPendingChargeIsCheckedForAccessAndIsNotOfferedAWeekOnTop() async {
         let harness = await makeHarness()
         harness.coordinator.start()
         harness.presenter.send(.presented, registration: 0)
@@ -280,7 +357,7 @@ struct FreeWeekGateCoordinatorTests {
 
         harness.presenter.send(.dismissedWithoutPurchase, registration: 0)
 
-        #expect(harness.coordinator.phase == .verificationUnavailable)
+        #expect(harness.coordinator.phase == .confirmingAccess)
         #expect(harness.presenter.placements == [.appAccessGate])
         #expect(harness.freeWeek.granter.callCount == 0)
     }
@@ -325,13 +402,9 @@ struct FreeWeekGateCoordinatorTests {
         let manager = harness.manager
         let returning = AppAccessPaywallCoordinator(
             monetizationManager: manager,
-            nativeProvider: harness.provider,
-            restoreService: AppAccessRestoreService(
-                telemetry: harness.telemetry,
-                entitlementID: "app_access",
-                restorer: { manager }
-            ),
-            telemetry: harness.telemetry
+            telemetry: harness.telemetry,
+            retryPolicy: .test,
+            sleep: harness.clock.sleep
         )
         returning.start()
         #expect(harness.event("free_week_expired_gated")?.parameters["flow_version"] == .string("v3"))
@@ -374,8 +447,7 @@ struct FreeWeekGateCoordinatorTests {
         isEnabled: Bool = true,
         record: Result<FreeWeekGrant?, any Error> = .success(nil),
         spentWeek: Bool = false,
-        runningWeekDaysAgo: Double? = nil,
-        sleep: @escaping AppAccessPaywallCoordinator.Sleep = { try await Task.sleep(for: $0) }
+        runningWeekDaysAgo: Double? = nil
     ) async -> FreeWeekGateHarness {
         let identity = MonetizationIdentityTransition(revision: 1, userID: "user-a")
         let sink = InMemoryTelemetrySink(destination: .analytics)
@@ -414,8 +486,9 @@ struct FreeWeekGateCoordinatorTests {
             )
         )
 
-        let presenter = FreeWeekGatePresenter()
-        let provider = FreeWeekGateNativeProvider()
+        let presenter = GateTestPresenter()
+        let entitlements = GateTestEntitlementService(identity: identity)
+        let clock = GateTestClock()
         let signOut = FreeWeekSignOutSpy()
         let manager = MonetizationManager(
             configuration: MonetizationConfiguration(
@@ -427,9 +500,9 @@ struct FreeWeekGateCoordinatorTests {
                     MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
                 ]
             ),
-            entitlementService: FreeWeekGateEntitlementService(identity: identity),
+            entitlementService: entitlements,
             paywallPresenter: presenter,
-            appAccessReconciler: FreeWeekGateReconciler(),
+            appAccessReconciler: GateTestReconciler(),
             freeWeek: freeWeek.store,
             telemetry: telemetry,
             onboardingLifecycle: lifecycle,
@@ -437,21 +510,17 @@ struct FreeWeekGateCoordinatorTests {
         )
         let coordinator = AppAccessPaywallCoordinator(
             monetizationManager: manager,
-            nativeProvider: provider,
-            restoreService: AppAccessRestoreService(
-                telemetry: telemetry,
-                entitlementID: "app_access",
-                restorer: { manager }
-            ),
             telemetry: telemetry,
             onRequestSignOut: { signOut.count += 1 },
-            sleep: sleep
+            retryPolicy: .test,
+            sleep: clock.sleep
         )
         return FreeWeekGateHarness(
             coordinator: coordinator,
             manager: manager,
             presenter: presenter,
-            provider: provider,
+            entitlements: entitlements,
+            clock: clock,
             signOut: signOut,
             freeWeek: freeWeek,
             sink: sink,
@@ -465,8 +534,9 @@ struct FreeWeekGateCoordinatorTests {
 private struct FreeWeekGateHarness {
     let coordinator: AppAccessPaywallCoordinator
     let manager: MonetizationManager
-    let presenter: FreeWeekGatePresenter
-    let provider: FreeWeekGateNativeProvider
+    let presenter: GateTestPresenter
+    let entitlements: GateTestEntitlementService
+    let clock: GateTestClock
     let signOut: FreeWeekSignOutSpy
     let freeWeek: FreeWeekTestHarness
     let sink: InMemoryTelemetrySink
@@ -486,162 +556,4 @@ private struct FreeWeekGateHarness {
 @MainActor
 private final class FreeWeekSignOutSpy {
     var count = 0
-}
-
-@MainActor
-private final class FreeWeekGatePresenter: PaywallPresenting {
-    let isConfigured = true
-    private(set) var cancelCount = 0
-    private(set) var placements: [SuperwallPlacement] = []
-    private var registeredParams: [[String: Any]?] = []
-    private var handlers: [@MainActor (PaywallPresentationOutcome) -> Void] = []
-
-    func configure(configuration: MonetizationConfiguration) {}
-    func identify(userId: String) {}
-    func resetIdentity() {}
-    func cancelPresentation() { cancelCount += 1 }
-
-    func register(
-        placement: SuperwallPlacement,
-        params: [String: Any]?,
-        onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
-    ) {
-        placements.append(placement)
-        registeredParams.append(params)
-        handlers.append(onOutcome)
-    }
-
-    func params(at registration: Int) -> [String: Any]? {
-        registeredParams.indices.contains(registration) ? registeredParams[registration] : nil
-    }
-
-    func send(_ outcome: PaywallPresentationOutcome, registration: Int) {
-        guard handlers.indices.contains(registration) else { return }
-        handlers[registration](outcome)
-    }
-}
-
-@MainActor
-private final class FreeWeekGateNativeProvider: NativePaywallPlanProviding {
-    private(set) var loadCount = 0
-
-    func loadPlans() async throws -> [NativePaywallPlan] {
-        loadCount += 1
-        return [
-            NativePaywallPlan(
-                id: "ascend_staging_yearly",
-                title: "Annual",
-                localizedPrice: "$29.99",
-                billingDescription: "Renews yearly.",
-                trialDescription: nil
-            ),
-            NativePaywallPlan(
-                id: "ascend_staging_lifetime",
-                title: "Lifetime",
-                localizedPrice: "$49.99",
-                billingDescription: "Pay once. No renewal.",
-                trialDescription: nil
-            )
-        ]
-    }
-
-    func purchase(planID: String) async -> PurchaseResult {
-        .cancelled
-    }
-}
-
-@MainActor
-private final class FreeWeekGateEntitlementService: EntitlementServicing {
-    var entitlementState: MonetizationEntitlementState = .inactive
-    var hasFailedIdentityResolution = false
-    var identityGeneration: MonetizationIdentityTransition?
-    var isConfigured = true
-
-    init(identity: MonetizationIdentityTransition) {
-        identityGeneration = identity
-    }
-
-    func configure(configuration: MonetizationConfiguration) {}
-
-    func refreshCustomerInfo(waitsForPendingIdentity: Bool) async -> MonetizationEntitlementRefresh {
-        .refreshed(entitlementState)
-    }
-
-    func prepareIdentity(_ customer: MonetizationCustomerIdentity) -> MonetizationIdentityTransition {
-        identityGeneration ?? MonetizationIdentityTransition(revision: 0, userID: customer.userID)
-    }
-
-    func identify(
-        _ customer: MonetizationCustomerIdentity,
-        transition: MonetizationIdentityTransition
-    ) async {}
-
-    func prepareIdentityReset() -> MonetizationIdentityTransition {
-        MonetizationIdentityTransition(revision: 0, userID: nil)
-    }
-
-    func resetIdentity(transition: MonetizationIdentityTransition) async {}
-    func retryIdentityResolution() async {}
-
-    func adoptTransactionState(
-        _ state: MonetizationEntitlementState,
-        for identity: MonetizationIdentityTransition
-    ) -> Bool {
-        guard identityGeneration == identity else { return false }
-        entitlementState = state
-        return true
-    }
-
-    func restorePurchases(
-        for identity: MonetizationIdentityTransition
-    ) async -> MonetizationEntitlementState {
-        entitlementState
-    }
-
-    func restorePurchases() async -> MonetizationEntitlementState {
-        entitlementState
-    }
-}
-
-@MainActor
-private final class FreeWeekGateReconciler: AppAccessReconciling {
-    func reconcileAppAccess(force: Bool) async {}
-}
-
-/// The gate's opening deadlines, fired by hand, numbered in the order the gate armed them.
-private final class FreeWeekDeadline: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuations: [Int: CheckedContinuation<Void, any Error>] = [:]
-    private var callCount = 0
-
-    var sleep: AppAccessPaywallCoordinator.Sleep {
-        { [self] _ in
-            try await withCheckedThrowingContinuation { continuation in
-                lock.lock()
-                callCount += 1
-                continuations[callCount] = continuation
-                lock.unlock()
-            }
-        }
-    }
-
-    /// Waits for the gate to arm that deadline before firing it, on a wall clock: the task that
-    /// arms it is the gate's own, and under the full suite's load it may not have run yet.
-    func fire(call: Int) async {
-        let clock = ContinuousClock()
-        let giveUp = clock.now.advanced(by: .seconds(60))
-        while clock.now < giveUp {
-            if let continuation = take(call: call) {
-                continuation.resume()
-                return
-            }
-            try? await Task.sleep(for: .milliseconds(2))
-        }
-    }
-
-    private func take(call: Int) -> CheckedContinuation<Void, any Error>? {
-        lock.lock()
-        defer { lock.unlock() }
-        return continuations.removeValue(forKey: call)
-    }
 }

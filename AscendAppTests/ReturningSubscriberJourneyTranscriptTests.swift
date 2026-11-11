@@ -191,7 +191,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         case .preAuthOnboarding: "preAuthOnboarding (v3 flow, signed out)"
         case .signingIn: "signingIn"
         case .restoringSession: "restoringSession"
-        case .resolving: "resolving (neutral Checking your access surface)"
+        case .resolving: "resolving (the spinner, while access is worked out)"
         case .onboarding(let stage): "onboarding(\(stage))"
         case .paywall: "paywall (app-access gate)"
         case .mainApp: "mainApp"

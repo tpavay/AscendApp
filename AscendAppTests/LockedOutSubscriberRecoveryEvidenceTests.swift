@@ -6,21 +6,27 @@ import UIKit
 
 /// Reviewer-facing evidence for the locked-out climber's recovery routes.
 ///
-/// The contract suite holds the shape of the source and the hosting suite proves the controls are
-/// operable; this hosts what the climber actually sees. The gate is hosted in a real window
-/// (`RenderedScreen`) wired exactly the way `RootView` wires it, the `Delete account` link is
-/// activated through the same accessibility action VoiceOver uses, and the dialog that opens has
-/// its copy read back off the accessibility tree - so the Apple-billing sentence is asserted from
-/// the screen rather than from a string in a Swift file. Photographs are written only under
+/// The contract suite holds the shape of the source and the hosting suite proves the routes
+/// work; this hosts what the climber actually sees. The gate is hosted in a real window
+/// (`RenderedScreen`) wired exactly the way `RootView` wires it, the hosted paywall's
+/// `DELETE ACCOUNT` control is answered through the real gate, and the dialog that opens has its
+/// copy read back off the accessibility tree - so the Apple-billing sentence is asserted from the
+/// screen rather than from a string in a Swift file. Photographs are written only under
 /// `ASCEND_EVIDENCE_DIR`.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct LockedOutSubscriberRecoveryEvidenceTests {
     @Test
-    func theGateShowsItsDeletionLinkAndOpensTheRealDialog() async throws {
+    func theHostedDeletionControlOpensTheRealDialogOverTheSpinner() async throws {
+        let presenter = GateTestPresenter()
         let manager = MonetizationManager(
-            entitlementService: EntitlementServiceStub(),
-            paywallPresenter: PaywallPresenterSpy(),
+            configuration: makeGateTestConfiguration(),
+            entitlementService: GateTestEntitlementService(
+                identity: MonetizationIdentityTransition(revision: 1, userID: "user-a")
+            ),
+            paywallPresenter: presenter,
+            appAccessReconciler: GateTestReconciler(),
+            freeWeek: FreeWeekTestHarness(isEnabled: false).store,
             telemetry: makeTestTelemetry(sink: InMemoryTelemetrySink(destination: .analytics))
         )
         let controller = UIHostingController(
@@ -30,18 +36,14 @@ struct LockedOutSubscriberRecoveryEvidenceTests {
         controller.overrideUserInterfaceStyle = .dark
 
         try await RenderedScreen.host(controller) { screen in
-            _ = try await settledAccessibilityElements(under: controller.view) { elements in
-                elements.contains { $0.accessibilityLabel == "Delete account" }
-            }
-            try await screen.settle()
+            #expect(await gateWaitUntil { presenter.placements == [.appAccessGate] })
+            presenter.send(.presented, registration: 0)
+            // Behind the hosted paywall the gate is a spinner: no plan, no link, no line of copy.
+            try await expectOnlyTheGateSpinner(on: screen, "the locked-out gate")
+            try screen.photograph(named: "locked-out-gate-spinner")
 
-            let gateText = try await screen.copy { $0.contains("delete account") }
-            try screen.photograph(named: "locked-out-gate-deletion-link")
-            #expect(gateText.contains("choose your ascend plan"))
-            #expect(gateText.contains("delete account"))
-            #expect(gateText.contains("sign out"))
-
-            try activateAccessibilityElement(labelled: "Delete account", in: controller.view)
+            // The hosted paywall's DELETE ACCOUNT, which Ascend has dismissed the paywall to answer.
+            presenter.send(.deleteAccountRequested, registration: 0)
 
             let sheet = try await presentedSheet(of: controller)
             _ = try await settledAccessibilityElements(under: sheet.view) { elements in
@@ -118,14 +120,13 @@ struct LockedOutSubscriberRecoveryEvidenceTests {
     }
 }
 
-/// The gate wired the way `RootView` wires it: the link presents the real deletion dialog.
+/// The gate wired the way `RootView` wires it: the hosted control presents the real deletion dialog.
 private struct LockedOutGateJourneyHarness: View {
     let monetizationManager: MonetizationManager
     @State private var isShowingDeletion = false
 
     var body: some View {
         AppAccessPaywallPlaceholderView(
-            initialPhase: .failed,
             onDeleteAccount: { isShowingDeletion = true },
             onSignOut: {}
         )

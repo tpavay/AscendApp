@@ -54,7 +54,7 @@ export const SETTING_PARAMETERS = Object.freeze({
  * until the captain turns it on. `gear_drop_push_enabled` is the second: the gear push stays silent
  * until the captain decides the consent question for climbers who opted in to climb alerts only.
  * `free_week_after_decline_enabled` is the third: the founder letter and the server-granted free
- * week stay dark, and the gate keeps its plan picker, until the captain turns it on.
+ * week stay dark, and a decline reopens the paywall, until the captain turns it on.
  */
 export const ROLLOUT_PARAMETERS = Object.freeze({
   onboarding_v3_enabled: Object.freeze({ healthyDefault: "false" }),

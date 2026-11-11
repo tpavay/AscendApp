@@ -30,11 +30,18 @@ struct HostedPurchaseRecoveryIntegrationTests {
 
         #expect(result == .pending)
         #expect(harness.dismissal.count == 1)
-        #expect(harness.coordinator.phase == .pendingApproval)
-        #expect(harness.coordinator.disablesPurchase)
         #expect(harness.terminals.count == 1)
         #expect(harness.terminals[0].parameters["gate_attempt_id"] != nil)
         #expect(harness.terminals[0].parameters["provider_outcome"] == .string("pending_approval"))
+
+        // Approval is a person's decision, so the gate checks access once and then puts the
+        // paywall back. It is registered behind the recovery's own dismissal, which would
+        // otherwise close it.
+        await waitUntil { harness.coordinator.phase == .openingHosted }
+        await harness.presenter.drainPresentationOperationsForTesting()
+        #expect(harness.registrations == ["app_access_gate"])
+        #expect(harness.dismissal.count == 1)
+        #expect(harness.manager.pendingPurchaseHold == nil)
 
         harness.presenter.handleDismissForTesting(
             revision: harness.presenterRevision,
@@ -44,11 +51,10 @@ struct HostedPurchaseRecoveryIntegrationTests {
 
         harness.coordinator.entitlementDidChange(.active(["app_access"]))
         #expect(harness.coordinator.phase == .accessConfirmed)
-        #expect(harness.coordinator.showsPurchaseControls == false)
     }
 
     @Test
-    func unconfirmedHostedPurchaseReturnsFailedButDismissesIntoVerificationWithoutRepurchase() async {
+    func unconfirmedHostedPurchaseReturnsFailedButDismissesIntoTheAccessCheckWithoutRepurchase() async {
         let harness = makeHarness()
         harness.openHostedPresentation()
         harness.contextStore.record(
@@ -74,8 +80,10 @@ struct HostedPurchaseRecoveryIntegrationTests {
         }
         #expect(error is RevenueCatPurchaseControllerError)
         #expect(harness.dismissal.count == 1)
-        #expect(harness.coordinator.phase == .verificationUnavailable)
-        #expect(harness.coordinator.disablesPurchase)
+        // Behind the spinner, re-reading access on the schedule, with nothing on offer.
+        #expect(harness.coordinator.phase == .confirmingAccess)
+        await harness.presenter.drainPresentationOperationsForTesting()
+        #expect(harness.registrations.isEmpty)
         #expect(harness.terminals.count == 1)
         #expect(
             harness.terminals[0].parameters["provider_outcome"]
@@ -328,7 +336,6 @@ struct HostedPurchaseRecoveryIntegrationTests {
 
         harness.openOffer()
         #expect(harness.coordinator.phase == .hostedPresented)
-        #expect(harness.coordinator.showsPurchaseControls == false)
         #expect(harness.terminals.isEmpty)
     }
 
@@ -427,7 +434,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
         _ = await harness.controller.resolveHostedExecution(execution)
 
         #expect(harness.manager.pendingPurchaseHold == .unconfirmedCharge)
-        #expect(harness.coordinator.phase == .verificationUnavailable)
+        #expect(harness.coordinator.phase == .confirmingAccess)
         #expect(harness.dismissal.count == 1)
     }
 
@@ -479,7 +486,10 @@ struct HostedPurchaseRecoveryIntegrationTests {
             revision: harness.presenterRevision,
             result: .declined
         )
-        #expect(harness.coordinator.phase == .loadingNative)
+        // Closing the offer is closing the last paid offer: with no free week, the paywall again.
+        #expect(harness.coordinator.phase == .openingHosted)
+        await harness.presenter.drainPresentationOperationsForTesting()
+        #expect(harness.registrations == ["app_access_gate"])
         #expect(reopenCount == 0)
         #expect(harness.sink.records.contains { $0.name == "onboarding_back_tapped" } == false)
     }
@@ -513,8 +523,9 @@ struct HostedPurchaseRecoveryIntegrationTests {
             )
 
             #expect(reopenCount == 0)
-            #expect(harness.coordinator.phase == .loadingNative)
-            #expect(harness.coordinator.statusMessage == "No purchase was made. Choose a plan below.")
+            #expect(harness.coordinator.phase == .openingHosted)
+            await harness.presenter.drainPresentationOperationsForTesting()
+            #expect(harness.registrations == ["app_access_gate"])
             #expect(harness.sink.records.contains { $0.name == "onboarding_back_tapped" } == false)
         }
     }
@@ -539,7 +550,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
     }
 
     @Test
-    func anAskToBuyInTheOfferLandsOnTheNonRepurchaseStateAndStaysThereAfterARelaunch() async {
+    func anAskToBuyInTheOfferIsCheckedOnceAndThenThePaywallComesBack() async {
         let harness = makeHarness()
         harness.openHostedPresentation()
         harness.closeFirstPaywallForOffer()
@@ -561,21 +572,33 @@ struct HostedPurchaseRecoveryIntegrationTests {
 
         #expect(result == .pending)
         #expect(harness.dismissal.count == 1)
-        #expect(harness.coordinator.phase == .pendingApproval)
-        #expect(harness.coordinator.disablesPurchase)
         #expect(harness.sink.records.contains { $0.name == "hosted_purchase_recovery_refused" } == false)
-        #expect(harness.manager.pendingPurchaseHold == .askToBuy)
+        await waitUntil { harness.coordinator.phase == .openingHosted }
+        await harness.presenter.drainPresentationOperationsForTesting()
+        #expect(harness.registrations == ["app_access_gate"])
+        #expect(harness.manager.pendingPurchaseHold == nil)
+    }
+
+    /// A hold the last launch left behind is checked before anything is offered, and an Ask to Buy
+    /// is not waited on: one read, then the paywall.
+    @Test
+    func anAskToBuyLeftByTheLastLaunchIsCheckedOnceBeforeThePaywallOpens() async {
+        let harness = makeHarness()
+        harness.manager.holdPendingPurchase(.askToBuy)
 
         let relaunched = harness.relaunchedCoordinator()
         relaunched.start()
-        #expect(relaunched.phase == .pendingApproval)
-        #expect(relaunched.showsPurchaseControls == false)
+        #expect(relaunched.phase == .confirmingAccess)
+        #expect(harness.registrations.isEmpty, "nothing is offered before access is read")
+
+        await waitUntil { relaunched.phase == .openingHosted }
         await harness.presenter.drainPresentationOperationsForTesting()
-        #expect(harness.registrations.isEmpty, "a relaunch under a hold opens no paywall")
+        #expect(harness.registrations == ["app_access_gate"])
+        #expect(harness.manager.pendingPurchaseHold == nil)
     }
 
     @Test
-    func anUnconfirmedChargeInTheOfferLandsOnTheNonRepurchaseStateAndStaysThereAfterARelaunch() async {
+    func anUnconfirmedChargeInTheOfferIsCheckedBehindTheSpinnerAndStillIsAfterARelaunch() async {
         let harness = makeHarness()
         harness.openHostedPresentation()
         harness.closeFirstPaywallForOffer()
@@ -600,17 +623,21 @@ struct HostedPurchaseRecoveryIntegrationTests {
             return
         }
         #expect(harness.dismissal.count == 1)
-        #expect(harness.coordinator.phase == .verificationUnavailable)
+        #expect(harness.coordinator.phase == .confirmingAccess)
         #expect(harness.manager.pendingPurchaseHold == .unconfirmedCharge)
 
         let relaunched = harness.relaunchedCoordinator()
         relaunched.start()
-        #expect(relaunched.phase == .verificationUnavailable)
-        #expect(relaunched.showsPurchaseControls == false)
+        #expect(relaunched.phase == .confirmingAccess)
+        await harness.presenter.drainPresentationOperationsForTesting()
+        #expect(
+            harness.registrations.isEmpty,
+            "a relaunch under a charge hold opens no paywall while access is still being read"
+        )
     }
 
     @Test
-    func aHoldTheGateNeverHeardAboutStillRefusesThePlanListWhenThePaywallCloses() {
+    func aHoldTheGateNeverHeardAboutIsCheckedForAccessWhenThePaywallCloses() {
         let harness = makeHarness()
         harness.openHostedPresentation()
         harness.manager.holdPendingPurchase(.unconfirmedCharge)
@@ -620,9 +647,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
             result: .declined
         )
 
-        #expect(harness.coordinator.phase == .verificationUnavailable)
-        #expect(harness.coordinator.showsPurchaseControls == false)
-        #expect(harness.coordinator.disablesPurchase)
+        #expect(harness.coordinator.phase == .confirmingAccess)
         #expect(harness.terminals.last?.parameters["provider_outcome"] == .string("verification_unavailable"))
     }
 
@@ -643,7 +668,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
     }
 
     @Test
-    func closingTheOfferWithoutBuyingLandsOnThePlanListOnlyWhenNothingIsHeld() async {
+    func closingTheOfferWithoutBuyingReopensThePaywallWhenNothingIsHeld() async {
         let harness = makeHarness()
         harness.openHostedPresentation()
         harness.closeFirstPaywallForOffer()
@@ -654,20 +679,31 @@ struct HostedPurchaseRecoveryIntegrationTests {
             result: .declined
         )
 
-        #expect(harness.coordinator.phase == .loadingNative)
-        #expect(harness.coordinator.statusMessage == "No purchase was made. Choose a plan below.")
+        #expect(harness.coordinator.phase == .openingHosted)
+        await harness.presenter.drainPresentationOperationsForTesting()
+        #expect(harness.registrations == ["app_access_gate"])
+        #expect(harness.terminals.last?.parameters["provider_outcome"] == .string("paywall_floor"))
     }
 
     @Test
-    func theOfferNeverOpeningFallsBackRatherThanStrandingTheClimber() async {
-        let harness = makeHarness(watchdogFires: true)
+    func theOfferNeverOpeningIsRetriedRatherThanStrandingTheClimber() async {
+        let clock = GateTestClock()
+        let harness = makeHarness(clock: clock)
         harness.openHostedPresentation()
 
         harness.closeFirstPaywallForOffer()
+        #expect(harness.coordinator.phase == .openingHosted)
+        await clock.fire(gateOpeningDeadline)
 
-        await waitUntil { harness.coordinator.phase != .openingHosted }
-        #expect(harness.coordinator.phase == .loadingNative || harness.coordinator.phase == .failed)
+        await waitUntil { harness.coordinator.phase == .awaitingHostedRetry }
         await waitUntil { harness.dismissal.count > 0 }
+        #expect(harness.terminals.last?.parameters["provider_outcome"] == .string("hosted_unavailable"))
+        #expect(harness.terminals.last?.parameters["recovery_reason"] == .string("watchdog_timeout"))
+
+        await clock.fire(.seconds(101))
+        await waitUntil { harness.coordinator.phase == .openingHosted }
+        await harness.presenter.drainPresentationOperationsForTesting()
+        #expect(harness.registrations == ["app_access_gate"])
     }
 
     @Test
@@ -683,26 +719,6 @@ struct HostedPurchaseRecoveryIntegrationTests {
 
         #expect(harness.dismissal.count == 1)
         #expect(deletionRequests == 1)
-    }
-
-    @Test
-    func aRestoreThatFindsNothingEndsAnAskToBuyHoldButNeverAChargeHold() async {
-        let cases: [(PendingPurchaseHold, PendingPurchaseHold?, AppAccessGatePhase)] = [
-            (.askToBuy, nil, .failed),
-            (.unconfirmedCharge, .unconfirmedCharge, .verificationUnavailable)
-        ]
-        for (hold, expectedHold, expectedPhase) in cases {
-            let harness = makeHarness()
-            harness.manager.holdPendingPurchase(hold)
-            let gate = harness.relaunchedCoordinator()
-            gate.start()
-
-            gate.restore()
-            await waitUntil { gate.restoreState != .restoring }
-
-            #expect(harness.manager.pendingPurchaseHold == expectedHold)
-            #expect(gate.phase == expectedPhase)
-        }
     }
 
     @Test
@@ -734,7 +750,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
 
     private func makeHarness(
         identityMatchesPurchase: Bool = true,
-        watchdogFires: Bool = false,
+        clock: GateTestClock? = nil,
         onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
         onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         transactionIDs: [UInt64?] = [],
@@ -800,6 +816,8 @@ struct HostedPurchaseRecoveryIntegrationTests {
             configuration: HostedHarness.configuration,
             entitlementService: entitlements,
             paywallPresenter: presenter,
+            // No free week here, so closing the last paid offer is the paywall reopening.
+            freeWeek: FreeWeekTestHarness(isEnabled: false).store,
             telemetry: telemetry,
             onboardingLifecycle: lifecycle,
             userDefaults: UserDefaults(
@@ -807,23 +825,19 @@ struct HostedPurchaseRecoveryIntegrationTests {
             )!
         )
         router.manager = manager
+        // Without a clock to fire, no deadline or retry ever lands inside a test.
+        let neverFires: AppAccessPaywallCoordinator.Sleep = { _ in
+            try await Task.sleep(for: .seconds(3_600))
+        }
+        let sleep = clock?.sleep ?? neverFires
         let makeCoordinator: @MainActor () -> AppAccessPaywallCoordinator = {
             AppAccessPaywallCoordinator(
                 monetizationManager: manager,
-                nativeProvider: HostedNativeProvider(),
-                restoreService: AppAccessRestoreService(
-                    telemetry: telemetry,
-                    entitlementID: "app_access",
-                    restorer: { manager }
-                ),
                 telemetry: telemetry,
                 onRequestOnboardingBack: onRequestOnboardingBack,
                 onRequestAccountDeletion: onRequestAccountDeletion,
-                sleep: { @Sendable _ in
-                    guard !watchdogFires else { return }
-                    try await Task.sleep(for: .seconds(3_600))
-                },
-                nativeLoadSleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
+                retryPolicy: .test,
+                sleep: sleep
             )
         }
         let presentationID = "presentation-123"
@@ -974,6 +988,10 @@ private final class HostedHarness {
         makeCoordinator()
     }
 
+    /// The placements Superwall was actually asked for after the hosted presentation was opened.
+    /// `openHostedPresentation()` takes over the attempt the gate's own `start()` began, so that
+    /// first registration is superseded before it runs and is not here: every entry is the gate
+    /// asking again.
     var registrations: [String] { registrationRecorder.placements }
 }
 
@@ -1104,12 +1122,6 @@ private final class HostedEntitlementService: EntitlementServicing {
     }
     func restorePurchases(for identity: MonetizationIdentityTransition) async -> MonetizationEntitlementState { entitlementState }
     func restorePurchases() async -> MonetizationEntitlementState { entitlementState }
-}
-
-@MainActor
-private final class HostedNativeProvider: NativePaywallPlanProviding {
-    func loadPlans() async throws -> [NativePaywallPlan] { [] }
-    func purchase(planID: String) async -> PurchaseResult { .cancelled }
 }
 
 @MainActor

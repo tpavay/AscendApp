@@ -11,30 +11,15 @@ struct AppAccessResolvingView: View {
     @State private var isRetrying = false
 
     var body: some View {
-        Group {
-            if monetizationManager.hasFailedIdentityResolution && !isRetrying {
-                recoveryContent
-            } else {
-                loadingContent
-            }
+        if monetizationManager.hasFailedIdentityResolution && !isRetrying {
+            recoveryContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .themedBackground()
+        } else {
+            // The same spinner the gate draws, so the wait before the paywall and the wait behind
+            // it are one screen.
+            AppAccessSpinnerView()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .themedBackground()
-    }
-
-    private var loadingContent: some View {
-        VStack(spacing: 16) {
-            AscendLoadingIndicator()
-
-            Text("Checking your access")
-                .font(.montserratMedium(size: 15))
-                .foregroundStyle(.white.opacity(0.68))
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, 28)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Checking your access.")
-        .accessibilityIdentifier("appAccessResolvingLoading")
     }
 
     private var recoveryContent: some View {

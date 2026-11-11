@@ -11,41 +11,79 @@ import Testing
 /// requirement rather than a preference that may be traded away in a later redesign.
 struct LockedOutSubscriberRecoveryContractTests {
     /// Guideline 5.1.1(v) admits no paid-status exception: the gate is the only screen this climber
-    /// can reach, so account deletion has to leave from it.
+    /// can reach, so account deletion has to leave from it. The gate draws nothing but a spinner,
+    /// so the control is the hosted paywall's `DELETE ACCOUNT`, and what is pinned here is that
+    /// the gate answers it with the closure `RootView` hands it.
     @Test
-    func theAppAccessGateRoutesToAccountDeletion() throws {
+    func theAppAccessGateRoutesTheHostedDeletionControlToAccountDeletion() throws {
         let gate = try source(
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
+        )
+        let coordinator = try source(
+            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallCoordinator.swift"
         )
 
         #expect(gate.contains("onDeleteAccount: @escaping @MainActor () -> Void"))
-        #expect(gate.contains("Button(action: onDeleteAccount)"))
-        #expect(gate.contains("Text(\"Delete account\")"))
-        #expect(gate.contains(".accessibilityIdentifier(\"appAccessDeleteAccount\")"))
-        // The hosted Superwall paywall covers this screen for most of a locked-out climber's
-        // session, and its own DELETE ACCOUNT control has to reach the same dialog. One closure
-        // serves both, so the two routes cannot drift to different destinations.
         #expect(gate.contains("onRequestAccountDeletion: onDeleteAccount"))
+        #expect(gate.contains("onRequestSignOut: onSignOut"))
+        let answer = try #require(
+            coordinator
+                .range(of: "case .deleteAccountRequested:")
+                .map { String(coordinator[$0.lowerBound...].prefix(900)) }
+        )
+        #expect(answer.contains("onRequestAccountDeletion?()"))
+        // Backing out of the dialog has to put the paywall back, or the climber is left on a
+        // spinner with no way to reach the control again.
+        #expect(gate.contains("coordinator.accountDeletionDialogDismissed()"))
     }
 
-    /// The deletion link stays subordinate to subscribe and restore: it is the way out, not the
-    /// offer. A promoted button here would read as the gate's recommended action.
+    /// The gate is a spinner and the coordinator that puts hosted screens over it. Anything a
+    /// climber reads or taps there is a Superwall screen, so the gate's own view may not grow
+    /// copy or a control, and neither may the spinner it draws.
     @Test
-    func theDeletionLinkStaysQuieterThanSubscribeAndRestore() throws {
+    func theGateDrawsNothingButTheSpinner() throws {
         let gate = try source(
             at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
         )
+        let spinner = try source(
+            at: "AscendApp/Features/Monetization/Paywall/AppAccessSpinnerView.swift"
+        )
 
-        let restoreIndex = try #require(gate.range(of: "coordinator.restore()")).lowerBound
-        let deleteIndex = try #require(gate.range(of: "Button(action: onDeleteAccount)")).lowerBound
-        #expect(restoreIndex < deleteIndex, "Deletion must sit beneath Restore Purchases")
+        #expect(gate.contains("AppAccessSpinnerView()"))
+        #expect(spinner.contains("ProgressView()"))
+        for view in [gate, spinner] {
+            for drawn in ["Text(", "Button(", "Link(", "Label(", "Image(", "TextField(", ".sheet(", ".alert("] {
+                #expect(!view.contains(drawn), "The gate must not draw \(drawn)")
+            }
+        }
+    }
 
-        let link = try #require(gate.range(of: "Button(action: onDeleteAccount)"))
-        let linkBlock = String(gate[link.lowerBound...].prefix(400))
-        #expect(linkBlock.contains("montserratMedium(size: 13)"))
-        #expect(!linkBlock.contains("Color.ascendAccent"))
-        // A 44pt row keeps the quiet type from shrinking the tap target below the HIG minimum.
-        #expect(linkBlock.contains("minHeight: 44"))
+    /// The plan picker and its interstitials are gone from the app, not hidden: none of their
+    /// copy may come back in any Swift file the app ships, and none of their types either.
+    @Test
+    func noPlanPickerOrGateInterstitialCopyExistsAnywhereInTheApp() throws {
+        let forbiddenCopy = [
+            "Choose your", "Choose a plan", "Loading plans", "One moment",
+            "Opening plans", "Checking your access", "Plans are unavailable",
+            "Plans took too long", "Plans could not open. Choose", "Load Plans Again",
+            "Check Access", "Access confirmed"
+        ]
+        let forbiddenTypes = [
+            "NativePaywallPlan", "RevenueCatNativePaywallPlanProvider", "AppAccessRestoreState",
+            "beginNativeFallback", "plansReadyMessage"
+        ]
+        let appRoot = projectRoot.appending(path: "AscendApp", directoryHint: .isDirectory)
+        let files = try #require(
+            FileManager.default.enumerator(at: appRoot, includingPropertiesForKeys: nil)
+        ).compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+        #expect(files.count > 500, "The scan did not reach the app's sources: \(files.count) files")
+
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for phrase in forbiddenCopy + forbiddenTypes where text.contains(phrase) {
+                Issue.record("\(file.lastPathComponent) still carries \"\(phrase)\"")
+            }
+        }
     }
 
     /// The lockout resolves above the entitlement gate and absorbs the whole app, so the same

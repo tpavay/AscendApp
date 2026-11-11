@@ -7,7 +7,7 @@ import SuperwallKit
 /// and never in the message.
 ///
 /// Superwall renders `errorDescription` verbatim in its purchase-failure alert, and Ascend's own
-/// account-settings and app-access-gate restore surfaces render the matching copy. Superwall's
+/// account-settings restore surface renders the matching copy. Superwall's
 /// *restore*-failure alert is the exception: it presents `options.paywalls.restoreFailed` and
 /// discards the error it was handed, so `noPurchasesFound` never reaches a climber on the paywall -
 /// `SuperwallPaywallPresenter.makeOptions` writes that alert's copy instead.

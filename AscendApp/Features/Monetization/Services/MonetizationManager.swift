@@ -5,9 +5,6 @@ import Observation
 @Observable
 final class MonetizationManager: MonetizationIdentityManaging {
     static let shared = MonetizationManager()
-    #if DEBUG
-    private static let debugForcesAppAccessPaywallKey = "debug.monetization.forceAppAccessPaywall"
-    #endif
 
     private let entitlementService: any EntitlementServicing
     private let paywallPresenter: any PaywallPresenting
@@ -15,7 +12,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
     /// The server-granted free week, for the account this manager is identified as.
     let freeWeek: FreeWeekAccessStore
     private let telemetry: TelemetryManager
-    private let userDefaults: UserDefaults
     private let pendingPurchaseHoldStore: PendingPurchaseHoldStore
     private let verdictBudget: MonetizationVerdictBudget
     private let unattributedGrantSettleDelay: Duration
@@ -37,7 +33,9 @@ final class MonetizationManager: MonetizationIdentityManaging {
     )?
     private(set) var configuration: MonetizationConfiguration
     #if DEBUG
-    private(set) var debugForcesAppAccessPaywall: Bool
+    /// Held in memory only, so relaunching is the way out of a forced gate: the gate is a spinner
+    /// behind hosted screens, and neither can carry a control that clears a debug override.
+    private(set) var debugForcesAppAccessPaywall = false
     #endif
 
     var entitlementState: MonetizationEntitlementState {
@@ -148,14 +146,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
         )
         self.telemetry = telemetry
         self.onboardingLifecycle = onboardingLifecycle
-        self.userDefaults = userDefaults
         pendingPurchaseHoldStore = PendingPurchaseHoldStore(userDefaults: userDefaults)
         self.verdictBudget = verdictBudget
-        #if DEBUG
-        debugForcesAppAccessPaywall = userDefaults.bool(
-            forKey: MonetizationManager.debugForcesAppAccessPaywallKey
-        )
-        #endif
     }
 
     func configure(configuration: MonetizationConfiguration = .live) {
@@ -475,7 +467,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
     #if DEBUG
     func setDebugForcesAppAccessPaywall(_ shouldForce: Bool) {
         debugForcesAppAccessPaywall = shouldForce
-        userDefaults.set(shouldForce, forKey: Self.debugForcesAppAccessPaywallKey)
     }
     #endif
 

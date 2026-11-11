@@ -278,7 +278,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
                 ),
                 identity: registration.identity
             )
-            onOutcome(.failed(message: "Plans could not open."))
+            onOutcome(.failed(message: "Superwall could not present the placement."))
             self.registrations[revision] = nil
         }
 

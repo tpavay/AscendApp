@@ -91,7 +91,7 @@ final class RevenueCatPurchaseExecutor {
         let storedContext = transactionContextStore.takeContext(for: productID)
         let context = storedContext?.analytics
             ?? RevenueCatPurchaseAnalyticsContext(placement: nil, presentationID: nil)
-        // A hosted/native CTA owns the attempt before RevenueCat is invoked. Falling back to the
+        // A hosted CTA owns the attempt before RevenueCat is invoked. Falling back to the
         // current generation is only for call sites that did not carry presentation context.
         let purchaseIdentity = storedContext?.identity ?? currentIdentityGeneration()
         func finish(_ result: PurchaseResult) -> Execution {

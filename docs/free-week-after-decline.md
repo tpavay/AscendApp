@@ -1,6 +1,6 @@
 # Free week after decline
 
-A climber who closes every paid offer at the app-access gate used to land on the native plan picker, whose only other ways out were deleting the account or signing out.
+Ascend is a hard paywall, so a climber who closes every paid offer at the app-access gate gets the paywall again.
 With `free_week_after_decline_enabled` on, that climber is shown a letter from the founder and let into the app for seven days instead, with nothing bought, nothing charged and nothing to cancel.
 
 This is not an Apple introductory offer.
@@ -12,7 +12,7 @@ It is a server-granted access window: Apple, StoreKit and RevenueCat never hear 
 1. Sign-in, then the app-access gate: the Superwall paywall on `app_access_gate` (the Lifetime design).
 2. They close it. Superwall's `paywall_decline` campaign shows the welcome offer.
 3. They close that too. The app registers the `founder_letter` placement and Superwall shows the letter.
-4. They close the letter, by its button or its X. The app calls `startFreeWeek`, shows the gate's loading state until the server answers, and opens the app.
+4. They close the letter, by its button or its X. The app calls `startFreeWeek`, shows the gate's spinner until the server answers, and opens the app.
 
 Nothing is tapped after step 4.
 The week is already running when the main app appears.
@@ -20,18 +20,22 @@ The week is already running when the main app appears.
 Seven days later the gate comes back, and from then on the funnel is: Lifetime paywall, decline, welcome offer, decline, Lifetime paywall again.
 The hosted paywall is the floor.
 It carries its own Restore, `DELETE ACCOUNT` and Sign out controls, so Guideline 5.1.1(v) is still met from it, and declining it only reopens it.
-Sign out (`sign_out`) is how a climber signed into the wrong account leaves it without deleting it: the native gate's own Sign Out is no longer reachable once the floor is the hosted paywall, and Firebase Auth survives a reinstall.
+Sign out (`sign_out`) is how a climber signed into the wrong account leaves it without deleting it: the gate behind the paywall draws no control of its own, and Firebase Auth survives a reinstall.
 Ascend answers it exactly as it answers `DELETE ACCOUNT`, from the first paywall, the decline offer, the floor, and the letter alike, and a `sign_out` from the letter signs out rather than starting the week.
 Paying at that paywall restores the account exactly as it was: nothing about the climber's data is tied to the week, and a lapsed account keeps its climbs, records and history (`docs/revenuecat-server-entitlement-enforcement.md`, "Backend choke points").
 
-The native plan picker remains for two cases only:
+The gate has no screen of its own to fall back to: between and behind the hosted screens it draws a spinner and nothing else (`docs/superwall-paywall-setup.md`, "The gate draws a spinner and nothing else").
+So the two things that can go wrong end on a hosted screen too:
 
 - Superwall could not present the paid paywall at all (`skipped`, an error, or the 8-second opening deadline).
-- The free week could not be started: `startFreeWeek` failed twice, the server refused because the rollout is off, or the account's record could not be read.
-  The picker opens with its usual line, `No purchase was made. Choose a plan below.`, so nobody is left on a spinner.
+  The gate keeps its spinner and asks again on a backoff, and at once when the app returns to the foreground.
+  That is not a decline, and no week is offered for it.
+- The free week could not be started: `startFreeWeek` failed, the server refused because the rollout is off, or the account's record could not be read.
+  The gate asks again after 2, 4 and 8 seconds, and then reopens the paid paywall.
+  Declining that paywall asks for the week again, so a server that has recovered grants it then.
 
 A pending purchase still outranks everything.
-A climber Apple may already have charged is told to wait, never offered a free week on top (`PendingPurchaseHoldStore`).
+A climber Apple may already have charged is checked for access behind the spinner, never offered a free week on top (`PendingPurchaseHoldStore`).
 
 ## The letter is a courtesy, the access is the promise
 
@@ -106,7 +110,7 @@ The record and the grant are written in one transaction.
 | `paid_active` | A grant that is not a free week | Nothing. The week is not spent |
 | `disabled` | The rollout is off for everybody | Nothing |
 
-A retried call inside the week returns the same week, which is what makes the app's one retry safe.
+A retried call inside the week returns the same week, which is what makes the app's retries safe.
 
 ### Capacity and cost
 
@@ -128,7 +132,7 @@ What does grow with the audience:
 
 `free_week_after_decline_enabled` is a rollout and ships off (`docs/remote-config-kill-switches.md`).
 
-Off is the gate exactly as it was: a decline lands on the plan picker, the app registers no letter, reads no record, calls no function, and honours no week, a running one included.
+Off is the hard paywall: a decline reopens the hosted paywall, the app registers no letter, reads no record, calls no function, and honours no week, a running one included.
 That last part is deliberate.
 The switch is the only undo an iOS binary has, so off has to stop the feature's routing as well as its grants.
 Nothing is deleted: the server grant stays until it expires, and turning the switch back on honours whatever is left of a week.
@@ -138,7 +142,7 @@ The app takes the value Remote Config resolved for that device, conditions inclu
 The server cannot evaluate a condition, so it asks the one question it can: is the switch on for anybody.
 Off everywhere is therefore a hard stop that reaches a build still holding a stale `true`.
 A function that cannot read the template grants nothing, and logs `startFreeWeek could not read its Remote Config switch`.
-It is the same template read `announceGearDrops` already makes every five minutes with the same runtime identity, which answered cleanly in staging on 2026-11-10 (`detectionError: null`), so no new IAM grant is expected; that log line is the thing to look for if every grant falls through to the plan picker.
+It is the same template read `announceGearDrops` already makes every five minutes with the same runtime identity, which answered cleanly in staging on 2026-11-10 (`detectionError: null`), so no new IAM grant is expected; that log line is the thing to look for if every decline ends back on the paywall instead of in the app.
 
 ## In the app
 
@@ -171,7 +175,9 @@ They stay at zero until the switch is on in production.
 Also:
 
 - `onboarding_flow_completed` reports `completion_reason: free_week` for a climber let in on the week.
-- `app_access_gate_attempt_terminal` reports `provider_outcome: free_week_offered` when the letter is offered and `paywall_floor` when a spent week reopens the paywall, and `recovery_reason: free_week_unavailable` when the week could not be started.
+- `app_access_gate_attempt_terminal` reports `provider_outcome: free_week_offered` when the letter is offered and `paywall_floor` when a decline reopens the paywall - a spent week, the switch off, or `recovery_reason: free_week_unavailable` when the account's record could not be read.
+  A week that could not be started has already reported `free_week_offered`, so it shows as the next `paywall_reached` carrying `source: free_week_unavailable`.
+  A paywall Superwall could not present reports `provider_outcome: hosted_unavailable`, and the attempt that follows carries `source: presentation_retry` or `foreground_retry`.
   A `sign_out` from the hosted paywall reports `provider_outcome: sign_out_requested` with `recovery_reason: hosted_sign_out_requested`.
 - The letter itself reports through `SuperwallEventRelay` like every hosted screen, as `sw_paywall_open` and `sw_paywall_close` with `placement: founder_letter`.
 - The `has_app_access` user property still means a paid entitlement. A climber on their week reads `false`.

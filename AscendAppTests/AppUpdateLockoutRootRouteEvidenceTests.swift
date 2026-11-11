@@ -45,10 +45,9 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
         controller.overrideUserInterfaceStyle = .dark
 
         try await RenderedScreen.host(controller) { screen in
-            let paywallText = try await screen.copy { $0.contains("choose your ascend plan") }
+            // The gate is a spinner behind Superwall's paywall, and nothing of the lockout.
+            try await expectOnlyTheGateSpinner(on: screen, "the unentitled paywall gate")
             try screen.photograph(named: "root-route-unentitled-01-paywall-gate")
-            #expect(paywallText.contains("choose your ascend plan"))
-            #expect(!paywallText.contains("update required"))
 
             // The operator retires this build. No relaunch, no foreground - the listener lands it.
             source.setAppVersionValues([
@@ -68,8 +67,10 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
             #expect(lockoutText.contains("update required"))
             #expect(lockoutText.contains("update on the app store"))
             // The paywall gate is gone from the screen, not merely covered by something over it.
-            #expect(!lockoutText.contains("choose your ascend plan"))
-            #expect(!lockoutText.contains("restore purchases"))
+            #expect(
+                !screen.isGateSpinnerMounted,
+                "The gate's spinner is still mounted under the lockout"
+            )
             #expect(
                 controller.presentedViewController == nil,
                 "Something was presented over the refusal"
@@ -174,8 +175,8 @@ struct AppUpdateLockoutRootRouteEvidenceTests {
             try screen.photograph(named: "root-route-soft-nudge-sheet")
             #expect(text.contains("a newer version is ready"))
             #expect(text.contains("later"))
-            // Still a sheet: the gate it opened over is visible behind it.
-            #expect(text.contains("choose your ascend plan"))
+            // Still a sheet: the gate it opened over is mounted behind it.
+            #expect(screen.isGateSpinnerMounted)
 
             let sheet = try #require(controller.presentedViewController)
             #expect(sheet.isModalInPresentation == false)
@@ -225,10 +226,7 @@ private struct RootRouteEvidenceHarness: View {
             case .updateRequired:
                 AppUpdateRequiredView(onOpenAppStore: {}, onDeleteAccount: {})
             case .paywall:
-                AppAccessPaywallPlaceholderView(
-                    initialPhase: .failed,
-                    onDeleteAccount: {}
-                )
+                AppAccessPaywallPlaceholderView(onDeleteAccount: {})
             default:
                 Color.black
             }

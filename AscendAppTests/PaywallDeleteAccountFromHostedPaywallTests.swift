@@ -1,5 +1,4 @@
 import Foundation
-import enum SuperwallKit.PurchaseResult
 import Testing
 @testable import AscendApp
 
@@ -204,16 +203,17 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
 
     @MainActor
     @Test
-    func deleteAccountOpensTheAccountDeletionDialogWithoutLoadingTheNativePlanList() {
+    func deleteAccountOpensTheAccountDeletionDialogAndAsksSuperwallForNothingElse() {
         let harness = GateDeleteAccountHarness()
 
         harness.openHostedPaywall()
         harness.coordinator.handleHostedOutcomeForTesting(.deleteAccountRequested)
 
         #expect(harness.deletionRequestCount == 1)
-        #expect(harness.nativeProvider.loadCount == 0)
-        // The phase deliberately does not move: a change here would announce "Loading subscription
-        // options." over the deletion dialog to a VoiceOver climber.
+        #expect(harness.presenter.registrationCount == 1)
+        // The phase deliberately does not move: the deletion dialog covers the gate, and
+        // `accountDeletionDialogDismissed()` reads this phase to know there is a paywall to bring
+        // back.
         #expect(harness.coordinator.phase == .hostedPresented)
 
         let terminals = harness.gateTerminals
@@ -225,10 +225,10 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
         )
     }
 
-    /// The hosted paywall's Sign out signs out through the gate's own closure, never the plan list.
+    /// The hosted paywall's Sign out signs out through the closure the gate was given.
     @MainActor
     @Test
-    func signOutSignsTheClimberOutWithoutLoadingTheNativePlanList() {
+    func signOutSignsTheClimberOutAndAsksSuperwallForNothingElse() {
         let harness = GateDeleteAccountHarness()
 
         harness.openHostedPaywall()
@@ -236,7 +236,6 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
 
         #expect(harness.signOutRequestCount == 1)
         #expect(harness.deletionRequestCount == 0)
-        #expect(harness.nativeProvider.loadCount == 0)
         #expect(harness.presenter.registrationCount == 1)
         #expect(harness.coordinator.phase == .hostedPresented)
 
@@ -258,13 +257,12 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
         harness.coordinator.handleHostedOutcomeForTesting(.signOutRequested)
 
         #expect(harness.signOutRequestCount == 1)
-        #expect(harness.nativeProvider.loadCount == 0)
         #expect(harness.gateTerminals.count == 1)
     }
 
     /// Ascend dismissed the paywall to raise the dialog, so backing out of the deletion has to put
-    /// the climber back on it. Cancelling a deletion means nothing happened - not a plan list, and
-    /// not an opening spinner with no controls at all.
+    /// the climber back on it. Cancelling a deletion means nothing happened - and a spinner with
+    /// nothing behind it would be a dead end.
     @MainActor
     @Test
     func cancellingTheDeletionBringsTheHostedPaywallBack() {
@@ -278,41 +276,24 @@ struct PaywallDeleteAccountFromHostedPaywallTests {
 
         #expect(harness.presenter.registrationCount == 2)
         #expect(harness.coordinator.phase == .openingHosted)
-        #expect(harness.nativeProvider.loadCount == 0)
     }
 
-    /// Cancelling brings the paywall back, so the gate says so rather than restoring focus to a
-    /// `Delete account` control that is about to stop being rendered.
+    /// A deletion dialog that closes after access has landed has no paywall to bring back: the
+    /// route is about to leave the gate.
     @MainActor
     @Test
-    func theGateReportsWhetherCancellingReopensTheHostedPaywall() {
+    func aDismissedDeletionDoesNotReopenThePaywallOnceAccessIsConfirmed() {
         let harness = GateDeleteAccountHarness()
 
         harness.openHostedPaywall()
         harness.coordinator.handleHostedOutcomeForTesting(.deleteAccountRequested)
-        #expect(harness.coordinator.accountDeletionDialogDismissed())
-
-        // From the native recovery surface there is no paywall to bring back, so the gate keeps
-        // focus on the control the climber actually left from.
-        harness.coordinator.handleHostedOutcomeForTesting(.dismissedWithoutPurchase)
-        #expect(harness.coordinator.accountDeletionDialogDismissed() == false)
-    }
-
-    /// A deletion raised from the gate's own control leaves the native recovery surface alone.
-    @MainActor
-    @Test
-    func aDismissedDeletionDoesNotReopenThePaywallFromANativePhase() async {
-        let harness = GateDeleteAccountHarness()
-
-        harness.openHostedPaywall()
-        harness.coordinator.handleHostedOutcomeForTesting(.dismissedWithoutPurchase)
-        await harness.waitUntil { $0.phase == .nativeReady }
+        harness.coordinator.entitlementDidChange(.active(["app_access"]))
         let registrationsBefore = harness.presenter.registrationCount
 
         harness.coordinator.accountDeletionDialogDismissed()
 
         #expect(harness.presenter.registrationCount == registrationsBefore)
-        #expect(harness.coordinator.phase == .nativeReady)
+        #expect(harness.coordinator.phase == .accessConfirmed)
     }
 }
 
@@ -327,7 +308,6 @@ private actor DismissalSpy {
 @MainActor
 private final class GateDeleteAccountHarness {
     let coordinator: AppAccessPaywallCoordinator
-    let nativeProvider = DeleteAccountNativeProviderSpy()
     let presenter = RegisteringPaywallPresenterSpy()
     private let sink = InMemoryTelemetrySink(destination: .analytics)
     private let deletionSpy = RouteRequestSpy()
@@ -359,12 +339,10 @@ private final class GateDeleteAccountHarness {
         let signOut = signOutSpy
         coordinator = AppAccessPaywallCoordinator(
             monetizationManager: manager,
-            nativeProvider: nativeProvider,
             telemetry: telemetry,
             onRequestAccountDeletion: { deletion.request() },
             onRequestSignOut: { signOut.request() },
-            sleep: { _ in try await Task.sleep(for: .seconds(3_600)) },
-            nativeLoadSleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
+            sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
         )
     }
 
@@ -372,12 +350,6 @@ private final class GateDeleteAccountHarness {
         coordinator.start()
         coordinator.handleHostedOutcomeForTesting(.presented)
         #expect(coordinator.phase == .hostedPresented)
-    }
-
-    func waitUntil(_ condition: (AppAccessPaywallCoordinator) -> Bool) async {
-        for _ in 0..<200 where !condition(coordinator) {
-            await Task.yield()
-        }
     }
 }
 
@@ -407,24 +379,4 @@ private final class RegisteringPaywallPresenterSpy: PaywallPresenting {
     ) {
         registrationCount += 1
     }
-}
-
-@MainActor
-private final class DeleteAccountNativeProviderSpy: NativePaywallPlanProviding {
-    private(set) var loadCount = 0
-
-    func loadPlans() async throws -> [NativePaywallPlan] {
-        loadCount += 1
-        return [
-            NativePaywallPlan(
-                id: "ascend_staging_yearly",
-                title: "Annual",
-                localizedPrice: "$49.99",
-                billingDescription: "Renews yearly.",
-                trialDescription: nil
-            )
-        ]
-    }
-
-    func purchase(planID: String) async -> PurchaseResult { .cancelled }
 }

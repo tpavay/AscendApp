@@ -312,8 +312,8 @@ struct OnboardingV3KitTests {
     }
 
     /// The flow ends at sign-in, and what a climber without access meets next is the app-access
-    /// gate: the Superwall paywall (placement `app_access_gate`), with the native plan list as its
-    /// fallback. There is no second route for the new onboarding.
+    /// gate: the Superwall paywall (placement `app_access_gate`), over a gate that draws only a
+    /// spinner. There is no second route for the new onboarding.
     @Test
     func aSignedInClimberWithoutAccessGoesToTheAppAccessGate() {
         #expect(route(state: .authenticated, userId: "u1", showsV3: false) == .paywall)
