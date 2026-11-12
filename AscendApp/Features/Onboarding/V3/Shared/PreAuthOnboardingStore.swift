@@ -81,6 +81,12 @@ struct PreAuthOnboardingAnswers: Codable, Equatable, Sendable {
 
     var notificationChoice: PreAuthOnboardingNotificationChoice?
 
+    /// The email box on the notification primer as the climber left it: true is an opt-in, false is
+    /// an explicit no, absent means they never reached the step. It is a separate answer from
+    /// ``notificationChoice``. It waits here because recording consent needs an account, and the
+    /// sign-in hand-off records it and then drops it (`OnboardingV3SignInHandOff`).
+    var emailOptIn: Bool?
+
     /// Identifiers of the stair stepper workouts the Health history read found, so the import that
     /// runs after sign-in does not read them a second time.
     var foundHealthWorkoutIDs: [String] = []

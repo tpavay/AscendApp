@@ -73,6 +73,9 @@ The sign-in screen's saved-items list says back what the flow collected: the pro
   Advance notice is not available to promise: the catalogue is a static file with no unlock timestamp, so counting back from an open would take both a catalogue schema change and a client that withholds a published climb.
   `scripts/test/climb-drop-promise-contract.test.mjs` fails any surface or document that reintroduces it.
 - With `onboarding_v3_enabled` on, the primer (screen 12) also promises gear and weekly-target nudges; `docs/climb-drop-notifications.md` owns them.
+- The v3 primer also carries the email opt-in (`NotificationPrimerContent.emailOptInLabel`), ticked by default like the legacy box.
+  It runs before sign-in, so the box waits in `PreAuthOnboardingAnswers.emailOptIn` and `OnboardingV3SignInHandOff` records it as an `onboarding` decision (an answer the account already holds wins, a failed write retries on the next launch).
+  Either button saves the box, so Not now never discards a ticked one.
 
 ## Content discipline
 - Survey and paywall content is product-defined. Engineers should not ship onboarding screens, copy, or content beyond what product has provided mocks for.

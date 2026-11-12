@@ -80,6 +80,19 @@ struct OnboardingNotificationPrimerScreen: View {
 
     private var actions: some View {
         VStack(spacing: 4) {
+            // Email is a separate answer from push. Turning notifications on must never tick this,
+            // and unticking it must never stop the iOS prompt.
+            Toggle(isOn: Binding(get: { viewModel.emailOptIn }, set: { _ in viewModel.toggleEmailOptIn() })) {
+                Text(NotificationPrimerContent.emailOptInLabel)
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(Color.white.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .toggleStyle(
+                OnboardingCheckboxToggleStyle(boxSize: 22, cornerRadius: 6, spacing: 12, minimumTargetHeight: 44)
+            )
+            .padding(.bottom, 8)
+
             Button("Turn on") {
                 Task { await viewModel.turnOn() }
             }

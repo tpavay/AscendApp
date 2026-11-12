@@ -76,6 +76,8 @@ final class OnboardingV3SignInHandOff {
         /// tells the reminder coordinator the target that results. Sign-out clears what the nudge
         /// reads, and the account is what carries a target back onto this phone.
         var reconcileWeeklyTarget: @MainActor (_ userId: String) async -> Void
+        /// Where the email answer is read and recorded for the signed-in climber.
+        var emailPreferences: EmailPreferencesProviding
     }
 
     /// The account the answers were read for is no longer the signed-in one.
@@ -94,6 +96,7 @@ final class OnboardingV3SignInHandOff {
     private let intent: OnboardingV3HandOffIntent
     private let photos: OnboardingProfilePhotoStore
     private var isRunningProfileStep = false
+    private var isRecordingEmailConsent = false
 
     init(
         seams: Seams,
@@ -122,6 +125,7 @@ final class OnboardingV3SignInHandOff {
     func runAfterSignIn(userId: String, email: String?) async -> Outcome {
         closeFlowIfIntended()
 
+        await recordEmailConsentIfAny()
         let outcome = await writeAnswersIfAny(userId: userId, email: email)
         await seams.reconcileWeeklyTarget(userId)
         return outcome
@@ -131,6 +135,7 @@ final class OnboardingV3SignInHandOff {
     /// failed or switched-off write left behind.
     @discardableResult
     func retryPendingAnswers(userId: String, email: String?) async -> Outcome {
+        await recordEmailConsentIfAny()
         let hadUndeliveredTarget = undeliveredWeeklyTarget(in: store.answers(), userId: userId) != nil
         let outcome = await writeAnswersIfAny(userId: userId, email: email)
         // A target that only now reached the account is a reminder that only now can be set.
@@ -138,6 +143,44 @@ final class OnboardingV3SignInHandOff {
             await seams.reconcileWeeklyTarget(userId)
         }
         return outcome
+    }
+
+    /// Records the email box the climber left on the notification primer, once the account exists.
+    ///
+    /// It is its own step and not part of the profile write: it does not wait on the profile
+    /// switch, and a refused profile write never holds it back. An answer already on the account
+    /// wins over the pre-tick, so a climber who unsubscribed and signs in again on a new phone is
+    /// not answered for a second time. A failed read or write keeps the answer on the device and
+    /// the next launch or foreground tries again; until it lands the preference is unset, and unset
+    /// sends nothing.
+    private func recordEmailConsentIfAny() async {
+        guard let isGranted = store.answers().emailOptIn, !isRecordingEmailConsent else { return }
+
+        isRecordingEmailConsent = true
+        defer { isRecordingEmailConsent = false }
+
+        do {
+            let stored = try await seams.emailPreferences.loadConsent()
+            // Signing out while the read was in flight clears the answers, and the next account on
+            // this phone must not inherit them.
+            guard store.answers().emailOptIn == isGranted else { return }
+
+            if !stored.isDecided {
+                try await seams.emailPreferences.recordConsent(isGranted: isGranted, source: .onboarding)
+            }
+        } catch {
+            if Self.isWorthReporting(error) {
+                TelemetryManager.shared.recordError(
+                    error,
+                    context: .network,
+                    code: "onboarding_email_consent_record_failed",
+                    additionalInfo: ["is_granted": isGranted ? "true" : "false"]
+                )
+            }
+            return
+        }
+
+        store.update { $0.emailOptIn = nil }
     }
 
     /// The target chosen before sign-in that nothing has delivered yet. The answer alone cannot say:
@@ -303,7 +346,8 @@ extension OnboardingV3SignInHandOff {
                 },
                 reconcileWeeklyTarget: { userId in
                     await WeeklyTargetService().reconcile(for: userId)
-                }
+                },
+                emailPreferences: EmailPreferencesService()
             )
         )
     }

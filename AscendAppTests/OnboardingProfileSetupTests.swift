@@ -579,7 +579,8 @@ struct OnboardingProfileSetupTests {
                 markPostSignInOnboardingComplete: {},
                 deviceWeeklyTarget: { _ in nil },
                 saveWeeklyTarget: { _, _ in },
-                reconcileWeeklyTarget: { _ in }
+                reconcileWeeklyTarget: { _ in },
+                emailPreferences: HandOffEmailPreferences()
             ),
             store: store,
             intent: OnboardingV3HandOffIntent(userDefaults: defaults),
@@ -695,7 +696,8 @@ struct OnboardingProfileSetupTests {
                 markPostSignInOnboardingComplete: {},
                 deviceWeeklyTarget: { _ in nil },
                 saveWeeklyTarget: { _, _ in },
-                reconcileWeeklyTarget: { _ in }
+                reconcileWeeklyTarget: { _ in },
+                emailPreferences: HandOffEmailPreferences()
             ),
             store: store,
             intent: OnboardingV3HandOffIntent(userDefaults: defaults),
@@ -753,7 +755,8 @@ struct OnboardingProfileSetupTests {
                 markPostSignInOnboardingComplete: {},
                 deviceWeeklyTarget: { _ in nil },
                 saveWeeklyTarget: { _, _ in },
-                reconcileWeeklyTarget: { _ in }
+                reconcileWeeklyTarget: { _ in },
+                emailPreferences: HandOffEmailPreferences()
             ),
             store: store,
             intent: OnboardingV3HandOffIntent(userDefaults: defaults),
@@ -951,7 +954,8 @@ struct OnboardingProfileSetupTests {
                 markPostSignInOnboardingComplete: {},
                 deviceWeeklyTarget: { _ in nil },
                 saveWeeklyTarget: { _, _ in },
-                reconcileWeeklyTarget: { _ in }
+                reconcileWeeklyTarget: { _ in },
+                emailPreferences: HandOffEmailPreferences()
             ),
             store: store,
             intent: OnboardingV3HandOffIntent(userDefaults: defaults),

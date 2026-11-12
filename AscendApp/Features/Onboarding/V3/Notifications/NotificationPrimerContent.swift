@@ -30,6 +30,8 @@ struct NotificationPrimerExample: Equatable, Identifiable, Sendable {
 struct NotificationPrimerContent: Equatable, Sendable {
     static let headlineLead = ["We'll keep you"]
     static let headlineAccent = ["on track."]
+    /// The email box's label. It names what the emails are, because the box is the consent.
+    static let emailOptInLabel = "Send weekly climb recaps and milestone emails"
 
     let body: String
     let examples: [NotificationPrimerExample]
