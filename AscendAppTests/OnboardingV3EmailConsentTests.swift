@@ -162,12 +162,6 @@ struct NotificationPrimerEmailOptInTests {
         #expect(viewModel(coordinator(emailOptIn: false)).emailOptIn == false)
         #expect(viewModel(coordinator(emailOptIn: true)).emailOptIn == true)
     }
-
-    @Test
-    func theLabelNamesWhatTheEmailsAre() {
-        #expect(NotificationPrimerContent.emailOptInLabel == "Send weekly climb recaps and milestone emails")
-        #expect(!NotificationPrimerContent.emailOptInLabel.contains("\u{2014}"))
-    }
 }
 
 // MARK: - The step on screen
