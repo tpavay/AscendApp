@@ -549,7 +549,8 @@ struct OnboardingV3HealthTests {
                 markPostSignInOnboardingComplete: {},
                 deviceWeeklyTarget: { _ in nil },
                 saveWeeklyTarget: { _, _ in },
-                reconcileWeeklyTarget: { _ in }
+                reconcileWeeklyTarget: { _ in },
+                emailPreferences: HandOffEmailPreferences()
             ),
             store: store,
             intent: OnboardingV3HandOffIntent(userDefaults: UserDefaults(suiteName: suite)!)

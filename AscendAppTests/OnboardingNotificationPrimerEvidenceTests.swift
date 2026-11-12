@@ -49,6 +49,11 @@ struct OnboardingNotificationPrimerEvidenceTests {
                 try await screen.frame(ofElementLabelled: NotificationPrimerContent.body(hasTarget: true))
             )
             #expect(body.maxY <= turnOn.minY, "the body \(body) clears the button \(turnOn)")
+            let emailBox = try #require(
+                try await screen.frame(ofElementLabelled: NotificationPrimerContent.emailOptInLabel)
+            )
+            #expect(body.maxY <= emailBox.minY, "the body \(body) clears the email box \(emailBox)")
+            #expect(emailBox.maxY <= turnOn.minY, "the email box \(emailBox) sits above the button \(turnOn)")
             let lastCard = try #require(try await screen.frame(ofElementLabelled: "Example notification. New climb open, Today. Burj Khalifa just opened. Be the first to the top."))
             let headline = try #require(try await screen.frame(ofElementLabelled: "We'll keep you on track."))
             #expect(lastCard.maxY <= headline.minY, "the cards clear the headline")

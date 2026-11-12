@@ -252,7 +252,8 @@ struct LocalReminderCoordinatorTests {
                 markPostSignInOnboardingComplete: {},
                 deviceWeeklyTarget: { service.localTarget(for: $0)?.days },
                 saveWeeklyTarget: { userId, days in await service.save(WeeklyTarget(days: days), for: userId) },
-                reconcileWeeklyTarget: { await service.reconcile(for: $0) }
+                reconcileWeeklyTarget: { await service.reconcile(for: $0) },
+                emailPreferences: HandOffEmailPreferences()
             ),
             store: store
         )

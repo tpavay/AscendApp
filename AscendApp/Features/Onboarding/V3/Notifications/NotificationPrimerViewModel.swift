@@ -8,11 +8,17 @@ import UserNotifications
 ///
 /// The prompt always goes through ``ClimbDropNotificationState``, never a second request path, so
 /// every surface that offers notifications reads one answer. Nothing here is sent anywhere: the
-/// choice waits in the pre-sign-in answers like everything else the flow collects.
+/// choices, the email box included, wait in the pre-sign-in answers like everything else the flow
+/// collects.
 @MainActor
 @Observable
 final class NotificationPrimerViewModel {
     private(set) var isRequesting = false
+
+    /// The email box. It ships ticked like the legacy screen's did
+    /// (``OnboardingEmailOptInViewModel/shipsTicked``), and a climber who comes back to this step
+    /// finds it as they left it.
+    private(set) var emailOptIn: Bool
 
     /// What the screen says, decided once when the screen opens from the climber's answers so far.
     let content: NotificationPrimerContent
@@ -35,6 +41,7 @@ final class NotificationPrimerViewModel {
         track: (@MainActor (_ choice: PreAuthOnboardingNotificationChoice) -> Void)? = nil
     ) {
         self.coordinator = coordinator
+        emailOptIn = coordinator.answers.emailOptIn ?? OnboardingEmailOptInViewModel.shipsTicked
         content = NotificationPrimerContent.make(
             weeklyTargetDays: coordinator.answers.weeklyTargetDays,
             usualClimbMinutes: coordinator.answers.usualClimbMinutes,
@@ -47,6 +54,10 @@ final class NotificationPrimerViewModel {
         self.track = track ?? { [weak coordinator] choice in
             NotificationPrimerViewModel.report(choice, in: coordinator?.analyticsContext)
         }
+    }
+
+    func toggleEmailOptIn() {
+        emailOptIn.toggle()
     }
 
     /// TURN ON: asks iOS, records what it said, and moves on.
@@ -74,8 +85,14 @@ final class NotificationPrimerViewModel {
         coordinator.advance()
     }
 
+    /// Email is a separate answer from push: it is saved whichever button leaves the step, so Not now
+    /// declines notifications and never discards a ticked box, and unticking never stops the prompt.
     private func record(_ choice: PreAuthOnboardingNotificationChoice) {
-        coordinator.update { $0.notificationChoice = choice }
+        let emailOptIn = emailOptIn
+        coordinator.update {
+            $0.notificationChoice = choice
+            $0.emailOptIn = emailOptIn
+        }
         track(choice)
     }
 

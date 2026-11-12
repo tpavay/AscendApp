@@ -40,7 +40,7 @@ struct OnboardingNotificationPrimerScreen: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                actions
+                actions(isCompact: isCompact)
             }
         }
         .trackOnce(screen: .onboardingNotificationPrimer)
@@ -48,7 +48,7 @@ struct OnboardingNotificationPrimerScreen: View {
 
     private func content(isCompact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(spacing: isCompact ? 8 : 10) {
+            VStack(spacing: isCompact ? 4 : 10) {
                 ForEach(Array(viewModel.content.examples.enumerated()), id: \.element.id) { index, example in
                     NotificationPrimerCard(example: example, isCompact: isCompact)
                         // They slide down from above, 0.5 s each and 0.35 s apart.
@@ -56,11 +56,11 @@ struct OnboardingNotificationPrimerScreen: View {
                 }
             }
             .padding(.horizontal, 14)
-            .padding(.top, isCompact ? 12 : 22)
+            .padding(.top, isCompact ? 8 : 22)
 
-            Spacer(minLength: isCompact ? 12 : 28)
+            Spacer(minLength: isCompact ? 8 : 28)
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: isCompact ? 6 : 10) {
                 OnboardingHeadline(
                     NotificationPrimerContent.headlineLead,
                     accentLines: NotificationPrimerContent.headlineAccent,
@@ -74,12 +74,25 @@ struct OnboardingNotificationPrimerScreen: View {
                     .onboardingEntrance(index: 1)
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, isCompact ? 12 : 20)
+            .padding(.bottom, isCompact ? 8 : 20)
         }
     }
 
-    private var actions: some View {
+    private func actions(isCompact: Bool) -> some View {
         VStack(spacing: 4) {
+            // Email is a separate answer from push. Turning notifications on must never tick this,
+            // and unticking it must never stop the iOS prompt.
+            Toggle(isOn: Binding(get: { viewModel.emailOptIn }, set: { _ in viewModel.toggleEmailOptIn() })) {
+                Text(NotificationPrimerContent.emailOptInLabel)
+                    .font(.montserratMedium(size: isCompact ? 13 : 14))
+                    .foregroundStyle(Color.white.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .toggleStyle(
+                OnboardingCheckboxToggleStyle(boxSize: 22, cornerRadius: 6, spacing: 12, minimumTargetHeight: 44)
+            )
+            .padding(.bottom, isCompact ? 0 : 8)
+
             Button("Turn on") {
                 Task { await viewModel.turnOn() }
             }
@@ -92,7 +105,7 @@ struct OnboardingNotificationPrimerScreen: View {
         }
         .disabled(viewModel.isRequesting)
         .padding(.horizontal, 24)
-        .padding(.top, 8)
+        .padding(.top, isCompact ? 0 : 8)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .background(

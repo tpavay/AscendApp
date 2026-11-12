@@ -64,7 +64,7 @@ struct NotificationPrimerCard: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, isCompact ? 9 : 13)
+        .padding(.vertical, isCompact ? 6 : 13)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(.ultraThinMaterial)

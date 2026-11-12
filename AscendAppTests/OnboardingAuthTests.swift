@@ -330,6 +330,7 @@ struct OnboardingAuthTests {
         var reconciledReminders: [Int?] = []
         var savedTargets: [Int] = []
         var healthImportLands = true
+        let emailPreferences = HandOffEmailPreferences()
 
         struct Refused: Error {}
 
@@ -364,7 +365,8 @@ struct OnboardingAuthTests {
                 reconcileWeeklyTarget: { [self] _ in
                     events.append("reconcileTarget")
                     reconciledReminders.append(accountTarget)
-                }
+                },
+                emailPreferences: emailPreferences
             )
         }
     }
