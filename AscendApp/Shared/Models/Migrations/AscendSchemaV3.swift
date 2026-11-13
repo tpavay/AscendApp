@@ -17,17 +17,18 @@ import SwiftData
 /// the stage is lightweight; nothing has to be computed per record.
 ///
 /// It names the live model types except for `ActiveHeadphoneWorkoutDraft`, whose pre-V5 shape is
-/// the frozen `AscendSchemaV4.ActiveHeadphoneWorkoutDraft`; `AscendSchemaV4` added a model and
-/// changed none, so nothing else here needs a copy of its own.
+/// the frozen `AscendSchemaV4.ActiveHeadphoneWorkoutDraft`, and for the workout graph, whose
+/// frozen copies live in `AscendSchemaV5` because `AscendSchemaV6` added a `Workout` column;
+/// `AscendSchemaV4` added a model and changed none, so nothing else here needs a copy of its own.
 /// `AscendLocalStore.currentSchema` is the one declaration of which version is live.
 enum AscendSchemaV3: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
 
     static var models: [any PersistentModel.Type] {
         [
-            Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
+            AscendSchemaV5.Workout.self,
+            AscendSchemaV5.WorkoutSourceLink.self,
+            AscendSchemaV5.WorkoutParticipation.self,
             AscendSchemaV4.ActiveHeadphoneWorkoutDraft.self,
             LeaderboardStats.self,
             Routine.self,

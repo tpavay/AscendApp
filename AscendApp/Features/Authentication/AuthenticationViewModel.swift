@@ -62,6 +62,9 @@ class AuthenticationViewModel {
     /// Used to avoid showing authenticated UI before profile state is known.
     private(set) var isProfileLoaded: Bool = false
 
+    /// Set once, by the first auth-state callback of this process.
+    private(set) var firstAuthCallback: FirstAuthCallback?
+
     private var authenticationService: AuthenticationService
     private let accountSessionStore = AccountSessionStore.shared
     private let monetizationIdentityManager: any MonetizationIdentityManaging
@@ -89,6 +92,7 @@ class AuthenticationViewModel {
             user = currentUser
             photoURL = currentUser.photoURL
             authenticationState = .restoringSession
+            profileLoadGate.holdUntilFirstAuthCallback()
         }
 
         if observesFirebaseAuth {
@@ -96,10 +100,19 @@ class AuthenticationViewModel {
         }
     }
     private var authStateHandle: AuthStateDidChangeListenerHandle?
+    private let profileLoadGate = ProfileLoadGate()
 
     func registerAuthStateHandler() {
         if authStateHandle == nil {
             authStateHandle = Auth.auth().addStateDidChangeListener({ auth, user in
+                defer { self.profileLoadGate.authCallbackArrived() }
+
+                if self.firstAuthCallback == nil {
+                    self.firstAuthCallback = FirstAuthCallback(
+                        reportedUser: user != nil,
+                        followedRestoredUser: self.user != nil
+                    )
+                }
                 self.user = user
                 self.photoURL = user?.photoURL ?? URL(string: "")
 
@@ -146,7 +159,7 @@ class AuthenticationViewModel {
                     )
 
                     // Handle Firestore operations in background
-                    Task {
+                    self.profileLoadGate.track(Task {
                         // The name the provider supplied is written before anything
                         // reads the profile back, so the account already carries one
                         // by the time onboarding resolves - with no screen asking.
@@ -187,7 +200,7 @@ class AuthenticationViewModel {
                             // Log the outcome for debugging
                             TelemetryManager.shared.log(.authProfileLoaded)
                         }
-                    }
+                    })
                 } else {
                     let monetizationTransition = self.monetizationIdentityManager.prepareIdentityReset()
 
@@ -263,32 +276,45 @@ class AuthenticationViewModel {
 
 @MainActor
 extension AuthenticationViewModel {
-    func signOut() {
+    /// Signs out. With a `surface`, a completed sign-out is reported as `account_signed_out`.
+    ///
+    /// Held until the identity is about to clear (`TelemetryManager.holdDeparture`): the auth
+    /// listener's "no user" clears the analytics identity, and an event sent after it is
+    /// attributed to a device nobody is signed in on.
+    func signOut(surface: AccountExitSurface? = nil) {
         Task { @MainActor in
             await PushNotificationService.shared.unregisterCurrentDevice()
 
+            if let surface {
+                TelemetryManager.shared.holdDeparture(AccountExitAnalyticsEvent.signedOut(surface: surface))
+            }
             do {
                 try authenticationService.signOut()
                 errorMessage = nil
+                TelemetryManager.shared.sendHeldDeparture()
             }
             catch {
+                TelemetryManager.shared.discardHeldDeparture()
                 errorMessage = error.localizedDescription
             }
         }
     }
 
-    func signInWithGoogle() async {
+    func signInWithGoogle(
+        onboardingContext: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    ) async {
         authenticationState = .authenticatingWithGoogle
         errorMessage = nil
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.google.rawValue)
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.google.rawValue, context: onboardingContext, entry: entry)
         )
 
         do {
             _ = try await authenticationService.signInWithGoogle()
             recordSuccessfulSignIn(provider: .google)
             TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.google.rawValue)
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.google.rawValue, context: onboardingContext, entry: entry)
             )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
@@ -297,7 +323,9 @@ extension AuthenticationViewModel {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.google.rawValue,
-                        reason: "cancelled"
+                        reason: "cancelled",
+                        context: onboardingContext,
+                        entry: entry
                     )
                 )
                 // User canceled - just reset state without showing error
@@ -306,7 +334,9 @@ extension AuthenticationViewModel {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.google.rawValue,
-                        reason: "failed"
+                        reason: "failed",
+                        context: onboardingContext,
+                        entry: entry
                     )
                 )
                 TelemetryManager.shared.log(.authSignInFailed)
@@ -317,7 +347,12 @@ extension AuthenticationViewModel {
         }
     }
 
-    func signInWithInternalQA(email: String, password: String) async {
+    func signInWithInternalQA(
+        email: String,
+        password: String,
+        onboardingContext: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    ) async {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID) else {
@@ -341,21 +376,23 @@ extension AuthenticationViewModel {
         authenticationState = .authenticatingWithInternalQA
         errorMessage = nil
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.internalQA.rawValue)
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.internalQA.rawValue, context: onboardingContext, entry: entry)
         )
 
         do {
             _ = try await authenticationService.signInWithEmail(email: trimmedEmail, password: password)
             recordSuccessfulSignIn(provider: .internalQA)
             TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.internalQA.rawValue)
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.internalQA.rawValue, context: onboardingContext, entry: entry)
             )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             TelemetryManager.shared.track(
                 OnboardingAnalyticsEvent.authFailed(
                     provider: AuthProviderKind.internalQA.rawValue,
-                    reason: "failed"
+                    reason: "failed",
+                    context: onboardingContext,
+                    entry: entry
                 )
             )
             TelemetryManager.shared.log(.authSignInFailed)
@@ -370,18 +407,21 @@ extension AuthenticationViewModel {
         }
     }
     
-    func signInWithApple() async {
+    func signInWithApple(
+        onboardingContext: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    ) async {
         authenticationState = .authenticatingWithApple
         errorMessage = nil
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.apple.rawValue)
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.apple.rawValue, context: onboardingContext, entry: entry)
         )
 
         do {
             _ = try await authenticationService.signInWithApple()
             recordSuccessfulSignIn(provider: .apple)
             TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.apple.rawValue)
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.apple.rawValue, context: onboardingContext, entry: entry)
             )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
@@ -390,7 +430,9 @@ extension AuthenticationViewModel {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.apple.rawValue,
-                        reason: "cancelled"
+                        reason: "cancelled",
+                        context: onboardingContext,
+                        entry: entry
                     )
                 )
                 // User canceled - just reset state without showing error
@@ -399,7 +441,9 @@ extension AuthenticationViewModel {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.apple.rawValue,
-                        reason: "failed"
+                        reason: "failed",
+                        context: onboardingContext,
+                        entry: entry
                     )
                 )
                 TelemetryManager.shared.log(.authSignInFailed)
@@ -477,6 +521,7 @@ extension AuthenticationViewModel {
     ///
     /// Resolution always terminates: a profile that already carries a name keeps
     /// it (step 1, and what a climber who deleted and reinstalled lands on), else
+    /// a name typed before sign-in, which the onboarding hand-off writes, else
     /// whatever the provider supplied at this sign-in (step 2), else
     /// `SignInNamePlaceholder` (step 3). Only a profile that could not be *read*
     /// is left alone, and only until the next launch can read it. There is no
@@ -513,7 +558,14 @@ extension AuthenticationViewModel {
             storedName = .unreadable
         }
 
-        switch SuppliedNameAdoption.decide(supplied: suppliedIdentity, storedName: storedName) {
+        switch SuppliedNameAdoption.decide(
+            supplied: suppliedIdentity,
+            storedName: storedName,
+            typedNamePending: typedNamePending
+        ) {
+        case .leaveForTypedName:
+            return false
+
         case .write(let firstName, let lastName):
             guard await writeResolvedName(firstName: firstName, lastName: lastName) else {
                 return false
@@ -543,6 +595,13 @@ extension AuthenticationViewModel {
         case .retryLater:
             return false
         }
+    }
+
+    /// A name typed on onboarding's profile screen that the hand-off is going to write. With its
+    /// switch off the hand-off writes nothing, so sign-in has to resolve a name without it.
+    private var typedNamePending: Bool {
+        RemoteFeatureFlagStore.shared.isEnabled(.onboardingAnswersProfileWrite) &&
+            PreAuthOnboardingStore().answers().writableName != nil
     }
 
     /// Writes a resolved name and reports a failure where production can see it.
@@ -743,6 +802,25 @@ extension AuthenticationViewModel {
         let failure = errorMessage
         errorMessage = nil
         return didSucceed ? nil : (failure ?? fallback)
+    }
+
+    /// Returns once this session's name has been resolved and the profile read back, so a write
+    /// made after it can neither race the placeholder nor be overwritten by that read.
+    func profileLoadSettled() async {
+        await profileLoadGate.settled()
+    }
+
+    /// Brings the session up to a name already written to the profile outside this view model.
+    func adoptWrittenName(_ boardName: String) async {
+        displayName = boardName
+        hasRemoteDisplayName = true
+        forgetSuppliedIdentity()
+        try? await authenticationService.updateUserDisplayName(displayName: boardName)
+    }
+
+    /// Brings the session up to a photo already written to the profile outside this view model.
+    func adoptWrittenProfilePicture(_ url: URL) {
+        customProfilePictureURL = url
     }
 
     var displayPhotoURL: URL? {

@@ -71,8 +71,8 @@ The JSON shape is:
 }
 ```
 
-Staging must allow `ascend_staging_yearly`, `ascend_staging_lifetime` and `ascend_staging_monthly`.
-Production must allow `ascend_yearly`, `ascend_lifetime`, `ascend_monthly`, and `rc_promo_app_access_lifetime`, the product every comp from `scripts/comp-access.mjs` carries.
+Staging must allow `ascend_staging_yearly`, `ascend_staging_lifetime`, `ascend_staging_monthly` and `ascend_staging_yearly_welcome`, the welcome product a Superwall decline offer sells.
+Production must allow `ascend_yearly`, `ascend_lifetime`, `ascend_monthly`, `ascend_yearly_welcome`, and `rc_promo_app_access_lifetime`, the product every comp from `scripts/comp-access.mjs` carries.
 `ascend_lifetime` is the one-time purchase a climber pays for and `rc_promo_app_access_lifetime` is a free comp; they are different products that happen to share a word.
 A Lifetime purchase reaches the webhook as `NON_RENEWING_PURCHASE` with no expiry, and `buildAppAccessProjection` grants it as non-expiring access (`docs/superwall-paywall-setup.md`, "Lifetime").
 Add any other promotional product identifier only when a subscriber response proves its exact value.
@@ -211,6 +211,24 @@ All three restore surfaces - account settings, the Superwall paywall's Restore b
 `restorePurchases()` returns the state RevenueCat resolved for that restore, and the Superwall status, the forced reconciliation, and the restore's analytics terminal all read that return value rather than the stored `entitlementState`, which a pending identity transition can still be holding at `.unknown`.
 The device entitlement check, the hard paywall, and the restore surfaces are otherwise unchanged.
 
+## The free week shares the grant document
+
+`docs/free-week-after-decline.md` owns a second, non-RevenueCat source of `users/{uid}/entitlements/app_access`: a seven-day window the server gives a climber who declined every paid offer, written by the `startFreeWeek` callable with `productId: "ascend_free_week"` and `source: "trial"`, beside a durable `users/{uid}/trial/free_week` record.
+It is behind the `free_week_after_decline_enabled` rollout and off by default.
+
+It changes three statements above, and only while a week is running:
+
+- Step 6 of the server flow deletes the active grant when current RevenueCat state is inactive.
+  Inactive is the normal state of a climber on their week, so an inactive projection leaves a running week in place - writing the free week grant back if a paid one had replaced it - and deletes the grant only when no week is running.
+  `entitlement_status/app_access` records what RevenueCat said either way.
+- `reconcileAppAccess` writes through the same function, so it holds the same rule, and its skip-when-unchanged check counts a running week as the expected grant for an inactive answer rather than rewriting it on every poll.
+- `expireRevenueCatEntitlements` removes the free week grant at its `accessUntil` like any other, and hands the rest of a running week back when a paid grant expires inside it.
+
+An active projection always wins: a purchase during the week replaces the free week grant with the paid one.
+
+The product id is deliberately not in `allowedProductIds`.
+RevenueCat never grants it, so the allowlist neither admits nor removes it, and the deploy preflight treats it as a server-granted product instead (`SERVER_GRANTED_PRODUCT_IDS` in `scripts/lib/functions-secret-guard.mjs`).
+
 ## Backend choke points
 
 The paid check belongs where a modified client reaches durable paid data, paid shared content, or paid media.
@@ -246,6 +264,7 @@ An Ascend Mountain athlete look is identity too - how the climber appears on oth
 The existing callable Functions are not paid compute choke points.
 Lifecycle and push calls support onboarding and account operation, while paid leaderboard and replay computation is triggered only after a rules-authorized paid data write.
 `reconcileAppAccess` is deliberately available to any signed-in caller, because refusing it to an unpaid caller would refuse it to exactly the subscriber whose grant is missing.
+`startFreeWeek` is available to any signed-in caller for the same reason in reverse - the climber it exists for holds nothing - and is bounded by its own record instead: one week per account, decided by the server.
 Static Hosting climb catalog files remain public immutable product content and contain no user data, mutable state, or compute authority.
 
 Firestore's most expensive valid workout already reaches the 1,000-expression evaluation ceiling.

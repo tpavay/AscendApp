@@ -17,7 +17,7 @@ enum ServerReadFailureClass: String, Sendable, CaseIterable {
     /// Anything else, a missing index included. Never expected in a healthy build.
     case unexpected
 
-    /// The Firestore codes that mean "no server answer", from the pinned SDK (11.15.0).
+    /// The Firestore codes that mean "no server answer", read from the SDK's source.
     ///
     /// `unavailable` is the one a forced read gets the moment the SDK marks itself offline, which
     /// takes a single failed stream attempt (`online_state_tracker.cc`, `kMaxWatchStreamFailures`).

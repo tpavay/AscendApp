@@ -365,7 +365,10 @@ struct WorkoutDetailView: View {
                 leftValue: workout.durationFormatted,
                 rightLabel: "Steps",
                 rightValue: formattedPrimaryMetric,
-                effectiveColorScheme: effectiveColorScheme
+                effectiveColorScheme: effectiveColorScheme,
+                rightAction: workout.isMissingSteps
+                    ? HeroStatsPair.Action(title: "Add steps") { showingEditWorkout = true }
+                    : nil
             )
 
             // Secondary stats row (pace, calories, METs)
@@ -417,6 +420,32 @@ struct WorkoutDetailView: View {
             if workout.hasWeights {
                 weightsUsedSection
             }
+
+            provenanceFooter
+        }
+    }
+
+    /// How this climb came to exist, and - for one kept off the leaderboards - why it is not on
+    /// them. A live climb says nothing: it needs no explaining.
+    @ViewBuilder
+    private var provenanceFooter: some View {
+        if let footnote = workout.origin.detailFootnote {
+            VStack(spacing: 10) {
+                if let note = LoggedClimbCopy.savedNote(for: workout) {
+                    Text(note)
+                        .font(.montserratMedium(size: 12))
+                        .foregroundStyle(Color.ascendCaution)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("workout-detail-off-the-boards")
+                }
+
+                Text(footnote)
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
         }
     }
 
@@ -526,12 +555,14 @@ struct WorkoutDetailView: View {
 
     @ViewBuilder
     private func menuContent(_ derived: WorkoutDetailDerivedContent) -> some View {
-        Button(action: {
-            seedShareStandingFromStore()
-            showingShareWorkoutView = true
-        }) {
-            Label("Share", systemImage: "square.and.arrow.up")
-        }
+        WorkoutDetailShareOrAddStepsAction(
+            isMissingSteps: workout.isMissingSteps,
+            share: {
+                seedShareStandingFromStore()
+                showingShareWorkoutView = true
+            },
+            addSteps: { showingEditWorkout = true }
+        )
 
         Button(action: copyWorkoutText) {
             Label("Copy Workout Text", systemImage: "doc.on.doc")
@@ -551,13 +582,13 @@ struct WorkoutDetailView: View {
             Button(action: {
                 showingEditWorkout = true
             }) {
-                Label("Edit Workout", systemImage: "pencil")
+                Label("Edit", systemImage: "pencil")
             }
 
             Button(role: .destructive, action: {
                 showingDeleteConfirmation = true
             }) {
-                Label("Delete Workout", systemImage: "trash")
+                Label("Delete Climb", systemImage: "trash")
             }
         }
     }
@@ -767,11 +798,12 @@ struct WorkoutDetailView: View {
     // MARK: - Data Helpers
 
     private var formattedPrimaryMetric: String {
-        workout.steps.formatted(.number)
+        workout.recordedSteps?.formatted(.number) ?? "—"
     }
 
     private var verticalClimbValue: Double? {
-        workout.totalVerticalClimb(
+        guard !workout.isMissingSteps else { return nil }
+        return workout.totalVerticalClimb(
             stepHeight: settingsManager.stepHeight,
             measurementSystem: settingsManager.measurementSystem
         )
@@ -786,6 +818,8 @@ struct WorkoutDetailView: View {
                 label: "steps/Min",
                 value: pace.formatted(.number.precision(.fractionLength(1)))
             ))
+        } else if workout.isMissingSteps {
+            items.append(SecondaryStatItem(label: "steps/Min", value: "—"))
         }
 
         // Calories
@@ -1004,6 +1038,9 @@ struct WorkoutDetailView: View {
 
         var shouldProcessRemoteDeletion = false
 
+        // A removed imported climb must never import again, in either mode. The ledger row changes
+        // in the same save that deletes the climb.
+        HealthWorkoutLedger(modelContext: modelContext).markSkippedForDeletedClimbs([workout])
         modelContext.delete(workout)
         do {
             let deletedSnapshot = LeaderboardWorkoutSnapshot(workout: workout)

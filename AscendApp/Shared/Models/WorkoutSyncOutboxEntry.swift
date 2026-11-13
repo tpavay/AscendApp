@@ -130,14 +130,16 @@ final class WorkoutSyncOutboxEntry {
 
     /// Re-opens exactly one automatic attempt after the basis for the stop has moved.
     ///
-    /// `WorkoutSyncCoordinator` is the only caller, from two triggers. Each is keyed on a persisted
+    /// `WorkoutSyncCoordinator` is the only caller, from three triggers. Each is keyed on a persisted
     /// marker compared for difference, so it fires once per change rather than once per pass:
     ///
     /// - the recovery basis `buildIdentity|workout_sync_recovery_epoch` moving - a new build, or an
     ///   operator bumping the epoch after a rules or backend fix - which re-opens every stopped
     ///   series (`reopenStoppedWorkoutsIfRecoveryBasisChanged`);
     /// - the climber signing back in, which re-opens only the series whose recorded blocker is
-    ///   `authentication` (`reopenAuthenticationStoppedWorkoutsIfIdentityRepaired`).
+    ///   `authentication` (`reopenAuthenticationStoppedWorkoutsIfIdentityRepaired`);
+    /// - a climber whose uploads were held back for app access holding it, which re-opens whatever
+    ///   a refusal slowed or stopped (`reopenRefusedWorkoutsIfAppAccessArrived`).
     ///
     /// Screen appearance, tab switches and repeated coordinator calls deliberately do not qualify.
     ///

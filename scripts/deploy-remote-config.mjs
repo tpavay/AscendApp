@@ -119,8 +119,8 @@ function fetchLiveTemplate(projectId) {
  * The console follow-up each overridden lever needs, for the levers that need one.
  *
  * A kill switch and a version threshold return to parity by themselves, so publishing them is the
- * whole operation. A monotonic setting does not, and leaving the project at the checked-in floor
- * is a fleet-wide event rather than a tidy-up - so the step is spelled out with the live value
+ * whole operation. A monotonic setting and a rollout that is on do not, and leaving the project at
+ * the checked-in value is a fleet-wide event rather than a tidy-up - so the step is spelled out with the live value
  * rather than left to a document nobody opens mid-incident.
  */
 function recoverySteps(keys, liveTemplate) {
@@ -158,7 +158,7 @@ function main() {
         ),
         "",
         "Publishing this template restates the checked-in value over every one of them -",
-        "switching a kill switch back on, and returning an armed version threshold to 0.0.0.",
+        "switching a kill switch back on, pulling a live rollout back off, and returning an armed version threshold to 0.0.0.",
         "If that is what you want, re-run naming each one:",
         ...unacknowledged.map(
           (key) => `  --allow-overwriting-active-kill-switch ${key}`,

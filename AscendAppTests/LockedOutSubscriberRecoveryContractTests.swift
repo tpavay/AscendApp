@@ -10,56 +10,35 @@ import Testing
 /// Apple's own subscription management - is asserted here, because each one is a written App Store
 /// requirement rather than a preference that may be traded away in a later redesign.
 struct LockedOutSubscriberRecoveryContractTests {
-    /// Guideline 5.1.1(v) admits no paid-status exception: the gate is the only screen this climber
-    /// can reach, so account deletion has to leave from it.
+    /// The plan picker and its interstitials are gone from the app, not hidden: none of their
+    /// copy may come back in any Swift file the app ships, and none of their types either.
+    /// This is a property of the source itself, not a behaviour test: the requirement is that the
+    /// picker's copy is not in the code at all, and a screen that never shows a string still fails
+    /// it while the string remains in the code.
     @Test
-    func theAppAccessGateRoutesToAccountDeletion() throws {
-        let gate = try source(
-            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
-        )
+    func noPlanPickerOrGateInterstitialCopyExistsAnywhereInTheApp() throws {
+        let forbiddenCopy = [
+            "Choose your", "Choose a plan", "Loading plans", "One moment",
+            "Opening plans", "Checking your access", "Plans are unavailable",
+            "Plans took too long", "Plans could not open. Choose", "Load Plans Again",
+            "Check Access", "Access confirmed"
+        ]
+        let forbiddenTypes = [
+            "NativePaywallPlan", "RevenueCatNativePaywallPlanProvider", "AppAccessRestoreState",
+            "beginNativeFallback", "plansReadyMessage"
+        ]
+        let appRoot = projectRoot.appending(path: "AscendApp", directoryHint: .isDirectory)
+        let files = try #require(
+            FileManager.default.enumerator(at: appRoot, includingPropertiesForKeys: nil)
+        ).compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+        #expect(files.count > 500, "The scan did not reach the app's sources: \(files.count) files")
 
-        #expect(gate.contains("onDeleteAccount: @escaping @MainActor () -> Void"))
-        #expect(gate.contains("Button(action: onDeleteAccount)"))
-        #expect(gate.contains("Text(\"Delete account\")"))
-        #expect(gate.contains(".accessibilityIdentifier(\"appAccessDeleteAccount\")"))
-        // The hosted Superwall paywall covers this screen for most of a locked-out climber's
-        // session, and its own DELETE ACCOUNT control has to reach the same dialog. One closure
-        // serves both, so the two routes cannot drift to different destinations.
-        #expect(gate.contains("onRequestAccountDeletion: onDeleteAccount"))
-    }
-
-    /// A wrong-account subscriber must be able to leave the gate and authenticate as the Apple ID
-    /// that owns the subscription.
-    @Test
-    func theAppAccessGateOffersSignOutForWrongAccountRecovery() throws {
-        let gate = try source(
-            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
-        )
-
-        #expect(gate.contains("onSignOut: @escaping () -> Void"))
-        #expect(gate.contains("Button(action: onSignOut)"))
-        #expect(gate.contains("Text(\"Sign Out\")"))
-        #expect(gate.contains(".accessibilityIdentifier(\"appAccessSignOut\")"))
-    }
-
-    /// The deletion link stays subordinate to subscribe and restore: it is the way out, not the
-    /// offer. A promoted button here would read as the gate's recommended action.
-    @Test
-    func theDeletionLinkStaysQuieterThanSubscribeAndRestore() throws {
-        let gate = try source(
-            at: "AscendApp/Features/Monetization/Paywall/AppAccessPaywallPlaceholderView.swift"
-        )
-
-        let restoreIndex = try #require(gate.range(of: "coordinator.restore()")).lowerBound
-        let deleteIndex = try #require(gate.range(of: "Button(action: onDeleteAccount)")).lowerBound
-        #expect(restoreIndex < deleteIndex, "Deletion must sit beneath Restore Purchases")
-
-        let link = try #require(gate.range(of: "Button(action: onDeleteAccount)"))
-        let linkBlock = String(gate[link.lowerBound...].prefix(400))
-        #expect(linkBlock.contains("montserratMedium(size: 13)"))
-        #expect(!linkBlock.contains("Color.ascendAccent"))
-        // A 44pt row keeps the quiet type from shrinking the tap target below the HIG minimum.
-        #expect(linkBlock.contains("minHeight: 44"))
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for phrase in forbiddenCopy + forbiddenTypes where text.contains(phrase) {
+                Issue.record("\(file.lastPathComponent) still carries \"\(phrase)\"")
+            }
+        }
     }
 
     /// The lockout resolves above the entitlement gate and absorbs the whole app, so the same
@@ -164,11 +143,14 @@ struct LockedOutSubscriberRecoveryContractTests {
         // clear UserDefaults, the image cache and the pending uploads. Clearing the flag on the
         // session change tore the dialog down inside that window, so a failing sweep raised its
         // alert on a sheet nobody could see - a silent leftover in an irreversible flow.
-        let sessionChange = try #require(
-            root
-                .range(of: ".onChange(of: authVM.user?.uid)")
-                .map { String(root[$0.lowerBound...].prefix(600)) }
-        )
+        // Read to the next modifier, not a character count: the handler is where anything else
+        // that must follow a session change lands, and that must not read as losing the deferral.
+        let sessionChangeStart = try #require(
+            root.range(of: ".onChange(of: authVM.user?.uid)")
+        ).upperBound
+        let afterSessionChange = root[sessionChangeStart...]
+        let nextModifier = try #require(afterSessionChange.range(of: ".onChange(of:")).lowerBound
+        let sessionChange = String(afterSessionChange[..<nextModifier])
         #expect(!sessionChange.contains("isShowingGateAccountDeletion = false"))
         #expect(sessionChange.contains("dismissGateAccountDeletionWhenResolved()"))
 

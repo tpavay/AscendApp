@@ -29,7 +29,7 @@ struct SeasonalStickerView: View {
         let ink = StickerInk(style: style)
         VStack(spacing: 7) {
             SeasonalStickerContent(kind: kind, subject: subject, ink: ink, year: year)
-            AscendWordmark(size: 7, letterColor: ink.color, markColor: ink.markColor)
+            AscendWordmark(height: 10, treatment: ink.wordmark)
         }
         .stickerShadow(style)
         .padding(bleed)

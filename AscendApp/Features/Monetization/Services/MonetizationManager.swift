@@ -5,15 +5,20 @@ import Observation
 @Observable
 final class MonetizationManager: MonetizationIdentityManaging {
     static let shared = MonetizationManager()
-    #if DEBUG
-    private static let debugForcesAppAccessPaywallKey = "debug.monetization.forceAppAccessPaywall"
-    #endif
 
     private let entitlementService: any EntitlementServicing
     private let paywallPresenter: any PaywallPresenting
     private let appAccessReconciler: any AppAccessReconciling
+    /// The server-granted free week, for the account this manager is identified as.
+    let freeWeek: FreeWeekAccessStore
     private let telemetry: TelemetryManager
-    private let userDefaults: UserDefaults
+    private let pendingPurchaseHoldStore: PendingPurchaseHoldStore
+    private let declineOfferReplayStore: DeclineOfferReplayStore
+    private let isOnboardingV3Enabled: @MainActor () -> Bool
+    /// The account whose first paywall was on screen when the previous process died, read once at
+    /// launch. A marker written during this process is not a force-close, so it is never replayed.
+    @ObservationIgnored
+    private var declineOfferOwedAtLaunch: String?
     private let verdictBudget: MonetizationVerdictBudget
     private let unattributedGrantSettleDelay: Duration
     private let unattributedGrantSleep: @Sendable (Duration) async throws -> Void
@@ -34,7 +39,9 @@ final class MonetizationManager: MonetizationIdentityManaging {
     )?
     private(set) var configuration: MonetizationConfiguration
     #if DEBUG
-    private(set) var debugForcesAppAccessPaywall: Bool
+    /// Held in memory only, so relaunching is the way out of a forced gate: the gate is a spinner
+    /// behind hosted screens, and neither can carry a control that clears a debug override.
+    private(set) var debugForcesAppAccessPaywall = false
     #endif
 
     var entitlementState: MonetizationEntitlementState {
@@ -45,9 +52,23 @@ final class MonetizationManager: MonetizationIdentityManaging {
         entitlementService.hasFailedIdentityResolution
     }
 
+    /// A running free week is app access exactly as a paid entitlement is: the server holds the
+    /// same grant document for both, so everything that waits on access - routing, the workout
+    /// upload hold - opens for it too.
     var hasAppAccess: Bool {
         allowsUnentitledAppAccessForRouting
             || entitlementStateForRouting.hasActiveEntitlement(configuration.revenueCatEntitlementID)
+            || freeWeekAccessForRouting == .live
+    }
+
+    var freeWeekAccessForRouting: FreeWeekRoutingAccess {
+        #if DEBUG
+        if debugForcesAppAccessPaywall {
+            return .none
+        }
+        #endif
+
+        return freeWeek.routingAccess
     }
 
     var entitlementStateForRouting: MonetizationEntitlementState {
@@ -84,7 +105,8 @@ final class MonetizationManager: MonetizationIdentityManaging {
         guard entitlementStateForRouting.hasActiveEntitlement(
             configuration.revenueCatEntitlementID
         ) else {
-            return nil
+            // The free week lets a climber in with no entitlement at all, and it names itself.
+            return freeWeekAccessForRouting == .live ? .freeWeek : nil
         }
 
         switch onboardingLifecycle.accessGrantProvenance {
@@ -109,9 +131,11 @@ final class MonetizationManager: MonetizationIdentityManaging {
         entitlementService: any EntitlementServicing = RevenueCatEntitlementService.shared,
         paywallPresenter: any PaywallPresenting = SuperwallPaywallPresenter.shared,
         appAccessReconciler: any AppAccessReconciling = AppAccessReconciliationService.shared,
+        freeWeek: FreeWeekAccessStore? = nil,
         telemetry: TelemetryManager = .shared,
         onboardingLifecycle: OnboardingFlowAnalyticsCoordinator = .shared,
         userDefaults: UserDefaults = .standard,
+        isOnboardingV3Enabled: @escaping @MainActor () -> Bool = MonetizationManager.liveOnboardingV3Switch,
         verdictBudget: MonetizationVerdictBudget = MonetizationVerdictBudget(),
         unattributedGrantSettleDelay: Duration = .seconds(15),
         unattributedGrantSleep: @escaping @Sendable (Duration) async throws -> Void = {
@@ -124,15 +148,16 @@ final class MonetizationManager: MonetizationIdentityManaging {
         self.entitlementService = entitlementService
         self.paywallPresenter = paywallPresenter
         self.appAccessReconciler = appAccessReconciler
+        self.freeWeek = freeWeek ?? FreeWeekAccessStore(
+            cache: FreeWeekRecordCache(userDefaults: userDefaults)
+        )
         self.telemetry = telemetry
         self.onboardingLifecycle = onboardingLifecycle
-        self.userDefaults = userDefaults
+        pendingPurchaseHoldStore = PendingPurchaseHoldStore(userDefaults: userDefaults)
+        declineOfferReplayStore = DeclineOfferReplayStore(userDefaults: userDefaults)
+        declineOfferOwedAtLaunch = declineOfferReplayStore.pendingUserID()
+        self.isOnboardingV3Enabled = isOnboardingV3Enabled
         self.verdictBudget = verdictBudget
-        #if DEBUG
-        debugForcesAppAccessPaywall = userDefaults.bool(
-            forKey: MonetizationManager.debugForcesAppAccessPaywallKey
-        )
-        #endif
     }
 
     func configure(configuration: MonetizationConfiguration = .live) {
@@ -146,6 +171,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
                 entitlementIDs = []
             }
             self.paywallPresenter.updateSubscriptionStatus(entitlementIDs: entitlementIDs)
+            if state.hasActiveEntitlement(self.configuration.revenueCatEntitlementID) {
+                self.releasePendingPurchaseHold()
+                self.clearPendingDeclineOffer()
+            }
             self.settleUnattributedAccessGrantIfNeeded(for: state)
         }
         entitlementService.configure(configuration: configuration)
@@ -170,6 +199,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         // The pass that opened before auth belongs to whoever just claimed it; a different account
         // retires it, and the grant provenance it was carrying, rather than inheriting either.
         onboardingLifecycle.adoptPassOwner(customer.userID)
+        freeWeek.setUser(customer.userID)
 
         let transition = entitlementService.prepareIdentity(customer)
         preparedIdentityTransition = transition
@@ -199,6 +229,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         // reportable again - including this one.
         identifiedUserID = nil
         onboardingLifecycle.retireAdoptedPass()
+        freeWeek.setUser(nil)
 
         let transition = entitlementService.prepareIdentityReset()
         preparedIdentityTransition = transition
@@ -243,6 +274,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
         waitsForPendingIdentity: Bool,
         force: Bool
     ) async -> MonetizationEntitlementRefresh {
+        // Launch and every foreground come through here, which is when a week that ended while the
+        // app was suspended has to be noticed.
+        freeWeek.reevaluate()
+
         let refresh = await entitlementService.refreshCustomerInfo(
             waitsForPendingIdentity: waitsForPendingIdentity
         )
@@ -337,6 +372,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         // that follows is dropped and the grant would stay unattributed until the next launch.
         if entitlementService.identityGeneration == identity {
             recordOnboardingAccessGranted(.purchase)
+            recordPurchaseDuringFreeWeek(identity: identity)
         }
 
         guard entitlementService.adoptTransactionState(state, for: identity) else {
@@ -346,12 +382,90 @@ final class MonetizationManager: MonetizationIdentityManaging {
         return true
     }
 
+    /// Which onboarding led the climber to the gate.
+    var onboardingFlowVersion: String {
+        onboardingLifecycle.activeFlowVersion
+    }
+
+    var pendingPurchaseHold: PendingPurchaseHold? {
+        pendingPurchaseHoldStore.hold()
+    }
+
+    /// Access that has already landed leaves nothing to wait for, so a verdict that loses the race
+    /// with the customer-info stream cannot lock this account's next lapse.
+    func holdPendingPurchase(_ hold: PendingPurchaseHold) {
+        guard !entitlementState.hasActiveEntitlement(configuration.revenueCatEntitlementID) else {
+            return
+        }
+        pendingPurchaseHoldStore.mark(hold)
+    }
+
+    func releasePendingPurchaseHold() {
+        pendingPurchaseHoldStore.clear()
+    }
+
+    // MARK: - Decline offer replay
+
+    /// The v3 onboarding's decline offer rides on the free week rollout: with either switch off the
+    /// gate behaves exactly as it did before the replay existed.
+    private var declineOfferReplayIsOn: Bool {
+        freeWeek.isEnabled && isOnboardingV3Enabled()
+    }
+
+    static func liveOnboardingV3Switch() -> Bool {
+        #if DEBUG || STAGING
+        if OnboardingV3DebugReplay().forcesFlow { return true }
+        #endif
+        return RemoteFeatureFlagStore.shared.isEnabled(.onboardingV3)
+    }
+
+    /// The first paywall reached the screen of a climber who walked the v3 onboarding, so closing
+    /// the app now would lose them the offer the close was about to open.
+    func recordAccessGatePaywallShown() {
+        guard declineOfferReplayIsOn,
+              onboardingFlowVersion == OnboardingAnalyticsContext.currentFlowVersion,
+              let userID = identityGeneration?.userID else { return }
+        declineOfferReplayStore.markPending(for: userID)
+    }
+
+    /// The decline offer reached the screen, by the SDK's chain or by the replay. It is never owed
+    /// to this account again.
+    func recordDeclineOfferShown() {
+        guard let userID = identityGeneration?.userID else { return }
+        declineOfferReplayStore.markShown(for: userID)
+        declineOfferOwedAtLaunch = nil
+    }
+
+    /// Access arrived, a week started, or the climber left: nothing is owed.
+    func clearPendingDeclineOffer() {
+        declineOfferReplayStore.clearPending()
+        declineOfferOwedAtLaunch = nil
+    }
+
+    /// Whether this launch owes the climber the decline offer: their first paywall was on screen
+    /// when the previous process died and they have not seen the offer since. Asked once, by the
+    /// gate that opens first, so a gate that restarts in the same process shows the paywall.
+    func takeOwedDeclineOffer() -> Bool {
+        guard let owed = declineOfferOwedAtLaunch else { return false }
+        guard declineOfferReplayIsOn,
+              identityGeneration?.userID == owed,
+              !declineOfferReplayStore.hasShown(for: owed),
+              !hasAppAccess,
+              pendingPurchaseHold == nil else {
+            return false
+        }
+        declineOfferOwedAtLaunch = nil
+        return true
+    }
+
     func presentPaywall(
         _ placement: SuperwallPlacement,
         params: [String: Any]? = nil,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void = { _ in }
     ) {
-        let tracksOnboardingAccess = placement == .onboardingPaywall || placement == .appAccessGate
+        // The replayed decline offer sells the same access, so a purchase or restore made on it is
+        // attributed like one made on the first paywall. Only the first paywall is a funnel step.
+        let tracksOnboardingAccess = placement == .appAccessGate || placement == .declineOfferReplay
         guard let presentationIdentity = identityGeneration else {
             if tracksOnboardingAccess {
                 recordOnboardingAccessGrantRequestReportedNothing()
@@ -386,6 +500,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
             placement: placement,
             params: params,
             identity: presentationIdentity,
+            relayAttribution: relayAttribution(for: placement, params: params),
             onOutcome: { [weak self] outcome in
                 guard let self,
                       self.activePaywallAttempt?.revision == attemptRevision,
@@ -397,10 +512,26 @@ final class MonetizationManager: MonetizationIdentityManaging {
                     self.recordOnboardingPaywallOutcome(outcome)
                 }
                 onOutcome(outcome)
-                if outcome.isTerminal {
+                // The caller may answer a terminal by presenting the next screen - the founder
+                // letter after the last decline, the paywall again once a free week is spent - and
+                // that presentation is already the active attempt by the time this line runs.
+                if outcome.isTerminal, self.activePaywallAttempt?.revision == attemptRevision {
                     self.activePaywallAttempt = nil
                 }
             }
+        )
+    }
+
+    private func relayAttribution(
+        for placement: SuperwallPlacement,
+        params: [String: Any]?
+    ) -> SuperwallRelayAttribution? {
+        let flowVersion = onboardingFlowVersion
+        guard flowVersion == OnboardingAnalyticsContext.currentFlowVersion else { return nil }
+        return SuperwallRelayAttribution(
+            flowVersion: flowVersion,
+            originPlacement: placement.rawValue,
+            source: params?["source"] as? String
         )
     }
 
@@ -417,7 +548,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
     #if DEBUG
     func setDebugForcesAppAccessPaywall(_ shouldForce: Bool) {
         debugForcesAppAccessPaywall = shouldForce
-        userDefaults.set(shouldForce, forKey: Self.debugForcesAppAccessPaywallKey)
     }
     #endif
 
@@ -428,8 +558,11 @@ final class MonetizationManager: MonetizationIdentityManaging {
     ) {
         guard let userID = identity.userID else { return }
         let source = params?["source"] as? String
+        // The pass that led here, on every placement, so a paywall reached from the 1.3.0
+        // onboarding is told from one reached by a climber who finished the old one.
         var parameters: [String: TelemetryValue] = [
-            "placement": .string(placement.rawValue)
+            "placement": .string(placement.rawValue),
+            "flow_version": .string(onboardingFlowVersion)
         ]
 
         if let source {
@@ -444,19 +577,71 @@ final class MonetizationManager: MonetizationIdentityManaging {
             ifIdentifiedAs: userID
         )
 
-        guard placement == .onboardingPaywall || placement == .appAccessGate else { return }
+        guard placement == .appAccessGate else { return }
 
+        // The gate is where every flow hands a climber without access, so it reports under the pass
+        // that led there.
+        let context = OnboardingAnalyticsContext.paywallHandOff(flowVersion: onboardingFlowVersion)
         telemetry.track(
             OnboardingAnalyticsEvent.paywallReached(
                 placement: placement.rawValue,
-                source: source
+                source: source,
+                context: context
             ),
             ifIdentifiedAs: userID
         )
         OnboardingScreenViewRecorder(lifecycle: onboardingLifecycle).recordIfNeeded(
-            OnboardingAnalyticsEvent.paywallContext,
+            context,
             telemetry: telemetry,
             expectedUserID: userID
+        )
+    }
+
+    /// Starts the free week for the account the gate is showing, and reports it.
+    ///
+    /// The report lives here, not in the gate: the moment the week lands the route leaves the gate
+    /// and cancels everything the gate was waiting on, its own reaction to this answer included.
+    func startFreeWeek(
+        letterShown: Bool,
+        identity: MonetizationIdentityTransition
+    ) async -> FreeWeekStartOutcome {
+        guard identityGeneration == identity else { return .failed }
+
+        // Read before the call: the week landing completes the onboarding pass, and a completed
+        // pass no longer says which flow it was.
+        let flowVersion = onboardingFlowVersion
+        let outcome = await freeWeek.startFreeWeek()
+        if case .started = outcome, let userID = identity.userID {
+            clearPendingDeclineOffer()
+            freeWeek.rememberStartedFlowVersion(flowVersion)
+            telemetry.track(
+                FreeWeekAnalyticsEvent.granted(
+                    flowVersion: flowVersion,
+                    letterShown: letterShown
+                ),
+                ifIdentifiedAs: userID
+            )
+        }
+        return outcome
+    }
+
+    /// The onboarding a climber's free week belongs to. The week outlives the pass that led to it,
+    /// so its later events ask the week itself and only fall back to the live pass for a week
+    /// another device started.
+    var freeWeekFlowVersion: String {
+        freeWeek.startedFlowVersion ?? onboardingFlowVersion
+    }
+
+    /// A purchase Apple completed while the free week was still running: the week converted.
+    private func recordPurchaseDuringFreeWeek(identity: MonetizationIdentityTransition) {
+        guard let userID = identity.userID, let daysLeft = freeWeek.daysLeft else { return }
+
+        telemetry.track(
+            FreeWeekAnalyticsEvent.purchasedDuringWeek(
+                flowVersion: freeWeekFlowVersion,
+                daysLeft: daysLeft
+            ),
+            ifIdentifiedAs: userID
         )
     }
 
@@ -520,12 +705,13 @@ final class MonetizationManager: MonetizationIdentityManaging {
             recordOnboardingAccessGranted(.purchase)
         case .restored:
             recordOnboardingAccessGranted(.restore)
-        case .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .skipped, .failed:
-            // Back and delete-account are navigations, not grants: like a dismissal each closes the
-            // request without naming how access was given, so a later webhook-delayed purchase
-            // still attributes.
+        case .dismissedWithoutPurchase, .backRequested, .deleteAccountRequested, .signOutRequested,
+             .skipped, .failed:
+            // Back, delete-account and sign-out are navigations, not grants: like a dismissal each
+            // closes the request without naming how access was given, so a later webhook-delayed
+            // purchase still attributes.
             recordOnboardingAccessGrantRequestReportedNothing()
-        case .presented, .pendingApproval, .verificationUnavailable:
+        case .presented, .followOnPaywallOpening, .pendingApproval, .verificationUnavailable:
             // Presentation and recoverable transaction states are not access-grant results.
             // The entitlement stream remains authoritative and may still grant access later.
             break

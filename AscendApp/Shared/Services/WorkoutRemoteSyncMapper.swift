@@ -115,9 +115,10 @@ private extension WorkoutRemoteSyncMapper {
     /// refusing it here instead surfaces as `unsupportedSource` immediately.
     ///
     /// `garmin` and `fitbit` are absent on both sides: they named integrations that were never
-    /// built, so no build ever set them. `manual`, `appleHealth` and `hevy` are here because #443
-    /// stopped the app CREATING them, not carrying them - a pre-#443 row still in a returning
-    /// climber's store syncs under its original source.
+    /// built, so no build ever set them. `appleHealth` and `hevy` are here because #443 stopped the
+    /// app CREATING them, not carrying them - a pre-#443 row still in a returning climber's store
+    /// syncs under its original source. `manual` is here for that reason and because the Log a
+    /// climb screen writes it again.
     static let supportedSourceRawValues: Set<String> = [
         WorkoutSource.manual.rawValue,
         WorkoutSource.appleHealth.rawValue,

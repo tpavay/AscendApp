@@ -58,6 +58,15 @@ struct AscendApp: App {
         } else {
             _authVM = State(initialValue: nil)
         }
+
+        // Registered at launch rather than from a screen: HealthKit relaunches the app in the
+        // background when a watch saves a workout, with no scene content, and delivers only to an
+        // observer that exists by then. Everything the call does beyond registering is gated on
+        // the connection, the session and the kill switch, so a climber who never connected pays
+        // nothing.
+        if startupFailure == nil, let modelContainer = self.modelContainer {
+            AppleHealthImportService.shared.resume(modelContext: modelContainer.mainContext)
+        }
     }
 
     private static func configureFirebase() -> AppLaunchFailure? {
@@ -73,7 +82,13 @@ struct AscendApp: App {
         // Seeds the store synchronously from the SDK's persisted activation before anything
         // that touches data shape gets a chance to run, so the first pass of sync, restore,
         // and migrations sees whatever the backend last said even with no network.
-        RemoteFeatureFlagService.shared.configure()
+        // The unit-test host keeps the shipped defaults instead: the live template is whatever an
+        // operator last published, and a fetch landing mid-run flips every suite that reads the
+        // shared store - turning `free_week_after_decline_enabled` on in staging failed the
+        // decline tests on a change that never touched them.
+        if !TelemetryManager.isUnitTestHost() {
+            RemoteFeatureFlagService.shared.configure()
+        }
         // The first thing to touch `Firestore.firestore()`, on purpose: the SDK refuses settings
         // after first use, and this decides whether the process gets a LevelDB cache at all. With
         // the memory cache it gets none, so Firestore's commit assertion - which killed a climb

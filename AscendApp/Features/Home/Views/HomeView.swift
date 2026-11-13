@@ -36,13 +36,28 @@ struct HomeView: View {
     @Environment(\.tabBarOverlayHeight) private var tabBarOverlayHeight
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var enrichmentService: AppleHealthEnrichmentService
+    @State private var importService: AppleHealthImportService
     private let homeDashboard: HomeDashboardViewModel
     @State private var todayActivity: HomeTodayActivityViewModel
     @State private var globeViewModel: GlobeViewModel
     @State private var showingStartActionSheet = false
+    @State private var reconciledWeeklyTargetUserID: String?
     @State private var showingHelpSheet = false
     @State private var showingJustClimbSetup = false
     @State private var pendingStartAction: HomeStartAction?
+    /// Whether the pending start action is its row's `See all ›` rather than the row itself.
+    @State private var pendingStartSeeAll = false
+    @State private var pendingLogIt = false
+    @State private var pendingHealthEntry = false
+    @State private var showingHealthConnectFlow = false
+    @State private var showingImports = false
+    /// Set when the connect flow finished with a choice, so Imports opens once the cover is gone
+    /// rather than being pushed under a screen that is still leaving.
+    @State private var opensImportsAfterConnect = false
+    /// The Log a climb screen on screen. Everything it is built from - the climb its "Same as"
+    /// chip repeats - travels in this one item, because a cover's closure reads Home's state as
+    /// the last body pass captured it.
+    @State private var logClimbRequest: LogClimbRequest?
     @State private var pendingJustClimbGoal: JustClimbGoal?
     @State private var selectedDetailClimb: Climb?
     @State private var unlocks = UnlockStore.shared
@@ -90,6 +105,7 @@ struct HomeView: View {
         todayActivity: HomeTodayActivityViewModel = HomeTodayActivityViewModel(),
         globeViewModel: GlobeViewModel = GlobeViewModel(),
         enrichmentService: AppleHealthEnrichmentService = .shared,
+        importService: AppleHealthImportService = .shared,
         initialSheetDetent: BrowseSheetDetent = .compact,
         makeJustClimbSession: @escaping JustClimbSessionFactory = HomeView.liveJustClimbSession,
         sessionRegistry: ActiveHeadphoneWorkoutRuntimeRegistry = .shared
@@ -101,6 +117,7 @@ struct HomeView: View {
         _todayActivity = State(initialValue: todayActivity)
         _globeViewModel = State(initialValue: globeViewModel)
         _enrichmentService = State(initialValue: enrichmentService)
+        _importService = State(initialValue: importService)
         _sheetDetent = State(initialValue: initialSheetDetent)
     }
 
@@ -175,6 +192,17 @@ struct HomeView: View {
                     previewCardArea(sheetHeight: sheetVisibleHeight)
                         .zIndex(2)
 
+                    if let notice = importService.homeNotice, sheetDetent == .compact, !isSearchMode {
+                        HomeHealthImportStrip(notice: notice) {
+                            importService.requestQuickEdit(workoutID: notice.workoutID)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, collapsedSheetHeight + 14)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(2)
+                    }
+
                     if !isSearchMode {
                         homeDrawer(
                             containerHeight: geometry.size.height,
@@ -228,11 +256,52 @@ struct HomeView: View {
         .sheet(isPresented: $showingStartActionSheet, onDismiss: {
             consumePendingStartAction()
         }) {
-            HomeStartActionSheet { action in
-                pendingStartAction = action
-                showingStartActionSheet = false
-            }
+            HomeStartActionSheet(
+                onSelect: { action in
+                    pendingStartAction = action
+                    pendingStartSeeAll = false
+                    showingStartActionSheet = false
+                },
+                onLogIt: LoggedClimbService.isOffered() ? {
+                    pendingLogIt = true
+                    showingStartActionSheet = false
+                } : nil,
+                healthEntry: importService.entry,
+                onHealth: {
+                    pendingHealthEntry = true
+                    showingStartActionSheet = false
+                },
+                picks: startPicks,
+                onSeeAll: { action in
+                    pendingStartAction = action
+                    pendingStartSeeAll = true
+                    showingStartActionSheet = false
+                }
+            )
             .appSheetStyle(.fitted())
+        }
+        .fullScreenCover(item: $logClimbRequest) { request in
+            LogClimbView(lastClimb: request.lastClimb)
+        }
+        .fullScreenCover(isPresented: $showingHealthConnectFlow, onDismiss: {
+            guard opensImportsAfterConnect else { return }
+            opensImportsAfterConnect = false
+            showingImports = true
+        }) {
+            AppleHealthConnectFlowView(
+                importService: importService,
+                onFinished: {
+                    opensImportsAfterConnect = true
+                    showingHealthConnectFlow = false
+                },
+                onClose: { showingHealthConnectFlow = false }
+            )
+        }
+        .onChange(of: importService.needsImportChoice, initial: true) { _, needsChoice in
+            if needsChoice { showingHealthConnectFlow = true }
+        }
+        .navigationDestination(isPresented: $showingImports) {
+            AppleHealthImportsView()
         }
         .sheet(isPresented: $showingJustClimbSetup, onDismiss: {
             pendingJustClimbGoal = nil
@@ -255,6 +324,7 @@ struct HomeView: View {
             }
 
             enrichmentService.configure(modelContext: modelContext)
+            importService.configure(modelContext: modelContext)
             globeViewModel.loadIfNeeded(modelContext: modelContext)
             personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: workouts)
             prepareHomeEntryIfNeeded()
@@ -266,6 +336,7 @@ struct HomeView: View {
             // Apple Health writes a climb's heart rate after the climb ends, so every Home entry
             // is another chance for a recent climb to pick up what was not there yet.
             await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
+            await importService.syncNow()
         }
         .task(id: authVM.user?.uid) {
             // One listener on one document, for as long as Home is mounted and this
@@ -294,7 +365,7 @@ struct HomeView: View {
         .onChange(of: workouts) { _, newValue in
             // The query lands after the save notification, so a climb added or
             // removed reaches the week line and the streak from the array itself.
-            homeDashboard.refreshLocalData(modelContext: modelContext, workouts: newValue)
+            homeDashboard.refreshLocalData(modelContext: modelContext, workouts: newValue, weeklyTarget: weeklyTarget)
             personalizedClimbSPM = PersonalizedClimbPaceService.effectiveSPM(workouts: newValue)
         }
         .onChange(of: tabRouter.selectedTab) { _, newValue in
@@ -302,8 +373,10 @@ struct HomeView: View {
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            importService.refreshDerivedState()
             Task {
                 await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
+                await importService.syncNow()
             }
         }
         .onChange(of: authVM.user?.uid) { _, _ in
@@ -312,6 +385,7 @@ struct HomeView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .workoutsDidChange)) { _ in
             refreshHomeDashboard(forceRank: true)
+            importService.refreshDerivedState()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             refreshHomeDashboard(forceRank: true)
@@ -319,8 +393,10 @@ struct HomeView: View {
             refreshTodayClimbStake()
             refreshCompletedClimberCounts()
             refreshTodayPresentations()
+            importService.refreshDerivedState()
             Task {
                 await enrichmentService.refreshPendingEnrichment(modelContext: modelContext)
+                await importService.syncNow()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in
@@ -357,7 +433,7 @@ struct HomeView: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 12) {
-                    AscendWordmark(size: 16, letterColor: .white)
+                    AscendWordmark(height: 20, treatment: .onDark)
                         .padding(.top, 12)
 
                     if !globeViewModel.mapScene.legendTiers.isEmpty {
@@ -386,6 +462,12 @@ struct HomeView: View {
                         showingStartActionSheet = true
                     }
                     .accessibilityHint("Open climb actions")
+                    .overlay(alignment: .topTrailing) {
+                        if case .viewImports(let badge) = importService.entry, badge > 0 {
+                            HealthCountBadge(count: badge)
+                                .offset(x: 8, y: -8)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 20)
@@ -467,6 +549,7 @@ struct HomeView: View {
                         weeklyRankSummary: homeDashboard.weeklyRankSummary,
                         isRankLoading: homeDashboard.isRankLoading,
                         streak: homeDashboard.weeklyStreak,
+                        weeklyTargetProgress: homeDashboard.weeklyTargetProgress,
                         onRankTapped: { tabRouter.select(.leaderboard, reason: .homeRankCard) },
                         onStreakTapped: { tabRouter.select(.profile, reason: .appRouting) }
                     )
@@ -687,19 +770,57 @@ struct HomeView: View {
     }
 
     private func consumePendingStartAction() {
+        if pendingHealthEntry {
+            pendingHealthEntry = false
+            switch importService.entry {
+            case .connect:
+                showingHealthConnectFlow = true
+            case .viewImports:
+                showingImports = true
+            case nil:
+                break
+            }
+            return
+        }
+        if pendingLogIt {
+            pendingLogIt = false
+            logClimbRequest = LogClimbRequest(
+                lastClimb: workouts.lazy.compactMap(LastClimbPreset.init(workout:)).first
+            )
+            return
+        }
         guard let action = pendingStartAction else { return }
         pendingStartAction = nil
+        let seeAll = pendingStartSeeAll
+        pendingStartSeeAll = false
 
-        switch action {
-        case .justClimb:
+        switch HomeStartDestination(
+            action: action,
+            seeAll: seeAll,
+            landmark: globeViewModel.dailyRecommendedClimb,
+            routine: DailyRoutineRecommendationPolicy.recommendation()
+        ) {
+        case .justClimbSetup:
             pendingJustClimbGoal = nil
             showingJustClimbSetup = true
-        case .browseClimbs:
+        case .climbDetail(let climb, let entryPoint):
+            openClimbDetail(climb, entryPoint: entryPoint)
+        case .landmarkList:
             // The globe is already here: the sheet's expanded position is the list.
             setSheetDetent(.expanded)
-        case .routines:
+        case .routine(let templateId):
+            tabRouter.openRoutineTemplate(templateId)
+        case .routinesTab:
             tabRouter.select(.training, reason: .appRouting)
         }
+    }
+
+    /// Today's landmark and routine, named on the Climb sheet's two list rows.
+    private var startPicks: HomeStartPicks {
+        HomeStartPicks(
+            landmark: globeViewModel.dailyRecommendedClimb,
+            routine: DailyRoutineRecommendationPolicy.recommendation()
+        )
     }
 
     private func setSheetDetent(
@@ -784,8 +905,29 @@ struct HomeView: View {
         }
     }
 
+    /// The climber's weekly target on this device. Nil when they set none, so no ring is drawn.
+    private var weeklyTarget: WeeklyTarget? {
+        authVM.user.flatMap { WeeklyTargetService().localTarget(for: $0.uid) }
+    }
+
+    /// Brings the account's target to this device once a launch per account, so a new phone shows
+    /// the ring the climber already set. A failed read leaves the device's copy standing.
+    private func reconcileWeeklyTarget() {
+        guard let userId = authVM.user?.uid, reconciledWeeklyTargetUserID != userId else { return }
+        reconciledWeeklyTargetUserID = userId
+
+        Task {
+            let service = WeeklyTargetService()
+            let before = service.localTarget(for: userId)
+            let after = await service.reconcile(for: userId)
+            guard before != after else { return }
+            homeDashboard.refreshLocalData(modelContext: modelContext, workouts: workouts, weeklyTarget: after)
+        }
+    }
+
     private func refreshHomeDashboard(forceRank: Bool = false) {
-        homeDashboard.refreshLocalData(modelContext: modelContext, workouts: workouts)
+        homeDashboard.refreshLocalData(modelContext: modelContext, workouts: workouts, weeklyTarget: weeklyTarget)
+        reconcileWeeklyTarget()
         homeDashboard.refreshWeeklyRank(
             userId: authVM.user?.uid,
             displayName: authVM.displayName,
@@ -794,6 +936,11 @@ struct HomeView: View {
             forceRemote: forceRank
         )
     }
+}
+
+private struct LogClimbRequest: Identifiable {
+    let id = UUID()
+    let lastClimb: LastClimbPreset?
 }
 
 #Preview {

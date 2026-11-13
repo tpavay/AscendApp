@@ -11,9 +11,11 @@ import Foundation
 @MainActor
 enum PersonalizedClimbPaceService {
     /// Lifetime average steps-per-minute across completed workouts, or `nil` with no usable history.
+    /// A climb with no step count has no pace to give, so its minutes stay out of the division.
     static func allTimeAverageSPM(workouts: [Workout]) -> Double? {
-        let totalSteps = workouts.reduce(0) { $0 + $1.steps }
-        let totalDurationSeconds = Int(workouts.reduce(0.0) { $0 + $1.duration }.rounded())
+        let measured = workouts.filter { !$0.isMissingSteps }
+        let totalSteps = measured.reduce(0) { $0 + $1.steps }
+        let totalDurationSeconds = Int(measured.reduce(0.0) { $0 + $1.duration }.rounded())
 
         guard totalDurationSeconds > 0, totalSteps > 0 else { return nil }
 

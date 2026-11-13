@@ -506,7 +506,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.ios == 'true'
     runs-on: macos-15
-    timeout-minutes: 75
+    timeout-minutes: 95
 
     steps:
       - name: Checkout repository
@@ -730,13 +730,18 @@ jobs:
       # red check. The 48 that replaced it went the same way: green runs spent
       # 27-46 minutes here between 2026-10-06 and 2026-10-23, and run
       # 40003775993 was killed at 48 one test from the end of a suite that had
-      # passed, after a 21-minute compile at a load average of 411. The
-      # silence watchdog and the per-test allowance are what name a real hang,
-      # long before this fires.
+      # passed, after a 21-minute compile at a load average of 411. The 60 that
+      # replaced it went the same way: in the 25 runs up to 2026-11-05 green
+      # runs spent 35-58 minutes here, and run 42113943752 was killed at 60 with
+      # 2054 tests passed and none failed, roughly ten minutes from the end,
+      # after a 30-minute compile against the 9.5 of a green run an hour earlier,
+      # at a load average of 421. Its last 200 tests ran at 1.1x the green run's
+      # time, so that host was slow, not exhausted. The silence watchdog and the
+      # per-test allowance are what name a real hang, long before this fires.
       - name: Run tests
         id: tests
         shell: bash
-        timeout-minutes: 60
+        timeout-minutes: 80
         # The Mixpanel step above resolved the package graph against the
         # restored cache, so the build can skip fetching every remote again.
         env:

@@ -55,6 +55,9 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     private var shownPresentationIDs: Set<String> = []
     private var presentationOperationTail: Task<Void, Never>?
     private var registrationTask: Task<Void, Never>?
+    /// The latest registration's, kept past its dismissal: SuperwallKit reports a close after the
+    /// outcome, and the paywall it chains next belongs to the same registration.
+    private var relayAttribution: SuperwallRelayAttribution?
 
     init(
         purchaseController: RevenueCatPurchaseController = RevenueCatPurchaseController(),
@@ -173,6 +176,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             placement: placement,
             params: params,
             identity: nil,
+            relayAttribution: nil,
             onOutcome: onOutcome
         )
     }
@@ -181,12 +185,14 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         placement: SuperwallPlacement,
         params: [String: Any]? = nil,
         identity: MonetizationIdentityTransition,
+        relayAttribution: SuperwallRelayAttribution?,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
     ) {
         registerInternal(
             placement: placement,
             params: params,
             identity: identity,
+            relayAttribution: relayAttribution,
             onOutcome: onOutcome
         )
     }
@@ -195,9 +201,11 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         placement: SuperwallPlacement,
         params: [String: Any]?,
         identity: MonetizationIdentityTransition?,
+        relayAttribution: SuperwallRelayAttribution?,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
     ) {
         guard isConfigured else { return }
+        self.relayAttribution = relayAttribution
         let revision = attemptRegistry.begin()
         registrations[revision] = Registration(
             placement: placement.rawValue,
@@ -236,10 +244,11 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             onOutcome(.presented)
         }
 
-        handler.onDismiss { _, result in
+        handler.onDismiss { paywallInfo, result in
             self.handleDismiss(
                 revision: revision,
                 result: result,
+                closeReason: paywallInfo.closeReason,
                 onOutcome: onOutcome
             )
         }
@@ -277,7 +286,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
                 ),
                 identity: registration.identity
             )
-            onOutcome(.failed(message: "Plans could not open."))
+            onOutcome(.failed(message: "Superwall could not present the placement."))
             self.registrations[revision] = nil
         }
 
@@ -287,7 +296,8 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     @discardableResult
     func handlePresentationBegan(
         revision: UInt,
-        presentationID: String? = nil
+        presentationID: String? = nil,
+        placement: String? = nil
     ) -> Bool {
         switch attemptRegistry.authority(of: revision) {
         case .stale:
@@ -311,7 +321,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             presentedToken = PresentedToken(
                 revision: revision,
                 presentationID: presentationID,
-                placement: registration.placement,
+                placement: placement ?? registration.placement,
                 identity: identity,
                 gateAttemptID: registration.gateAttemptID,
                 onOutcome: registration.onOutcome,
@@ -329,7 +339,8 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     ) -> Bool {
         guard handlePresentationBegan(
             revision: revision,
-            presentationID: context.presentationID
+            presentationID: context.presentationID,
+            placement: context.placement
         ) else {
             return false
         }
@@ -368,11 +379,16 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         await enqueuePresentationOperation {}.value
     }
 
-    func handleDismissForTesting(revision: UInt, result: PaywallResult) {
+    func handleDismissForTesting(
+        revision: UInt,
+        result: PaywallResult,
+        closeReason: PaywallCloseReason = .manualClose
+    ) {
         guard let registration = registrations[revision] else { return }
         handleDismiss(
             revision: revision,
             result: result,
+            closeReason: closeReason,
             onOutcome: registration.onOutcome
         )
     }
@@ -397,6 +413,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     private func handleDismiss(
         revision: UInt,
         result: PaywallResult,
+        closeReason: PaywallCloseReason,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
     ) {
         guard attemptRegistry.isAuthoritative(revision) else { return }
@@ -406,6 +423,14 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             registrations[revision] = nil
             return
         }
+        if closeReason == .forNextPaywall {
+            // SuperwallKit presents a paywall its dashboard chains onto this one (a decline offer)
+            // through this same state publisher, so this handler goes on to report it. The
+            // registration stays, and the next `onPresent` makes that paywall this attempt's own.
+            presentedToken = nil
+            onOutcome(.followOnPaywallOpening)
+            return
+        }
         switch result {
         case .purchased:
             onOutcome(.purchased)
@@ -413,10 +438,13 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             onOutcome(.restored)
         case .declined:
             // Every user-driven close arrives here identically, so the latched custom action is the
-            // only thing that separates a deliberate back tap from any other dismissal.
-            let latchedActionName = presentedToken?.revision == revision
-                ? presentedToken?.latchedActionName
-                : nil
+            // only thing that separates a deliberate back tap from any other dismissal. A paywall the
+            // dashboard chained has no step behind it, so only a registered placement can ask for one.
+            let latchedActionName = presentedToken.flatMap { token in
+                token.revision == revision && SuperwallPlacement(reportedByAscend: token.placement) != nil
+                    ? token.latchedActionName
+                    : nil
+            }
             onOutcome(PaywallDismissIntent.resolve(latchedActionName: latchedActionName).outcome)
         }
         presentedToken = nil
@@ -479,11 +507,14 @@ private extension SuperwallPaywallPresenter {
         track(event, identity: owner.identity)
     }
 
-    private func track(
-        _ event: any TelemetryEvent,
-        presentationID: String?
+    /// A paywall the dashboard chains onto a registered placement reports the SDK's own trigger as
+    /// its placement, and `SuperwallEventRelay` is what reports it.
+    private func trackPaywallEvent(
+        _ event: PaywallAnalyticsEvent,
+        context: PaywallAnalyticsContext
     ) {
-        guard let owner = telemetryOwner(for: presentationID) else { return }
+        guard SuperwallPlacement(reportedByAscend: context.placement) != nil,
+              let owner = telemetryOwner(for: context.presentationID) else { return }
         track(event, owner: owner)
     }
 }
@@ -608,7 +639,19 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
         }
     }
 
+    func relaySuperwallEvent(_ event: SuperwallEventObjc, params: [String: Any]) {
+        if let record = SuperwallEventRelay.record(
+            for: event,
+            params: params,
+            attribution: relayAttribution
+        ) {
+            telemetry.track(record)
+        }
+    }
+
     func handleSuperwallEvent(withInfo eventInfo: SuperwallEventInfo) {
+        relaySuperwallEvent(SuperwallEventObjc(event: eventInfo.event), params: eventInfo.params)
+
         switch eventInfo.event {
         case .transactionStart(let product, let paywallInfo):
             handleTransactionStarted(
@@ -618,24 +661,24 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
 
         case .transactionComplete(_, let product, let transactionType, let paywallInfo):
             let context = PaywallAnalyticsContext(paywallInfo: paywallInfo)
-            track(
-                PaywallAnalyticsEvent.transactionCompleted(
+            trackPaywallEvent(
+                .transactionCompleted(
                     context: context,
                     productID: product.productIdentifier,
                     transactionType: transactionType.description
                 ),
-                presentationID: context.presentationID
+                context: context
             )
 
         case .transactionFail(let error, let paywallInfo):
             let context = PaywallAnalyticsContext(paywallInfo: paywallInfo)
-            track(
-                PaywallAnalyticsEvent.transactionFailed(
+            trackPaywallEvent(
+                .transactionFailed(
                     context: context,
                     errorType: error.analyticsType,
                     productID: error.analyticsProductID
                 ),
-                presentationID: context.presentationID
+                context: context
             )
 
         case .transactionAbandon(let product, let paywallInfo):
@@ -646,12 +689,12 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
 
         case .transactionRestore(let restoreType, let paywallInfo):
             let context = PaywallAnalyticsContext(paywallInfo: paywallInfo)
-            track(
-                PaywallAnalyticsEvent.restoreCompleted(
+            trackPaywallEvent(
+                .restoreCompleted(
                     context: context,
                     restoreType: restoreType.analyticsType
                 ),
-                presentationID: context.presentationID
+                context: context
             )
 
         default:
@@ -666,7 +709,8 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
     }
 
     func handlePaywallShown(context: PaywallAnalyticsContext) {
-        guard let presentationID = context.presentationID,
+        guard SuperwallPlacement(reportedByAscend: context.placement) != nil,
+              let presentationID = context.presentationID,
               let owner = telemetryOwner(for: presentationID),
               shownPresentationIDs.insert(presentationID).inserted else {
             return
@@ -675,19 +719,15 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
             PaywallAnalyticsEvent.shown(context: context),
             owner: owner
         )
-        guard SuperwallPlacement(rawValue: context.placement) != nil,
-              let userID = owner.identity?.userID else {
+        guard let userID = owner.identity?.userID else {
             return
         }
         recordLifecyclePaywallShown(context.placement, userID)
     }
 
     func handlePaywallDismissed(context: PaywallAnalyticsContext) {
-        track(
-            PaywallAnalyticsEvent.dismissed(context: context),
-            presentationID: context.presentationID
-        )
-        guard SuperwallPlacement(rawValue: context.placement) != nil,
+        trackPaywallEvent(.dismissed(context: context), context: context)
+        guard SuperwallPlacement(reportedByAscend: context.placement) != nil,
               let userID = telemetryOwner(for: context.presentationID)?.identity?.userID else {
             return
         }
@@ -706,22 +746,16 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
             identity: owner.identity,
             productID: productID
         )
-        track(
-            PaywallAnalyticsEvent.transactionStarted(
-                context: context,
-                productID: productID
-            ),
-            owner: owner
+        trackPaywallEvent(
+            .transactionStarted(context: context, productID: productID),
+            context: context
         )
     }
 
     func handleTransactionAbandoned(context: PaywallAnalyticsContext, productID: String) {
-        track(
-            PaywallAnalyticsEvent.transactionAbandoned(
-                context: context,
-                productID: productID
-            ),
-            presentationID: context.presentationID
+        trackPaywallEvent(
+            .transactionAbandoned(context: context, productID: productID),
+            context: context
         )
     }
 }

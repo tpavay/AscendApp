@@ -19,16 +19,17 @@ import SwiftData
 /// Frozen. `ActiveHeadphoneWorkoutDraft` carries its own copy below because `AscendSchemaV5`
 /// added `checkpointDiagnosticsData` to it, and a version that named the live type would describe
 /// a shape it never shipped. V1, V2 and V3 name this same frozen copy: the draft did not change
-/// between them. Every other model is byte-identical between V4 and V5 and is listed by its live
-/// type.
+/// between them. `Workout`, `WorkoutSourceLink` and `WorkoutParticipation` name the frozen copies
+/// in `AscendSchemaV5`, because `AscendSchemaV6` added a `Workout` column. Every other model is
+/// byte-identical between V4 and V5 and is listed by its live type.
 enum AscendSchemaV4: VersionedSchema {
     static var versionIdentifier: Schema.Version { Schema.Version(4, 0, 0) }
 
     static var models: [any PersistentModel.Type] {
         [
-            Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
+            AscendSchemaV5.Workout.self,
+            AscendSchemaV5.WorkoutSourceLink.self,
+            AscendSchemaV5.WorkoutParticipation.self,
             WorkoutSyncOutboxEntry.self,
             AscendSchemaV4.ActiveHeadphoneWorkoutDraft.self,
             LeaderboardStats.self,

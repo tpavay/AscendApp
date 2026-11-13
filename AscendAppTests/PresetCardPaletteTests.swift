@@ -1,10 +1,52 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import AscendApp
 
 struct PresetCardPaletteTests {
     private func palette(_ accent: PresetAccent = .lime, _ background: PresetCardBackground) -> PresetCardPalette {
         PresetCardPalette(accent: accent, background: background)
+    }
+
+    @Test
+    func aLimeMarkKeepsTheBrandLockupOnEveryCardThatDrawsIt() {
+        func treatment(_ accent: PresetAccent, _ background: PresetCardBackground) -> AscendWordmark.Treatment {
+            let palette = palette(accent, background)
+            return .shareLockup(letters: palette.wordmarkLetters, mark: palette.wordmarkMark)
+        }
+
+        #expect(treatment(.lime, .flat(.white)) == .onLight)
+        #expect(treatment(.lime, .photo) == .onDark)
+        #expect(treatment(.lime, .tower) == .onDark)
+        // One colour was already the look on these: an ink A beside ink letters.
+        #expect(treatment(.lime, .flat(.accent)) == .mono(Color(share: .ink)))
+        #expect(treatment(.lime, .flat(.fade)) == .mono(Color(share: .ink)))
+    }
+
+    /// The artwork's A is only ever lime, so an A in another colour is tinted to keep its colour.
+    @Test
+    func aMarkTheArtworkCannotDrawIsTintedApartFromTheLetters() {
+        let coral = palette(.coral, .photo)
+        #expect(coral.wordmarkMark == ShareColor(PresetAccent.coral.hex))
+        #expect(
+            AscendWordmark.Treatment.shareLockup(letters: coral.wordmarkLetters, mark: coral.wordmarkMark)
+                == .twoColour(mark: Color(share: ShareColor(PresetAccent.coral.hex)), letters: Color(share: .paper))
+        )
+    }
+
+    @Test
+    func aSeasonalCardKeepsItsThemeAOrItsOneColour() {
+        let leafFall = SeasonalBackground.leafFall.cardPalette
+        #expect(
+            AscendWordmark.Treatment.shareLockup(letters: leafFall.wordmarkLetters, mark: leafFall.wordmarkMark)
+                == .twoColour(mark: Color(share: ShareColor(0xF59E0B)), letters: Color(share: .paper))
+        )
+
+        let bubblyGold = SeasonalBackground.bubblyGold.cardPalette
+        #expect(
+            AscendWordmark.Treatment.shareLockup(letters: bubblyGold.wordmarkLetters, mark: bubblyGold.wordmarkMark)
+                == .mono(Color(share: ShareColor(0x1C1917)))
+        )
     }
 
     @Test

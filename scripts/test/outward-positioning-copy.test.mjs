@@ -14,8 +14,7 @@ const sourcePaths = {
   privacy: pathFromRoot("web/src/pages/privacy.astro"),
   terms: pathFromRoot("web/src/pages/terms.astro"),
   proposal: pathFromRoot("docs/app-store-ranked-repositioning-proposal.md"),
-  projectMemory: pathFromRoot("CLAUDE.md"),
-  demoSeed: pathFromRoot("scripts/seed-demo-user.mjs")
+  projectMemory: pathFromRoot("CLAUDE.md")
 };
 
 async function source(name) {
@@ -74,56 +73,52 @@ test("the App Store proposal pins the settled ranked metadata", async () => {
   assert.deepEqual(repeatedTokens, []);
 });
 
-test("the proposed listing copy sells nothing #437 removed", async () => {
+test("the proposed listing copy sells import and logging only as the second way to climb", async () => {
   const proposal = await source("proposal");
   const description = fencedBlockAfter(proposal, "Description");
   const reviewNotes = fencedBlockAfter(proposal, "App Review notes");
 
   // The live listing sold "Log stair-stepper workouts in Ascend or import
-  // supported workouts from Apple Health", and the live review notes told the
-  // reviewer to exercise the app that way. #437 deleted both paths on
-  // 2026-08-08, which makes each sentence a Guideline 2.1/2.3 problem as well
-  // as an untruth.
-  //
-  // Both words survive in exactly one place each: the sentence that denies the
-  // feature. Those sentences are asserted, then cut, and whatever still says
-  // "manual" or "import" afterwards is the promise coming back.
-  const denials = {
-    description: [
-      "Every climb and every record in Ascend comes from a session you performed in Ascend. There is no manual entry and no importing from other apps."
-    ],
-    "review notes": [
-      "There is no manual entry and no import.",
-      "Typed-in workouts and Apple Health workout import were both removed"
-    ]
-  };
-  const forbidden = [
-    [/\blog(ging|s|ged)?\b/i, "promises logging"],
-    [/\bmanual(ly)?\b/i, "promises manual entry"],
-    [/\bimport(s|ing|ed)?\b/i, "promises importing"]
-  ];
-
-  const violations = [];
-  for (const [label, text] of [
-    ["description", description],
-    ["review notes", reviewNotes]
+  // supported workouts from Apple Health" as the way the app works, and #437
+  // removed both paths on 2026-08-08. Both returned in 1.3.0 as the second way
+  // to climb: live headphone climbs stay first, and a climb Ascend did not
+  // measure itself ranks only on a plausible pace. The copy has to say it in
+  // that order and may not slide back into the tracker framing.
+  for (const sentence of [
+    "Live climbs with compatible AirPods or Beats are the main way to climb.",
+    "Already climbed? Log a climb you did without a session, or bring in a stair stepper workout a watch or another app saved to Apple Health.",
+    "A climb Ascend did not measure itself ranks only if its pace is plausible.",
+    "Ascend reads from Apple Health and never writes to it."
   ]) {
-    let remainder = text;
-    for (const denial of denials[label]) {
-      assert.ok(
-        remainder.includes(denial),
-        `${label} no longer states the exclusion: ${denial}`
-      );
-      remainder = remainder.replace(denial, "");
-    }
-    for (const [pattern, promise] of forbidden) {
-      if (pattern.test(remainder)) {
-        violations.push(`${label}: ${promise}`);
-      }
-    }
+    assert.ok(description.includes(sentence), `description no longer says: ${sentence}`);
+  }
+  assert.ok(
+    description.indexOf("main way to climb") < description.indexOf("Already climbed?"),
+    "the description must lead with live climbs, then the second way"
+  );
+
+  for (const [pattern, why] of [
+    [/KEEP YOUR HISTORY TOGETHER/, "brings back the history-keeping section"],
+    [/\btrack(s|ing|er)?\b/i, "uses tracker language outside its denial"],
+    [/import (all|every|any) (of your )?workouts?/i, "promises importing every workout"]
+  ]) {
+    const remainder = description.replace(
+      "It is not a generic activity tracker and it is not a social feed.",
+      ""
+    );
+    assert.doesNotMatch(remainder, pattern, `description ${why}`);
   }
 
-  assert.deepEqual(violations, []);
+  // The reviewer has to be told how to reach both paths, and that neither is
+  // reviewed by a person.
+  for (const phrase of [
+    "Log it",
+    "Connect Health",
+    "automatic pace check",
+    "Ascend never writes to Health"
+  ]) {
+    assert.ok(reviewNotes.includes(phrase), `App Review notes no longer mention: ${phrase}`);
+  }
 
   // Apple caps Notes for Review at 4,000 bytes, and the bracketed fields still
   // have to grow into whatever is left.
@@ -133,21 +128,6 @@ test("the proposed listing copy sells nothing #437 removed", async () => {
     `App Review notes are ${noteBytes} bytes; keep them under 3,850 so the filled-in credentials and video URL still fit Apple's 4,000-byte field`
   );
   assert.match(reviewNotes, /\[STABLE HTTPS URL, NO LOGIN\]/);
-});
-
-test("the demo seeder only creates sessions the app can still record", async () => {
-  const seeder = await source("demoSeed");
-
-  for (const [pattern, retiredSource] of [
-    [/source:\s*"manual"/, "manual"],
-    [/source:\s*"apple_health"/, "apple_health"]
-  ]) {
-    assert.doesNotMatch(
-      seeder,
-      pattern,
-      `seed-demo-user.mjs still seeds a ${retiredSource} workout, a source #437 removed from the app on 2026-08-08`
-    );
-  }
 });
 
 test("the public website consistently presents Ascend as ranked", async () => {
@@ -168,11 +148,14 @@ test("the public website consistently presents Ascend as ranked", async () => {
   // machine itself, not with towers.
   assert.match(outwardCopy, /Compete on the stair stepper\./);
   assert.match(outwardCopy, /Ascend ranks every one of them against other climbers/);
-  assert.match(
-    outwardCopy,
-    /does not import workouts from Apple Health or any other app/i
-  );
-  assert.match(outwardCopy, /does not accept manually entered workouts/i);
+  // Since 1.3.0 live climbs stay the main way to climb, and a climb done without
+  // a session can be typed in or imported from Apple Health, ranking only on a
+  // plausible pace.
+  assert.match(outwardCopy, /Live climbs recorded in Ascend are the main way to climb/);
+  assert.match(outwardCopy, /imported from Apple Health/i);
+  assert.match(outwardCopy, /ranks it only if an automatic pace check finds its pace plausible/i);
+  assert.doesNotMatch(outwardCopy, /does not import workouts/i);
+  assert.doesNotMatch(outwardCopy, /does not accept manually entered workouts/i);
 
   for (const retiredCopy of [
     "Track the stair stepper like the workout it is",
@@ -196,7 +179,7 @@ test("the public website consistently presents Ascend as ranked", async () => {
   }
 });
 
-test("post-import-removal HealthKit disclosures match the real enrichment read set", async () => {
+test("HealthKit disclosures match the real read set", async () => {
   const [privacy, terms, proposal, projectMemory] = await Promise.all([
     source("privacy"),
     source("terms"),
@@ -218,39 +201,35 @@ test("post-import-removal HealthKit disclosures match the real enrichment read s
     ],
     [
       "project memory",
-      sectionBetween(projectMemory, "- Not a logger or an importer.", "Full rationale:")
+      sectionBetween(projectMemory, "- Not a tracker, and not an importer or a logger first.", "Full rationale:")
     ]
   ];
 
-  // Since #437 (merged 2026-08-08) HealthKitAuthorizationClient.readTypes is
-  // exactly {heartRate, activeEnergyBurned}, AppleHealthEnrichmentCoordinator
-  // reads the climb's own unpadded window, and HKWorkout is never touched.
-  // Naming anything wider is a false disclosure in a legal page, so these
-  // patterns guard against resurrecting the pre-#437 read set.
+  // Naming anything wider than the four types in the client is a false
+  // disclosure in a legal page, so these patterns guard against reads that
+  // were never requested, and against promising more than stair workouts.
   const forbiddenClaims = [
-    [/step count/i, "claims a step-count read that #437 removed"],
-    [/resting energy/i, "claims a resting-energy read that #437 removed"],
-    [/average METs/i, "claims a METs attachment that came from HKWorkout"],
+    [/resting energy/i, "claims a resting-energy read Ascend does not request"],
+    [/flights climbed|flightsClimbed/i, "claims a flights-climbed read Ascend does not request"],
+    [/average METs/i, "claims a METs attachment that Ascend does not read"],
+    [/lists Workouts in the Health permission sheet/i, "describes the permission sheet from before 1.3.0"],
     [
-      /matching Apple Health workout|workout entries/i,
-      "claims Ascend matches Apple Health workout entries, which #437 removed"
+      /imports? (?:all|every|any) (?:of your )?workouts?/i,
+      "promises importing every workout, when only stair stepper workouts are read"
     ],
-    [
-      /lists Workouts in the Health permission sheet/i,
-      "claims the permission sheet shows Workouts, which it no longer does"
-    ],
-    [
-      /(imports?|importing) (?:supported )?workouts? from Apple Health(?! or any other app, and it does not| into)/i,
-      "reads as a promise to import Apple Health workouts"
-    ]
+    [/Ascend (?:also |then )?(?:writes?|saves?|adds?) [^.]{0,40}(?:to|into) (?:the )?Apple Health/i, "claims a write to Apple Health"]
   ];
 
-  // The two types Ascend actually asks for, and the window it reads them over.
-  // Prose spells them out; CLAUDE.md names the HealthKit identifiers directly.
+  // The four types, the window the enrichment pair is read over, and that
+  // Ascend never writes. Prose spells the types out; CLAUDE.md names the
+  // HealthKit identifiers directly, so each pattern accepts either.
   const requiredDisclosures = [
+    [/workouts?\b|workoutType/i, "the workouts read"],
+    [/\bsteps?\b|stepCount/i, "the steps read"],
     [/heart[- ]rate|heartRate/i, "the heart-rate read"],
     [/active[- ]energy|activeEnergyBurned/i, "the active-energy read"],
-    [/own time window|time window of a climb/i, "the session-window bound"]
+    [/own (?:time )?window|time window of a (?:climb|session)/i, "the session-window bound"],
+    [/never writes|does not write|do not write|does not create or change anything/i, "that Ascend never writes to Apple Health"]
   ];
   const violations = [];
 

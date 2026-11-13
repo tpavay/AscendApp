@@ -22,6 +22,8 @@ struct DeleteAccountConfirmationView: View {
     @State private var didTimeout = false
     @FocusState private var isTextFieldFocused: Bool
 
+    /// Which screen asked for the deletion, reported with `account_deleted`.
+    let surface: AccountExitSurface
     let onAccountDeleted: () -> Void
     /// Reports whether a deletion still owns this dialog - running, or holding a failure the climber
     /// has not acknowledged. A presenter may not dismiss while this is true: the auth account is
@@ -29,7 +31,18 @@ struct DeleteAccountConfirmationView: View {
     /// dismissed sheet is a silent failure in an irreversible flow.
     var onDeletionUnresolvedChange: (Bool) -> Void = { _ in }
 
-    private let deletionService = AccountDeletionService()
+    init(
+        surface: AccountExitSurface = .settings,
+        onAccountDeleted: @escaping () -> Void,
+        onDeletionUnresolvedChange: @escaping (Bool) -> Void = { _ in }
+    ) {
+        self.surface = surface
+        self.onAccountDeleted = onAccountDeleted
+        self.onDeletionUnresolvedChange = onDeletionUnresolvedChange
+        deletionService = AccountDeletionService(surface: surface)
+    }
+
+    private let deletionService: AccountDeletionService
     private let requiredConfirmation = "DELETE"
     private let deletionTimeout: Duration = .seconds(90)
 
@@ -238,6 +251,6 @@ struct DeleteAccountConfirmationView: View {
 #Preview {
     Text("Preview")
         .sheet(isPresented: .constant(true)) {
-            DeleteAccountConfirmationView(onAccountDeleted: {})
+            DeleteAccountConfirmationView(surface: .settings, onAccountDeleted: {})
         }
 }

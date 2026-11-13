@@ -7,14 +7,17 @@ import UIKit
 /// Visual evidence for the entitlement-resolution wait, cited by
 /// `docs/quality/contracts/returning-subscriber.md` for the loading row of the state matrix and AC-9.
 ///
-/// This lays out the real `AppAccessResolvingView` - not a copy of its markup - off screen through
+/// This hosts the real `AppAccessResolvingView` - not a copy of its markup - through
 /// `RenderedScreen`, driven by a `MonetizationManager` built on the shared `EntitlementServiceStub`
 /// and `PaywallPresenterSpy` doubles, and photographs it only when `ASCEND_EVIDENCE_DIR` is set.
+/// It is hosted in a window rather than drawn off screen because the wait is the system spinner,
+/// which an off-screen renderer replaces with a placeholder glyph.
 /// Both rows are seeded through the shipped identity transition API, so what the PNG shows is
 /// what the routing layer can actually put on screen:
 ///   waiting  -> `prepareIdentity` has published `.unknown` and the answer is still outstanding
 ///   stalled  -> the matching identify resolved without an answer, so recovery takes over
 @MainActor
+@Suite(.serialized, .hostsAWindow)
 struct AppAccessResolvingSnapshotTests {
     @Test
     func rendersTheWaitAndRecoverySurfacesFromTheRealView() async throws {
@@ -30,12 +33,19 @@ struct AppAccessResolvingSnapshotTests {
         #expect(stalled.hasFailedIdentityResolution)
 
         let proof = AppAccessResolvingStatesProof(waiting: waiting, stalled: stalled)
-        // A size is a 1x fact; the bitmap is released before the photograph is considered.
-        try RenderedScreen.withOffscreenPixels(of: proof) { pixels in
-            #expect(pixels.size.width > 0)
-            #expect(pixels.size.height > 0)
+        try await RenderedScreen.host(proof, size: CGSize(width: 428, height: 1_130)) { screen in
+            // The wait is the same spinner the gate draws, with no words of its own.
+            #expect(
+                await gateWaitUntil(timeout: .seconds(10)) { screen.isGateSpinnerMounted },
+                "The wait never drew the system spinner"
+            )
+            let copy = try await screen.copy { $0.contains("access check stalled") }
+            #expect(copy.contains("access check stalled"))
+            #expect(copy.contains("try again"))
+            #expect(copy.contains("sign out"))
+            #expect(!copy.contains("checking your access"))
+            try screen.photograph(named: "app-access-resolving-states", scale: 2)
         }
-        try RenderedScreen.photograph(proof, named: "app-access-resolving-states", scale: 2)
     }
 }
 

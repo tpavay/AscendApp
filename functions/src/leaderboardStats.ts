@@ -23,12 +23,13 @@
  * device: there is no App Check attestation and no server-side sensor
  * ingestion, so the server holds no evidence a determined client could not
  * manufacture. What it does hold is a physical envelope - a session cannot
- * exceed 220 steps per minute, cannot run longer than a day, and a period's
- * sessions cannot total more wall clock than the period contains - so a forged
- * standing is now bounded by what a human could conceivably have climbed
- * instead of by the range of a 64-bit integer. Closing the remainder means
- * building the evidence path (attestation and per-workout provenance), which
- * is a separate piece of work.
+ * exceed 220 steps per minute (the same line for a climb typed in or brought
+ * in as for one Ascend's own sensor measured), cannot run longer than a day,
+ * and a period's sessions cannot total more wall clock than the period
+ * contains - so a forged standing is now bounded by what a human could
+ * conceivably have climbed instead of by the range of a 64-bit integer. Closing
+ * the remainder means building the evidence path (attestation and per-workout
+ * provenance), which is a separate piece of work.
  *
  * WHERE THE ENVELOPE DOES NOT REACH. The wall-clock bound is real for daily,
  * weekly, monthly and yearly, whose windows are fixed calendar spans the
@@ -91,6 +92,15 @@ export const COMPETITION_ELIGIBLE_SOURCES = new Set([
   "headphone_motion",
 ]);
 
+/** The one origin Ascend measures itself: the headphones' motion sensor. */
+export const LIVE_SENSOR_SOURCE = "headphone_motion";
+
+/** Typed in by hand. The one origin a climber can author without a sensor. */
+export const MANUAL_SOURCE = "manual";
+
+/** Imported from Apple Health: not measured by Ascend, and marked so. */
+export const APPLE_HEALTH_SOURCE = "apple_health";
+
 /**
  * The physical envelope a single session must fall inside to be counted.
  * `MAX_AVERAGE_STEPS_PER_MINUTE` mirrors
@@ -98,11 +108,43 @@ export const COMPETITION_ELIGIBLE_SOURCES = new Set([
  * server applies it again because it cannot know the device applied it.
  */
 export const MAX_AVERAGE_STEPS_PER_MINUTE = 220;
+
+/**
+ * The fastest average cadence a climb Ascend did not measure may carry and
+ * still rank. A live climb is bounded by what the headphone detector can
+ * physically report (a 0.3 second minimum between peaks, about 200 a minute)
+ * and by the 220 above; a typed or imported climb has no sensor behind it, so
+ * its pace is the only evidence there is. It is held to the same 220 as a live
+ * climb (it was 200 until 2026-11-06), so no origin has a looser line.
+ *
+ * Mirrors `ClimbPacePolicy.leaderboardCeilingStepsPerMinute` on the device,
+ * and `SharedTestVectors/climb-pace-policy-vector.json` holds the two to the
+ * same answers. The station's own ceiling is StairMaster's top console setting,
+ * 190 steps a minute; the fastest of the 104 production climbs measured on
+ * 2026-10-30 averaged 127.
+ *
+ * The server applies this itself and never reads a device verdict:
+ * `leaderboardStatus` is a local SwiftData column on the climber's phone that
+ * is never synced, so no workout document carries one for this to trust.
+ */
+export const MAX_UNMEASURED_AVERAGE_STEPS_PER_MINUTE = 220;
 export const MAX_WORKOUT_DURATION_SECONDS = 24 * 60 * 60;
+
+/**
+ * The cadence ceiling for one workout origin.
+ * @param {string} source The workout's stored `source`.
+ * @return {number} The highest average steps a minute that still counts.
+ */
+export function maxAverageStepsPerMinute(source: string): number {
+  return source === LIVE_SENSOR_SOURCE ?
+    MAX_AVERAGE_STEPS_PER_MINUTE :
+    MAX_UNMEASURED_AVERAGE_STEPS_PER_MINUTE;
+}
 
 /** A workout reduced to the fields a standing is derived from. */
 export interface EligibleWorkout {
   workoutId: string;
+  source: string;
   startedAtMillis: number;
   durationSeconds: number;
   steps: number;
@@ -116,6 +158,19 @@ export interface LeaderboardAggregate {
   totalWorkouts: number;
   totalDuration: number;
   stepsPerMinute: number;
+  /**
+   * How many of `totalWorkouts` were typed in by hand. What a row's source
+   * icon reads: a row with none carries the live mark. Counted from the same
+   * workouts the totals are, so the two cannot disagree.
+   */
+  typedWorkouts: number;
+  /**
+   * How many of `totalWorkouts` were imported from Apple Health. Read with
+   * `typedWorkouts` for the row's source icon: a row with a typed climb reads
+   * typed, then one with an imported climb reads Health, and one with neither
+   * carries the live mark.
+   */
+  importedWorkouts: number;
 }
 
 /** One derived row, keyed by the document it belongs in. */
@@ -182,6 +237,13 @@ export interface LeaderboardStatsSnapshot {
   workouts: {id: string; data: Record<string, unknown>}[];
   publicProfile: Record<string, unknown> | undefined;
   user: Record<string, unknown> | undefined;
+  /**
+   * When the account was created, from Firebase Auth, or null when Auth has
+   * no such account. Never read from the user document, which the climber
+   * writes: the only record a climb's start can be compared to is the one the
+   * climber cannot edit.
+   */
+  accountCreatedAtMillis: number | null;
   existingRows: ExistingLeaderboardRow[];
 }
 
@@ -278,6 +340,25 @@ export interface ReconcileOutcome {
 }
 
 /**
+ * Whether a climb nobody measured began before its climber's account did.
+ *
+ * An account Auth cannot find is treated as unknown, and an unknown account
+ * date counts every unmeasured climb as before it: a number the server awards
+ * from is a number the server must derive, and a missing date is no evidence
+ * a climb is recent. The next derivation, once Auth answers, restores it.
+ * @param {number} startedAtMillis When the workout began.
+ * @param {number | null} accountCreatedAtMillis When the account was created.
+ * @return {boolean} True when the climb is history, not a ranked climb.
+ */
+export function startedBeforeAccount(
+  startedAtMillis: number,
+  accountCreatedAtMillis: number | null
+): boolean {
+  return accountCreatedAtMillis === null ||
+    startedAtMillis < accountCreatedAtMillis;
+}
+
+/**
  * Reduces a raw workout document to the fields a standing counts, or null when
  * the workout is not competition-eligible.
  *
@@ -286,11 +367,14 @@ export interface ReconcileOutcome {
  * what the device concluded, never an instruction this function obeys.
  * @param {string} workoutId The workout document id.
  * @param {Record<string, unknown> | undefined} data Raw workout data.
+ * @param {number | null} accountCreatedAtMillis When the account was created,
+ *   or null when it is not known. See `startedBeforeAccount`.
  * @return {EligibleWorkout | null} The eligible workout, or null.
  */
 export function parseEligibleWorkout(
   workoutId: string,
-  data: Record<string, unknown> | undefined
+  data: Record<string, unknown> | undefined,
+  accountCreatedAtMillis: number | null
 ): EligibleWorkout | null {
   if (!data) {
     return null;
@@ -320,11 +404,38 @@ export function parseEligibleWorkout(
     return null;
   }
 
-  if (steps / (durationSeconds / 60) > MAX_AVERAGE_STEPS_PER_MINUTE) {
+  const ceiling = maxAverageStepsPerMinute(data.source);
+  if (steps / (durationSeconds / 60) > ceiling) {
     return null;
   }
 
-  return {workoutId, startedAtMillis, durationSeconds, steps, floors};
+  // Only climbs after a climber signed up count on leaderboards, so it is
+  // fair for everyone: a climb nobody measured that started before the
+  // account existed is history - it fills the climber's own records and
+  // streak, and never a board. A live session cannot predate the account, so
+  // it is not asked.
+  if (
+    data.source !== LIVE_SENSOR_SOURCE &&
+    startedBeforeAccount(startedAtMillis, accountCreatedAtMillis)
+  ) {
+    return null;
+  }
+
+  // A climb nobody measured and nobody gave steps for is an entry waiting for
+  // its number, not a climb: counting it would put a zero-step "workout" on
+  // the workouts board. A live session's zero is a real finished measurement.
+  if (steps === 0 && data.source !== LIVE_SENSOR_SOURCE) {
+    return null;
+  }
+
+  return {
+    workoutId,
+    source: data.source,
+    startedAtMillis,
+    durationSeconds,
+    steps,
+    floors,
+  };
 }
 
 /**
@@ -343,12 +454,19 @@ export function aggregateForPeriod(
   let totalFloors = 0;
   let totalWorkouts = 0;
   let totalDuration = 0;
+  let typedWorkouts = 0;
+  let importedWorkouts = 0;
 
   for (const workout of workouts) {
     totalSteps += workout.steps;
     totalFloors += workout.floors;
     totalWorkouts += 1;
     totalDuration += workout.durationSeconds;
+    if (workout.source === MANUAL_SOURCE) {
+      typedWorkouts += 1;
+    } else if (workout.source === APPLE_HEALTH_SOURCE) {
+      importedWorkouts += 1;
+    }
   }
 
   const minutes = totalDuration / 60;
@@ -358,6 +476,8 @@ export function aggregateForPeriod(
     totalWorkouts,
     totalDuration,
     stepsPerMinute: minutes > 0 ? totalSteps / minutes : 0,
+    typedWorkouts,
+    importedWorkouts,
   };
 }
 
@@ -657,7 +777,11 @@ export async function reconcileLeaderboardStats(
     const snapshot = await transaction.read(userId);
     const eligible: EligibleWorkout[] = [];
     for (const workout of snapshot.workouts) {
-      const parsed = parseEligibleWorkout(workout.id, workout.data);
+      const parsed = parseEligibleWorkout(
+        workout.id,
+        workout.data,
+        snapshot.accountCreatedAtMillis
+      );
       if (parsed) {
         eligible.push(parsed);
       }
@@ -827,6 +951,8 @@ export function leaderboardDocumentData(
     totalWorkouts: row.aggregate.totalWorkouts,
     totalDuration: row.aggregate.totalDuration,
     stepsPerMinute: row.aggregate.stepsPerMinute,
+    typedWorkouts: row.aggregate.typedWorkouts,
+    importedWorkouts: row.aggregate.importedWorkouts,
     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
   };
 
@@ -967,6 +1093,29 @@ export function demographicsChanged(
 }
 
 /**
+ * When Firebase Auth says an account was created.
+ *
+ * Only an account Auth has no record of reads as null. Any other failure
+ * throws, so the derivation is retried instead of quietly ranking nothing.
+ * @param {string} userId Firebase Auth uid.
+ * @return {Promise<number | null>} The creation time, or null.
+ */
+async function readAccountCreatedAtMillis(
+  userId: string
+): Promise<number | null> {
+  try {
+    const record = await admin.auth().getUser(userId);
+    const created = Date.parse(record.metadata.creationTime);
+    return Number.isFinite(created) ? created : null;
+  } catch (error) {
+    if ((error as {code?: unknown}).code === "auth/user-not-found") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
  * The production store, backed by the Admin SDK.
  * @return {LeaderboardStatsStore} Admin-backed store.
  */
@@ -985,7 +1134,7 @@ export function makeAdminLeaderboardStatsStore(): LeaderboardStatsStore {
             return operation({
               async read(userId) {
                 const userRef = db.collection(USERS_COLLECTION).doc(userId);
-                const [workouts, publicProfile, user, existing] =
+                const [workouts, publicProfile, user, existing, createdAt] =
                   await Promise.all([
                     // Project to the derivation's fields: a workout carries
                     // its heart-rate series inline, so reading whole documents
@@ -1017,6 +1166,7 @@ export function makeAdminLeaderboardStatsStore(): LeaderboardStatsStore {
                           "periodStartAt"
                         )
                     ),
+                    readAccountCreatedAtMillis(userId),
                   ]);
 
                 return {
@@ -1030,6 +1180,7 @@ export function makeAdminLeaderboardStatsStore(): LeaderboardStatsStore {
                   user: user.exists ?
                     user.data() as Record<string, unknown> :
                     undefined,
+                  accountCreatedAtMillis: createdAt,
                   existingRows: existing.docs.map((document) => ({
                     documentId: document.id,
                     isSynthetic: document.get("isSynthetic") === true,

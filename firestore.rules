@@ -239,6 +239,7 @@ service cloud.firestore {
           "location_region",
           "onboarding_first_climb_id",
           "joined_at",
+          "weekly_target_days",
           "createdAt",
           "lastUpdated"
         ]) &&
@@ -300,6 +301,10 @@ service cloud.firestore {
             request.resource.data.onboarding_first_climb_id.size() <= 160)) &&
         (!request.resource.data.keys().hasAny(["joined_at"]) ||
           request.resource.data.joined_at is timestamp) &&
+        (!request.resource.data.keys().hasAny(["weekly_target_days"]) ||
+          (request.resource.data.weekly_target_days is int &&
+            request.resource.data.weekly_target_days >= 1 &&
+            request.resource.data.weekly_target_days <= 7)) &&
         request.resource.data.createdAt is timestamp &&
         request.resource.data.lastUpdated is timestamp;
     }
@@ -597,12 +602,12 @@ service cloud.firestore {
     // the values `WorkoutSource` still declares, and not the same as the values it can still
     // create.
     //
-    // `headphone_motion` is the only source the product produces today: Live Climb save, routine
-    // completion, and the crash-recovered headphone draft, and nothing else. #443 removed manual
-    // logging and Apple Health workout import.
+    // `headphone_motion` is what a live session produces: Live Climb save, routine completion, and
+    // the crash-recovered headphone draft. `manual` is a climb typed in on the Log a climb screen
+    // (1.3.0). #443 removed Apple Health workout import and the first version of manual logging.
     //
-    // `manual`, `apple_health` and `hevy` stay because a device can still WRITE them even though it
-    // can no longer CREATE them. `WorkoutSyncCoordinator` selects on `ownerUserId` and nothing
+    // `apple_health` and `hevy` stay because a device can still WRITE them even though it can no
+    // longer CREATE them, and `manual` is on this list for both reasons. `WorkoutSyncCoordinator` selects on `ownerUserId` and nothing
     // else, `WorkoutRemoteSyncMigrationService` adopts every ownerless local row on authenticated
     // bootstrap, and any edit or photo upload re-dirties a workout whatever its source - so a
     // pre-#443 row still sitting in a returning climber's SwiftData store uploads under its
@@ -881,15 +886,24 @@ service cloud.firestore {
     //
     // What each number is, and why it is not tighter:
     //
-    //   4 steps per second (240/min). The 24-hour StairMaster record is 111,285 steps, an average
-    //   of 77/min, and no human sustains triple that. `leaderboardStats` applies the real filter at
-    //   220/min (MAX_AVERAGE_STEPS_PER_MINUTE, mirroring the device policy); this sits above it on
-    //   purpose. A rejected write is a permanently unsyncable climb, so the rule refuses only what
-    //   is impossible and leaves the judgement call to the function that can afford to be wrong.
+    //   5 steps per second (300/min). The 24-hour StairMaster record is 111,285 steps, an average
+    //   of 77/min, and no human sustains four times that. `leaderboardStats` applies the real
+    //   filters - 220/min for a climb Ascend's own sensor measured (MAX_AVERAGE_STEPS_PER_MINUTE)
+    //   and the same 220/min for one the climber typed in or brought in
+    //   (MAX_UNMEASURED_AVERAGE_STEPS_PER_MINUTE) - and this sits above both on purpose. A rejected
+    //   write is a permanently unsyncable climb, so the rule refuses only what is impossible and
+    //   leaves the judgement call to the function that can afford to be wrong.
+    //
+    //   The line is exactly where the app refuses to save a typed climb at all
+    //   (`ClimbPacePolicy.absurdStepsPerMinute`, 300/min): everything between the 220 ceiling and
+    //   that line is a climb the climber is told is saved and kept off the boards, so every one of
+    //   them has to reach the cloud. It was 4 steps a second (240/min) before hand-logged climbs
+    //   returned, which would have stranded the 240-300 band in `rejected` sync forever.
+    //   `SharedTestVectors/climb-pace-policy-vector.json` holds the three numbers together.
     //
     //   120,000 steps in one submission. The cadence bound is a rate, and a rate alone does not
     //   protect a volume board: `finalizeLeaderboardAchievements` orders by `totalSteps` desc, so a
-    //   single slow, enormous climb outranks everyone without ever exceeding 240/min. 120,000 is
+    //   single slow, enormous climb outranks everyone without ever exceeding 300/min. 120,000 is
     //   just above the 24-hour record, so an actual record holder still fits.
     //
     //   5 days of duration. A sanity check on the integer, nothing more. Long sessions are
@@ -904,11 +918,11 @@ service cloud.firestore {
     //
     // The cadence bound is also what enforces "duration above zero whenever steps are above zero":
     // any positive step count against a zero or negative duration fails `steps <= durationSeconds
-    // * 4`. Stating that separately would cost budget to re-derive what this line already says.
+    // * 5`. Stating that separately would cost budget to re-derive what this line already says.
     function isPhysicallyPossibleClimb(data) {
       return data.steps <= 120000 &&
         data.durationSeconds <= 432000 &&
-        data.steps <= data.durationSeconds * 4 &&
+        data.steps <= data.durationSeconds * 5 &&
         data.startedAt < request.time + duration.value(1, 'd');
     }
 
@@ -1444,9 +1458,10 @@ service cloud.firestore {
         // than the evidence.
         (!("carry" in request.resource.data) || request.resource.data.carry in [
           "pumpkin_classic", "pumpkin_ghost", "pumpkin_lantern", "pumpkin_heirloom", "pumpkin_midnight", "pumpkin_giant",
-          "pumpkin_giant_lantern", "candy_corn", "chocolate_bar", "harvest_gourd", "cornucopia", "roast_turkey", "pumpkin_pie", "golden_turkey", "turkey_giant"
+          "pumpkin_giant_lantern", "candy_corn", "chocolate_bar", "harvest_gourd", "cornucopia", "roast_turkey", "pumpkin_pie", "golden_turkey", "turkey_giant",
+          "candy_cane", "gift_box", "ornament", "giant_ornament", "sparkler", "fireworks_rocket", "gold_trophy", "giant_trophy"
         ]) &&
-        (!("head" in request.resource.data) || request.resource.data.head in ["witch_hat", "pumpkin_head"]) &&
+        (!("head" in request.resource.data) || request.resource.data.head in ["witch_hat", "pumpkin_head", "winter_hat", "party_hat"]) &&
         (!("costume" in request.resource.data) || request.resource.data.costume in ["ghost_sheet"]) &&
         (!("shorts" in request.resource.data) || request.resource.data.shorts in ["witching_shorts"]) &&
         (!("trainers" in request.resource.data) || request.resource.data.trainers in ["glow_trainers", "ember_trainers"]) &&
@@ -1541,6 +1556,18 @@ service cloud.firestore {
 
       match /entitlement_status/{entitlementId} {
         allow read, write: if false;
+      }
+
+      // The free week on the house (functions/src/revenueCat/freeWeek.ts). The
+      // record is the server's proof a climber was given their one week, so
+      // only the startFreeWeek callable writes it: a client that could write
+      // it could hand itself a window, and one that could delete it could
+      // claim a second week. The owner may read it - it is the only way the
+      // app can tell a running week from no access, because the grant itself
+      // stays unreadable - and it holds nothing but the two timestamps.
+      match /trial/{docId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
       }
 
       // Server-owned cooldown for the self-service reconciliation callable.
@@ -1755,6 +1782,19 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // How many climbers each city has, for the signed-out onboarding's
+    // "Claim your city" screen, which runs before there is an account to
+    // check. One document per city, readable by anyone who knows the city's
+    // key and never listable, so the set of cities cannot be walked; a city
+    // document carries its count and its own name, and the "_summary"
+    // document only says a run has happened. The hourly
+    // publishCityClimberCounts function derives it from leaderboard_stats, so
+    // no client may author one.
+    match /public_city_climber_counts/{cityKey} {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
     // The frozen final board of a closed weekly, monthly or yearly Steps
     // period. finalizeLeaderboardAchievements writes it with the Admin SDK in
     // the same commit as the period's awards, and a champion is crowned from
@@ -1881,6 +1921,18 @@ service cloud.firestore {
     }
 
     match /climb_drop_dispatches/{dispatchId} {
+      allow read, write: if false;
+
+      match /receipts/{tokenHash} {
+        allow read, write: if false;
+      }
+    }
+
+    // The gear drop push's dispatch (its existence is the announcement of a
+    // gear event) and its per-device send ledger (functions/src/gearDropPush.ts).
+    // Server-derived evidence of what has already been announced, so a client
+    // that could write either could re-announce an event or suppress it.
+    match /gear_drop_dispatches/{eventId} {
       allow read, write: if false;
 
       match /receipts/{tokenHash} {

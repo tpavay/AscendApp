@@ -26,6 +26,6 @@ struct AscendMountainCrowdChip: View {
         .frame(height: 26)
         .background(Capsule(style: .continuous).fill(.black.opacity(0.5)))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(count.formatted()) more climbers \(side == .ahead ? "ahead" : "behind")")
+        .accessibilityLabel("\(count.formatted()) more \(count == 1 ? "climber" : "climbers") \(side == .ahead ? "ahead" : "behind")")
     }
 }

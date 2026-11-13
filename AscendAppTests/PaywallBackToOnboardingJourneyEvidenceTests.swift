@@ -1,5 +1,4 @@
 import Foundation
-import enum SuperwallKit.PurchaseResult
 import Testing
 @testable import AscendApp
 
@@ -36,9 +35,8 @@ struct PaywallBackToOnboardingJourneyEvidenceTests {
         journey.tapPaywallBackArrow()
         journey.note("back tapped; route = \(journey.route)")
 
-        // The captain's rule: back never falls through to the native plan list.
-        #expect(firstArrival.nativeProvider.loadCount == 0)
-        #expect(firstArrival.gate.phase != .nativeReady)
+        // Back leaves for onboarding. It does not ask Superwall for a second paywall on the way.
+        #expect(journey.presentationRevision == firstArrival.presentationRevision)
         #expect(journey.route == .onboarding(.firstClimb))
         #expect(journey.postAuth.isReopenedByClimber)
 
@@ -99,7 +97,6 @@ struct PaywallBackToOnboardingJourneyEvidenceTests {
     private final class Journey {
         struct Arrival {
             let gate: AppAccessPaywallCoordinator
-            let nativeProvider: JourneyNativeProviderSpy
             /// The Superwall presentation attempt this arrival opened.
             let presentationRevision: UInt
         }
@@ -186,10 +183,8 @@ struct PaywallBackToOnboardingJourneyEvidenceTests {
         /// hosted paywall through the real presenter.
         @discardableResult
         func arriveAtPaywall() -> Arrival {
-            let nativeProvider = JourneyNativeProviderSpy()
             let gate = AppAccessPaywallCoordinator(
                 monetizationManager: manager,
-                nativeProvider: nativeProvider,
                 telemetry: telemetry,
                 onRequestOnboardingBack: { [postAuth] in postAuth.reopenLastStage() },
                 sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
@@ -201,7 +196,6 @@ struct PaywallBackToOnboardingJourneyEvidenceTests {
             )
             return Arrival(
                 gate: gate,
-                nativeProvider: nativeProvider,
                 presentationRevision: registry.currentRevision
             )
         }
@@ -222,6 +216,10 @@ struct PaywallBackToOnboardingJourneyEvidenceTests {
             guard !postAuth.isReopenedByClimber else { return }
             postAuth.markCurrentUserComplete()
         }
+
+        /// The Superwall presentation attempt that is current. It moves every time the gate asks
+        /// for a paywall.
+        var presentationRevision: UInt { registry.currentRevision }
 
         func note(_ text: String) {
             notes.append((index: sink.records.count, text: text))
@@ -308,16 +306,4 @@ private final class PlacementRecorder {
     func record(_ placement: String) {
         placements.append(placement)
     }
-}
-
-@MainActor
-private final class JourneyNativeProviderSpy: NativePaywallPlanProviding {
-    private(set) var loadCount = 0
-
-    func loadPlans() async throws -> [NativePaywallPlan] {
-        loadCount += 1
-        return []
-    }
-
-    func purchase(planID: String) async -> PurchaseResult { .cancelled }
 }

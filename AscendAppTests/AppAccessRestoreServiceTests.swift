@@ -185,7 +185,9 @@ struct AppAccessRestoreServiceTests {
         )
 
         for call in 1...3 {
-            let context = AppAccessRestoreAnalyticsContext.appAccessGate(
+            let context = AppAccessRestoreAnalyticsContext.hostedPaywall(
+                placement: SuperwallPlacement.appAccessGate.rawValue,
+                presentationID: "presentation-timeout-\(call)",
                 gateAttemptID: "gate-timeout-\(call)"
             )
             let attempt = Task { await service.restore(context: context) }
@@ -197,7 +199,9 @@ struct AppAccessRestoreServiceTests {
         }
 
         for call in 4...6 {
-            let context = AppAccessRestoreAnalyticsContext.appAccessGate(
+            let context = AppAccessRestoreAnalyticsContext.hostedPaywall(
+                placement: SuperwallPlacement.appAccessGate.rawValue,
+                presentationID: "presentation-cancel-\(call)",
                 gateAttemptID: "gate-cancel-\(call)"
             )
             let attempt = Task { await service.restore(context: context) }
@@ -234,8 +238,8 @@ struct AppAccessRestoreServiceTests {
                 $0.parameters["restore_attempt_id"] == .string(attemptID)
             }.count == 1)
             #expect(start.parameters["placement"] == .string("app_access_gate"))
-            #expect(start.parameters["restore_source"] == .string("app_access_gate"))
-            #expect(start.parameters["recovery_path"] == .string("restore"))
+            #expect(start.parameters["restore_source"] == .string("hosted_paywall"))
+            #expect(start.parameters["recovery_path"] == .string("hosted"))
         }
     }
 

@@ -12,18 +12,13 @@ struct IntegrationManageActionRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: action.systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(action.iconTint)
-                .frame(width: 34, height: 34)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(action.iconTint.opacity(0.14))
-                )
-
-            Text(action.title)
-                .font(.montserratSemiBold(size: 16))
-                .foregroundStyle(titleColor)
+            IntegrationManageRowLabel(
+                systemImage: action.systemImage,
+                title: action.title,
+                subtitle: action.subtitle,
+                iconTint: action.iconTint,
+                titleColor: titleColor
+            )
 
             Spacer(minLength: 12)
         }

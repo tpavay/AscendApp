@@ -56,13 +56,19 @@ final class AccountDeletionService {
 
     private let gateway: AccountDeletionGateway
     private let localCleanup: AccountDeletionLocalCleanup
+    private let surface: AccountExitSurface
+    private let telemetry: TelemetryManager
 
     init(
         gateway: AccountDeletionGateway = FirebaseAccountDeletionGateway(),
-        localCleanup: AccountDeletionLocalCleanup = AppAccountDeletionLocalCleanup()
+        localCleanup: AccountDeletionLocalCleanup = AppAccountDeletionLocalCleanup(),
+        surface: AccountExitSurface = .settings,
+        telemetry: TelemetryManager = .shared
     ) {
         self.gateway = gateway
         self.localCleanup = localCleanup
+        self.surface = surface
+        self.telemetry = telemetry
     }
 
     /// Performs complete account deletion
@@ -213,8 +219,19 @@ final class AccountDeletionService {
         // Step 10: Delete the Firebase Auth account (credentials already fresh
         // from Step 1, Apple token already revoked right after reauth).
         updateProgress("Deleting account...")
-        try await deleteAuthAccount()
+        // The deletion is irreversible once the auth account is gone, so that is the moment it
+        // completed - the local sweep after it can still fail without bringing the account back.
+        // Held rather than sent afterwards: Firebase reports "no user" to the auth listener, which
+        // clears the analytics identity, before `deleteAuthAccount()` returns here.
+        telemetry.holdDeparture(AccountExitAnalyticsEvent.deleted(surface: surface))
+        do {
+            try await deleteAuthAccount()
+        } catch {
+            telemetry.discardHeldDeparture()
+            throw error
+        }
         hasDeletedAuthAccount = true
+        telemetry.sendHeldDeparture()
         completedSteps += 1
 
         // Step 11: Commit local deletion and clear caches

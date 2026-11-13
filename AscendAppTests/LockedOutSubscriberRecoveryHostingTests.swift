@@ -4,49 +4,54 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// The two surfaces a locked-out climber has to be able to *operate*, hosted in a real window and
-/// driven through the same accessibility activation VoiceOver uses.
+/// The two surfaces a locked-out climber has to be able to *operate*, hosted in a real window.
 ///
-/// The source-level contract next door proves the controls are wired; this proves a climber can
-/// actually reach them - the gate publishes a pressable deletion control, and the dialog it opens
-/// keeps every line of its grown copy reachable at the default text size and at an accessibility
-/// one, where this copy roughly triples.
+/// The source-level contract next door proves the routes are wired; this proves they work - the
+/// hosted paywall's delete-account and sign-out controls reach the app through the real gate view,
+/// and the dialog deletion opens keeps every line of its grown copy reachable at the default text
+/// size and at an accessibility one, where this copy roughly triples.
 @MainActor
 @Suite(.serialized, .hostsAWindow)
 struct LockedOutSubscriberRecoveryHostingTests {
-    @Test("The gate publishes pressable deletion and sign-out recovery controls")
-    func theGateOffersDeletionAndSignOut() async throws {
+    /// The gate draws a spinner and no control, so these two routes leave from the hosted paywall.
+    /// A wrong-account subscriber must be able to leave the gate and authenticate as the Apple ID
+    /// that owns the subscription, and Guideline 5.1.1(v) requires the deletion route.
+    @Test("The hosted paywall's deletion and sign-out controls reach the app through the gate")
+    func theGateAnswersTheHostedDeletionAndSignOutControls() async throws {
         try await withAnimationsDisabled {
-            let recorder = DeletionPresentationRecorder()
-            let signOutRecorder = SignOutPresentationRecorder()
-            let manager = MonetizationManager(
-                entitlementService: EntitlementServiceStub(),
-                paywallPresenter: PaywallPresenterSpy(),
-                telemetry: makeTestTelemetry(sink: InMemoryTelemetrySink(destination: .analytics))
-            )
-            let controller = UIHostingController(
-                rootView: AppAccessPaywallPlaceholderView(
-                    initialPhase: .failed,
-                    onDeleteAccount: { recorder.didRequestDeletion = true },
-                    onSignOut: { signOutRecorder.didRequestSignOut = true }
+            for exit in [PaywallPresentationOutcome.deleteAccountRequested, .signOutRequested] {
+                let recorder = DeletionPresentationRecorder()
+                let signOutRecorder = SignOutPresentationRecorder()
+                let presenter = GateTestPresenter()
+                let manager = MonetizationManager(
+                    configuration: makeGateTestConfiguration(),
+                    entitlementService: GateTestEntitlementService(
+                        identity: MonetizationIdentityTransition(revision: 1, userID: "user-a")
+                    ),
+                    paywallPresenter: presenter,
+                    appAccessReconciler: GateTestReconciler(),
+                    freeWeek: FreeWeekTestHarness(isEnabled: false).store,
+                    telemetry: makeTestTelemetry(sink: InMemoryTelemetrySink(destination: .analytics))
                 )
-                .environment(manager)
-            )
+                let controller = UIHostingController(
+                    rootView: AppAccessPaywallPlaceholderView(
+                        onDeleteAccount: { recorder.didRequestDeletion = true },
+                        onSignOut: { signOutRecorder.didRequestSignOut = true }
+                    )
+                    .environment(manager)
+                )
 
-            try await RenderedScreen.host(controller) { screen in
-                let root = screen.root
-                let elements = try await settledAccessibilityElements(under: root) { elements in
-                    elements.contains { $0.accessibilityLabel == "Delete account" }
+                try await RenderedScreen.host(controller) { screen in
+                    #expect(await gateWaitUntil { presenter.placements == [.appAccessGate] })
+                    presenter.send(.presented, registration: 0)
+
+                    presenter.send(exit, registration: 0)
+
+                    #expect(recorder.didRequestDeletion == (exit == .deleteAccountRequested))
+                    #expect(signOutRecorder.didRequestSignOut == (exit == .signOutRequested))
+                    // And the gate itself still offers nothing to press.
+                    try await expectOnlyTheGateSpinner(on: screen, "after the hosted control")
                 }
-                let labels = elements.compactMap(\.accessibilityLabel)
-
-                #expect(labels.contains("Delete account"))
-                #expect(labels.contains("Sign Out"))
-
-                try activateAccessibilityElement(labelled: "Delete account", in: root)
-                #expect(recorder.didRequestDeletion)
-                try activateAccessibilityElement(labelled: "Sign Out", in: root)
-                #expect(signOutRecorder.didRequestSignOut)
             }
         }
     }

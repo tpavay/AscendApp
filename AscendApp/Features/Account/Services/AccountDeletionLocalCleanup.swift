@@ -27,6 +27,7 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
     private let persistentDomainName: String?
     private let settingsManager: SettingsManager
     private let climbDropNotificationState: ClimbDropNotificationState
+    private let localReminderScheduler: LocalReminderScheduler
     private let bootstrapCoordinator: AuthenticatedBootstrapCoordinator
     private let autonomousSessionWorkers: [any AuthenticatedSessionWorker]
 
@@ -35,6 +36,7 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
         persistentDomainName: String? = Bundle.main.bundleIdentifier,
         settingsManager: SettingsManager = .shared,
         climbDropNotificationState: ClimbDropNotificationState = .shared,
+        localReminderScheduler: LocalReminderScheduler = .shared,
         bootstrapCoordinator: AuthenticatedBootstrapCoordinator = .shared,
         autonomousSessionWorkers: [any AuthenticatedSessionWorker] = AutonomousSessionWorkers.all
     ) {
@@ -42,6 +44,7 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
         self.persistentDomainName = persistentDomainName
         self.settingsManager = settingsManager
         self.climbDropNotificationState = climbDropNotificationState
+        self.localReminderScheduler = localReminderScheduler
         self.bootstrapCoordinator = bootstrapCoordinator
         self.autonomousSessionWorkers = autonomousSessionWorkers
     }
@@ -75,6 +78,7 @@ struct AppAccountDeletionLocalCleanup: AccountDeletionLocalCleanup {
 
         settingsManager.resetInMemoryAfterAccountDeletion()
         climbDropNotificationState.resetAfterAccountDeletion()
+        localReminderScheduler.cancelAll()
     }
 
     func clearImageCache() {

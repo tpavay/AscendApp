@@ -7,6 +7,8 @@ import {
   LeaderboardStatsSnapshot,
   LeaderboardStatsStore,
   leaderboardStatsTestHooks,
+  maxAverageStepsPerMinute,
+  startedBeforeAccount,
 } from "../src/leaderboardStats.js";
 import {
   LEADERBOARD_TIME_FRAMES,
@@ -26,11 +28,23 @@ const {
   leaderboardIdentityFields,
   openPeriods,
   ownedPeriods,
-  parseEligibleWorkout,
+  parseEligibleWorkout: parseWithAccountDate,
   resolvedPeriodForRow,
   periodBudgetSeconds,
   reconcileLeaderboardStats,
 } = leaderboardStatsTestHooks;
+
+// Before every workout a fixture dates, so the pre-join rule stays out of the
+// way of tests about something else. The rule's own tests pass their own date.
+const ACCOUNT_CREATED_AT = new Date("2026-01-01T00:00:00.000Z").getTime();
+
+function parseEligibleWorkout(
+  workoutId: string,
+  data: Record<string, unknown> | undefined,
+  accountCreatedAtMillis: number | null = ACCOUNT_CREATED_AT
+) {
+  return parseWithAccountDate(workoutId, data, accountCreatedAtMillis);
+}
 
 /** The UTC day before the one containing `date`. */
 function previousDailyPeriod(date: Date): LeaderboardPeriod {
@@ -120,6 +134,7 @@ test("a real session parses into the fields a standing counts", () => {
 
   assert.deepEqual(parsed, {
     workoutId: "w1",
+    source: "headphone_motion",
     startedAtMillis: new Date("2026-08-01T06:00:00.000Z").getTime(),
     durationSeconds: 1800,
     steps: 3000,
@@ -167,6 +182,191 @@ test("an unrecognised workout origin is not counted", () => {
     parseEligibleWorkout("w1", makeWorkout({source: "totally_made_up"})),
     null
   );
+});
+
+// The plausibility check on a climb Ascend did not measure. The same cases pin
+// `ClimbPacePolicy` on the device, so the ceiling the phone shows a climber and
+// the ceiling the server ranks on cannot drift apart.
+interface PaceVectorCase {
+  name: string;
+  source: string;
+  steps: number;
+  durationSeconds: number;
+  serverCountsOnLeaderboards: boolean;
+}
+
+const paceVector = JSON.parse(readFileSync(
+  join(__dirname, "../../../SharedTestVectors/climb-pace-policy-vector.json"),
+  "utf8"
+)) as {
+  leaderboardCeilingStepsPerMinute: number;
+  liveSensorCeilingStepsPerMinute: number;
+  cases: PaceVectorCase[];
+};
+
+test("the server applies the shared pace vector to every origin", () => {
+  assert.equal(
+    maxAverageStepsPerMinute("manual"),
+    paceVector.leaderboardCeilingStepsPerMinute
+  );
+  assert.equal(
+    maxAverageStepsPerMinute("headphone_motion"),
+    paceVector.liveSensorCeilingStepsPerMinute
+  );
+
+  for (const testCase of paceVector.cases) {
+    const parsed = parseEligibleWorkout("w1", makeWorkout({
+      source: testCase.source,
+      steps: testCase.steps,
+      durationSeconds: testCase.durationSeconds,
+    }));
+    assert.equal(
+      parsed !== null,
+      testCase.serverCountsOnLeaderboards,
+      testCase.name
+    );
+  }
+});
+
+// Editing the steps or the time rewrites the workout document, and the standing
+// is re-derived from what it now says - so an edit flips a climb on or off the
+// board with no device verdict in the loop.
+// Leaderboards count from the day a climber joins. A climb nobody measured that
+// started before the account existed is history: it fills the climber's own
+// records and never a board, and the server decides from Auth's creation time,
+// never from anything the climber wrote.
+interface PreJoinVectorCase {
+  name: string;
+  source: string;
+  startedAt: string;
+  steps: number;
+  durationSeconds: number;
+  serverCountsOnLeaderboards: boolean;
+}
+
+const preJoinVector = JSON.parse(readFileSync(
+  join(
+    __dirname,
+    "../../../SharedTestVectors/pre-join-unmeasured-climb-vector.json"
+  ),
+  "utf8"
+)) as {accountCreatedAt: string; cases: PreJoinVectorCase[]};
+
+test("the server applies the shared join-date vector", () => {
+  const created = Date.parse(preJoinVector.accountCreatedAt);
+  assert.ok(preJoinVector.cases.length > 0);
+
+  for (const testCase of preJoinVector.cases) {
+    const parsed = parseEligibleWorkout("w1", makeWorkout({
+      source: testCase.source,
+      startedAt: new Date(testCase.startedAt),
+      steps: testCase.steps,
+      durationSeconds: testCase.durationSeconds,
+    }), created);
+    assert.equal(
+      parsed !== null,
+      testCase.serverCountsOnLeaderboards,
+      testCase.name
+    );
+  }
+});
+
+test("an account Auth cannot date ranks no climb nobody measured", () => {
+  const typed = makeWorkout({source: "manual"});
+  const imported = makeWorkout({source: "apple_health"});
+  const live = makeWorkout({source: "headphone_motion"});
+
+  assert.equal(parseEligibleWorkout("w1", typed, null), null);
+  assert.equal(parseEligibleWorkout("w2", imported, null), null);
+  assert.ok(parseEligibleWorkout("w3", live, null));
+});
+
+test("a climb is not before an account that is exactly as old", () => {
+  const startedAt = new Date("2026-08-01T06:00:00.000Z");
+  const startedAtMillis = startedAt.getTime();
+
+  assert.equal(startedBeforeAccount(startedAtMillis, startedAtMillis), false);
+  assert.equal(
+    startedBeforeAccount(startedAtMillis, startedAtMillis + 1),
+    true
+  );
+});
+
+test("the pre-join rule drops history from every board it would have fed",
+  () => {
+    const store = makeStore({
+      accountCreatedAtMillis: new Date("2026-08-01T12:00:00.000Z").getTime(),
+      workouts: [
+        {
+          id: "history",
+          data: makeWorkout({
+            source: "apple_health",
+            startedAt: new Date("2026-08-01T06:00:00.000Z"),
+          }),
+        },
+      ],
+      existingRows: [],
+    });
+
+    return reconcileLeaderboardStats(store, userId, NOW).then((outcome) => {
+      assert.deepEqual(outcome.written, []);
+    });
+  });
+
+test("editing a typed climb across the ceiling moves it on and off the board",
+  () => {
+    const typed = (steps: number) => makeWorkout({
+      source: "manual",
+      steps,
+      durationSeconds: 1800,
+    });
+
+    assert.ok(parseEligibleWorkout("w1", typed(220 * 30)));
+    assert.equal(parseEligibleWorkout("w1", typed(220 * 30 + 1)), null);
+  });
+
+test("a typed climb the device calls eligible still has to pass the server",
+  () => {
+    assert.equal(parseEligibleWorkout("w1", makeWorkout({
+      source: "manual",
+      leaderboardStatus: "eligible",
+      steps: 9000,
+      durationSeconds: 1800,
+    })), null);
+  });
+
+test("a row counts only the typed climbs it was built from", () => {
+  const rows = deriveLeaderboardRows(userId, [
+    {
+      workoutId: "live",
+      source: "headphone_motion",
+      startedAtMillis: new Date("2026-08-01T06:00:00.000Z").getTime(),
+      durationSeconds: 1800,
+      steps: 3000,
+      floors: 150,
+    },
+    {
+      workoutId: "typed",
+      source: "manual",
+      startedAtMillis: new Date("2026-08-01T08:00:00.000Z").getTime(),
+      durationSeconds: 1800,
+      steps: 3000,
+      floors: 150,
+    },
+    {
+      workoutId: "health",
+      source: "apple_health",
+      startedAtMillis: new Date("2026-08-01T10:00:00.000Z").getTime(),
+      durationSeconds: 1800,
+      steps: 3000,
+      floors: 150,
+    },
+  ], NOW);
+
+  const weekly = rows.find((row) => row.timeFrame === "weekly");
+  assert.equal(weekly?.aggregate.totalWorkouts, 3);
+  assert.equal(weekly?.aggregate.typedWorkouts, 1);
+  assert.equal(weekly?.aggregate.importedWorkouts, 1);
 });
 
 // One policy, stated once. `isValidWorkoutSource` in `firestore.rules` decides
@@ -225,6 +425,7 @@ test("a period's sessions cannot total more time than the period contains",
     const dayStart = new Date("2026-08-01T00:00:00.000Z").getTime();
     const workouts = Array.from({length: 13}, (unused, index) => ({
       workoutId: `w${index}`,
+      source: "headphone_motion",
       startedAtMillis: dayStart + index * 60_000,
       durationSeconds: 2 * 60 * 60,
       steps: 20_000,
@@ -255,6 +456,7 @@ test("two overlapping sessions early in the day still make the daily board",
     const workouts = [
       {
         workoutId: "hevy-1",
+        source: "headphone_motion",
         startedAtMillis: new Date("2026-08-01T00:05:00.000Z").getTime(),
         durationSeconds: 45 * 60,
         steps: 6_000,
@@ -262,6 +464,7 @@ test("two overlapping sessions early in the day still make the daily board",
       },
       {
         workoutId: "apple-health-1",
+        source: "headphone_motion",
         startedAtMillis: new Date("2026-08-01T00:10:00.000Z").getTime(),
         durationSeconds: 45 * 60,
         steps: 6_000,
@@ -289,6 +492,7 @@ test("a closed period's budget is its whole length, not what has elapsed",
         period,
         [{
           workoutId: "w1",
+          source: "headphone_motion",
           startedAtMillis: new Date("2026-08-01T00:05:00.000Z").getTime(),
           durationSeconds: 45 * 60,
           steps: 6_000,
@@ -305,6 +509,7 @@ test("one long session never trips its own period's budget", () => {
   // overshoot "time elapsed today" without the floor at the longest session.
   const workouts = [{
     workoutId: "w1",
+    source: "headphone_motion",
     startedAtMillis: new Date("2026-08-01T00:01:00.000Z").getTime(),
     durationSeconds: 4 * 60 * 60,
     steps: 40_000,
@@ -333,6 +538,7 @@ test("one long session never trips its own period's budget", () => {
 test("one honest session lands on every board window", () => {
   const rows = deriveLeaderboardRows(userId, [{
     workoutId: "w1",
+    source: "headphone_motion",
     startedAtMillis: new Date("2026-08-01T06:00:00.000Z").getTime(),
     durationSeconds: 1800,
     steps: 3000,
@@ -350,6 +556,8 @@ test("one honest session lands on every board window", () => {
     totalWorkouts: 1,
     totalDuration: 1800,
     stepsPerMinute: 100,
+    typedWorkouts: 0,
+    importedWorkouts: 0,
   });
   assert.equal(weekly?.periodKey, "2026-W31");
   assert.equal(
@@ -363,6 +571,7 @@ test("one honest session lands on every board window", () => {
 test("a session from the previous month counts weekly and not monthly", () => {
   const rows = deriveLeaderboardRows(userId, [{
     workoutId: "w1",
+    source: "headphone_motion",
     startedAtMillis: new Date("2026-07-28T06:00:00.000Z").getTime(),
     durationSeconds: 1800,
     steps: 3000,
@@ -1130,6 +1339,7 @@ function makeStore(options: {
   }[];
   publicProfile?: Record<string, unknown>;
   user?: Record<string, unknown>;
+  accountCreatedAtMillis?: number | null;
 }): RecordingStore {
   const writes = new Map<string, Record<string, unknown>>();
   const deletes: string[] = [];
@@ -1138,6 +1348,9 @@ function makeStore(options: {
     workouts: options.workouts,
     publicProfile: options.publicProfile,
     user: options.user,
+    accountCreatedAtMillis: options.accountCreatedAtMillis === undefined ?
+      ACCOUNT_CREATED_AT :
+      options.accountCreatedAtMillis,
     existingRows: options.existingRows.map((row) => ({
       timeFrame: null,
       periodStartAtMillis: null,

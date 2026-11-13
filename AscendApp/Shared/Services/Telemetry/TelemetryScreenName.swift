@@ -14,10 +14,11 @@ import Foundation
 /// DEBUG-only tooling. Adding a case without wiring it to a `trackOnce(screen:)` call site
 /// fails `TelemetryScreenCatalogTests`.
 ///
-/// The onboarding funnel is deliberately not measured screen-by-screen here. Its 21 steps
-/// each emit `onboarding_screen_viewed` with a `screen_id` (see the `ascend-analytics`
-/// skill); this catalog reports only the two route boundaries that contain them,
-/// ``landing`` and ``onboardingFlow``. Entry-point detail is likewise left to the events
+/// The onboarding funnel is measured by `onboarding_screen_viewed` with a `screen_id`
+/// (see the `ascend-analytics` skill), which is what funnels read. The v3 flow's screens are also
+/// catalog screens, so `screen_view` carries them beside every other surface; the older flow
+/// reports only the two route boundaries that contain its 21 steps, ``landing`` and
+/// ``onboardingFlow``. Entry-point detail is likewise left to the events
 /// that already carry it - `live_climb_detail_view` and friends - rather than duplicated
 /// onto the screen.
 enum TelemetryScreenName: String, CaseIterable, Sendable {
@@ -26,12 +27,32 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
 
     case appUpdateRequired = "app_update_required"
     case landing
+    case signedOutHold = "signed_out_hold"
     case authSigningIn = "auth_signing_in"
     case sessionRestoring = "session_restoring"
     case appAccessResolving = "app_access_resolving"
     case onboardingFlow = "onboarding_flow"
     case appAccessGate = "app_access_gate"
     case accountDataConflict = "account_data_conflict"
+
+    // MARK: - Onboarding v3
+
+    case onboardingWelcome = "onboarding_welcome"
+    case onboardingGoHarder = "onboarding_go_harder"
+    case onboardingGetBetter = "onboarding_get_better"
+    case onboardingSomethingToChase = "onboarding_something_to_chase"
+    case onboardingCountMethods = "onboarding_count_methods"
+    case onboardingHealthConnect = "onboarding_health_connect"
+    case onboardingHealthPermission = "onboarding_health_permission"
+    case onboardingHealthHistory = "onboarding_health_history"
+    case onboardingUsualClimb = "onboarding_usual_climb"
+    case onboardingProfileSetup = "onboarding_climber_card"
+    case onboardingClaimCity = "onboarding_claim_city"
+    case onboardingWeeklyTarget = "onboarding_weekly_target"
+    case onboardingThisMonthEvent = "onboarding_this_month_event"
+    case onboardingNotificationPrimer = "onboarding_notification_primer"
+    case onboardingAuth = "onboarding_auth"
+    case healthConnectLater = "health_connect_later"
 
     // MARK: - Tabs
 
@@ -71,6 +92,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
 
     case workoutDetail = "workout_detail"
     case editWorkout = "edit_workout"
+    case logClimb = "log_climb"
+    case loggedClimbResult = "logged_climb_result"
     case activeHeadphoneWorkoutRecovery = "active_headphone_workout_recovery"
     case headphoneSessionResume = "headphone_session_resume"
     case stepAccuracyCalibration = "step_accuracy_calibration"
@@ -108,7 +131,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case emailPreferences = "email_preferences"
     case heartRateVisibility = "heart_rate_visibility"
     case measurementSystemSettings = "measurement_system_settings"
-    case appIconSettings = "app_icon_settings"
+    case weeklyTargetSettings = "weekly_target_settings"
     case unlockEventIntro = "unlock_event_intro"
     case unlockEvent = "unlock_event"
     case unlockItem = "unlock_item"
@@ -117,6 +140,10 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     case contactForm = "contact_form"
     case deleteAccountConfirmation = "delete_account_confirmation"
     case appleHealthManage = "apple_health_manage"
+    case appleHealthImportChoice = "apple_health_import_choice"
+    case appleHealthImports = "apple_health_imports"
+    case appleHealthOlderWorkouts = "apple_health_older_workouts"
+    case importedClimbQuickEdit = "imported_climb_quick_edit"
     case heartRateMonitorManage = "heart_rate_monitor_manage"
     case stravaManage = "strava_manage"
 
@@ -137,12 +164,29 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         switch self {
         case .appUpdateRequired: "AppUpdateRequiredView"
         case .landing: "LandingScreen"
+        case .signedOutHold: "SignedOutHoldView"
         case .authSigningIn: "RootView"
         case .sessionRestoring: "RootView"
         case .appAccessResolving: "AppAccessResolvingView"
         case .onboardingFlow: "PostAuthOnboardingFlowView"
         case .appAccessGate: "AppAccessPaywallPlaceholderView"
         case .accountDataConflict: "AccountDataConflictView"
+        case .onboardingWelcome: "OnboardingWelcomeScreen"
+        case .onboardingGoHarder: "OnboardingGoHarderScreen"
+        case .onboardingGetBetter: "OnboardingGetBetterScreen"
+        case .onboardingSomethingToChase: "OnboardingSomethingToChaseScreen"
+        case .onboardingCountMethods: "OnboardingCountMethodsScreen"
+        case .onboardingHealthConnect: "OnboardingHealthConnectScreen"
+        case .onboardingHealthPermission: "OnboardingHealthPermissionScreen"
+        case .onboardingHealthHistory: "OnboardingHealthHistoryScreen"
+        case .onboardingUsualClimb: "OnboardingUsualClimbScreen"
+        case .onboardingProfileSetup: "OnboardingProfileSetupScreen"
+        case .onboardingClaimCity: "OnboardingClaimCityScreen"
+        case .onboardingWeeklyTarget: "OnboardingWeeklyTargetScreen"
+        case .onboardingThisMonthEvent: "OnboardingThisMonthEventScreen"
+        case .onboardingNotificationPrimer: "OnboardingNotificationPrimerScreen"
+        case .onboardingAuth: "OnboardingAuthScreen"
+        case .healthConnectLater: "AppleHealthConnectView"
         case .home: "HomeView"
         case .routines: "RoutinesView"
         case .leaderboard: "LeaderboardView"
@@ -167,6 +211,8 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .dailyWorkoutDetail: "DailyWorkoutDetailView"
         case .workoutDetail: "WorkoutDetailView"
         case .editWorkout: "EditWorkoutView"
+        case .logClimb: "LogClimbView"
+        case .loggedClimbResult: "LoggedClimbResultView"
         case .activeHeadphoneWorkoutRecovery: "ActiveHeadphoneWorkoutRecoveryView"
         case .headphoneSessionResume: "HeadphoneSessionResumeSheet"
         case .stepAccuracyCalibration: "StepAccuracyCalibrationPromptView"
@@ -192,7 +238,7 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .emailPreferences: "EmailPreferencesView"
         case .heartRateVisibility: "HeartRateVisibilityView"
         case .measurementSystemSettings: "MeasurementSystemSelectionView"
-        case .appIconSettings: "AppIconSelectionView"
+        case .weeklyTargetSettings: "WeeklyTargetSettingsView"
         case .unlockEventIntro: "UnlockEventIntroView"
         case .unlockEvent: "UnlockEventPage"
         case .unlockItem: "UnlockItemView"
@@ -201,6 +247,10 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
         case .contactForm: "ContactFormView"
         case .deleteAccountConfirmation: "DeleteAccountConfirmationView"
         case .appleHealthManage: "AppleHealthManageSheet"
+        case .appleHealthImportChoice: "AppleHealthImportChoiceView"
+        case .appleHealthImports: "AppleHealthImportsView"
+        case .appleHealthOlderWorkouts: "AppleHealthOlderWorkoutsView"
+        case .importedClimbQuickEdit: "ImportedClimbQuickEditSheet"
         case .heartRateMonitorManage: "HeartRateMonitorManageSheet"
         case .stravaManage: "StravaManageSheet"
         case .shareComposer: "ShareSheetView"

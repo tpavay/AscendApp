@@ -11,6 +11,9 @@ import SwiftUI
 
 struct AccountView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
+    // Optional so a host that only wants the Settings screen does not have to supply one; without
+    // it there is simply no free-week row.
+    @Environment(MonetizationManager.self) private var monetizationManager: MonetizationManager?
     @Environment(\.dismiss) private var dismiss
     
     @State private var isShowingEditProfile = false
@@ -88,6 +91,7 @@ struct AccountView: View {
         .manageSubscriptionsSheet(isPresented: $isShowingManageSubscriptions)
         .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
+                surface: .settings,
                 onAccountDeleted: {
                     dismiss()
                 }
@@ -99,7 +103,7 @@ struct AccountView: View {
         ) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
-                authVM.signOut()
+                authVM.signOut(surface: .settings)
             }
         } message: {
             Text("You'll need to sign back in to access your account.")
@@ -165,9 +169,9 @@ struct AccountView: View {
                 destination: MeasurementSystemSelectionView()
             ),
             SettingsOption(
-                icon: .settingsAppIcon,
-                title: "App Icon",
-                destination: AppIconSelectionView()
+                icon: .settingsWeekStart,
+                title: "Weekly target",
+                destination: WeeklyTargetSettingsView()
             ),
             SettingsOption(
                 icon: .settingsIntegrations,
@@ -210,8 +214,11 @@ struct AccountView: View {
     /// `Manage Subscription` stays for everyone, a Lifetime owner included: a climber who bought
     /// Lifetime from the gate while a lapsed subscription was in billing retry still has that
     /// subscription to cancel, and this row is the only route to it inside Ascend.
+    ///
+    /// The free-week row is there only while a week is running, and only says how much of it is
+    /// left.
     private var purchaseOptions: [SettingsOption] {
-        [
+        freeWeekOptions + [
             SettingsOption(
                 icon: .settingsManageSubscription,
                 title: "Manage Subscription",
@@ -230,6 +237,17 @@ struct AccountView: View {
                     }
                 }
             )
+        ]
+    }
+
+    private var freeWeekOptions: [SettingsOption] {
+        guard let monetizationManager,
+              let title = FreeWeekSettingsRow.title(daysLeft: monetizationManager.freeWeek.daysLeft) else {
+            return []
+        }
+
+        return [
+            SettingsOption(icon: .settingsManageSubscription, title: title)
         ]
     }
 

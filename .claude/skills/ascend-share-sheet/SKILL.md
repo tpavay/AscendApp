@@ -40,7 +40,7 @@ Everything drawn is a SwiftUI view rendered by `ImageRenderer`, so what the clim
 A card's content is fixed-size (`Font.custom(_:fixedSize:)`): the export renders at the default text size for everyone, and a card that scaled would show the author something the export cannot reproduce.
 The sheet's own chrome (tabs, panels, toast) uses `Font.montserrat*` and scales with Dynamic Type.
 Do not unify the two in either direction.
-Any new card-content view needs `.dynamicTypeSize(.large)` where `AscendWordmark` is drawn, because the wordmark scales with the reader's text size unless something pins it.
+`AscendWordmark` is a fixed-height image that ignores the reader's text size, so drawing it needs no `.dynamicTypeSize` pin; its colours come from `AscendWordmark.Treatment.shareLockup(letters:mark:)`, which turns the palette's two colours into a `Treatment`.
 
 ## Layouts are data-gated
 

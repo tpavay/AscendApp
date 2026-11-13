@@ -107,6 +107,67 @@ struct ReturningSubscriberJourneyTranscriptTests {
         )
     }
 
+    /// The onboarding walks a signed-out climber through the setup screens, then sign-in, and ends
+    /// there. The paywall that may follow is the app-access gate, and which climbers meet it is
+    /// decided by what RevenueCat says about the account that just signed in, never by the order of
+    /// the screens.
+    private func routesWalkingTheOnboarding(
+        accountHolds identityResolution: MonetizationEntitlementState
+    ) async throws -> [AppRootRoute] {
+        let entitlementService = EntitlementServiceStub(initialState: .inactive)
+        let monetization = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: PaywallPresenterSpy()
+        )
+        let authentication = AuthenticationViewModel(
+            monetizationIdentityManager: monetization,
+            observesFirebaseAuth: false
+        )
+
+        func route(userId: String?) -> AppRootRoute {
+            AppRootRouteResolver.resolve(
+                updatePresentation: nil,
+                authenticationState: authentication.authenticationState,
+                userId: userId,
+                postAuthOnboardingPhase: .complete,
+                entitlementState: monetization.entitlementStateForRouting,
+                requiredEntitlementID: "app_access",
+                showsPreAuthOnboardingV3: true
+            )
+        }
+
+        var routes: [AppRootRoute] = []
+        authentication.authenticationState = .unauthenticated
+        routes.append(route(userId: nil))
+
+        // Sign-in closes the flow; the entitlement answer is still outstanding.
+        entitlementService.identityResolution = identityResolution
+        authentication.beginAuthenticatedSession(
+            customer: .climber("walker"),
+            initialState: .authenticated
+        )
+        routes.append(route(userId: "walker"))
+
+        await Task.yield()
+        try await waitForEntitlementResolution(of: monetization)
+        routes.append(route(userId: "walker"))
+        return routes
+    }
+
+    @Test
+    func anExistingSubscriberWhoWalksTheOnboardingSkipsThePaywall() async throws {
+        let routes = try await routesWalkingTheOnboarding(accountHolds: .active(["app_access"]))
+
+        #expect(routes == [.preAuthOnboarding, .resolving, .mainApp])
+    }
+
+    @Test
+    func aLapsedSubscriberWhoWalksTheOnboardingMeetsTheAppAccessGateOnceTheAnswerIsIn() async throws {
+        let routes = try await routesWalkingTheOnboarding(accountHolds: .inactive)
+
+        #expect(routes == [.preAuthOnboarding, .resolving, .paywall])
+    }
+
     /// Waits on the identity `Task` that `beginAuthenticatedSession` starts. This is polling for a
     /// completion the production code owns, not a delay that hides a race: the assertions above
     /// already pinned the pre-resolution route, and a resolution that never lands fails the test
@@ -126,9 +187,11 @@ struct ReturningSubscriberJourneyTranscriptTests {
         switch route {
         case .updateRequired: "updateRequired (hard update lockout)"
         case .signedOut: "signedOut (welcome screen, with Already have an account? Sign in)"
+        case .signedOutHold: "signedOutHold (wordmark, until the launch decides the signed-out route)"
+        case .preAuthOnboarding: "preAuthOnboarding (v3 flow, signed out)"
         case .signingIn: "signingIn"
         case .restoringSession: "restoringSession"
-        case .resolving: "resolving (neutral Checking your access surface)"
+        case .resolving: "resolving (the spinner, while access is worked out)"
         case .onboarding(let stage): "onboarding(\(stage))"
         case .paywall: "paywall (app-access gate)"
         case .mainApp: "mainApp"

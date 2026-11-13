@@ -22,12 +22,14 @@ import {
   evaluateAllowlistSuperset,
   evaluateDeployedBindings,
   evaluateGrantSurvival,
+  isServerGrantedProduct,
   evaluateSecretDrift,
   parseDeclaredSecretNames,
   parseGrantSnapshot,
   parseSecretVersionManifest,
   requiredAllowlistFloor,
   requiredProducts,
+  SERVER_GRANTED_PRODUCT_IDS,
 } from "../lib/functions-secret-guard.mjs";
 import {GoogleApiError, createGoogleRestClient} from "../lib/google-rest-client.mjs";
 import {
@@ -70,8 +72,21 @@ function revenueCatConfig(allowedProductIds, overrides = {}) {
 // The versions the 2026-09-25 incident moved between. Version 3 was built
 // from a stale local copy and dropped the promo id every comp carries.
 const V2 = revenueCatConfig(["ascend_yearly", "ascend_monthly", PROMO]);
-const V3 = revenueCatConfig(["ascend_lifetime", "ascend_monthly", "ascend_yearly"]);
-const V4 = revenueCatConfig(["ascend_lifetime", "ascend_monthly", "ascend_yearly", PROMO]);
+const V3 = revenueCatConfig([
+  "ascend_lifetime",
+  "ascend_monthly",
+  "ascend_yearly",
+  "ascend_yearly_welcome",
+]);
+// Stands in for the healthy version: everything the Release build sells, including the welcome
+// product the Superwall decline offer sells, and the promo id every comp carries.
+const V4 = revenueCatConfig([
+  "ascend_lifetime",
+  "ascend_monthly",
+  "ascend_yearly",
+  "ascend_yearly_welcome",
+  PROMO,
+]);
 
 const repository = readRepositoryInputs(REPO_ROOT);
 
@@ -290,7 +305,11 @@ test("the required products are derived from the app's own configuration", () =>
   assert.equal(production.entitlementId, "app_access");
   assert.deepEqual(
     production.products.map((entry) => entry.productId),
-    ["ascend_lifetime", "ascend_monthly", "ascend_yearly", PROMO]
+    ["ascend_lifetime", "ascend_monthly", "ascend_yearly", "ascend_yearly_welcome", PROMO]
+  );
+  assert.match(
+    production.products.find((entry) => entry.productId === "ascend_yearly_welcome").reasons.join(),
+    /Release build sells it \(ASCEND_REVENUECAT_WELCOME_PRODUCT_ID\)/
   );
   assert.match(
     production.products.find((entry) => entry.productId === "ascend_lifetime").reasons.join(),
@@ -308,7 +327,12 @@ test("the required products are derived from the app's own configuration", () =>
   const staging = requiredAllowlistFloor({projectId: STAGING, ...repository});
   assert.deepEqual(
     staging.products.map((entry) => entry.productId),
-    ["ascend_staging_lifetime", "ascend_staging_monthly", "ascend_staging_yearly"]
+    [
+      "ascend_staging_lifetime",
+      "ascend_staging_monthly",
+      "ascend_staging_yearly",
+      "ascend_staging_yearly_welcome",
+    ]
   );
 });
 
@@ -572,6 +596,7 @@ test("every product a live grant holds is required, and an expired grant holds n
     "ascend_staging_lifetime",
     "ascend_staging_monthly",
     "ascend_staging_yearly",
+    "ascend_staging_yearly_welcome",
     PROMO,
   ]);
   assert.deepEqual(
@@ -586,6 +611,7 @@ test("every product a live grant holds is required, and an expired grant holds n
       "ascend_staging_lifetime",
       "ascend_staging_monthly",
       "ascend_staging_yearly",
+      "ascend_staging_yearly_welcome",
     ]),
     entitlementId: "app_access",
     required,
@@ -707,6 +733,99 @@ test("a grant that expired during the deploy is not a loss, and a pre-existing l
     /comp_grants records a comp for viktor \(rc_promo_app_access_lifetime, landing LANDED\), but it held no users\/\{uid\}\/entitlements\/app_access before this deploy either/
   );
   assert.match(result.summary, /1 of 2 pre-deploy grant\(s\) still held and allowlisted \(1 of them comped per comp_grants\); 1 expired during the deploy/);
+});
+
+// ---------------------------------------------------------------------------
+// The free week: a grant the server writes with no RevenueCat product behind it
+// ---------------------------------------------------------------------------
+
+const FREE_WEEK = "ascend_free_week";
+const WEEK_ENDS = "2026-10-01T20:00:00Z";
+
+test("the server-granted product is the one the free week function writes", () => {
+  // functions/test/freeWeek.test.ts holds the grant the function writes to the
+  // same vector, so the two sides cannot name different products.
+  const vector = JSON.parse(readFileSync(
+    join(REPO_ROOT, "SharedTestVectors", "server-granted-products-vector.json"),
+    "utf8"
+  ));
+  assert.deepEqual([...SERVER_GRANTED_PRODUCT_IDS], vector.serverGrantedProductIds);
+  for (const productId of vector.serverGrantedProductIds) {
+    assert.equal(isServerGrantedProduct(productId), true);
+  }
+  assert.equal(isServerGrantedProduct(FREE_WEEK), true);
+  assert.equal(isServerGrantedProduct(PROMO), false);
+  assert.equal(isServerGrantedProduct(null), false);
+});
+
+test("a running free week is never demanded of the RevenueCat allowlist", () => {
+  const floor = requiredAllowlistFloor({projectId: PRODUCTION, ...repository});
+  const weeks = Array.from({length: 500}, (_, index) => (
+    {uid: `week-${index}`, productId: FREE_WEEK, accessUntil: WEEK_ENDS}
+  ));
+  const required = requiredProducts(floor, [...compedGrants, ...weeks], NOW);
+
+  assert.equal(required.some((entry) => entry.productId === FREE_WEEK), false);
+  assert.deepEqual(required, requiredProducts(floor, compedGrants, NOW));
+
+  const {errors} = evaluateAllowlistInvariant({
+    projectId: PRODUCTION,
+    version: "4",
+    payloadText: V4,
+    entitlementId: "app_access",
+    required,
+  });
+  assert.deepEqual(errors, []);
+});
+
+test("a free week survives a deploy whose allowlist has never heard of it", () => {
+  const week = {uid: "on-the-house", productId: FREE_WEEK, accessUntil: WEEK_ENDS};
+  const result = evaluateGrantSurvival({
+    snapshot: survivalSnapshot([...compedGrants, week]),
+    currentGrants: [...compedGrants, week],
+    allowedProductIds: JSON.parse(V4).allowedProductIds,
+    now: NOW,
+  });
+  assert.deepEqual(result.errors, []);
+  assert.match(result.summary, /^3 of 3 pre-deploy grant\(s\) still held and allowlisted/);
+});
+
+test("a free week that ends during the deploy is an expiry, and one that vanishes early is a loss", () => {
+  const ending = {uid: "ending", productId: FREE_WEEK, accessUntil: "2026-09-25T19:59:00Z"};
+  const running = {uid: "running", productId: FREE_WEEK, accessUntil: WEEK_ENDS};
+  const result = evaluateGrantSurvival({
+    snapshot: survivalSnapshot([ending, running], []),
+    currentGrants: [],
+    allowedProductIds: JSON.parse(V4).allowedProductIds,
+    now: NOW,
+  });
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /^LOST: running held users\/\{uid\}\/entitlements\/app_access \(ascend_free_week\)/);
+  assert.match(result.summary, /1 expired during the deploy/);
+});
+
+test("a purchase during the week, or a refund back onto it, is not a loss", () => {
+  const bought = evaluateGrantSurvival({
+    snapshot: survivalSnapshot(
+      [{uid: "climber", productId: FREE_WEEK, accessUntil: WEEK_ENDS}],
+      []
+    ),
+    currentGrants: [{uid: "climber", productId: "ascend_yearly", accessUntil: LIFETIME}],
+    allowedProductIds: JSON.parse(V4).allowedProductIds,
+    now: NOW,
+  });
+  assert.deepEqual(bought.errors, []);
+
+  const refunded = evaluateGrantSurvival({
+    snapshot: survivalSnapshot(
+      [{uid: "climber", productId: "ascend_yearly", accessUntil: LIFETIME}],
+      []
+    ),
+    currentGrants: [{uid: "climber", productId: FREE_WEEK, accessUntil: WEEK_ENDS}],
+    allowedProductIds: JSON.parse(V4).allowedProductIds,
+    now: NOW,
+  });
+  assert.deepEqual(refunded.errors, []);
 });
 
 test("a snapshot from another project or another tool is refused", () => {

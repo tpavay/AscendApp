@@ -13,7 +13,8 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 |---|---|---|
 | `workout_cloud_backup_writes_enabled` | Uploading workout documents and heart-rate sidecars | Workouts stay `pendingUpsert` in SwiftData and flush on the next pass |
 | `workout_remote_deletes_enabled` | Deleting remote workout documents and sidecars | `PendingWorkoutDeletion` rows stay queued and replay |
-| `workout_sync_recovery_reopen_enabled` | Re-opening one automatic sync attempt for a workout whose retry series has stopped, after a build change, an epoch bump, or a repaired sign-in | Nothing is dropped: the stopped state is untouched and manual retry stays unlimited. Turning it back on re-opens on the next pass |
+| `workout_sync_recovery_reopen_enabled` | Re-opening one automatic sync attempt for a workout whose retry series has stopped, after a build change, an epoch bump, a repaired sign-in, or a climber whose uploads were held for app access getting it | Nothing is dropped: the stopped state is untouched and manual retry stays unlimited. Turning it back on re-opens on the next pass |
+| `workout_sync_app_access_hold_enabled` | Holding workout uploads back until the climber is known to hold app access, because `firestore.rules` would refuse them and enough refusals stop the series | Nothing is dropped. Off, a pass attempts the uploads as it did before the hold existed, so a climber with no access records refusals again. Turn it off if the device's reading of access is ever wrong and paying climbers' climbs are not reaching the cloud |
 | `workout_cloud_restore_enabled` | Decoding cloud backups into local storage | The next bootstrap still treats it as the initial hydration |
 | `workout_media_uploads_enabled` | The background media upload queue, and the sweep that deletes local originals. A batch already running stops at the next item rather than finishing | `PendingMediaUpload` rows stay queued and local files stay on disk. The workout banner stays quiet rather than claiming an upload is in progress, and drops the retry affordance |
 | `routine_cloud_backup_writes_enabled` | Uploading user-authored routines and routine folders | Routines and folders stay `pendingUpsert` in SwiftData and flush on the next pass |
@@ -29,6 +30,13 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `unlocks_enabled` | Every unlock surface (`docs/seasonal-unlocks.md`, Off switch): items drawn on athletes, the Home event card, the event page, the event intro, the unlock moment after a climb, Your Athlete's gear rows, the Profile NEW pill, and the haunted stretch. Display only: it writes and deletes nothing | Nothing to defer; earned items are offered and drawn again on the next render after the flag returns |
 | `attempt_heartbeats_enabled` | Writing the sixty-second liveness heartbeat `users/{uid}/attempt_heartbeats/{sessionID}` during a headphone session, and the write that closes it (`docs/headphone-session-recovery.md`) | Nothing - a heartbeat is a report about now, so a blocked one is simply not sent; the climb itself is untouched and the server's stall detector sees no heartbeat for that session |
 | `headphone_session_auto_resume_enabled` | Resuming a dead headphone session automatically on relaunch: the wall-clock gap credit written into the draft and the sensor restart without a prompt | Every recovered draft goes through the recovery screen instead, exactly as the dead process wrote it, until the climber acts; turning the switch back on resumes the next draft automatically |
+| `climb_logging_enabled` | Logging a climb by hand: the Log it entry on the Start sheet and the save behind it, plus re-deriving a climb's leaderboard status when it is restored from the cloud or its steps, time or date change | Nothing is dropped: climbs already logged stay, and every stored leaderboard status is left as it is. The server derives standings from the workout's own evidence either way, so the boards are unaffected |
+| `weekly_target_reminder_enabled` | Scheduling the local weekly-target nudge (`LocalReminderScheduler.reconcileWeeklyTarget`), and clears the pending one | Nothing is dropped: the climber's target and climbs are untouched, and the next reconcile after the switch returns - a launch, a foreground, a saved climb - schedules the nudge again |
+| `trial_ending_reminder_enabled` | Scheduling the local reminder two days before a free trial ends (`LocalReminderScheduler.reconcileTrialEnding`), and clears the pending one | The trial itself is untouched; a trial that has not yet reached its day 5 gets the reminder on the next reconcile after the switch returns |
+| `apple_health_import_enabled` | Apple Health import: the discovery pass and its anchor, importing a workout as a climb (automatic or from Imports), the "Climb imported" notification and Home strip, and the HealthKit observer that wakes the app for a new workout (`docs/apple-health-import.md`) | Nothing is dropped: found workouts keep their ledger rows, climbs already imported stay, and the query anchor is not advanced while the switch is off, so the first pass after it returns reads everything that arrived in between |
+| `apple_health_history_import_enabled` | The backfill of Apple Health stair workouts from before the climber joined, which onboarding's "We found your climbs" promises and the sign-in hand-off runs, and which Integrations' Import older workouts runs on request (`AppleHealthImportService.importHistory(matching:)`, `docs/apple-health-import.md`) | Nothing is dropped: the workouts 07a found stay in `PreAuthOnboardingAnswers.foundHealthWorkoutIDs` and the hand-off runs again on the next launch or foreground once the switch is on. The Integrations manage sheet hides Import older workouts while it is off. Climbs it already created stay. `apple_health_import_enabled` still gates every climb it creates |
+| `onboarding_answers_profile_write_enabled` | Writing the name, photo, birthday, gender, height, weight and city a climber gave before signing in to their profile, right after sign-in, and the days-a-week target save and Health history import that follow that write (`OnboardingV3SignInHandOff`) | The answers stay on the device exactly as given and are written on the next hand-off once the switch is back on. Nothing is dropped unless the climber signs out, which drops them so the next account on the phone cannot receive them. The sign-in and post-sign-in onboarding completion do not depend on it |
+| `weekly_target_writes_enabled` | Writing the climber's optional weekly target (`weekly_target_days`) to their private user record, from Settings and from Home's reconcile of an unsynced change | The target on the device: Home's weekly ring keeps reading the device's copy, and a change made while the switch is off is marked unsynced and goes up when it returns. Nothing is public, and the target feeds no leaderboard |
 
 The invariant across all of them: **a blocked path defers its work, it never drops it.**
 Two exceptions have nothing to defer: `step_accuracy_raw_capture_upload_enabled`, whose capture lives only in memory until the calibration sheet decides its fate, and `attempt_heartbeats_enabled`, whose heartbeat is a statement about this minute; what a blocked climb loses in either case is diagnostic data only.
@@ -41,6 +49,35 @@ Public profile publishing reaches a shared service that would need a live backen
 `leaderboard_publishing_enabled` was retired with issue #307.
 The client no longer publishes standings at all - the server derives them from the canonical workouts (`functions/src/leaderboardStats.ts`), so the only kill switch that reaches the leaderboard now is `workout_cloud_backup_writes_enabled`: hold the workout backup and no new standing is derived, because the evidence never lands.
 That is the correct choke point, and it defers rather than drops.
+
+### Rollouts, which ship off
+
+A rollout gates a feature that is not live until an operator turns it on, so it inverts the kill switch contract: the checked-in template and `RemoteFeatureFlag.shippedDefault` are `false`, and `true` is the deliberate move.
+`RemoteFeatureFlag.isRollout` names them, and `scripts/lib/remote-config-template.mjs` holds them in `ROLLOUT_PARAMETERS` so the rest of the tooling reads them rightly:
+
+- A live `false` is the healthy state, so it never counts as a tripped switch that stops an automated republish, and `RemoteFeatureFlagSnapshot.disabledFlagKeys` leaves it out of the diagnostics warning.
+- A live `true` is the operator having shipped the feature, so the full replace refuses over it exactly as it does over an armed setting - restating the checked-in `false` would pull the feature back from every climber at once.
+- That refusal repeats on every full replace while the rollout is on, because the checked-in value stays `false` until the rollout is retired and the template can never match the live project. The only way past is `--allow-overwriting-active-kill-switch <key>`, and the script prints the step that has to follow it: **immediately set the rollout back to its live value, and any conditional values, in the console**, because the publish moves every climber's next launch back off the feature.
+- The template shape check requires a rollout to be `BOOLEAN` and to ship `"false"`, and the additive dev and staging publish carries a new rollout over at `false`, which is the safe direction.
+
+| Parameter | Turning it on starts | Off keeps |
+|---|---|---|
+| `onboarding_v3_enabled` | The 1.3.0 onboarding for signed-out climbers: selling screens and setup questions, then sign-in; a climber who then holds no access meets the app-access paywall, as ever | The onboarding that shipped before it, whole. The flow writes nothing to Firestore itself; the answers it collects stay on the device until sign-in, and `onboarding_answers_profile_write_enabled` gates the write |
+| `free_week_after_decline_enabled` | The free week on the house (`docs/free-week-after-decline.md`): a climber who closes every paid offer at the app-access gate is shown the founder letter and let in for seven days on a server-owned grant. Read by the app and by the `startFreeWeek` Cloud Function | The hard paywall: a decline reopens the hosted paywall. The app registers no letter, reads no record, calls no function and honours no week, a running one included. Nothing is deleted - a server grant stays until it expires - and turning the switch back on honours whatever is left of a week. The function grants nothing while the switch is off for everybody, and nothing when it cannot read the template |
+| `gear_drop_push_enabled` | The server push that announces a new gear event (`functions/src/gearDropPush.ts`). Read by the Cloud Function from the Remote Config template, never by the app | Silence: no dispatch is created and nothing is sent. The event stays unannounced, so the first sweep after the switch is turned on sends it if it is still inside its three-day window; a function that cannot read the switch, or finds it absent, sends nothing |
+
+**Decision for the captain before turning `gear_drop_push_enabled` on.**
+Climbers who are opted in today agreed to alerts about new climbs only (the onboarding says "Get an Ascend alert when new climbs open", the Collection says "Be the first to know when new climbs drop", and the Settings toggle is "New climb drops").
+The gear push reuses that one preference, so turning it on sends a gear announcement to every one of them, including those on 1.2.x, and the only way to stop it is the toggle that also ends climb alerts.
+App Store guideline 4.5.4 requires an explicit opt-in for promotional pushes.
+The choices are to accept the reuse, to send gear only to climbers who opt in from now on, or to give gear its own preference with the Settings label changed to match, which is new durable state.
+Until that is decided the switch stays off.
+
+A flip of `onboarding_v3_enabled` takes effect on the next launch, never on a running one, so a climber is never swapped between flows mid-screen.
+`OnboardingV3RouteLatch` decides once per launch.
+A device whose persisted activation already carries the flag decides on it immediately.
+A device the backend has never answered about it holds on the wordmark until the first fetch ends, for at most 1.5 seconds, and a fetch that fails or runs out the clock leaves it on the shipped `false` for that launch.
+The one exception is the dev build's Debug Tools -> `Replay New Onboarding From Welcome`, which opens the flow at once whatever the switch says and keeps that override on the device until the app is deleted (`OnboardingV3DebugReplay`), so a device that has used it cannot be used to check the switch.
 
 ### Settings, which are not switches
 
@@ -148,7 +185,7 @@ Release builds ship neither.
 
 ## What happens when the fetch fails
 
-**Chosen posture: fail to the last known good value, and failing that, to the compiled-in default - which is `true` (feature enabled) for every current flag.**
+**Chosen posture: fail to the last known good value, and failing that, to the compiled-in default - which is `true` (feature enabled) for every kill switch and `false` for a rollout.**
 A fetch failure never changes app behaviour on its own.
 
 Resolution order, per flag:
@@ -199,7 +236,8 @@ It reads the live template first and **refuses** while any lever is in use, unle
 Two shapes count: a managed flag currently off, and a **setting** moved away from its healthy baseline.
 A setting has no "off" value to recognise - it is in use at whatever value an operator moved it to - so it is caught by comparing the live parameter against the checked-in one in full, conditions included.
 That covers every entry in `SETTING_PARAMETERS`, enumerated from the catalog rather than named one by one: an armed version threshold, and a bumped `workout_sync_recovery_epoch`, whose reset to `0` is not a no-op but a fleet-wide re-open of every stopped sync series.
-The epoch is the one lever whose refusal is permanent once it fires, because it is only ever increased and so never returns to the checked-in floor - see "Settings, which are not switches" for the override and the console step that has to follow it.
+The epoch's refusal is permanent once it fires, because it is only ever increased and so never returns to the checked-in floor - see "Settings, which are not switches" for the override and the console step that has to follow it.
+A rollout that is on refuses the same way for as long as it stays on - see "Rollouts, which ship off".
 
 ```bash
 cd scripts

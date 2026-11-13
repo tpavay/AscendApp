@@ -93,6 +93,69 @@ struct OnboardingScreenViewPassDedupeTests {
         #expect(viewed?.parameters["resume"] == nil)
     }
 
+    // MARK: - Flow versions
+
+    private static let v3Welcome = OnboardingAnalyticsContext(
+        segmentID: OnboardingV3Coordinator.segmentID,
+        flowVersion: OnboardingAnalyticsContext.currentFlowVersion,
+        stepID: "welcome"
+    )
+
+    /// v1 and v3 share `welcome`, so a v1 pass nobody claimed would otherwise swallow v3's entry.
+    @Test
+    func anUnclaimedV1PassDoesNotSwallowTheV3Funnel() {
+        let harness = Harness()
+        harness.record(OnboardingAnalyticsEvent.welcomeContext)
+        harness.record(Self.v3Welcome)
+
+        #expect(harness.viewedScreenIDs == ["welcome", "welcome"])
+        #expect(harness.flowVersions(of: "onboarding_flow_started") == ["v1", "v3"])
+        #expect(harness.flowVersions(of: "onboarding_screen_viewed") == ["v1", "v3"])
+    }
+
+    /// A build before flow versions wrote this exact shape, and the climber updates mid-pass.
+    @Test
+    func aPassPersistedBeforeFlowVersionsCountsAsV1() throws {
+        let defaults = Self.makeDefaults()
+        defaults.set(
+            Data(#"{"didStart":true,"didComplete":false,"viewedStepIDs":["welcome"]}"#.utf8),
+            forKey: "onboarding.analytics.pass.v1"
+        )
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+        let lifecycle = OnboardingFlowAnalyticsCoordinator(userDefaults: defaults, telemetry: telemetry)
+
+        lifecycle.recordFlowStartedIfNeeded(context: Self.v3Welcome)
+        lifecycle.reportResumeIfNeeded(context: Self.v3Welcome)
+        OnboardingScreenViewRecorder(lifecycle: lifecycle).recordIfNeeded(Self.v3Welcome, telemetry: telemetry)
+
+        #expect(sink.records.map(\.name) == ["onboarding_flow_started", "onboarding_screen_viewed"])
+        #expect(sink.records.first?.parameters["flow_version"] == .string("v3"))
+        #expect(sink.records.first?.parameters["resume"] == .bool(false))
+    }
+
+    /// The post-auth screens still report as v1, and they follow a v3 pass into its claimed account.
+    @Test
+    func aClaimedPassKeepsItsFlowThroughTheScreensAfterSignIn() {
+        let harness = Harness()
+        harness.record(Self.v3Welcome)
+        harness.lifecycle.adoptPassOwner("user-1")
+        harness.record(Self.context(for: .gender))
+        harness.lifecycle.recordFlowCompletedIfNeeded(reason: .purchase)
+
+        #expect(harness.flowVersions(of: "onboarding_flow_started") == ["v3"])
+        #expect(harness.flowVersions(of: "onboarding_flow_completed") == ["v3"])
+    }
+
+    @Test
+    func aV1PassStillCompletesAsV1() {
+        let harness = Harness()
+        harness.record(OnboardingAnalyticsEvent.welcomeContext)
+        harness.lifecycle.recordFlowCompletedIfNeeded(reason: .purchase)
+
+        #expect(harness.flowVersions(of: "onboarding_flow_completed") == ["v1"])
+    }
+
     // MARK: - Harness
 
     @MainActor
@@ -116,6 +179,15 @@ struct OnboardingScreenViewPassDedupeTests {
             lifecycle.reportResumeIfNeeded(context: context)
             OnboardingScreenViewRecorder(lifecycle: lifecycle)
                 .recordIfNeeded(context, telemetry: telemetry)
+        }
+
+        func flowVersions(of eventName: String) -> [String] {
+            sink.records
+                .filter { $0.name == eventName }
+                .compactMap { record -> String? in
+                    guard case .string(let version)? = record.parameters["flow_version"] else { return nil }
+                    return version
+                }
         }
 
         var viewedScreenIDs: [String] {

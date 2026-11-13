@@ -5,6 +5,13 @@ enum AppRootRoute: Equatable, Sendable {
     /// not require knowing who is holding it.
     case updateRequired
     case signedOut
+    /// Signed out on a launch that has not yet decided between ``signedOut`` and
+    /// ``preAuthOnboarding``: a device the backend has never answered about the switch, for at most
+    /// ``OnboardingV3RouteLatch/holdLimit``.
+    case signedOutHold
+    /// Signed out with `onboarding_v3_enabled` on: the selling and setup screens, then sign-in.
+    /// Replaces ``signedOut``'s landing screen while the switch is on.
+    case preAuthOnboarding
     case signingIn
     case restoringSession
     case resolving
@@ -20,8 +27,19 @@ enum AppRootRoute: Equatable, Sendable {
 /// happen outside, so cold start and every foreground run the identical decision over whatever that
 /// pass already knows. Anything that needs an `await` does not belong in here.
 struct AppRootRouteResolver {
-    /// - Parameter updatePresentation: The verdict ``AppVersionGateState`` resolved from the last
-    ///   version floor this device received and this build's version, or `nil` when no floor applies.
+    /// - Parameters:
+    ///   - updatePresentation: The verdict ``AppVersionGateState`` resolved from the last
+    ///     version floor this device received and this build's version, or `nil` when no floor applies.
+    ///   - showsPreAuthOnboardingV3: Whether a signed-out climber gets the v3 onboarding, which is
+    ///     the switch and nothing else: with it on, the landing screen and the sign-in it leads to
+    ///     are unreachable on every launch and after every sign-out, whatever this device finished
+    ///     before. `nil` while this launch has not decided (``OnboardingV3RouteLatch``). Resolved
+    ///     outside, like every other input, so the decision stays synchronous and pure.
+    ///   - freeWeekAccess: Whether this account is on its server-granted free week
+    ///     (``FreeWeekAccessStore``). A running week enters exactly as a paid entitlement does; a
+    ///     record that has not been read yet holds on ``AppRootRoute/resolving`` for the same reason
+    ///     an unknown entitlement does, because a paywall shown to a climber mid-week is a refusal
+    ///     they were promised they would not get.
     static func resolve(
         updatePresentation: AppUpdatePresentation?,
         authenticationState: AuthenticationState,
@@ -29,7 +47,9 @@ struct AppRootRouteResolver {
         postAuthOnboardingPhase: PostAuthOnboardingPhase,
         entitlementState: MonetizationEntitlementState,
         requiredEntitlementID: String,
-        allowsUnentitledAppAccess: Bool = false
+        allowsUnentitledAppAccess: Bool = false,
+        showsPreAuthOnboardingV3: Bool? = false,
+        freeWeekAccess: FreeWeekRoutingAccess = .none
     ) -> AppRootRoute {
         // First, above authentication and above the entitlement gate. As a sheet this lost to the
         // paywall outright - Superwall presents outside `RootView`'s hierarchy, so an unentitled
@@ -41,7 +61,7 @@ struct AppRootRouteResolver {
 
         switch authenticationState {
         case .unauthenticated:
-            return .signedOut
+            return resolveSignedOutRoute(showsPreAuthOnboardingV3: showsPreAuthOnboardingV3)
         case .authenticatingWithApple,
              .authenticatingWithGoogle,
              .authenticatingWithInternalQA:
@@ -49,24 +69,38 @@ struct AppRootRouteResolver {
         case .restoringSession:
             return .restoringSession
         case .authenticated:
+            // No account behind an authenticated state is still nobody signed in, and gets the
+            // same answer: never the landing screen while the switch is on.
             guard userId != nil else {
-                return .signedOut
+                return resolveSignedOutRoute(showsPreAuthOnboardingV3: showsPreAuthOnboardingV3)
             }
 
             return resolveAuthenticatedRoute(
                 postAuthOnboardingPhase: postAuthOnboardingPhase,
                 entitlementState: entitlementState,
                 requiredEntitlementID: requiredEntitlementID,
-                allowsUnentitledAppAccess: allowsUnentitledAppAccess
+                allowsUnentitledAppAccess: allowsUnentitledAppAccess,
+                freeWeekAccess: freeWeekAccess
             )
         }
+    }
+
+    /// The one decision for a climber with no account, so no state can reach the landing screen
+    /// around the switch.
+    private static func resolveSignedOutRoute(showsPreAuthOnboardingV3: Bool?) -> AppRootRoute {
+        guard let showsPreAuthOnboardingV3 else {
+            return .signedOutHold
+        }
+
+        return showsPreAuthOnboardingV3 ? .preAuthOnboarding : .signedOut
     }
 
     private static func resolveAuthenticatedRoute(
         postAuthOnboardingPhase: PostAuthOnboardingPhase,
         entitlementState: MonetizationEntitlementState,
         requiredEntitlementID: String,
-        allowsUnentitledAppAccess: Bool
+        allowsUnentitledAppAccess: Bool,
+        freeWeekAccess: FreeWeekRoutingAccess
     ) -> AppRootRoute {
         switch postAuthOnboardingPhase {
         case .signedOut, .resolving:
@@ -74,11 +108,15 @@ struct AppRootRouteResolver {
         case .onboarding(let stage):
             return .onboarding(stage)
         case .complete:
-            if allowsUnentitledAppAccess || entitlementState.hasActiveEntitlement(requiredEntitlementID) {
+            if allowsUnentitledAppAccess
+                || entitlementState.hasActiveEntitlement(requiredEntitlementID)
+                || freeWeekAccess == .live {
                 return .mainApp
             }
 
-            return entitlementState == .unknown ? .resolving : .paywall
+            if entitlementState == .unknown || freeWeekAccess == .unresolved { return .resolving }
+
+            return .paywall
         }
     }
 }

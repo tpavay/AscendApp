@@ -169,6 +169,7 @@ struct PrivacyManifestTests {
         AnalyticsAttribute(name: "planned_frequency", dataType: fitness),
         AnalyticsAttribute(name: "goal_answer_count", dataType: fitness),
         AnalyticsAttribute(name: "notifications_choice", dataType: otherDataTypes),
+        AnalyticsAttribute(name: "email_opt_in", dataType: otherDataTypes),
         AnalyticsAttribute(name: "first_climb_id", dataType: otherDataTypes),
         AnalyticsAttribute(name: "first_climb_tier", dataType: otherDataTypes),
         AnalyticsAttribute(name: "first_climb_steps", dataType: otherDataTypes),

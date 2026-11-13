@@ -27,6 +27,11 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// it is separable from the upload path it feeds.
     case workoutSyncRecoveryReopen = "workout_sync_recovery_reopen_enabled"
 
+    /// Holding workout uploads back until the climber is known to hold app access, because the rules would
+    /// refuse them and enough refusals stop the series. Off, a pass attempts them as it did before
+    /// this hold existed - the way out if the device's reading of access is ever wrong.
+    case workoutSyncAppAccessHold = "workout_sync_app_access_hold_enabled"
+
     /// Decoding cloud backups back into local SwiftData on sign-in and reinstall.
     case workoutCloudRestore = "workout_cloud_restore_enabled"
 
@@ -98,18 +103,91 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// draft is left exactly as the dead process wrote it.
     case headphoneSessionAutoResume = "headphone_session_auto_resume_enabled"
 
+    /// Logging a climb by hand - the Log it entry and the save behind it - and re-deriving a
+    /// climb's leaderboard status when it is restored or its steps, time or date change. Off, Log
+    /// it is not offered and every stored status is left exactly as it is.
+    case climbLogging = "climb_logging_enabled"
+
+    /// The onboarding of 1.3.0: selling screens and setup questions, then sign-in. A climber who signs
+    /// in holding no access meets the app-access paywall, as ever. Off, a signed-out climber gets the
+    /// flow that shipped before it, whole. Display and
+    /// routing only - it writes nothing, and the answers it collects stay on the device until
+    /// ``onboardingAnswersProfileWrite`` lets the post-sign-in hand-off send them. Unlike a kill
+    /// switch it ships off, because it is a rollout and not a path that must keep running
+    /// (`docs/remote-config-kill-switches.md`).
+    case onboardingV3 = "onboarding_v3_enabled"
+
+    /// Scheduling the local weekly-target nudge. Off, nothing new is scheduled and the pending nudge
+    /// is cleared; the climber's target and climbs are untouched, and the next reconcile after the
+    /// switch returns schedules it again.
+    case weeklyTargetReminder = "weekly_target_reminder_enabled"
+
+    /// Scheduling the local reminder two days before a free trial ends. Same behaviour as
+    /// ``weeklyTargetReminder``: off schedules and keeps nothing, and the trial itself is untouched.
+    case trialEndingReminder = "trial_ending_reminder_enabled"
+
+    /// The server push that announces a new gear event to climbers who opted in to notifications.
+    /// Read by `functions/src/gearDropPush.ts`, never by the app. A rollout, so it ships off: existing
+    /// climbers opted in to climb alerts only, and no gear push reaches anyone until the captain
+    /// decides the consent question (App Store 4.5.4) and turns it on. Off, the sweep sends nothing
+    /// and the event stays unannounced, so the first sweep after the switch is turned on sends it if
+    /// it is still within its window.
+    case gearDropPush = "gear_drop_push_enabled"
+
+    /// The free week on the house (`docs/free-week-after-decline.md`): a climber who declines every
+    /// paid offer at the app-access gate is shown the founder letter and let in for seven days on a
+    /// server-owned grant. A rollout, so it ships off, and off is the hard paywall - a decline
+    /// reopens the hosted paywall, and no week is honoured on the device. The `startFreeWeek` Cloud
+    /// Function reads the same parameter and grants nothing while it is off for everybody.
+    case freeWeekAfterDecline = "free_week_after_decline_enabled"
+
+    /// Importing stair workouts from Apple Health as climbs: the discovery pass, the automatic
+    /// import, the Imports screen's import actions and the observer that wakes the app for a new
+    /// workout. Off, every workout already found stays where it is and nothing new is imported or
+    /// announced; turning it back on resumes from the same anchor, so no workout is lost.
+    case appleHealthImport = "apple_health_import_enabled"
+
+    /// The one-time backfill of stair workouts Apple Health held before the climber joined, which
+    /// they asked for on onboarding's "We found your climbs". Off, nothing older than the join date
+    /// is filed or imported and the workouts it found stay on the device; the next run with the
+    /// switch on brings in whatever is still waiting. It sits beside ``appleHealthImport``, which
+    /// still gates every climb it creates.
+    case appleHealthHistoryImport = "apple_health_history_import_enabled"
+
+    /// Writing the answers a climber gave before signing in - birthday, gender, height, weight and
+    /// city - to their profile right after sign-in, and the days-a-week target save and Health
+    /// history import that follow that write. Off, the answers stay on the device exactly as given
+    /// and the next hand-off with the switch on writes them. Nothing is dropped unless the climber
+    /// signs out, which drops them so the next account on the phone cannot receive them.
+    case onboardingAnswersProfileWrite = "onboarding_answers_profile_write_enabled"
+
+    /// Writing the climber's weekly target (`weekly_target_days`) to their private user record.
+    /// Off, a change stays on the device, marked unsynced, and goes up when the switch returns;
+    /// the target itself keeps working because the device's copy is the one Home reads.
+    case weeklyTargetWrites = "weekly_target_writes_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
     /// device.
     ///
-    /// Every flag ships `true` - fetch failure falls back to the app's normal, tested behaviour
+    /// Every kill switch ships `true`, and the rollouts - ``onboardingV3``, ``gearDropPush`` and ``freeWeekAfterDecline`` - ship `false`. Fetch failure falls back to the app's normal, tested behaviour
     /// rather than to "off". The reasoning is written up in
     /// `docs/remote-config-kill-switches.md`; the short version is that a fetch failure almost
     /// always means "this device is offline", and an offline device that silently stopped backing
     /// up workouts would make the safety mechanism the leading cause of the data loss it exists to
     /// prevent.
-    var shippedDefault: Bool { true }
+    var shippedDefault: Bool {
+        switch self {
+        case .onboardingV3, .gearDropPush, .freeWeekAfterDecline: false
+        default: true
+        }
+    }
+
+    /// Whether this flag gates a rollout instead of a path that must keep running. A rollout is
+    /// dark until an operator turns it on, so being off is its healthy state and says nothing about
+    /// an incident.
+    var isRollout: Bool { shippedDefault == false }
 
     /// What an operator turns off when they flip this flag. Surfaced in the debug console so the
     /// person reaching for the switch under pressure does not have to guess.
@@ -121,6 +199,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Deletes remote workout documents and heart-rate sidecars."
         case .workoutSyncRecoveryReopen:
             return "Re-opens one sync attempt for a stopped workout after a build, epoch or sign-in."
+        case .workoutSyncAppAccessHold:
+            return "Holds workout uploads back while the climber has no app access. Off attempts them anyway."
         case .workoutCloudRestore:
             return "Restores cloud backups into local storage on sign-in and reinstall."
         case .workoutMediaUploads:
@@ -151,6 +231,26 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Writes the sixty-second liveness heartbeat for a running climb to Firestore."
         case .headphoneSessionAutoResume:
             return "Resumes a dead session automatically on relaunch instead of asking first."
+        case .climbLogging:
+            return "Offers Log it and saves typed climbs; re-derives a climb's leaderboard status."
+        case .onboardingV3:
+            return "Shows the 1.3.0 pre-sign-in onboarding to signed-out climbers. Ships off."
+        case .weeklyTargetReminder:
+            return "Schedules the local nudge when a climber is short of their weekly target."
+        case .trialEndingReminder:
+            return "Schedules the local reminder two days before a free trial ends."
+        case .gearDropPush:
+            return "Lets the server push announce a new gear event. Ships off. Read by the Cloud Function, not the app."
+        case .freeWeekAfterDecline:
+            return "Shows the founder letter and gives one free week after every paid offer is declined. Ships off."
+        case .appleHealthImport:
+            return "Finds and imports Apple Health stair workouts as climbs; wakes for new ones."
+        case .appleHealthHistoryImport:
+            return "Imports the Apple Health stair workouts from before the climber joined, once, as off-board history."
+        case .onboardingAnswersProfileWrite:
+            return "Writes the answers given before sign-in to the profile right after sign-in."
+        case .weeklyTargetWrites:
+            return "Writes the weekly target to the climber's user record; off keeps it on the device."
         }
     }
 }

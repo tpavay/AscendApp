@@ -43,15 +43,6 @@ test("the iOS integration names the final RevenueCat contract", async () => {
   assert.doesNotMatch(configuration, /revenueCatLifetimeProductID: String =/);
 });
 
-test("a one-time purchase is described as one payment and never as a trial or a renewal", async () => {
-  const strings = await readFile(pathFromRoot("AscendApp/en.lproj/Localizable.strings"), "utf8");
-
-  assert.match(strings, /"subscription\.plan\.lifetime" = "Lifetime";/);
-  assert.match(strings, /"subscription\.billing\.one_time" = "Pay once\. No renewal\.";/);
-  assert.match(strings, /"subscription\.action\.buy_lifetime" = "Buy Lifetime";/);
-  assert.doesNotMatch(strings, /"subscription\.plan\.monthly"/);
-});
-
 test("the hosted paywall defaults to the annual trial and binds the final products", async () => {
   const paywall = await source("paywall");
 

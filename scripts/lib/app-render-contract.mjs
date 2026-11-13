@@ -203,6 +203,20 @@ export function isTrustedSyntheticRecord(data) {
 }
 
 /**
+ * The origin a leaderboard row's source icon reads.
+ *
+ * Mirrors `FirestoreLeaderboardStats.origin`: one typed climb in the period makes
+ * the row typed, then one imported from Apple Health makes it a Health row, and a
+ * row written before the server counted them reads as live.
+ * @param {object} data Stored document fields.
+ * @return {"live"|"manual"|"healthImport"} The origin.
+ */
+function renderedOrigin(data) {
+  if ((numberValue(data?.typedWorkouts) ?? 0) > 0) return "manual";
+  return (numberValue(data?.importedWorkouts) ?? 0) > 0 ? "healthImport" : "live";
+}
+
+/**
  * Renders one `leaderboard_stats` document the way the app would, or explains
  * why the app drops it.
  *
@@ -283,6 +297,7 @@ export function renderedLeaderboardRow(data, {periodStartAtMs}) {
       photoURL: identity.photoURL,
       usesGenericAvatar: identity.usesGenericAvatar,
       stepsPerMinute: numberValue(data?.stepsPerMinute) ?? 0,
+      origin: renderedOrigin(data),
       ...totals,
     },
   };

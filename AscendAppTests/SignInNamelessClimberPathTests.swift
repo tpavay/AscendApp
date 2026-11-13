@@ -77,7 +77,7 @@ struct SignInNamelessClimberPathTests {
                 )
 
                 switch decision {
-                case .write, .writePlaceholder, .discard, .retryLater:
+                case .write, .writePlaceholder, .discard, .retryLater, .leaveForTypedName:
                     // `.retryLater` is the only one that does not end in a name,
                     // and it is reached solely when the profile could not be READ
                     // - it retries on the next launch rather than asking.

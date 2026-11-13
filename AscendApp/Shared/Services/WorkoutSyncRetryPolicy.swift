@@ -2,7 +2,7 @@ import Foundation
 
 /// How a failed remote outcome is treated, and what it means for the retry series.
 ///
-/// The pinned Firestore SDK (11.15.0) already retries its own transport for a submitted mutation,
+/// The Firestore SDK already retries its own transport for a submitted mutation,
 /// so this layer is not a second network retry. It decides when to re-offer a *logical* backup that
 /// the SDK is no longer carrying - a surfaced rejection, a pre-enqueue failure, or a sidecar
 /// operation it never owned.

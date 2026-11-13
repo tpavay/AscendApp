@@ -9,6 +9,19 @@ Carried, head and costume items are shapes of their own riding the skeleton; kit
 A printed tank was tried and dropped: on the athlete it read as one colour, not a design.
 Each slot is stored under its own name on `users/{uid}/athlete_look/current`, and `firestore.rules` lists the items each slot accepts.
 
+## December and January
+
+The next two events ship their gear art in 1.3.0, ahead of their dates, because an item whose shape an installed build cannot draw is skipped silently (`UnlockTests.anItemThisBuildCannotDrawIsSkippedNotFatal`).
+Winter Lights (`winter-lights-2026`, December) awards the candy cane for opening Ascend, the gift box, the winter hat, the ornament and the giant ornament.
+New Year (`new-year-2027`, January) awards the party hat, the sparkler, the rocket, the gold trophy and the giant trophy.
+Each is built in `MountainGearModel+Winter.swift` from flat colours and metals only, so it needs no texture and no new material, and its picture is in `Assets.xcassets/Gear`.
+`firestore.rules` already lists the shapes, so the rules deploy ahead of the build that offers them.
+
+The schedule has to stay full: `scripts/test/unlock-catalog-schedule.test.mjs` goes red when the hosted catalogue has any day uncovered in the next 45 days.
+Onboarding's screen 11 reads the same file (`OnboardingMonthlyEventModel`): the event that is on, an event starting within seven days, or a neutral screen with no gear and nothing dated.
+An event with no live item this build can draw, or any event while `unlocks_enabled` is off, reads neutral there, because Home would not offer it either.
+Adding a month is an edit to `web/public/unlocks/catalog.json` and its bundled copy plus a Hosting deploy, and any new shape is a build that ships at least one release before the event opens.
+
 ## What a climber sees
 
 The design is the captain's round-20 approval of 2026-10-02; the build handoff with its reference prototype is kept with the firstmate design record.
@@ -52,6 +65,7 @@ That first open recounts before the event intro shows, and the intro says what t
 An event may also carry a `theme`, how it dresses the mountain, and a `showcase`, the ids of the three items its Home card shows (its first three items when absent).
 
 Without a build, the file can move an event's dates, change a threshold, or switch a shipped item live ("ship dark, drop live").
+With `gear_drop_push_enabled` on, an event reaching its first day is also a push to every opted-in device, announced once for good (`docs/climb-drop-notifications.md`, Gear drops).
 Setting an item `retired` stops new earning only: the event page, the intro and the finish card drop it, while Your Athlete keeps it, earned and wearable, for every climber who already earned it (`UnlockCatalog.gearItems`).
 A retired item may carry a `retiredOn` day: a new phone earns it back from the climbs before that day and never from a climb on or after it (`UnlockCatalog.retiredItems`).
 A retired item with no `retiredOn` is never re-derived, so only the device that remembered it keeps it.
@@ -93,16 +107,15 @@ The haunted stretch's lanterns and ghosts are the same shared meshes with no lig
 
 ## The seasonal app icon
 
-This build ships the jack-o'-lantern A as the primary icon (`AppIcon`) and the lime A as an alternate (`AppIconClassic`, `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`).
-A climber can switch back any time in Settings -> App Icon (`AppIconSelectionView`).
+Ascend shipped a jack-o'-lantern A as its primary icon for October 2026, with the lime A beside it as an alternate and a Settings -> App Icon screen to switch.
+That season is over: the lime A is the primary icon (`AppIcon`) again, and the alternate, its build setting (`ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`), `AppIconChoice`, the App Icon screen and its preview images were deleted with the jack-o'-lantern art.
+Git history holds the jack-o'-lantern (`AscendAppIconHalloween.png`, commit `ed5cf236`).
+A climber who had picked the classic alternate keeps nothing iOS cannot find: iOS falls back to the primary, which is the lime A.
+
+A future seasonal icon follows the same shape.
+Ship it as the primary icon and the lime A as an alternate (`ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`) with a Settings -> App Icon screen, so a climber who wants the lime A back never waits for a release.
 iOS shows a system alert whenever an app changes its own icon, so Ascend never switches it automatically.
-
-To end the season, in the first release after October:
-
-1. Copy `AppIconClassic.appiconset`'s image into `AppIcon.appiconset` (named `AscendAppIcon.png`, updating its `Contents.json`).
-2. Remove the alternate (`AppIconClassic`, the build setting, `AppIconChoice.classic` and the Halloween preview image), or keep the jack-o'-lantern as an alternate if climbers ask for it.
-
-A climber who picked the classic alternate keeps an icon iOS can no longer find if the alternate is deleted; iOS falls back to the primary, which is then the lime A again.
+At the end of that season, copy the alternate's image into `AppIcon.appiconset` (updating its `Contents.json`) and delete the alternate, the build setting and the picker.
 
 ## App Store In-App Event copy (drafts, not created)
 

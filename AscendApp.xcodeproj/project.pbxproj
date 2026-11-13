@@ -583,6 +583,7 @@
 				ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID = ascend_staging_lifetime;
 				ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID = ascend_staging_monthly;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_REVENUECAT_WELCOME_PRODUCT_ID = ascend_staging_yearly_welcome;
 				ASCEND_REVENUECAT_YEARLY_PRODUCT_ID = ascend_staging_yearly;
 				ASCEND_SENTRY_DSN = "https://8ffadf8996800f8feaaea21ca77ebe5d@o4511621278728192.ingest.us.sentry.io/4511621439815680";
 				ASCEND_SENTRY_ENABLED = YES;
@@ -590,7 +591,6 @@
 				ASCEND_SUPERWALL_TEST_MODE = NO;
 				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconStaging;
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = AppIconClassic;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
@@ -603,8 +603,8 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Ascend - STG";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend counts steps from compatible headphones in Live Climbs, Just Climb sessions, and routines, and uses your phone's steps to fill a gap.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend uses photos from your library as backgrounds for the climbs you share.";
@@ -617,7 +617,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -769,6 +769,7 @@
 				ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID = ascend_staging_lifetime;
 				ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID = ascend_staging_monthly;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_REVENUECAT_WELCOME_PRODUCT_ID = ascend_staging_yearly_welcome;
 				ASCEND_REVENUECAT_YEARLY_PRODUCT_ID = ascend_staging_yearly;
 				ASCEND_SENTRY_DSN = "https://8ffadf8996800f8feaaea21ca77ebe5d@o4511621278728192.ingest.us.sentry.io/4511621439815680";
 				ASCEND_SENTRY_ENABLED = YES;
@@ -776,7 +777,6 @@
 				ASCEND_SUPERWALL_TEST_MODE = NO;
 				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconDev;
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = AppIconClassic;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -789,8 +789,8 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Ascend - DEV";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend counts steps from compatible headphones in Live Climbs, Just Climb sessions, and routines, and uses your phone's steps to fill a gap.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend uses photos from your library as backgrounds for the climbs you share.";
@@ -804,7 +804,7 @@
 					"@executable_path/Frameworks",
 				);
 				MAPBOX_ACCESS_TOKEN = "";
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -829,6 +829,7 @@
 				ASCEND_REVENUECAT_LIFETIME_PRODUCT_ID = ascend_lifetime;
 				ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID = ascend_monthly;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_REVENUECAT_WELCOME_PRODUCT_ID = ascend_yearly_welcome;
 				ASCEND_REVENUECAT_YEARLY_PRODUCT_ID = ascend_yearly;
 				ASCEND_SENTRY_DSN = "https://8ffadf8996800f8feaaea21ca77ebe5d@o4511621278728192.ingest.us.sentry.io/4511621439815680";
 				ASCEND_SENTRY_ENABLED = YES;
@@ -836,7 +837,6 @@
 				ASCEND_SUPERWALL_TEST_MODE = NO;
 				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = AppIconClassic;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
@@ -849,8 +849,8 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Ascend;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads heart rate and active energy from Health during the climbs you run in Ascend, so each climb shows what it cost you. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend reads your stair stepper workouts from Health - with their steps, heart rate and active energy - and imports them as climbs. It also reads heart rate and active energy during the climbs you run in Ascend, so each climb shows what it cost you. Ascend never writes to Health. Unless you turn it off, your profile shows other climbers your average and max heart rate.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend counts steps from compatible headphones in Live Climbs, Just Climb sessions, and routines, and uses your phone's steps to fill a gap.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend uses photos from your library as backgrounds for the climbs you share.";
@@ -863,7 +863,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -887,7 +887,7 @@
 				DEVELOPMENT_TEAM = QWGVB7TN4T;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -906,7 +906,7 @@
 				DEVELOPMENT_TEAM = QWGVB7TN4T;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -925,7 +925,7 @@
 				DEVELOPMENT_TEAM = QWGVB7TN4T;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -952,7 +952,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev.LiveClimbWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -984,7 +984,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.LiveClimbWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1018,7 +1018,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging.LiveClimbWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1053,7 +1053,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev.watch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -1085,7 +1085,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.watch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1119,7 +1119,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging.watch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1204,7 +1204,7 @@
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 11.15.0;
+				minimumVersion = 12.19.3;
 			};
 		};
 		9B1000032F22000000100003 /* XCRemoteSwiftPackageReference "purchases-ios" */ = {

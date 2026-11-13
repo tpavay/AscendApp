@@ -4,7 +4,7 @@
     "lint": "eslint .",
     "build": "node -e \"require('fs').rmSync('lib', { recursive: true, force: true })\" && tsc",
     "test": "npm run build && node --test lib/test/*.test.js",
-    "test:emulator": "npm run build && npx -y firebase-tools@15.22.1 emulators:exec --project demo-ascend-leaderboard-derivation --only firestore \"node --test --test-concurrency=1 lib/test/emulator/*.test.js\"",
+    "test:emulator": "npm run build && npx -y firebase-tools@15.22.1 emulators:exec --project demo-ascend-leaderboard-derivation --only firestore,auth \"node --test --test-concurrency=1 lib/test/emulator/*.test.js\"",
     "build:watch": "tsc --watch",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
@@ -30,7 +30,8 @@
   "overrides": {
     "uuid": "^11.1.1",
     "qs": "~6.16.1",
-    "body-parser": "^1.20.9"
+    "body-parser": "^1.20.9",
+    "minimatch": "^11.0.1"
   },
   "private": true
 }

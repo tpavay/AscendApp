@@ -92,10 +92,7 @@ private struct AuthLandingLayout {
 
     var isCompactHeight: Bool { size.height < 740 }
 
-    var letterFontSize: CGFloat { isCompactHeight ? 27 : 30 }
-    var letterSpacing: CGFloat { isCompactHeight ? 4.5 : 5 }
-    var iconSize: CGFloat { isCompactHeight ? 40 : 44 }
-    var iconTrailingSpacing: CGFloat { isCompactHeight ? 4 : 5 }
+    var wordmarkHeight: CGFloat { isCompactHeight ? 30 : 34 }
 
     var legalFontSize: CGFloat { isCompactHeight ? 10 : 11 }
     var legalLineSpacing: CGFloat { 2 }
@@ -211,13 +208,7 @@ private struct AuthLandingBrand: View {
     let layout: AuthLandingLayout
 
     var body: some View {
-        AscendWordmark(
-            size: layout.letterFontSize,
-            letterColor: .white.opacity(0.95),
-            letterSpacing: layout.letterSpacing,
-            iconSize: layout.iconSize,
-            iconTrailingSpacing: layout.iconTrailingSpacing
-        )
+        AscendWordmark(height: layout.wordmarkHeight, treatment: .onDark)
     }
 }
 

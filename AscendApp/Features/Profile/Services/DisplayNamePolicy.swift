@@ -105,6 +105,17 @@ enum DisplayNamePolicy {
         (try? composedBoardName(firstName: firstName, lastName: lastName)) != nil
     }
 
+    /// The public board name a name typed on onboarding's profile screen publishes as.
+    ///
+    /// One half is a whole name here, unlike `composedBoardName`, because this only ever fills a
+    /// profile with no real name: there is no name a climber already ranks under to republish over.
+    static func typedBoardName(firstName: String, lastName: String) throws -> String {
+        let halves = [firstName, lastName]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return try validated(halves.joined(separator: " "))
+    }
+
     /// Case, diacritic, and confusable-letter folding only.
     ///
     /// Digits stay digits here so the repeated-character check cannot invent a

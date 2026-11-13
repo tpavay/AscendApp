@@ -140,6 +140,13 @@ final class LifecycleEventRecorder {
         reason: String? = nil,
         expectedUserID: String?
     ) {
+        // The founder letter sells nothing, so it is not a paywall the lifecycle emails should
+        // hear about, and `recordLifecycleEvent` refuses a placement it does not list. The decline
+        // offer is the same paywall whether the SDK chains it or the app replays it, and the first
+        // paywall's own events already say the climber was at the gate.
+        guard placement != SuperwallPlacement.founderLetter.rawValue,
+              placement != SuperwallPlacement.declineOfferReplay.rawValue else { return }
+
         var payload: [String: Any] = ["placement": placement]
         if let reason {
             payload["reason"] = reason

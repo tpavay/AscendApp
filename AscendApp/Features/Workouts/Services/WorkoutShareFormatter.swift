@@ -22,7 +22,9 @@ func workoutShareText(
 
     lines.append("Duration: \(workout.durationFormatted)")
 
-    lines.append("Steps: \(formattedInteger(workout.steps))")
+    if let steps = workout.recordedSteps {
+        lines.append("Steps: \(formattedInteger(steps))")
+    }
 
     // Added Weight
     if workout.hasWeights {

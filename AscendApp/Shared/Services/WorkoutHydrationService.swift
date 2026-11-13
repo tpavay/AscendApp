@@ -116,6 +116,13 @@ enum WorkoutHydrationService {
         return changedCount
     }
 
+    /// Whether this climber's climbs have come back from the cloud in this process: the initial
+    /// merge fetched every remote climb and saved it. Anything that must not create a climb the
+    /// cloud already holds - Apple Health import's first pass on a device - waits for this.
+    static func hasRestoredWorkouts(for userId: String) -> Bool {
+        hydratedUserIdsThisSession.contains(userId)
+    }
+
     /// Clears per-process initial-merge tracking. A reinstall starts from a cold process, while
     /// later hydration passes in the same process retry pending sidecars without overwriting local
     /// edits. Tests use this to simulate a fresh launch. Not called by the app.
@@ -202,6 +209,9 @@ enum WorkoutHydrationService {
             weightConfiguration: weightConfiguration(from: document.weightConfiguration)
         )
         workout.id = workoutId
+        // The device's record of the verdict is not synced - the server derives its own - so a
+        // climb restored onto a clean install takes it from the evidence it arrives with.
+        workout.refreshLeaderboardStatus()
         return workout
     }
 
@@ -212,6 +222,10 @@ enum WorkoutHydrationService {
         to workout: Workout,
         modelContext: ModelContext
     ) throws {
+        let leaderboardEvidenceChanged = workout.duration != document.durationSeconds
+            || workout.steps != document.steps
+            || workout.sourceRawValue != document.source
+            || workout.date != document.startedAt
         workout.id = workoutId
         workout.name = document.name
         workout.date = document.startedAt
@@ -248,6 +262,9 @@ enum WorkoutHydrationService {
         workout.photos = photos(from: document.media)
         workout.highlightedPhotoId = document.highlightedMediaId.flatMap(UUID.init(uuidString:)) ?? workout.photos.first?.id
         workout.weightConfiguration = weightConfiguration(from: document.weightConfiguration)
+        if leaderboardEvidenceChanged {
+            workout.refreshLeaderboardStatus()
+        }
 
         try replaceParticipations(
             on: workout,

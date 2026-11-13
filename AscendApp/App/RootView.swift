@@ -19,6 +19,9 @@ struct RootView: View {
     @State private var appVersionGateState = AppVersionGateState.shared
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
+    @State private var onboardingV3Coordinator = OnboardingV3Coordinator()
+    @State private var onboardingV3RouteLatch = OnboardingV3RouteLatch()
+    @State private var onboardingV3HandOff: OnboardingV3SignInHandOff?
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
     @State private var isShowingGateAccountDeletion = false
@@ -37,6 +40,10 @@ struct RootView: View {
             case .updateRequired:
                 routeContent(for: rootRoute)
             case .signedOut:
+                routeContent(for: rootRoute)
+            case .signedOutHold:
+                routeContent(for: rootRoute)
+            case .preAuthOnboarding:
                 routeContent(for: rootRoute)
             case .signingIn:
                 routeContent(for: rootRoute)
@@ -77,17 +84,27 @@ struct RootView: View {
             // which routes back to the landing screen - there is nothing left here to dismiss the
             // way Settings does.
             DeleteAccountConfirmationView(
+                surface: rootRoute == .updateRequired ? .updateRequired : .appAccessGate,
                 onAccountDeleted: {},
                 onDeletionUnresolvedChange: gateAccountDeletionDidChangeResolution
             )
         }
+        .task(id: authVM.firstAuthCallback) {
+            guard let callback = authVM.firstAuthCallback else { return }
+            onboardingV3Coordinator.firstAuthCallbackArrived(
+                callback,
+                protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable
+            )
+        }
         .task {
+            onboardingV3RouteLatch.beginHold()
             observeColdLaunchSession()
             AppDiagnosticsRecorder.shared.record(
                 "app_root_task_started",
                 details: ["route": rootRoute.diagnosticName]
             )
             enrichmentService.configure(modelContext: modelContext)
+            LocalReminderCoordinator.shared.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             scheduleAuthenticatedSessionWork()
         }
@@ -127,6 +144,11 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
         }
+        #if DEBUG || STAGING
+        .onReceive(NotificationCenter.default.publisher(for: .onboardingV3DebugReplayRequested)) { _ in
+            onboardingV3RouteLatch.forceFlow()
+        }
+        #endif
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
             AppDiagnosticsRecorder.shared.record(
                 "app_will_terminate",
@@ -134,7 +156,16 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
         }
-        .onChange(of: authVM.user?.uid) { _, _ in
+        .onChange(of: authVM.user?.uid) { previousUid, currentUid in
+            if previousUid != nil, currentUid == nil {
+                LocalReminderCoordinator.shared.sessionEnded()
+                onboardingV3Coordinator.sessionEnded()
+                monetizationManager.releasePendingPurchaseHold()
+                monetizationManager.clearPendingDeclineOffer()
+            }
+            if currentUid != nil {
+                onboardingV3Coordinator.sessionBegan()
+            }
             // The sheet belongs to the session that opened it, or it re-presents itself unprompted
             // over the next climber's gate. But deletion ends the session at the auth step, several
             // steps before the local sweep finishes, so the clear waits for the dialog to say it is
@@ -152,6 +183,7 @@ struct RootView: View {
             )
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             completePostAuthOnboardingIfRemoteProfileExists()
+            runOnboardingV3HandOffAfterSignIn()
             scheduleAuthenticatedSessionWork()
         }
         // A purchase completing mid-session flips this through RevenueCat's customer-info stream
@@ -161,6 +193,7 @@ struct RootView: View {
             guard hasAccess else { return }
             Task {
                 await monetizationManager.reconcileServerAppAccess()
+                await uploadWorkoutsHeldForAppAccess()
             }
         }
         // The lockout suppresses the session bootstrap, and the fetch that releases it lands after
@@ -283,7 +316,12 @@ struct RootView: View {
             postAuthOnboardingPhase: postAuthOnboardingCoordinator.phase,
             entitlementState: monetizationManager.entitlementStateForRouting,
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
-            allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting
+            allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting,
+            // The switch alone. A pass this device once finished says nothing about which screen a
+            // signed-out climber sees: reading it here sent every climber who signed out to the
+            // onboarding the switch replaced, on that launch and on every one after it.
+            showsPreAuthOnboardingV3: onboardingV3RouteLatch.showsFlow,
+            freeWeekAccess: monetizationManager.freeWeekAccessForRouting
         )
 
         // At the very start of onboarding we do not yet know whether this account
@@ -327,7 +365,7 @@ struct RootView: View {
         if let accountDataConflict {
             AccountDataConflictView(
                 conflict: accountDataConflict,
-                onSignOut: authVM.signOut
+                onSignOut: { authVM.signOut(surface: .accountDataConflict) }
             )
             .trackOnce(screen: .accountDataConflict)
         } else {
@@ -358,6 +396,16 @@ struct RootView: View {
                 LandingScreen()
             }
 
+        case .signedOutHold:
+            routeScreen(route) {
+                SignedOutHoldView()
+            }
+
+        case .preAuthOnboarding:
+            routeScreen(route) {
+                OnboardingV3FlowView(coordinator: onboardingV3Coordinator)
+            }
+
         case .signingIn:
             routeScreen(route) {
                 ProgressView("Signing In...")
@@ -372,7 +420,7 @@ struct RootView: View {
 
         case .resolving:
             routeScreen(route) {
-                AppAccessResolvingView(onSignOut: authVM.signOut)
+                AppAccessResolvingView(onSignOut: { authVM.signOut(surface: .appAccessResolving) })
             }
 
         case .onboarding(let stage):
@@ -390,7 +438,7 @@ struct RootView: View {
                     accountDeletionDismissalRevision: gateAccountDeletionDismissalRevision,
                     onRequestOnboardingBack: postAuthOnboardingCoordinator.reopenLastStage,
                     onDeleteAccount: { presentGateAccountDeletion() },
-                    onSignOut: authVM.signOut
+                    onSignOut: { authVM.signOut(surface: .appAccessGate) }
                 )
             }
 
@@ -430,6 +478,8 @@ struct RootView: View {
         // behind a screen the climber cannot leave. The lockout refuses the binary, not just its UI.
         guard !appVersionGateState.isUpdateRequired else { return }
 
+        retryOnboardingV3Answers()
+
         let expectedUserId = authVM.user?.uid
 
         authenticatedBootstrapCoordinator.schedule {
@@ -448,6 +498,70 @@ struct RootView: View {
                 synchronizePushDevice: { await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded() },
                 isCurrentSession: { isCurrentAuthenticatedSession(expectedUserId) }
             ).run()
+        }
+    }
+
+    /// Runs the sync pass that lets climbs saved before a purchase go up, behind the same guards as
+    /// the session work, once the backend has had its chance to hear about the purchase.
+    @MainActor
+    private func uploadWorkoutsHeldForAppAccess() async {
+        guard !appVersionGateState.isUpdateRequired,
+              !authenticatedBootstrapCoordinator.isSuspended,
+              let userId = authVM.user?.uid else {
+            return
+        }
+        await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: userId
+        )
+    }
+
+    /// What the onboarding v3 hand-off needs, built once. A no-op until a climber signs in at the end
+    /// of the flow: with the switch off nothing sets the intent or leaves answers, and a target set
+    /// in Settings is the service's to deliver, not the hand-off's.
+    @MainActor
+    private func onboardingV3HandOffService() -> OnboardingV3SignInHandOff {
+        if let onboardingV3HandOff { return onboardingV3HandOff }
+
+        let postAuthOnboardingCoordinator = postAuthOnboardingCoordinator
+        let onboardingV3Coordinator = onboardingV3Coordinator
+        let handOff = OnboardingV3SignInHandOff.live(
+            session: authVM,
+            markPostSignInOnboardingComplete: {
+                postAuthOnboardingCoordinator.markCurrentUserComplete()
+                onboardingV3Coordinator.finish()
+            },
+            importHealthHistory: { answers in
+                await OnboardingHealthHistoryImport.run(answers)
+            }
+        )
+        onboardingV3HandOff = handOff
+        return handOff
+    }
+
+    @MainActor
+    private func runOnboardingV3HandOffAfterSignIn() {
+        guard let user = authVM.user else { return }
+
+        let handOff = onboardingV3HandOffService()
+        handOff.closeFlowIfIntended()
+
+        let userId = user.uid
+        let email = user.email
+        Task { @MainActor in
+            await handOff.runAfterSignIn(userId: userId, email: email)
+        }
+    }
+
+    @MainActor
+    private func retryOnboardingV3Answers() {
+        guard let user = authVM.user else { return }
+
+        let handOff = onboardingV3HandOffService()
+        let userId = user.uid
+        let email = user.email
+        Task { @MainActor in
+            await handOff.retryPendingAnswers(userId: userId, email: email)
         }
     }
 
@@ -498,6 +612,9 @@ struct RootView: View {
                 debugLog("Workout hydration failed: \(error)")
             }
             guard isCurrentAuthenticatedSession(currentUserId) else { return }
+            if WorkoutHydrationService.hasRestoredWorkouts(for: currentUserId) {
+                AppleHealthImportService.shared.confirmCloudClimbsRestored(for: currentUserId)
+            }
 
             // Restoring routines is independent of workouts, so a failure on
             // either side must not take the other down with it.
@@ -537,6 +654,11 @@ struct RootView: View {
             // before the leaderboard rebuild because enrichment only ever adds metrics that
             // rebuild already reads.
             AppleHealthEnrichmentService.shared.resumeTracking(modelContext: modelContext)
+            // Import rides the same chain for the same reason: it writes climbs through
+            // `WorkoutMutationHandler`, so it must not run under a lockout or a deletion.
+            AppleHealthImportService.shared.resume(modelContext: modelContext)
+            await onboardingV3HandOffService().retryPendingAnswers(userId: currentUserId, email: user.email)
+            guard isCurrentAuthenticatedSession(currentUserId) else { return }
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
                 modelContext: modelContext,

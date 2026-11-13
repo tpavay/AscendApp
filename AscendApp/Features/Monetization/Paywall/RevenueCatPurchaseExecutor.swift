@@ -1,5 +1,6 @@
 import Foundation
 import RevenueCat
+import StoreKit
 import SuperwallKit
 
 @MainActor
@@ -39,6 +40,8 @@ final class RevenueCatPurchaseExecutor {
         MonetizationEntitlementState,
         MonetizationIdentityTransition
     ) -> Bool
+    private let holdPendingPurchase: @MainActor (PendingPurchaseHold) -> Void
+    private let latestTransactionID: @MainActor (String) async -> UInt64?
 
     init(
         telemetry: TelemetryManager = .shared,
@@ -52,7 +55,9 @@ final class RevenueCatPurchaseExecutor {
         adoptEntitlementState: @escaping @MainActor (
             MonetizationEntitlementState,
             MonetizationIdentityTransition
-        ) -> Bool = { _, _ in false }
+        ) -> Bool = { _, _ in false },
+        holdPendingPurchase: @escaping @MainActor (PendingPurchaseHold) -> Void = { _ in },
+        latestTransactionID: @escaping @MainActor (String) async -> UInt64? = { _ in nil }
     ) {
         self.telemetry = telemetry
         self.transactionContextStore = transactionContextStore
@@ -61,6 +66,15 @@ final class RevenueCatPurchaseExecutor {
         self.refreshEntitlementState = refreshEntitlementState
         self.currentIdentityGeneration = currentIdentityGeneration
         self.adoptEntitlementState = adoptEntitlementState
+        self.holdPendingPurchase = holdPendingPurchase
+        self.latestTransactionID = latestTransactionID
+    }
+
+    /// StoreKit's own record of this device's Apple ID, which RevenueCat's error cannot speak for.
+    static func storeKitLatestTransactionID(productID: String) async -> UInt64? {
+        guard case .verified(let transaction)? = await StoreKit.Transaction.latest(for: productID),
+              transaction.revocationDate == nil else { return nil }
+        return transaction.id
     }
 
     func executePurchase(
@@ -77,7 +91,7 @@ final class RevenueCatPurchaseExecutor {
         let storedContext = transactionContextStore.takeContext(for: productID)
         let context = storedContext?.analytics
             ?? RevenueCatPurchaseAnalyticsContext(placement: nil, presentationID: nil)
-        // A hosted/native CTA owns the attempt before RevenueCat is invoked. Falling back to the
+        // A hosted CTA owns the attempt before RevenueCat is invoked. Falling back to the
         // current generation is only for call sites that did not carry presentation context.
         let purchaseIdentity = storedContext?.identity ?? currentIdentityGeneration()
         func finish(_ result: PurchaseResult) -> Execution {
@@ -87,6 +101,10 @@ final class RevenueCatPurchaseExecutor {
                 purchaseIdentity: purchaseIdentity
             )
         }
+        // A lapsed subscriber already holds a transaction for this product, so only a new id says
+        // this purchase charged. An id needs no clock, and a device clock can disagree with Apple's.
+        let transactionIDBeforePurchase = await latestTransactionID(productID)
+
         guard let purchaseIdentity,
               purchaseIdentity.userID != nil,
               currentIdentityGeneration() == purchaseIdentity else {
@@ -115,6 +133,15 @@ final class RevenueCatPurchaseExecutor {
             )
         }
 
+        /// Apple has taken this purchase, so a verdict that cannot confirm it has to outlive this
+        /// presentation. A purchase the account switched away from is not the current account's.
+        func finishChargedPurchase(_ result: PurchaseResult) -> Execution {
+            if case .failed = result, currentIdentityGeneration() == purchaseIdentity {
+                holdPendingPurchase(.unconfirmedCharge)
+            }
+            return finish(result)
+        }
+
         do {
             let response = try await operation()
 
@@ -131,7 +158,7 @@ final class RevenueCatPurchaseExecutor {
 
             guard currentIdentityGeneration() == purchaseIdentity,
                   adoptEntitlementState(response.entitlementState, purchaseIdentity) else {
-                return finish(failVerifiedPurchase(
+                return finishChargedPurchase(failVerifiedPurchase(
                     productID: productID,
                     errorType: .entitlementUnresolved,
                     context: context,
@@ -140,7 +167,7 @@ final class RevenueCatPurchaseExecutor {
             }
 
             if response.entitlementState.hasActiveEntitlement(entitlementID) {
-                return finish(verdict(
+                return finishChargedPurchase(verdict(
                     forRefreshedState: response.entitlementState,
                     productID: productID,
                     context: context,
@@ -161,7 +188,7 @@ final class RevenueCatPurchaseExecutor {
                         purchaseIdentity: purchaseIdentity
                     ))
                 }
-                return finish(
+                return finishChargedPurchase(
                     verdict(
                         forRefreshedState: state,
                         productID: productID,
@@ -170,7 +197,7 @@ final class RevenueCatPurchaseExecutor {
                     )
                 )
             case .unavailable(let failure):
-                return finish(failVerifiedPurchase(
+                return finishChargedPurchase(failVerifiedPurchase(
                     productID: productID,
                     errorType: RevenueCatAnalyticsErrorType(refreshFailure: failure),
                     context: context,
@@ -196,6 +223,9 @@ final class RevenueCatPurchaseExecutor {
                     ),
                     for: purchaseIdentity
                 )
+                if currentIdentityGeneration() == purchaseIdentity {
+                    holdPendingPurchase(.askToBuy)
+                }
                 return finish(.pending)
             case .failed(let errorType):
                 track(
@@ -208,6 +238,13 @@ final class RevenueCatPurchaseExecutor {
                     ),
                     for: purchaseIdentity
                 )
+                // RevenueCat rethrows a receipt post that failed after Apple took the money.
+                if let transactionID = await latestTransactionID(productID),
+                   transactionID != transactionIDBeforePurchase {
+                    return finishChargedPurchase(
+                        .failed(RevenueCatPurchaseControllerError.entitlementUnconfirmed)
+                    )
+                }
                 return finish(.failed(error))
             }
         }

@@ -19,13 +19,13 @@ class DebugToolsViewModel {
     private enum ActionTitle {
         static let seedWorkouts = "Seed Workouts"
         static let clearSeededWorkouts = "Clear Seeded Workouts"
+        static let replayNewOnboardingFromWelcome = "Replay New Onboarding From Welcome"
         static let resetPostAuthOnboarding = "Reset Post-Auth Onboarding"
         static let replayPostAuthOnboarding = "Replay Onboarding Now"
         static let replayFullOnboardingFromLanding = "Replay From Landing"
         static let completePostAuthOnboarding = "Complete Post-Auth Onboarding"
         static let resetRoutineBuilderWalkthrough = "Reset Routine Builder Walkthrough"
         static let forceAppAccessGate = "Force App Access Gate"
-        static let clearAppAccessGateOverride = "Clear App Access Gate Override"
         static let presentAppAccessPaywall = "Present App Access Paywall"
         static let refreshEntitlements = "Refresh Entitlements"
         static let restorePurchases = "Restore Purchases"
@@ -75,20 +75,26 @@ class DebugToolsViewModel {
             subtitle: "Replay the onboarding funnel for the current account without creating a new user",
             actions: [
                 DebugAction(
+                    title: ActionTitle.replayNewOnboardingFromWelcome,
+                    description: "Tests the new (v3) onboarding. Signs out, clears the v3 answers and finished mark, and forces the v3 flow on even if onboarding_v3_enabled is off, so the next screen is Welcome. The override stays on until the app is deleted. Covers Welcome through sign-in: Debug builds allow unentitled app access, so you land in the app after sign-in. To see the paywall afterwards, use \(ActionTitle.forceAppAccessGate).",
+                    icon: "sparkles",
+                    iconColor: .accent
+                ),
+                DebugAction(
                     title: ActionTitle.replayPostAuthOnboarding,
-                    description: "Starts the signed-in post-auth onboarding flow from the first profile screen and temporarily disables the remote-profile auto-skip.",
+                    description: "Legacy post-auth flow. Starts the signed-in post-auth onboarding flow from the first profile screen and temporarily disables the remote-profile auto-skip.",
                     icon: "play.circle.fill",
                     iconColor: .accent
                 ),
                 DebugAction(
                     title: ActionTitle.replayFullOnboardingFromLanding,
-                    description: "Sets the same replay flag, signs out, then lets you start from the landing screen and log back into this same account.",
+                    description: "Legacy post-auth flow. Sets the same replay flag, signs out, then lets you start from the landing screen and log back into this same account.",
                     icon: "rectangle.portrait.and.arrow.right",
                     iconColor: .orange
                 ),
                 DebugAction(
                     title: ActionTitle.completePostAuthOnboarding,
-                    description: "Marks the current account as having completed the post-auth onboarding flow.",
+                    description: "Legacy post-auth flow. Marks the current account as having completed the post-auth onboarding flow.",
                     icon: "checkmark.seal.fill",
                     iconColor: .green
                 ),
@@ -111,15 +117,9 @@ class DebugToolsViewModel {
             actions: [
                 DebugAction(
                     title: ActionTitle.forceAppAccessGate,
-                    description: "Routes the dev app through the same hard-gate fallback screen used by staging, even when Debug would normally bypass app access.",
+                    description: "Routes the dev app through the app-access gate, even when Debug would normally bypass app access. The gate is a spinner behind Superwall's screens, so relaunch the app to clear it.",
                     icon: "lock.fill",
                     iconColor: .orange
-                ),
-                DebugAction(
-                    title: ActionTitle.clearAppAccessGateOverride,
-                    description: "Clears the Debug-only hard-gate override and returns the dev app to normal unentitled access.",
-                    icon: "lock.open.fill",
-                    iconColor: .green
                 ),
                 DebugAction(
                     title: ActionTitle.presentAppAccessPaywall,
@@ -188,6 +188,13 @@ class DebugToolsViewModel {
                 NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
                 successMessage = "Reset post-auth onboarding for this user."
 
+            case ActionTitle.replayNewOnboardingFromWelcome:
+                OnboardingV3DebugReplay().reset()
+                OnboardingFlowAnalyticsCoordinator.shared.resetPass()
+                NotificationCenter.default.post(name: .onboardingV3DebugReplayRequested, object: nil)
+                authVM.signOut()
+                successMessage = "New onboarding replay is ready. You are signed out and the next screen is Welcome. The replay covers Welcome through sign-in, then you land in the app because Debug builds allow unentitled app access. To see the paywall afterwards, use \(ActionTitle.forceAppAccessGate)."
+
             case ActionTitle.resetRoutineBuilderWalkthrough:
                 UserDefaults.standard.removeObject(forKey: RoutineBuilderCoachMark.seenStorageKey)
                 UserDefaults.standard.removeObject(forKey: RoutineWindowCoachMark.seenStorageKey)
@@ -226,11 +233,7 @@ class DebugToolsViewModel {
 
             case ActionTitle.forceAppAccessGate:
                 MonetizationManager.shared.setDebugForcesAppAccessPaywall(true)
-                successMessage = "Forced the app-access gate. The root view should switch to the paywall fallback screen."
-
-            case ActionTitle.clearAppAccessGateOverride:
-                MonetizationManager.shared.setDebugForcesAppAccessPaywall(false)
-                successMessage = "Cleared the app-access gate override."
+                successMessage = "Forced the app-access gate. Relaunch the app to clear it."
 
             case ActionTitle.refreshEntitlements:
                 guard MonetizationManager.shared.isRevenueCatConfigured else {

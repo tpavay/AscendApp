@@ -102,6 +102,7 @@ struct LeaderboardUserRowView: View {
         }
     }
 
+
     private var rowFill: Color {
         colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
     }

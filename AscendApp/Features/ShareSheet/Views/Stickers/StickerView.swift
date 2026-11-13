@@ -30,7 +30,7 @@ struct StickerView: View {
         let ink = StickerInk(style: style)
         VStack(spacing: 7) {
             content(ink: ink)
-            AscendWordmark(size: 7, letterColor: ink.color, markColor: ink.markColor)
+            AscendWordmark(height: 10, treatment: ink.wordmark)
         }
         .stickerShadow(style)
         .padding(bleed)

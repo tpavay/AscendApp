@@ -31,6 +31,10 @@ struct MainTabView: View {
     /// arrived with somewhere to go is not interrupted by the recap; the next one shows it.
     @State private var lastRoutedAt: Date?
     @State private var tabBarOverlayHeight: CGFloat = 0
+    /// Owns the one request to open the quick edit sheet, from a "Climb imported" notification or
+    /// the Home strip. Presented here, above every tab, so a notification tap lands the same way
+    /// whichever tab the climber was on.
+    @State private var healthImport = AppleHealthImportService.shared
 
     // Easy configuration - just change this array to modify tabs
     private let tabs = TabItem.activeTabs
@@ -181,6 +185,14 @@ struct MainTabView: View {
                 }
             }
         }
+        .sheet(item: $healthImport.quickEditRequest) { request in
+            if let climb = try? HealthWorkoutLedger(modelContext: modelContext).climb(withID: request.workoutID) {
+                ImportedClimbQuickEditSheet(workout: climb, importService: healthImport)
+            } else {
+                // The climb was removed or never reached this store. Nothing to edit.
+                Color.black.onAppear { healthImport.quickEditRequest = nil }
+            }
+        }
         .animation(.smooth(duration: 0.2), value: connectivityService.isConnected)
         .animation(.smooth(duration: 0.2), value: showBackOnlineBanner)
     }
@@ -319,6 +331,10 @@ struct MainTabView: View {
                 tabRouter.select(.home, reason: .appRouting)
                 homeNavigationPath = [.pushClimbDrop(climb.id)]
             }
+        case .importedClimbQuickEdit(let workoutID):
+            tabRouter.select(.home, reason: .appRouting)
+            healthImport.configure(modelContext: modelContext)
+            healthImport.requestQuickEdit(workoutID: workoutID)
         }
     }
 

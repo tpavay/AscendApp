@@ -82,9 +82,6 @@ struct RestoreAnalyticsPrivacyContractTests {
     @Test
     func restoreContextsAreBoundedAndNameTheirExactSurface() throws {
         let unsafeIdentifier = String(repeating: "a", count: 100) + " email@example.com"
-        let gate = AppAccessRestoreAnalyticsContext.appAccessGate(
-            gateAttemptID: unsafeIdentifier
-        )
         let hosted = AppAccessRestoreAnalyticsContext.hostedPaywall(
             placement: "app_access_gate",
             presentationID: unsafeIdentifier,
@@ -92,14 +89,12 @@ struct RestoreAnalyticsPrivacyContractTests {
         )
         let account = AppAccessRestoreAnalyticsContext.accountSettings()
 
-        #expect(gate.parameters["restore_source"] == .string("app_access_gate"))
-        #expect(gate.parameters["recovery_path"] == .string("restore"))
         #expect(hosted.parameters["restore_source"] == .string("hosted_paywall"))
         #expect(hosted.parameters["recovery_path"] == .string("hosted"))
         #expect(account.parameters["restore_source"] == .string("account_settings"))
         #expect(account.parameters["recovery_path"] == .string("account"))
 
-        for context in [gate, hosted, account] {
+        for context in [hosted, account] {
             guard case .string(let restoreAttemptID) = context.parameters["restore_attempt_id"] else {
                 Issue.record("Missing restore attempt identifier")
                 continue

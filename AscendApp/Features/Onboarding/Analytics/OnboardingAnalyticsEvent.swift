@@ -2,8 +2,42 @@ import Foundation
 
 struct OnboardingAnalyticsContext: Sendable, Hashable {
     static let flowID = "onboarding"
-    static let currentFlowVersion = "v1"
+
+    /// The onboarding of 1.3.0: selling screens and setup, then sign-in, which is where the tracked flow ends.
+    /// The paywall that follows for a climber without access is the app-access gate, a Superwall paywall.
+    static let currentFlowVersion = "v3"
+    /// The flow that ships while `onboarding_v3_enabled` is off. Every context the old screens
+    /// build defaults to it, so switching the new flow on never relabels the old funnel.
+    static let legacyFlowVersion = "v1"
+
+    /// The v3 funnel, in order. Written out by hand on purpose and never derived from
+    /// ``OnboardingV3Step``: `step_index` and `step_count` are what a funnel reads positions from, so
+    /// a step added to the enum must be placed here deliberately or the index would silently
+    /// develop a gap. `OnboardingV3KitTests.theHandWrittenFunnelOrderMatchesTheStepEnum` holds the
+    /// two lists to the same members.
+    ///
+    /// Branches (`health_permission` and `health_history` on the Health path, `usual_climb` on the
+    /// other) share one ordering; funnels read a branch by `step_id`.
     static let orderedStepIDs = [
+        "welcome",
+        "go_harder",
+        "get_better",
+        "something_to_chase",
+        "count_methods",
+        "health_connect",
+        "health_permission",
+        "health_history",
+        "usual_climb",
+        "climber_card",
+        "claim_city",
+        "weekly_target",
+        "this_month_event",
+        "notification_primer",
+        "auth"
+    ]
+
+    /// The v1 funnel's order, kept only while the old flow still ships behind the v3 switch.
+    static let legacyOrderedStepIDs = [
         "welcome",
         "watch_yourself_get_better",
         "reason_to_come_back",
@@ -27,6 +61,10 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "paywall"
     ]
 
+    static func orderedStepIDs(forFlowVersion flowVersion: String) -> [String] {
+        flowVersion == legacyFlowVersion ? legacyOrderedStepIDs : orderedStepIDs
+    }
+
     /// The index reported for a step that is not part of the canonical flow. Contexts are built
     /// from content arrays, so an added carousel page or guide screen can drift out of the ordered
     /// list - and onboarding is the one flow a user has no way around, so instrumentation drift
@@ -42,21 +80,53 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
 
     init(
         segmentID: String,
-        flowVersion: String = Self.currentFlowVersion,
+        flowVersion: String = Self.legacyFlowVersion,
         stepID: String
     ) {
-        let canonicalStepIndex = Self.canonicalStepIndex(for: stepID)
+        let canonicalStepIndex = Self.canonicalStepIndex(for: stepID, flowVersion: flowVersion)
         assert(canonicalStepIndex != nil, "Unknown onboarding analytics step: \(stepID)")
 
         self.segmentID = segmentID
         self.flowVersion = flowVersion
         self.stepID = stepID
         stepIndex = canonicalStepIndex ?? Self.unknownStepIndex
-        stepCount = Self.orderedStepIDs.count
+        stepCount = Self.orderedStepIDs(forFlowVersion: flowVersion).count
     }
 
-    static func canonicalStepIndex(for stepID: String) -> Int? {
-        orderedStepIDs.firstIndex(of: stepID)
+    private init(segmentID: String, flowVersion: String, stepID: String, stepIndex: Int, stepCount: Int) {
+        self.segmentID = segmentID
+        self.flowVersion = flowVersion
+        self.stepID = stepID
+        self.stepIndex = stepIndex
+        self.stepCount = stepCount
+    }
+
+    /// Where the paywall reports itself for a climber of `flowVersion`.
+    ///
+    /// The v1 flow ends on the paywall, so it has a position in its own list. The v3 flow ends at
+    /// sign-in: the paywall a climber without access meets next is the app-access gate, a Superwall
+    /// paywall configured in the dashboard, so it is not one of v3's steps. It still reports under the
+    /// pass that led to it, one position past the last step (`step_index` equal to `step_count`), so
+    /// a funnel filtered to `flow_version=v3` reads it as the hand-off it is without a step that
+    /// does not exist ever entering ``orderedStepIDs``.
+    static func paywallHandOff(flowVersion: String) -> OnboardingAnalyticsContext {
+        guard flowVersion != legacyFlowVersion else { return OnboardingAnalyticsEvent.paywallContext }
+
+        let count = orderedStepIDs(forFlowVersion: flowVersion).count
+        return OnboardingAnalyticsContext(
+            segmentID: OnboardingAnalyticsEvent.paywallContext.segmentID,
+            flowVersion: flowVersion,
+            stepID: OnboardingAnalyticsEvent.paywallContext.stepID,
+            stepIndex: count,
+            stepCount: count
+        )
+    }
+
+    static func canonicalStepIndex(
+        for stepID: String,
+        flowVersion: String = Self.legacyFlowVersion
+    ) -> Int? {
+        orderedStepIDs(forFlowVersion: flowVersion).firstIndex(of: stepID)
     }
 }
 
@@ -64,6 +134,9 @@ enum OnboardingFlowCompletionReason: String, Codable, Equatable, Sendable {
     case purchase
     case restore
     case existingEntitlement = "existing_entitlement"
+    /// The climber declined every paid offer and was let in on the server-granted free week. Not a
+    /// sale and not an entitlement: a later purchase reports as `free_week_purchase_completed`.
+    case freeWeek = "free_week"
     /// Access arrived after the pass asked for it and nothing in the app confirmed how - a comp, a
     /// promotional grant, or a purchase made outside the app. Never counted as a sale.
     case unknown
@@ -105,12 +178,35 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     case backTapped(context: OnboardingAnalyticsContext, inputType: String)
     case signOutTapped(context: OnboardingAnalyticsContext, inputType: String)
     case signOutConfirmed(context: OnboardingAnalyticsContext)
-    case notificationPermissionSelected(context: OnboardingAnalyticsContext, status: String)
+    /// `emailOptIn` is the v3 primer's email checkbox, recorded beside the push answer because one
+    /// tap on the step leaves both. `nil` for the v1 screen, which asks for email on its own step.
+    case notificationPermissionSelected(
+        context: OnboardingAnalyticsContext,
+        status: String,
+        emailOptIn: Bool? = nil
+    )
     case firstClimbSelected(context: OnboardingAnalyticsContext, climbID: String, climbName: String)
-    case authStarted(provider: String)
-    case authCompleted(provider: String)
-    case authFailed(provider: String, reason: String)
-    case paywallReached(placement: String, source: String?)
+    /// The auth events default to the v1 sign-in screen's context. The v3 sign-in screen passes the
+    /// flow's own context and how the climber got there, so a v3 sign-in reads as `flow_version=v3`
+    /// at the real step position instead of as a v1 one. `entry` is `walkthrough` or
+    /// `welcome_shortcut`, and nil outside v3.
+    case authStarted(
+        provider: String,
+        context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    )
+    case authCompleted(
+        provider: String,
+        context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    )
+    case authFailed(
+        provider: String,
+        reason: String,
+        context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    )
+    case paywallReached(placement: String, source: String?, context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.paywallContext)
     case flowCompleted(context: OnboardingAnalyticsContext, completionReason: OnboardingFlowCompletionReason)
 
     var record: TelemetryRecord {
@@ -213,19 +309,25 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 context: context,
                 parameters: ["from_step": .string(context.stepID)]
             )
-        case .notificationPermissionSelected(let context, let status):
+        case .notificationPermissionSelected(let context, let status, let emailOptIn):
+            var parameters: [String: TelemetryValue] = [
+                "question_id": .string("notifications"),
+                "screen_id": .string(context.stepID),
+                "input_type": .string("permission_prompt"),
+                "selection_type": .string("single_select"),
+                "answer_id": .string(status),
+                "status": .string(status),
+                "has_answer": .bool(true)
+            ]
+
+            if let emailOptIn {
+                parameters["email_opt_in"] = .bool(emailOptIn)
+            }
+
             return makeRecord(
                 name: "onboarding_question_answered",
                 context: context,
-                parameters: [
-                    "question_id": .string("notifications"),
-                    "screen_id": .string(context.stepID),
-                    "input_type": .string("permission_prompt"),
-                    "selection_type": .string("single_select"),
-                    "answer_id": .string(status),
-                    "status": .string(status),
-                    "has_answer": .bool(true)
-                ]
+                parameters: parameters
             )
         case .firstClimbSelected(let context, let climbID, let climbName):
             return makeRecord(
@@ -242,28 +344,27 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                     "climb_name": .string(climbName)
                 ]
             )
-        case .authStarted(let provider):
+        case .authStarted(let provider, let context, let entry):
             return makeRecord(
                 name: "onboarding_auth_started",
-                context: Self.authContext,
-                parameters: ["provider": .string(provider)]
+                context: context,
+                parameters: Self.authParameters(provider: provider, entry: entry)
             )
-        case .authCompleted(let provider):
+        case .authCompleted(let provider, let context, let entry):
             return makeRecord(
                 name: "onboarding_auth_completed",
-                context: Self.authContext,
-                parameters: ["provider": .string(provider)]
+                context: context,
+                parameters: Self.authParameters(provider: provider, entry: entry)
             )
-        case .authFailed(let provider, let reason):
+        case .authFailed(let provider, let reason, let context, let entry):
+            var parameters = Self.authParameters(provider: provider, entry: entry)
+            parameters["reason"] = .string(reason)
             return makeRecord(
                 name: "onboarding_auth_failed",
-                context: Self.authContext,
-                parameters: [
-                    "provider": .string(provider),
-                    "reason": .string(reason)
-                ]
+                context: context,
+                parameters: parameters
             )
-        case .paywallReached(let placement, let source):
+        case .paywallReached(let placement, let source, let context):
             var parameters: [String: TelemetryValue] = [
                 "placement": .string(placement)
             ]
@@ -274,7 +375,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
 
             return makeRecord(
                 name: "onboarding_paywall_reached",
-                context: Self.paywallContext,
+                context: context,
                 parameters: parameters
             )
         case .flowCompleted(let context, let completionReason):
@@ -284,6 +385,14 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 parameters: ["completion_reason": .string(completionReason.rawValue)]
             )
         }
+    }
+
+    private static func authParameters(provider: String, entry: String?) -> [String: TelemetryValue] {
+        var parameters: [String: TelemetryValue] = ["provider": .string(provider)]
+        if let entry {
+            parameters["entry"] = .string(entry)
+        }
+        return parameters
     }
 
     private func makeRecord(

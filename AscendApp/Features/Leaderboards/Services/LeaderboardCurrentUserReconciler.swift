@@ -76,6 +76,14 @@ enum LeaderboardCurrentUserReconciler {
                 totalWorkouts: localStats.totalWorkouts,
                 totalDuration: localStats.totalDuration,
                 stepsPerMinute: localStats.stepsPerMinute,
+                typedWorkouts: existing.publishedTypedWorkouts(
+                    describingSteps: localStats.totalSteps,
+                    workouts: localStats.totalWorkouts
+                ),
+                importedWorkouts: existing.publishedImportedWorkouts(
+                    describingSteps: localStats.totalSteps,
+                    workouts: localStats.totalWorkouts
+                ),
                 lastUpdated: max(existing.lastUpdated, localStats.lastUpdated),
                 age: existing.age,
                 weightKg: existing.weightKg,
@@ -98,6 +106,8 @@ enum LeaderboardCurrentUserReconciler {
                     totalWorkouts: localStats.totalWorkouts,
                     totalDuration: localStats.totalDuration,
                     stepsPerMinute: localStats.stepsPerMinute,
+                    typedWorkouts: nil,
+                    importedWorkouts: nil,
                     lastUpdated: localStats.lastUpdated
                 )
             )

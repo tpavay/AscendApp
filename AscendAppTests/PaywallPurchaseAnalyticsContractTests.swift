@@ -39,7 +39,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_completed")
         #expect(records[0].parameters["product_id"] == TelemetryValue.string(Self.productID))
-        #expect(records[0].parameters["placement"] == TelemetryValue.string("onboarding_paywall"))
+        #expect(records[0].parameters["placement"] == TelemetryValue.string("app_access_gate"))
         #expect(records[0].parameters["presentation_id"] == TelemetryValue.string("presentation-1"))
         #expect(records[1].parameters["outcome"] == TelemetryValue.string("success"))
         #expect(records[1].parameters["entitlement_id"] == TelemetryValue.string(Self.entitlementID))
@@ -339,7 +339,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectOnePurchaseTerminal(in: records)
         #expect(Self.superwallTerminalName(for: result) == "paywall_transaction_failed")
         #expect(records[0].parameters["error_type"] == TelemetryValue.string("missing_store_product"))
-        #expect(records[0].parameters["placement"] == .string("onboarding_paywall"))
+        #expect(records[0].parameters["placement"] == .string("app_access_gate"))
         #expect(records[0].parameters["presentation_id"] == .string("presentation-1"))
     }
 
@@ -373,7 +373,6 @@ struct PaywallPurchaseAnalyticsContractTests {
     /// placement at all reports `unknown`.
     @Test
     func everyRealPlacementSurvivesAndOnlyAnAbsentOneReadsUnknown() async {
-        #expect(RevenueCatPurchasePlacement(SuperwallPlacement.onboardingPaywall.rawValue).analyticsValue == "onboarding_paywall")
         #expect(RevenueCatPurchasePlacement(SuperwallPlacement.appLaunchHardGate.rawValue).analyticsValue == "app_launch_hard_gate")
         #expect(RevenueCatPurchasePlacement(SuperwallPlacement.appAccessGate.rawValue).analyticsValue == "app_access_gate")
         #expect(RevenueCatPurchasePlacement("winback_campaign_q3").analyticsValue == "winback_campaign_q3")
@@ -561,20 +560,15 @@ struct PaywallPurchaseAnalyticsContractTests {
             entitlementID: Self.entitlementID,
             restorer: { restorer }
         )
-        let contexts = [
-            AppAccessRestoreAnalyticsContext.hostedPaywall(
-                placement: SuperwallPlacement.appAccessGate.rawValue,
-                presentationID: "presentation-a",
-                gateAttemptID: "gate-a",
-                identity: identityA
-            ),
-            .appAccessGate(gateAttemptID: "gate-a", identity: identityA)
-        ]
+        let context = AppAccessRestoreAnalyticsContext.hostedPaywall(
+            placement: SuperwallPlacement.appAccessGate.rawValue,
+            presentationID: "presentation-a",
+            gateAttemptID: "gate-a",
+            identity: identityA
+        )
 
-        for context in contexts {
-            let outcome = await service.restore(context: context)
-            #expect(Self.isFailed(outcome))
-        }
+        let outcome = await service.restore(context: context)
+        #expect(Self.isFailed(outcome))
 
         #expect(restorer.restoreCount == 0)
         #expect(sink.attributions.isEmpty)
@@ -783,58 +777,11 @@ struct PaywallPurchaseAnalyticsContractTests {
         Self.expectClaimsNothingAboutOwnership(viewModel.result?.message)
     }
 
-    @Test
-    func theAppAccessGateRestoreEntryPointEmitsExactlyOneTerminalPerOutcome() async {
-        let expectations: [(MonetizationEntitlementState, String, AppAccessRestoreState)] = [
-            (.active([Self.entitlementID]), "revenuecat_restore_completed", .restored),
-            (.inactive, "revenuecat_restore_not_found", .noPurchasesFound),
-            (.unknown, "revenuecat_restore_failed", .failed)
-        ]
-
-        for (restoredState, terminalName, expectedState) in expectations {
-            let harness = Self.makeRestoreHarness(restoredState: restoredState)
-
-            let gateState = AppAccessRestoreState(outcome: await harness.service.restore())
-
-            #expect(harness.sink.records.map(\.name) == [
-                "revenuecat_restore_started",
-                terminalName
-            ])
-            Self.expectOneRestoreTerminal(in: harness.sink.records)
-            #expect(gateState == expectedState)
-        }
-    }
-
-    @Test
-    func theAppAccessGateShowsTheExactNoPurchasesCopy() {
-        #expect(AppAccessRestoreState.noPurchasesFound.statusMessage == Self.noPurchasesCopy)
-        // The conclusive negative reads as a finished operation the climber may simply repeat.
-        #expect(
-            AppAccessRestoreState.noPurchasesFound.buttonTitle(isRevenueCatConfigured: true)
-                == AppAccessRestoreState.idle.buttonTitle(isRevenueCatConfigured: true)
-        )
-    }
-
-    @Test
-    func theAppAccessGateKeepsFailureGenericAndDistinctFromTheConclusiveNegative() {
-        #expect(AppAccessRestoreState.failed != .noPurchasesFound)
-        #expect(
-            AppAccessRestoreState.failed.statusMessage
-                == "Apple could not finish the restore. Try again or contact support."
-        )
-        #expect(AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true) == "Try Restore Again")
-        Self.expectClaimsNothingAboutOwnership(AppAccessRestoreState.failed.statusMessage)
-        Self.expectClaimsNothingAboutOwnership(
-            AppAccessRestoreState.failed.buttonTitle(isRevenueCatConfigured: true)
-        )
-    }
-
     /// Every climber-visible sentence for a conclusive negative, across every restore surface, is
     /// the one contract sentence. A paraphrase anywhere is what this test exists to catch.
     @Test
     func noRestoreSurfaceParaphrasesTheConclusiveNegative() {
         let visibleNoPurchasesCopy = [
-            AppAccessRestoreState.noPurchasesFound.statusMessage,
             RestorePurchasesViewModel.Result.noPurchasesFound.title,
             RestorePurchasesViewModel.Result.noPurchasesFound.message,
             RevenueCatPurchaseControllerError.noPurchasesFound.errorDescription
@@ -844,7 +791,7 @@ struct PaywallPurchaseAnalyticsContractTests {
     }
 
     @Test
-    func nativeGatePurchaseTerminalCarriesExactPrivacySafeAttemptCorrelation() async {
+    func hostedGatePurchaseTerminalCarriesExactPrivacySafeAttemptCorrelation() async {
         let harness = PurchaseHarness(
             entitlementID: Self.entitlementID,
             refresh: .refreshed(.active([Self.entitlementID])),
@@ -852,9 +799,9 @@ struct PaywallPurchaseAnalyticsContractTests {
         )
         harness.contextStore.record(
             placement: SuperwallPlacement.appAccessGate.rawValue,
-            presentationID: nil,
+            presentationID: "presentation-17",
             gateAttemptID: "gate-attempt-17",
-            recoveryPath: .native,
+            recoveryPath: .hosted,
             productID: Self.productID
         )
 
@@ -869,7 +816,7 @@ struct PaywallPurchaseAnalyticsContractTests {
         #expect(terminal?.name == "revenuecat_purchase_completed")
         #expect(terminal?.parameters["gate_attempt_id"] == .string("gate-attempt-17"))
         #expect(terminal?.parameters["placement"] == .string("app_access_gate"))
-        #expect(terminal?.parameters["recovery_path"] == .string("native"))
+        #expect(terminal?.parameters["recovery_path"] == .string("hosted"))
         #expect(terminal?.parameters["provider_outcome"] == .string("purchased"))
         #expect(terminal?.parameters["identity_match"] == .bool(true))
         #expect(terminal?.parameters["entitlement_active"] == .bool(true))
@@ -1101,7 +1048,7 @@ private extension PaywallPurchaseAnalyticsContractTests {
 
     static func recordPaywallContext(
         in contextStore: PaywallTransactionContextStore,
-        placement: String = SuperwallPlacement.onboardingPaywall.rawValue,
+        placement: String = SuperwallPlacement.appAccessGate.rawValue,
         presentationID: String? = "presentation-1"
     ) {
         contextStore.record(
@@ -1120,7 +1067,7 @@ private extension PaywallPurchaseAnalyticsContractTests {
         sourceLocation: SourceLocation = #_sourceLocation
     ) {
         #expect(
-            record.parameters["placement"] == .string("onboarding_paywall"),
+            record.parameters["placement"] == .string("app_access_gate"),
             sourceLocation: sourceLocation
         )
         #expect(

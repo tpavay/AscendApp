@@ -27,25 +27,36 @@ private struct OnboardingLifecycleFixture {
 @MainActor
 struct MonetizationManagerPaywallTests {
     #if DEBUG
+    /// The forced gate is a spinner behind hosted screens, and neither can carry a control that
+    /// clears a debug override. So the override lives in memory only: relaunching is the way out,
+    /// and a value an older build persisted cannot lock a dev install at the gate.
     @Test
-    func debugGateOverrideCanBeClearedFromTheLockedRecoverySurface() {
+    func debugGateOverrideIsHeldInMemoryAndARelaunchClearsIt() {
         let defaults = UserDefaults(suiteName: "DebugGateOverride-\(UUID().uuidString)")!
+        defaults.set(true, forKey: "debug.monetization.forceAppAccessPaywall")
+        let configuration = MonetizationConfiguration(infoDictionary: [
+            MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "YES"
+        ])
         let manager = MonetizationManager(
-            configuration: MonetizationConfiguration(infoDictionary: [
-                MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "YES"
-            ]),
+            configuration: configuration,
             entitlementService: EntitlementServiceStub(entitlementState: .inactive),
             paywallPresenter: PaywallPresenterSpy(),
             userDefaults: defaults
         )
+        #expect(!manager.debugForcesAppAccessPaywall)
 
         manager.setDebugForcesAppAccessPaywall(true)
         #expect(manager.debugForcesAppAccessPaywall)
         #expect(!manager.allowsUnentitledAppAccessForRouting)
 
-        manager.setDebugForcesAppAccessPaywall(false)
-        #expect(!manager.debugForcesAppAccessPaywall)
-        #expect(manager.allowsUnentitledAppAccessForRouting)
+        let relaunched = MonetizationManager(
+            configuration: configuration,
+            entitlementService: EntitlementServiceStub(entitlementState: .inactive),
+            paywallPresenter: PaywallPresenterSpy(),
+            userDefaults: defaults
+        )
+        #expect(!relaunched.debugForcesAppAccessPaywall)
+        #expect(relaunched.allowsUnentitledAppAccessForRouting)
     }
     #endif
 
@@ -417,14 +428,14 @@ struct MonetizationManagerPaywallTests {
         let firstIdentity = manager.prepareIdentity(.climber("user-a"))
         await manager.identify(.climber("user-a"), transition: firstIdentity)
         telemetry.setUserId("user-a")
-        manager.presentPaywall(.onboardingPaywall)
-        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.appAccessGate)
+        manager.presentPaywall(.appAccessGate)
         let reset = manager.prepareIdentityReset()
         await manager.resetIdentity(transition: reset)
         let secondIdentity = manager.prepareIdentity(.climber("user-b"))
         await manager.identify(.climber("user-b"), transition: secondIdentity)
         telemetry.setUserId("user-b")
-        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.appAccessGate)
 
         let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
 
@@ -446,10 +457,10 @@ struct MonetizationManagerPaywallTests {
         let firstIdentity = manager.prepareIdentity(.climber("user-a"))
         await manager.identify(.climber("user-a"), transition: firstIdentity)
         telemetry.setUserId("user-a")
-        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.appAccessGate)
         let repeatedIdentity = manager.prepareIdentity(.climber("user-a"))
         await manager.identify(.climber("user-a"), transition: repeatedIdentity)
-        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.appAccessGate)
 
         #expect(sink.records.filter { $0.name == "onboarding_screen_viewed" }.count == 1)
     }
@@ -581,16 +592,6 @@ struct MonetizationManagerPaywallTests {
         #expect(manager.hasAppAccess == false)
         #expect(paywallPresenter.registeredPlacement == nil)
         #expect(receivedOutcome == .failed(message: "Superwall is not configured for this build."))
-        #expect(
-            !AppAccessRestoreState.idle.isButtonEnabled(
-                isRevenueCatConfigured: manager.isRevenueCatConfigured
-            )
-        )
-        #expect(
-            AppAccessRestoreState.idle.buttonTitle(
-                isRevenueCatConfigured: manager.isRevenueCatConfigured
-            ) == "Restore Unavailable"
-        )
     }
 
     @Test

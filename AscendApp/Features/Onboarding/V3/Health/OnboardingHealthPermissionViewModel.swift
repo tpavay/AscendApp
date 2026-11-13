@@ -1,0 +1,74 @@
+import Foundation
+import Observation
+
+/// 06b's one action. "GOT IT" asks for Health access through the Connect flow's own view model, then
+/// reads what Health holds and says where onboarding goes next.
+///
+/// Nothing is written. There is no account yet, so the climber's answer to the iOS sheet is the
+/// only thing that changes, and what the read finds is carried to the next screen by that screen
+/// reading it again.
+@MainActor
+@Observable
+final class OnboardingHealthPermissionViewModel {
+    @ObservationIgnored private let connect: AppleHealthConnectViewModel
+    @ObservationIgnored private let reader: any HealthWorkoutReading
+    private var isReading = false
+
+    init(
+        connect: AppleHealthConnectViewModel = AppleHealthConnectViewModel(),
+        reader: any HealthWorkoutReading = HealthKitWorkoutReader.shared
+    ) {
+        self.connect = connect
+        self.reader = reader
+    }
+
+    var isWorking: Bool { connect.isWorking || isReading }
+
+    /// The iOS sheet's refusal, or nil. The climber taps again to retry.
+    var errorMessage: String? { connect.errorMessage }
+
+    /// Asks for access, reads Health, and moves the flow on: to "We found your climbs" when there are
+    /// workouts, to the usual-climb question when there are none. A refusal from the iOS request moves
+    /// nothing and leaves ``errorMessage`` for the climber to retry from.
+    func gotIt(coordinator: OnboardingV3Coordinator) async {
+        guard !isWorking else { return }
+        guard await connect.requestAccessOnly() else {
+            report("request_failed", coordinator: coordinator)
+            return
+        }
+
+        isReading = true
+        let hasHistory = (try? await HealthHistory.exists(using: reader)) == true
+        isReading = false
+
+        // The climber could have backed out while the sheet was up; the answer then belongs to a
+        // screen that is gone.
+        guard coordinator.step == .healthPermission else { return }
+
+        report(hasHistory ? "history_found" : "none_found", coordinator: coordinator)
+        if hasHistory {
+            coordinator.advance()
+        } else {
+            // None found, or a read that failed - never reported as a history. A climber with
+            // nothing to find loses nothing by the question, and nothing they were shown earlier
+            // is left behind to be imported.
+            coordinator.update { $0.clearFoundHealthHistory() }
+            coordinator.go(to: .usualClimb)
+        }
+    }
+
+    /// What the sheet and the read came to. HealthKit never says whether a read type was allowed, so
+    /// the ids name what Ascend can see: the request itself failed or was refused (`request_failed`),
+    /// or it completed and the read then found workouts (`history_found`) or none (`none_found`).
+    private func report(_ answerID: String, coordinator: OnboardingV3Coordinator) {
+        coordinator.report(.questionAnswered(
+            context: coordinator.analyticsContext,
+            questionID: "health_permission",
+            inputType: "button",
+            selectionType: "single_select",
+            answerID: answerID,
+            answerIndex: nil,
+            properties: [:]
+        ))
+    }
+}

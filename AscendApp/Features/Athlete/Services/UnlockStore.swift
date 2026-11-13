@@ -232,18 +232,22 @@ struct UnlockClimbOutcome: Equatable, Sendable {
     let newlyEarned: [AthleteGear]
 }
 
-/// The climbs an event counts: every one Ascend recorded and saved with progress inside its days,
-/// finished or stopped short - a live climb ended early, a routine stopped partway, a session
-/// recovered after the app was closed. A climb with no steps is not progress and never counts.
-/// Bounded by the event, never by the climber's whole history.
+/// The climbs an event counts: every one Ascend recorded, or the climber logged by hand, and saved
+/// with progress inside its days, finished or stopped short - a live climb ended early, a routine
+/// stopped partway, a session recovered after the app was closed. A climb with no steps is not
+/// progress and never counts. A logged climb counts whether or not the pace check kept it off the
+/// leaderboards: gear is a goal, not a rank. Bounded by the event, never by the climber's whole
+/// history.
 enum UnlockClimbQuery {
     static func climbs(in event: UnlockEvent, calendar: Calendar, modelContext: ModelContext) throws -> [UnlockEventProgress.Climb] {
         guard let interval = event.interval(in: calendar) else { return [] }
-        let source = WorkoutSource.headphoneMotion.rawValue
+        let live = WorkoutSource.headphoneMotion.rawValue
+        let logged = WorkoutSource.manual.rawValue
         let start = interval.start, end = interval.end
         var descriptor = FetchDescriptor<Workout>(
             predicate: #Predicate<Workout> { workout in
-                workout.sourceRawValue == source && workout.steps > 0 && workout.date >= start && workout.date < end
+                (workout.sourceRawValue == live || workout.sourceRawValue == logged)
+                    && workout.steps > 0 && workout.date >= start && workout.date < end
             }
         )
         descriptor.propertiesToFetch = [\.id, \.date, \.steps]

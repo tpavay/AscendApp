@@ -17,6 +17,7 @@ All five of them say the alert arrives **when** a climb opens:
 | `EmailPreferencesContentView.swift` | "Ascend emails you when a climb drops and when you hit a milestone." |
 
 So the contract is an alert at the open, delivered to everyone at once, not advance notice.
+The 1.3.0 onboarding primer, behind `onboarding_v3_enabled`, says the same: "when new climbs open" (`NotificationPrimerContent.swift`).
 
 **Advance notice is not available to promise.**
 The catalogue is a static file published by a hosting deploy and carries no unlock timestamp, so there is nothing to count back from.
@@ -24,7 +25,7 @@ Giving notice ahead of an open would take a catalogue schema change *and* a clie
 `scripts/test/climb-drop-promise-contract.test.mjs` fails any surface or document that reintroduces the 24-hour claim that used to live in the internal docs.
 
 The two email promises in that table - the onboarding toggle and the email-preferences row - are **not** honored yet: there is no `climb_drop` type in `functions/src/email/catalog.ts`, so nothing queues an email when a climb drops (the operator-sent `drop_announcement` email announces seasonal unlock drops, not new climbs).
-That is the one remaining gap between the copy and the code.
+That is the one remaining gap between the climb-drop copy and the code.
 
 ## How a drop is detected
 
@@ -201,3 +202,43 @@ Delete the receipts rather than editing them - a receipt that is absent is re-cl
 
 Receipts accumulate at one document per device per drop.
 They are only read while a dispatch is unfinished, so a completed drop's receipts are inert - worth expiring if the device count ever makes them matter, but not worth a TTL policy at the current fleet size.
+
+## Gear drops and the reminders the onboarding primer promises
+
+The 1.3.0 onboarding primer (screen 12) promises three nudges: climb drops, new gear and the weekly target.
+Climb drops are the sweep above.
+The other two are in this table with the trial-ending reminder, which is built but not promised because it does not fire yet.
+Each has one owner and sits behind its own Remote Config switch (`docs/remote-config-kill-switches.md`).
+
+| Nudge | Owner | Where it runs | Switch |
+|---|---|---|---|
+| New gear | `functions/src/gearDropPush.ts` (`announceGearDrops`) | Server push, every 15 minutes | `gear_drop_push_enabled`, a rollout that ships off, read by the function from the Remote Config template |
+| Short of the weekly target | `LocalReminderScheduler.reconcileWeeklyTarget` with `LocalReminderPlan.weeklyTarget` | Local, on the device | `weekly_target_reminder_enabled` |
+| Two days before a trial ends | `LocalReminderScheduler.reconcileTrialEnding` with `LocalReminderPlan.trialEnding` | Local, on the device | `trial_ending_reminder_enabled` |
+
+**Gear drop.** The sweep reads the hosted unlock catalogue (`unlocks/catalog.json`), the same file the app's event card reads, so a new month is a catalogue entry and a hosting deploy and never a function change.
+An event is announced from 16:00 UTC on its first day for three days, and never past its own end.
+`gear_drop_dispatches/{eventId}` is `create`d, and its existence is the announcement, so a rerun cannot announce the event twice.
+Each device's receipt is `create`d before the send, exactly as the climb-drop ledger does, and a send that throws keeps its claim: a missed nudge costs less than a second one.
+The audience is the climb-drop audience, because the primer's TURN ON writes that one preference.
+The push carries `type: "gear_drop"` and no climb, so a tap opens Ascend and `PushNotificationRouter` routes nothing.
+The switch ships off and fails closed: only an explicit `true` sends, and a function that cannot read the template, or finds the parameter absent, sends nothing, because a push cannot be recalled.
+Enabling it is the captain's decision, pending the App Store 4.5.4 explicit-opt-in question: opted-in climbers agreed only to climb alerts (`docs/remote-config-kill-switches.md`).
+A held switch creates no dispatch, so the event is announced by the first sweep after it is turned on if its window is still open.
+The window is stored on the dispatch as `closesAt`, and a dispatch still unfinished when it closes is marked `expired` rather than resumed.
+A dispatch without a readable `closesAt` counts as already closed, so it expires too.
+The dispatch's counters accumulate per page, so `sentCount` is the real number of sends.
+
+**Weekly target.** `LocalReminderCoordinator` re-reads the climber's target and this week's climbs on launch, on every foreground, on every workout-store change and on every write of the notification answer, so the nudge follows the week as it is lived and the primer or Settings toggle takes effect at once; the target comes from the answer the onboarding kept on the device, which `WeeklyTargetService` keeps true to a target set, changed or cleared in Settings.
+The nudge fires at 18:00 local on the last day the week can still be saved, which is the day the days left, today included, equal the days still owed.
+If the climber has already climbed on that day, a second climb cannot count, so no nudge is scheduled for it.
+Next week's is scheduled too, assuming nothing is climbed in between, so a climber who does not reopen the app still hears from it.
+Both are replaced by the real plan on each of those reconciles.
+A real sign-out forgets the target and clears what is pending, so nothing re-arms for a signed-out phone and the next account does not inherit it; the target of a climber who has not signed in yet is untouched.
+Account deletion clears the pending reminders too.
+Nothing is scheduled without a target, so a climber who skipped screen 10 never gets one.
+
+**Trial ending.** `reconcileTrialEnding(trialStartedAt:)` schedules exactly 5 days after the trial began, and a nil start schedules nothing, so no trial reminder exists without a trial that started.
+Nothing calls it yet, because nothing records when a trial started: the onboarding ends at sign-in and a trial now starts inside a Superwall paywall, so this reminder does not fire until a purchase path stores the start and calls it.
+
+All local reminders also require the climber's stored notification answer to be on and iOS to deliver, each read fresh on every call, and `cancelAll()` clears everything the scheduler owns.

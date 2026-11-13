@@ -86,7 +86,7 @@ struct PostAuthOnboardingFlowView: View {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.signOutConfirmed(context: stage.analyticsContext)
                 )
-                authVM.signOut()
+                authVM.signOut(surface: .onboarding)
             }
         } message: {
             Text("Sign out to sign back in with a different account.")

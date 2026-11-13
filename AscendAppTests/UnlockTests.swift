@@ -55,7 +55,7 @@ struct UnlockTests {
     @Test
     func eachEventGivesOneItemForOpeningAndTheRestForClimbing() throws {
         let catalog = HostedUnlockCatalogRepository.bundledCatalog()
-        #expect(catalog.events.map(\.id) == ["halloween-2026", "thanksgiving-2026"])
+        #expect(catalog.events.map(\.id) == ["halloween-2026", "thanksgiving-2026", "winter-lights-2026", "new-year-2027"])
         for event in catalog.events {
             let items = catalog.items(earnedIn: event)
             #expect(items.filter { $0.earn.metric == .visits }.count == 1, "\(event.id) gives one item for opening Ascend")
@@ -203,12 +203,16 @@ struct UnlockTests {
             return climb
         }
         saved.forEach(context.insert)
-        context.insert(Workout(date: Self.date(10, 6), duration: 900, steps: 2_000, floors: 100, source: .manual))
+        let loggedByHand = Workout(date: Self.date(10, 6), duration: 900, steps: 2_000, floors: 100, source: .manual)
+        context.insert(loggedByHand)
         context.insert(Workout(date: Self.date(10, 7), duration: 900, steps: 2_000, floors: 100, source: .appleHealth))
         try context.save()
 
         let climbs = try UnlockClimbQuery.climbs(in: Self.halloween, calendar: Self.utc, modelContext: context)
-        #expect(Set(climbs.map(\.id)) == Set(saved.map(\.id)))
+        #expect(
+            Set(climbs.map(\.id)) == Set(saved.map(\.id)).union([loggedByHand.id]),
+            "a climb logged by hand counts; an imported one does not until imports ship"
+        )
     }
 
     /// Any climb saved with progress counts, whether it reached the top or not: a live climb
@@ -605,8 +609,8 @@ struct UnlockTests {
     /// shoulder, where the race camera behind the climber can see it.
     @Test
     func onlyTheGiantsArePressedOverhead() {
-        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .overhead } == [.pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant])
-        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .tray } == [.chocolateBar, .cornucopia, .pumpkinPie])
+        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .overhead } == [.pumpkinGiant, .pumpkinGiantLantern, .turkeyGiant, .giantOrnament, .giantTrophy])
+        #expect(AthleteGear.allCases.filter { $0.slot == .carry && $0.carry == .tray } == [.chocolateBar, .cornucopia, .pumpkinPie, .giftBox])
     }
 
     /// The hands reach the item where the item sits: the shoulder hand cups it from outside, the
