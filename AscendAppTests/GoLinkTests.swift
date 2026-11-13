@@ -33,12 +33,28 @@ struct GoLinkTests {
             "https://ascendstepper.com.example.com/go",
             "https://example.com/go?src=email-trial-reminder",
             "http://ascendstepper.com/go",
-            "ascendapp://go",
-            "ascendapp-dev://live-climb?sessionID=abc"
+            "ascendapp-stg://go?src=email-trial-reminder",
+            "ascendapp://live-climb?sessionID=abc",
+            "ascendapp://go-away",
+            "ascendapp://go/deeper",
+            "ascendapp://ascendstepper.com/go"
           ])
     func rejectsOtherLinks(_ link: String) throws {
         let url = try #require(URL(string: link))
-        #expect(GoLink(url: url) == nil)
+        #expect(GoLink(url: url, appScheme: "ascendapp") == nil)
+    }
+
+    @Test("The page's app-scheme form is recognised for this build's scheme, with the same source bound",
+          arguments: [
+            ("ascendapp://go?src=email-trial-reminder", GoLink.Source.emailTrialReminder),
+            ("ascendapp://go/?src=email-paywall-abandoned", .emailPaywallAbandoned),
+            ("ASCENDAPP://GO?src=instagram", .instagram),
+            ("ascendapp://go", .missing),
+            ("ascendapp://go?src=a-stranger-wrote-this", .unrecognized)
+          ])
+    func recognisesTheAppSchemeForm(_ link: String, _ source: GoLink.Source) throws {
+        let url = try #require(URL(string: link))
+        #expect(GoLink(url: url, appScheme: "ascendapp")?.source == source)
     }
 
     @Test("Each lifecycle email's source tag is reported as itself")
@@ -95,6 +111,21 @@ struct GoLinkTests {
         #expect(Set(records[0].parameters.keys).subtracting(envelopeKeys) == ["src"])
     }
 
+    @Test("The app-scheme form is reported through the same event and duplicate window")
+    func reportsTheAppSchemeForm() throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        var moment = Date(timeIntervalSince1970: 1_000)
+        let handler = GoLinkHandler(telemetry: makeTestTelemetry(sink: sink), now: { moment })
+        let url = try #require(URL(string: "\(AscendURLScheme.current)://go?src=email-free-week-unused"))
+
+        #expect(handler.handle(url))
+        moment.addTimeInterval(0.2)
+        #expect(handler.handle(url))
+
+        #expect(sink.records.map(\.name) == ["go_link_opened"])
+        #expect(sink.records.first?.parameters["src"] == .string("email-free-week-unused"))
+    }
+
     @Test("One link delivered through both SwiftUI callbacks is one open")
     func absorbsTheDuplicateDelivery() throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
@@ -133,7 +164,7 @@ struct GoLinkTests {
 
         for link in [
             "https://ascendstepper.com/privacy",
-            "ascendapp://live-climb?sessionID=abc",
+            "\(AscendURLScheme.current)://live-climb?sessionID=abc",
             "com.googleusercontent.apps.123:/oauth2callback?code=x"
         ] {
             #expect(handler.handle(try #require(URL(string: link))) == false)

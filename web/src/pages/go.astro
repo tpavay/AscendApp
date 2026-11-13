@@ -1,5 +1,10 @@
 ---
-// ascendstepper.com/go - the one link every social bio points at.
+// ascendstepper.com/go - the one link every social bio and lifecycle email points at.
+//
+// On an iPhone the page first tries the app's own scheme (ascendapp://go) in a hidden frame,
+// because a mail app's own browser or Chrome loads this page instead of letting iOS hand the
+// universal link to Ascend (`docs/universal-links.md`). Only if the page is still on screen
+// after a short wait does it carry on to the App Store as below.
 //
 // Instagram's in-app browser drops an apps.apple.com navigation on the floor,
 // so the bio cannot carry the App Store URL itself. This page reads the user
@@ -231,7 +236,7 @@ const socialImageUrl = 'https://ascendstepper.com/images/ascend-social-card.png'
   </footer>
 
   <script>
-    import { handoffPlan } from '../goHandoff';
+    import { attemptAppOpen, handoffPlan } from '../goHandoff';
 
     const plan = handoffPlan(navigator.userAgent, location.search);
     const root = document.documentElement;
@@ -247,17 +252,45 @@ const socialImageUrl = 'https://ascendstepper.com/images/ascend-social-card.png'
     if (openBrowser) openBrowser.href = plan.storeURL;
     if (badge) badge.href = plan.handoffURL;
 
-    if (plan.redirect) {
-      if (status) status.textContent = 'Opening the App Store…';
-      location.replace(plan.handoffURL);
+    if (!plan.redirect && open) open.textContent = 'Open the App Store';
+
+    function continueToStore() {
+      if (plan.redirect) {
+        if (status) status.textContent = 'Opening the App Store…';
+        location.replace(plan.handoffURL);
+      } else {
+        // Let the button paint first, then try the hand-off on the visitor's
+        // behalf. A webview that refuses a scripted scheme navigation still
+        // passes a tapped one on, which is what the button is for.
+        window.setTimeout(() => {
+          location.href = plan.handoffURL;
+        }, 350);
+      }
+    }
+
+    if (plan.appURL) {
+      attemptAppOpen(
+        {
+          openInFrame(url) {
+            const frame = document.createElement('iframe');
+            frame.setAttribute('aria-hidden', 'true');
+            frame.tabIndex = -1;
+            frame.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden;';
+            frame.src = url;
+            document.body.appendChild(frame);
+          },
+          isHidden: () => document.visibilityState === 'hidden',
+          listen(type, handler) {
+            (type === 'visibilitychange' ? document : window).addEventListener(type, handler);
+          },
+          setTimeout: (handler, delayMs) => window.setTimeout(handler, delayMs),
+          clearTimeout: (id) => window.clearTimeout(id)
+        },
+        plan.appURL,
+        continueToStore
+      );
     } else {
-      if (open) open.textContent = 'Open the App Store';
-      // Let the button paint first, then try the hand-off on the visitor's
-      // behalf. A webview that refuses a scripted scheme navigation still
-      // passes a tapped one on, which is what the button is for.
-      window.setTimeout(() => {
-        location.href = plan.handoffURL;
-      }, 350);
+      continueToStore();
     }
   </script>
 </body>

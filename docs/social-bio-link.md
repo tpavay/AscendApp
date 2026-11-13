@@ -37,13 +37,15 @@ Installs attributed to these tokens show up in App Store Connect under Analytics
 ## When the app is installed
 
 On an iPhone that has an Ascend build with the associated-domains entitlement, a tap on the link from an app that hands it to iOS (Mail, Messages, Notes) opens Ascend instead of loading the page below, and the page is never seen.
-In-app browsers load the page first, which is why the in-app-browser instructions below stay.
+In-app browsers and Chrome load the page first, so on any iPhone the page first tries the App Store build's own link, `ascendapp://go?src=<tag>`, in a hidden frame, and carries on as below only if the page is still on screen 1.5 seconds later; a climber without the app sees nothing until the App Store opens.
+The in-app-browser instructions below stay for the browsers that decline that hand-off.
 `docs/universal-links.md` owns the mechanism, the test steps and the steps the captain does before such a build ships.
 
 ## How the page behaves
 
 The logic is `web/src/goHandoff.ts`; the page is `web/src/pages/go.astro`; `scripts/test/social-bio-link.test.mjs` holds the contract.
 
+- **On an iPhone, first:** the app attempt described above, then one of the two cases below.
 - **In an in-app browser** (Instagram, Facebook, Messenger, TikTok, the YouTube app, or any other: an iOS user agent with no `Safari/` token, or an Android one carrying the `; wv)` WebView marker): the page stays on screen with one large button, `Open the App Store`, that links to the App Store app's own scheme (`itms-apps://`, which a webview passes to iOS even when it refuses an `https://apps.apple.com` hand-off).
   The same hand-off is attempted automatically a moment after the page paints.
   Under the button, a short instruction says what to tap if nothing opened (the `···` menu, then `Open in Safari` or `Open in browser`), plus a plain link to the https product page.

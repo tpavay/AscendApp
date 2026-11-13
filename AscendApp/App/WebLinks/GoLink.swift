@@ -8,9 +8,14 @@ import Foundation
 /// (`web/public/.well-known/apple-app-site-association`). Matching here is deliberately as narrow
 /// as that file's paths - `/go` and anything under `/go/` - so a link the site never promised the
 /// app cannot be reported as one it did.
+///
+/// The same link also arrives as `<this build's scheme>://go?src=<tag>`: the `/go` page tries that
+/// form first on an iPhone, because a mail app's own browser or Chrome loads the page instead of
+/// letting iOS hand the universal link over.
 struct GoLink: Equatable, Sendable {
     static let host = "ascendstepper.com"
     static let path = "/go"
+    static let appHost = "go"
 
     let source: Source
 
@@ -18,16 +23,26 @@ struct GoLink: Equatable, Sendable {
         self.source = source
     }
 
-    init?(url: URL) {
+    init?(url: URL, appScheme: String = AscendURLScheme.current) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme?.lowercased() == "https",
-              components.host?.lowercased() == Self.host,
-              components.path == Self.path || components.path.hasPrefix(Self.path + "/") else {
+              Self.isUniversalLink(components) || Self.isAppLink(components, appScheme: appScheme) else {
             return nil
         }
 
         let rawSource = components.queryItems?.first { $0.name == "src" }?.value
         self.init(source: Source(rawQueryValue: rawSource))
+    }
+
+    private static func isUniversalLink(_ components: URLComponents) -> Bool {
+        components.scheme?.lowercased() == "https"
+            && components.host?.lowercased() == host
+            && (components.path == path || components.path.hasPrefix(path + "/"))
+    }
+
+    private static func isAppLink(_ components: URLComponents, appScheme: String) -> Bool {
+        components.scheme?.lowercased() == appScheme.lowercased()
+            && components.host?.lowercased() == appHost
+            && (components.path.isEmpty || components.path == "/")
     }
 }
 

@@ -1,6 +1,7 @@
 import Foundation
 
-/// Receives an `ascendstepper.com/go` universal link and does exactly one thing: report it.
+/// Receives an `ascendstepper.com/go` link, as a universal link or in the app-scheme form the `/go`
+/// page tries, and does exactly one thing: report it.
 ///
 /// The link opens the app to wherever the climber's launch would have taken them anyway - the
 /// onboarding gate, the first paywall, the founder letter or Home. Nothing here routes, presents,

@@ -9,22 +9,35 @@ The three lifecycle emails (`docs/lifecycle-drip-emails.md`) and every social bi
 |---|---|---|
 | Has Ascend (a build with the entitlement) | Mail, Messages, Notes, Safari's page links, most other apps | iOS never loads the web page. It opens Ascend, which lands where a launch lands: the onboarding gate, the first paywall, the founder letter or Home. The app records `go_link_opened`. |
 | Has no Ascend, or an older build | Anywhere | The web page loads and sends the visitor to the App Store listing, exactly as before (`docs/social-bio-link.md`). |
-| Has Ascend | An in-app browser (Gmail's and Outlook's built-in viewers, Instagram, Facebook, TikTok, the YouTube app) | See the caveat below. The web page loads first. |
+| Has Ascend (the App Store build) | Gmail, Chrome, Outlook's built-in viewer, Instagram, Facebook, TikTok, the YouTube app | The web page loads first and tries the app's own link. See below. |
 | Has Ascend | Typing the address into Safari, or a link followed from another page on `ascendstepper.com` | iOS does not hand a navigation inside the same domain to an app, so the web page loads. The page sends the visitor to the App Store listing, and the App Store shows an Open button. |
 
 The link opens the app to its normal launch state and nothing more.
 It selects no screen, presents no sheet and writes nothing, so it cannot jump the onboarding gate, the first paywall or the founder letter, and the Google sign-in, Live Activity and Strava handlers see it only after they have declined it.
 
-## The caveat: in-app browsers
+## When the page loads first: Gmail, Chrome and in-app browsers
 
-Some mail apps open a tapped link in a browser of their own instead of handing it to iOS.
-A universal link is only honoured when iOS itself is asked to open the URL, so there the web page loads first.
-Nothing Ascend ships can change that.
+Some mail apps open a tapped link in a browser of their own, or in Chrome, instead of handing it to iOS.
+A universal link is only honoured when iOS itself is asked to open the URL, so there the web page loads first: tapping the email link in the Gmail app on an iPhone went to the website and then the App Store.
 
-What the page does in that case is what it already did for Instagram: on iOS it draws one large button and, a moment after the page paints, tries the hand-off by itself.
-The button reads `Open the App Store`, and under it a short instruction says what to tap if nothing opened: the `···` menu, then `Open in Safari`.
-A tap on the same link from Safari then opens the app.
-A climber who has Ascend installed still lands on the App Store listing, which shows Open.
+So on any iPhone the page first tries the app's own scheme, `ascendapp://go?src=<tag>` (`web/src/goHandoff.ts`).
+The tag is passed only when it is one the app knows (`GO_LINK_SOURCES`, the same set as `GoLink.Source`), and is dropped otherwise.
+The link is loaded in a hidden frame rather than by navigating the page, because Safari answers a page navigation to a scheme no app handles with an "address is invalid" alert, and a frame that nothing answers fails silently.
+
+- **The app is installed:** iOS may first ask whether to open Ascend.
+  The app opens to its normal launch state and records `go_link_opened`, exactly like the universal link.
+  The page notices it went to the background (`visibilitychange`, `pagehide` or `blur`) and cancels its fallback, so a climber who comes back to the browser is not then sent to the App Store.
+- **The app is not installed:** nothing visible happens, and after 1.5 seconds the page carries on exactly as before: a real browser goes to the App Store listing, and an in-app browser draws the `Open the App Store` button with its instructions and tries the App Store hand-off.
+  The fallback runs at most once.
+
+A browser can still decline the hand-off, and only a device can say which do.
+Safari and `SFSafariViewController` ignore an app scheme loaded in a frame; Safari is the case the universal link already covers, and there the frame attempt simply costs the 1.5-second wait before the App Store.
+A WKWebView-based browser (Chrome, Gmail's own viewer, Instagram) passes a frame's scheme to its host app, which decides whether to open it.
+Where it is declined the visitor sees what they saw before: the App Store, or the in-app page whose `···` menu, then `Open in Safari`, puts the tap where iOS honours the universal link.
+Check Gmail and Chrome on a device with the App Store build before calling this case fixed (`Testing it`, below).
+
+The page only knows the App Store build's scheme, `ascendapp`.
+Staging answers to `ascendapp-stg` and dev to `ascendapp-dev` (`AscendURLScheme`), so on a phone with only a staging build the page's attempt reaches nothing and the App Store follows; staging is reached by the universal link alone.
 
 ## The four pieces
 
@@ -45,6 +58,7 @@ Each is right or wrong on its own, and a link then opens Safari without any buil
 4. **The app.**
    `GoLink` recognises the URL and `GoLinkHandler` records the event; `AscendApp.handleDeepLink` calls it last, after Google, Live Activity and Strava, from both `onOpenURL` and `onContinueUserActivity` (SwiftUI may deliver one tap through either, and the handler drops the second within five seconds).
    Matching is as narrow as the file: `https`, host `ascendstepper.com` exactly (not `www`), path `/go` or beneath `/go/`.
+   The page's app-scheme form is matched as narrowly: this build's own scheme (`AscendURLScheme.current`), host `go`, no path, and the same `src` bound; the Live Activity's `live-climb` link is not claimed.
 
 ### Switches
 
@@ -118,6 +132,8 @@ A simulator already holds an answer for a domain it has asked about, so after ch
 5. Long-press the link: the menu should offer **Open in Ascend**.
    That entry is how you tell a working association from a slow one.
 6. With the app deleted, tap the link: the page loads and the App Store listing opens.
+7. With the App Store build installed, send the link to a Gmail address and tap it in the Gmail app, then open it in Chrome.
+   Ascend should open (after an "Open in Ascend?" prompt, if the browser asks), and returning to the browser should not then open the App Store.
 
 The event shows in the debug telemetry console on a debug or staging build, and in the staging Mixpanel project as `go_link_opened`.
 
@@ -135,7 +151,8 @@ Apple keeps its own copy at `https://app-site-association.cdn-apple.com/a/v1/asc
 
 - `node --test scripts/test/universal-links-contract.test.mjs` keeps the entitlement, the file, the bundle IDs in the project and the hosting config consistent.
 - `node --test scripts/test/assert-aasa-served.test.mjs` pins the post-deploy check.
-- `AscendAppTests/GoLinkTests.swift` covers which URLs match, the `src` bound, the event and the duplicate delivery.
+- `node --test scripts/test/social-bio-link.test.mjs` covers the page's plan: which visitors get the app link, the `src` bound on it, and the frame attempt with its one-time, cancellable fallback.
+- `AscendAppTests/GoLinkTests.swift` covers which URLs match in both forms, the `src` bound, the event and the duplicate delivery.
 
 ## Both builds installed on one phone
 

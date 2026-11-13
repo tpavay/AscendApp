@@ -14,7 +14,13 @@ import {
   appStoreCampaignURL,
   bioLinkCampaignToken
 } from "../../web/src/appStore.ts";
-import { classifyBrowser, handoffPlan } from "../../web/src/goHandoff.ts";
+import {
+  APP_FALLBACK_DELAY_MS,
+  appOpenURL,
+  attemptAppOpen,
+  classifyBrowser,
+  handoffPlan
+} from "../../web/src/goHandoff.ts";
 import { ciFilterPatterns } from "./support/ci-workflow-filters.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
@@ -133,6 +139,110 @@ test("an iOS in-app browser gets the tap-first App Store scheme; everything else
   // the direct campaign.
   assert.equal(handoffPlan(USER_AGENTS.safari, "?utm_x=1&src=tiktok").campaignToken, "TikTok-bio");
   assert.equal(handoffPlan(USER_AGENTS.safari, "").campaignToken, "Link-direct");
+});
+
+test("every iPhone visitor is first offered the App Store build's own go link; nobody else is", () => {
+  for (const name of ["safari", "chrome", "firefox", "edge", "instagram", "youtube", "unnamedWebView"]) {
+    const plan = handoffPlan(USER_AGENTS[name], "?src=email-trial-reminder");
+    assert.equal(plan.appURL, "ascendapp://go?src=email-trial-reminder", name);
+  }
+  for (const name of ["desktopSafari", "desktopChrome", "androidChrome", "androidInstagram"]) {
+    assert.equal(handoffPlan(USER_AGENTS[name], "?src=email-trial-reminder").appURL, null, name);
+  }
+
+  // The App Store fallback is unchanged by the attempt.
+  const safari = handoffPlan(USER_AGENTS.safari, "?src=instagram");
+  assert.equal(safari.redirect, true);
+  assert.equal(safari.handoffURL, campaignURL("Instagram-bio"));
+});
+
+test("the app link carries only a tag the app knows", () => {
+  for (const tag of ["email-paywall-abandoned", "email-free-week-unused", "email-trial-reminder", "instagram", "tiktok", "youtube", "facebook"]) {
+    assert.equal(appOpenURL(tag), `ascendapp://go?src=${tag}`);
+  }
+  assert.equal(appOpenURL(" Email-Trial-Reminder "), "ascendapp://go?src=email-trial-reminder");
+  for (const source of [null, undefined, "", "none", "other", "twitter", "x&y=1", "__proto__", "javascript:alert(1)"]) {
+    assert.equal(appOpenURL(source), "ascendapp://go", `source ${JSON.stringify(source)}`);
+  }
+});
+
+function fakeAppOpenEnvironment() {
+  const listeners = new Map();
+  const timers = new Map();
+  let nextTimer = 1;
+  const env = {
+    hidden: false,
+    frames: [],
+    openInFrame: (url) => env.frames.push(url),
+    isHidden: () => env.hidden,
+    listen: (type, handler) => listeners.set(type, [...(listeners.get(type) ?? []), handler]),
+    setTimeout: (handler, delayMs) => {
+      const id = nextTimer++;
+      timers.set(id, { handler, delayMs });
+      return id;
+    },
+    clearTimeout: (id) => timers.delete(id),
+    fire: (type) => (listeners.get(type) ?? []).forEach((handler) => handler()),
+    runTimers: () => {
+      for (const [id, { handler }] of [...timers]) {
+        timers.delete(id);
+        handler();
+      }
+    },
+    timers
+  };
+  return env;
+}
+
+test("the app is tried in a frame, and the store follows once only if the page is still on screen", () => {
+  const env = fakeAppOpenEnvironment();
+  let fallbacks = 0;
+  attemptAppOpen(env, "ascendapp://go?src=email-trial-reminder", () => fallbacks++);
+
+  assert.deepEqual(env.frames, ["ascendapp://go?src=email-trial-reminder"], "the page itself never navigates to the scheme");
+  assert.deepEqual([...env.timers.values()].map(({ delayMs }) => delayMs), [APP_FALLBACK_DELAY_MS]);
+  assert.equal(APP_FALLBACK_DELAY_MS, 1500);
+  assert.equal(fallbacks, 0, "nothing happens before the wait is over");
+
+  env.runTimers();
+  assert.equal(fallbacks, 1);
+  env.fire("blur");
+  env.fire("pagehide");
+  env.runTimers();
+  assert.equal(fallbacks, 1, "the fallback runs at most once");
+});
+
+test("the app taking over cancels the store fallback, whichever way the page notices", () => {
+  for (const leave of [
+    (env) => { env.hidden = true; env.fire("visibilitychange"); },
+    (env) => env.fire("pagehide"),
+    (env) => env.fire("blur")
+  ]) {
+    const env = fakeAppOpenEnvironment();
+    let fallbacks = 0;
+    attemptAppOpen(env, "ascendapp://go", () => fallbacks++);
+    leave(env);
+    env.hidden = false;
+    env.runTimers();
+    assert.equal(fallbacks, 0);
+    assert.equal(env.timers.size, 0, "the timer is cleared, not left to fire on return");
+  }
+
+  // A visibility change that leaves the page visible is not the app opening.
+  const env = fakeAppOpenEnvironment();
+  let fallbacks = 0;
+  attemptAppOpen(env, "ascendapp://go", () => fallbacks++);
+  env.fire("visibilitychange");
+  env.runTimers();
+  assert.equal(fallbacks, 1);
+
+  // A page already hidden when the wait ends does not send the climber on.
+  const hidden = fakeAppOpenEnvironment();
+  let hiddenFallbacks = 0;
+  attemptAppOpen(hidden, "ascendapp://go", () => hiddenFallbacks++);
+  hidden.hidden = true;
+  hidden.runTimers();
+  assert.equal(hiddenFallbacks, 0);
 });
 
 test("the /go page is served clean, never hardcodes the store, and loads no tracking", async () => {
