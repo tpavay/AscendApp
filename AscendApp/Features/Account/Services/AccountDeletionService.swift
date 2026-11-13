@@ -56,13 +56,19 @@ final class AccountDeletionService {
 
     private let gateway: AccountDeletionGateway
     private let localCleanup: AccountDeletionLocalCleanup
+    private let surface: AccountExitSurface
+    private let telemetry: TelemetryManager
 
     init(
         gateway: AccountDeletionGateway = FirebaseAccountDeletionGateway(),
-        localCleanup: AccountDeletionLocalCleanup = AppAccountDeletionLocalCleanup()
+        localCleanup: AccountDeletionLocalCleanup = AppAccountDeletionLocalCleanup(),
+        surface: AccountExitSurface = .settings,
+        telemetry: TelemetryManager = .shared
     ) {
         self.gateway = gateway
         self.localCleanup = localCleanup
+        self.surface = surface
+        self.telemetry = telemetry
     }
 
     /// Performs complete account deletion
@@ -215,6 +221,10 @@ final class AccountDeletionService {
         updateProgress("Deleting account...")
         try await deleteAuthAccount()
         hasDeletedAuthAccount = true
+        // The deletion is irreversible from here, so this is the moment it completed - the local
+        // sweep after it can still fail without bringing the account back. Reported before any
+        // further await: the auth listener's "no user" clears the analytics identity.
+        telemetry.track(AccountExitAnalyticsEvent.deleted(surface: surface))
         completedSteps += 1
 
         // Step 11: Commit local deletion and clear caches

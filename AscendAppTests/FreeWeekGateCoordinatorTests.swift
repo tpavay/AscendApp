@@ -229,6 +229,7 @@ struct FreeWeekGateCoordinatorTests {
         let terminals = harness.sink.records.filter { $0.name == "app_access_gate_attempt_terminal" }
         #expect(terminals.last?.parameters["provider_outcome"] == .string("sign_out_requested"))
         #expect(terminals.last?.parameters["recovery_reason"] == .string("hosted_sign_out_requested"))
+        #expect(terminals.last?.parameters["flow_version"] == .string("v3"))
     }
 
     @Test

@@ -196,6 +196,38 @@ struct AccountDeletionServiceTests {
         #expect(routines.count == 1, "Expected staged local deletion to roll back.")
     }
 
+    @Test
+    func aCompletedDeletionReportsTheScreenItCameFromAndAFailedOneReportsNothing() async throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+
+        let completed = AccountDeletionService(
+            gateway: RecordingAccountDeletionGateway(),
+            localCleanup: StubLocalCleanup(),
+            surface: .appAccessGate,
+            telemetry: telemetry
+        )
+        try await completed.deleteAccount(modelContext: try makeModelContext())
+
+        let exits = sink.records.filter { $0.name == "account_deleted" }
+        #expect(exits.count == 1)
+        #expect(exits.first?.parameters["surface"] == .string("app_access_gate"))
+
+        let failingGateway = RecordingAccountDeletionGateway()
+        failingGateway.authDeletionError = TestError.remoteFailure
+        let failed = AccountDeletionService(
+            gateway: failingGateway,
+            localCleanup: StubLocalCleanup(),
+            surface: .appAccessGate,
+            telemetry: telemetry
+        )
+        await #expect(throws: AccountDeletionService.DeletionError.self) {
+            try await failed.deleteAccount(modelContext: try makeModelContext())
+        }
+
+        #expect(sink.records.filter { $0.name == "account_deleted" }.count == 1)
+    }
+
     @Test("Drains authenticated work before deletion and discards it after success", .bug(id: 389))
     func drainsAndDiscardsAuthenticatedSessionWork() async throws {
         let gateway = RecordingAccountDeletionGateway()

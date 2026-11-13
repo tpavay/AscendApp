@@ -54,7 +54,7 @@ final class OnboardingHealthHistoryViewModel {
             state = .nothing
             if coordinator.step == .healthHistory {
                 coordinator.update { $0.clearFoundHealthHistory() }
-                coordinator.go(to: .usualClimb)
+                coordinator.go(to: .usualClimb, as: .noWorkoutsFound)
             }
             return
         }
@@ -94,7 +94,7 @@ final class OnboardingHealthHistoryViewModel {
             $0.usualClimbSteps = usual?.steps
             $0.usualClimbMinutes = usual?.minutes
         }
-        coordinator.advance()
+        coordinator.advance(as: .skip)
     }
 
     private func report(

@@ -32,7 +32,10 @@ final class OnboardingHealthPermissionViewModel {
     /// nothing and leaves ``errorMessage`` for the climber to retry from.
     func gotIt(coordinator: OnboardingV3Coordinator) async {
         guard !isWorking else { return }
-        guard await connect.requestAccessOnly() else { return }
+        guard await connect.requestAccessOnly() else {
+            report("request_failed", coordinator: coordinator)
+            return
+        }
 
         isReading = true
         let hasHistory = (try? await HealthHistory.exists(using: reader)) == true
@@ -42,6 +45,7 @@ final class OnboardingHealthPermissionViewModel {
         // screen that is gone.
         guard coordinator.step == .healthPermission else { return }
 
+        report(hasHistory ? "history_found" : "none_found", coordinator: coordinator)
         if hasHistory {
             coordinator.advance()
         } else {
@@ -51,5 +55,20 @@ final class OnboardingHealthPermissionViewModel {
             coordinator.update { $0.clearFoundHealthHistory() }
             coordinator.go(to: .usualClimb)
         }
+    }
+
+    /// What the sheet and the read came to. HealthKit never says whether a read type was allowed, so
+    /// the ids name what Ascend can see: the request itself failed or was refused (`request_failed`),
+    /// or it completed and the read then found workouts (`history_found`) or none (`none_found`).
+    private func report(_ answerID: String, coordinator: OnboardingV3Coordinator) {
+        coordinator.report(.questionAnswered(
+            context: coordinator.analyticsContext,
+            questionID: "health_permission",
+            inputType: "button",
+            selectionType: "single_select",
+            answerID: answerID,
+            answerIndex: nil,
+            properties: [:]
+        ))
     }
 }

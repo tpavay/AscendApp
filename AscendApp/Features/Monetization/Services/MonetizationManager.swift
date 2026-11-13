@@ -477,8 +477,11 @@ final class MonetizationManager: MonetizationIdentityManaging {
     ) {
         guard let userID = identity.userID else { return }
         let source = params?["source"] as? String
+        // The pass that led here, on every placement, so a paywall reached from the 1.3.0
+        // onboarding is told from one reached by a climber who finished the old one.
         var parameters: [String: TelemetryValue] = [
-            "placement": .string(placement.rawValue)
+            "placement": .string(placement.rawValue),
+            "flow_version": .string(onboardingFlowVersion)
         ]
 
         if let source {

@@ -80,7 +80,12 @@ struct OnboardingAuthScreen: View {
             OnboardingV3HandOffIntent().clear()
         }
         .fullScreenCover(isPresented: $isShowingInternalQA, onDismiss: internalQADismissed) {
-            NavigationStack { InternalQASignInView() }
+            NavigationStack {
+                InternalQASignInView(
+                    onboardingContext: coordinator.analyticsContext,
+                    entry: mode.analyticsEntry
+                )
+            }
         }
         .trackOnce(screen: .onboardingAuth)
     }
@@ -167,7 +172,9 @@ struct OnboardingAuthScreen: View {
                 style: .apple,
                 isDisabled: isDisabled
             ) {
-                signIn { await authVM.signInWithApple() }
+                signIn { context, entry in
+                    await authVM.signInWithApple(onboardingContext: context, entry: entry)
+                }
             }
 
             OnboardingAuthProviderButton(
@@ -175,7 +182,9 @@ struct OnboardingAuthScreen: View {
                 style: .google,
                 isDisabled: isDisabled
             ) {
-                signIn { await authVM.signInWithGoogle() }
+                signIn { context, entry in
+                    await authVM.signInWithGoogle(onboardingContext: context, entry: entry)
+                }
             }
 
             Text(.init("By continuing, you agree to our [Terms](https://ascendstepper.com/terms) and [Privacy Policy](https://ascendstepper.com/privacy)."))
@@ -203,14 +212,20 @@ struct OnboardingAuthScreen: View {
     /// whose sign-in failed to the old landing screen instead of back here. The root swaps this
     /// screen for its signing-in route the moment the attempt starts, so the work is an unstructured
     /// task that holds the auth model itself rather than anything the view owns.
-    private func signIn(_ attempt: @escaping @MainActor () async -> Void) {
+    private func signIn(
+        _ attempt: @escaping @MainActor (OnboardingAnalyticsContext, String) async -> Void
+    ) {
         authVM.errorMessage = nil
+        // Read at the tap: the root swaps this screen out the moment the attempt starts, and the
+        // events of the attempt still belong to the sign-in step.
+        let context = coordinator.analyticsContext
+        let entry = mode.analyticsEntry
         let authVM = authVM
         let intent = OnboardingV3HandOffIntent()
         if mode == .saveEveryClimb { intent.set() }
 
         Task { @MainActor in
-            await attempt()
+            await attempt(context, entry)
             if authVM.authenticationState != .authenticated {
                 intent.clear()
             }

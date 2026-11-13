@@ -136,7 +136,7 @@ struct OnboardingProfileSetupScreen: View {
     ) {
         coordinator.update { ProfileSetupDraft.clearAnswers(in: &$0) }
         photos.remove()
-        coordinator.advance()
+        coordinator.advance(as: .skip)
     }
 
     private func continueTapped() {

@@ -29,14 +29,17 @@ final class OnboardingV3Coordinator {
     @ObservationIgnored private let store: PreAuthOnboardingStore
     @ObservationIgnored private let photos: OnboardingProfilePhotoStore
     @ObservationIgnored private let now: () -> ContinuousClock.Instant
+    @ObservationIgnored private let telemetry: TelemetryManager
     @ObservationIgnored private var transitionEnd: ContinuousClock.Instant?
 
     init(
         store: PreAuthOnboardingStore = PreAuthOnboardingStore(),
         photos: OnboardingProfilePhotoStore = OnboardingProfilePhotoStore(),
         startingAt step: OnboardingV3Step = .welcome,
-        now: @escaping () -> ContinuousClock.Instant = { .now }
+        now: @escaping () -> ContinuousClock.Instant = { .now },
+        telemetry: TelemetryManager = .shared
     ) {
+        self.telemetry = telemetry
         self.store = store
         self.photos = photos
         self.now = now
@@ -80,25 +83,70 @@ final class OnboardingV3Coordinator {
     /// fade, so a double tap would otherwise skip the screen it just opened. A move the app makes on
     /// its own is not a tap, and uses ``go(to:)``.
     func advance() {
+        advance(as: .continue)
+    }
+
+    /// ``advance()`` for a primary-flow exit that is not the step's main action, such as a
+    /// quiet "skip" link that leaves the step by the same way on.
+    func advance(as action: OnboardingV3Action) {
         if let transitionEnd, now() < transitionEnd { return }
 
         guard let destination = step.primaryDestination else { return }
 
-        go(to: destination)
+        go(to: destination, as: action)
     }
 
     /// Moves to `destination` and remembers where it came from, so back retraces the real path.
+    /// The exit it reports is the one the step offers to that destination, else `continue`.
     func go(to destination: OnboardingV3Step) {
+        let exit = step.alternateExits.first { $0.destination == destination }
+        go(to: destination, as: exit?.analyticsAction ?? .continue)
+    }
+
+    func go(to destination: OnboardingV3Step, as action: OnboardingV3Action) {
         guard destination != step else { return }
 
+        reportLeaving(to: destination, as: action)
         trail.append(step)
         show(destination, from: step)
     }
 
     /// Returns to the screen the climber came from. Does nothing on the first screen.
     func back() {
-        guard let previous = trail.popLast() else { return }
+        guard let previous = trail.last else { return }
+
+        // `onboarding_back_tapped` is the tap itself; the completed event carries where it led.
+        telemetry.track(OnboardingAnalyticsEvent.backTapped(context: analyticsContext, inputType: "button"))
+        reportLeaving(to: previous, as: .back)
+        trail.removeLast()
         show(previous, from: step)
+    }
+
+    /// The one place a v3 step reports leaving: its answer, then `onboarding_screen_completed` with
+    /// how it left and where it went. Called only for a move that happens, so a double tap the
+    /// transition guard swallowed reports nothing.
+    private func reportLeaving(to destination: OnboardingV3Step, as action: OnboardingV3Action) {
+        let context = analyticsContext
+        if let answer = OnboardingV3StepAnalytics.answer(
+            step: step,
+            answers: answers,
+            action: action,
+            context: context
+        ) {
+            telemetry.track(answer)
+        }
+        telemetry.track(OnboardingV3StepAnalytics.completed(
+            step: step,
+            context: context,
+            action: action,
+            nextStep: destination
+        ))
+    }
+
+    /// An answer a step reports on its own, under this pass's context. For the answers that are
+    /// known before the climber leaves, or that never lead to a move.
+    func report(_ event: OnboardingAnalyticsEvent) {
+        telemetry.track(event)
     }
 
     private func show(_ destination: OnboardingV3Step, from origin: OnboardingV3Step) {

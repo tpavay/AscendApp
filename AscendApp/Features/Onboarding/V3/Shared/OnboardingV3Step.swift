@@ -81,11 +81,20 @@ enum OnboardingV3Step: String, CaseIterable, Sendable, Hashable {
     var alternateExits: [OnboardingV3Exit] {
         switch self {
         case .welcome:
-            [OnboardingV3Exit(prompt: "Already have an account? ", action: "Sign in", destination: .auth)]
+            [OnboardingV3Exit(
+                prompt: "Already have an account? ",
+                action: "Sign in",
+                destination: .auth,
+                analyticsAction: .alreadyHaveAccount
+            )]
         case .healthConnect:
-            [OnboardingV3Exit(action: "Skip", destination: .usualClimb)]
+            [OnboardingV3Exit(action: "Skip", destination: .usualClimb, analyticsAction: .skip)]
         case .healthPermission:
-            [OnboardingV3Exit(action: "No stair stepper workouts found", destination: .usualClimb)]
+            [OnboardingV3Exit(
+                action: "No stair stepper workouts found",
+                destination: .usualClimb,
+                analyticsAction: .noWorkoutsFound
+            )]
         default:
             []
         }
@@ -97,6 +106,8 @@ struct OnboardingV3Exit: Equatable, Sendable {
     var prompt = ""
     let action: String
     let destination: OnboardingV3Step
+    /// The `action_id` the exit reports when the climber leaves the step by it.
+    let analyticsAction: OnboardingV3Action
 
     var title: String { prompt + action }
 }

@@ -64,7 +64,7 @@ struct OnboardingWeeklyTargetScreen: View {
 
     static func skip(_ coordinator: OnboardingV3Coordinator) {
         coordinator.update { $0.weeklyTargetDays = nil }
-        coordinator.advance()
+        coordinator.advance(as: .skip)
     }
 
     private func bigNumber(isCompact: Bool) -> some View {
