@@ -40,14 +40,13 @@ import {
   buildBirthdayDedupeKey,
   celebrationDay,
   cleanFirstName,
-  DEFAULT_BIRTHDAY_TIME_ZONE,
   isBirthdayOn,
   isInBirthdaySendWindow,
-  isValidTimeZone,
   localMomentIn,
   parseBirthDate,
   type BirthDate,
 } from "./email/birthday";
+import {resolveClimberTimeZone} from "./email/climberTimeZone";
 import {APP_STORE_URL} from "./email/config";
 import {
   enqueueLifecycleEmailIfAllowed,
@@ -56,12 +55,9 @@ import {
 import type {BirthdayEmailPayload} from "./email/types";
 
 const USERS_COLLECTION = "users";
-const NOTIFICATION_DEVICES_COLLECTION = "notification_devices";
 /** The profile's validated age range (`firestore.rules`, `ProfileBirthday`). */
 const MIN_BIRTHDAY_AGE = 13;
 const MAX_BIRTHDAY_AGE = 120;
-/** Devices read per candidate to find the newest one that reported a zone. */
-const DEVICES_READ_PER_CANDIDATE = 5;
 /** Candidates enqueued at once, per sweep. */
 const RECIPIENT_CONCURRENCY = 10;
 /** Earliest and latest UTC offsets in use, in hours. */
@@ -157,32 +153,6 @@ export function buildBirthdayEmailPayload(
 }
 
 /**
- * Finds the zone a climber's newest device reported.
- * @param {admin.firestore.Firestore} firestore - Admin Firestore instance
- * @param {string} uid - Firebase Auth user ID
- * @return {Promise<string>} A valid IANA zone, or the default
- */
-async function resolveTimeZone(
-  firestore: admin.firestore.Firestore,
-  uid: string
-): Promise<string> {
-  const devices = await firestore
-    .collection(USERS_COLLECTION)
-    .doc(uid)
-    .collection(NOTIFICATION_DEVICES_COLLECTION)
-    .orderBy("lastSeenAt", "desc")
-    .limit(DEVICES_READ_PER_CANDIDATE)
-    .get();
-  for (const device of devices.docs) {
-    const zone = device.get("timeZone");
-    if (typeof zone === "string" && isValidTimeZone(zone)) {
-      return zone;
-    }
-  }
-  return DEFAULT_BIRTHDAY_TIME_ZONE;
-}
-
-/**
  * Reads a trimmed, plausible email address from a user document.
  * @param {unknown} value - Stored `email`
  * @return {string | null} The address, or null
@@ -232,7 +202,7 @@ async function sendBirthdayEmail(
   now: Date,
   summary: BirthdaySweepSummary
 ): Promise<void> {
-  const timeZone = await resolveTimeZone(firestore, user.id);
+  const timeZone = await resolveClimberTimeZone(firestore, user.id);
   const eligibility = birthdayEligibility(birth, timeZone, now);
   if (!eligibility) {
     return;

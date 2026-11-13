@@ -29,6 +29,10 @@ import {isDeepStrictEqual} from "node:util";
 export const SETTING_PARAMETERS = Object.freeze({
   minimum_supported_app_version: Object.freeze({ valueType: "STRING", healthyDefault: "0.0.0" }),
   recommended_app_version: Object.freeze({ valueType: "STRING", healthyDefault: "0.0.0" }),
+  // Server-read delays for the lifecycle drip emails, in hours (`functions/src/lifecycleDripEmails.ts`).
+  lifecycle_email_paywall_abandoned_delay_hours: Object.freeze({ valueType: "NUMBER", healthyDefault: "2" }),
+  lifecycle_email_free_week_unused_delay_hours: Object.freeze({ valueType: "NUMBER", healthyDefault: "24" }),
+  lifecycle_email_trial_reminder_lead_hours: Object.freeze({ valueType: "NUMBER", healthyDefault: "24" }),
   workout_sync_recovery_epoch: Object.freeze({
     valueType: "NUMBER",
     healthyDefault: "0",
@@ -60,7 +64,29 @@ export const ROLLOUT_PARAMETERS = Object.freeze({
   onboarding_v3_enabled: Object.freeze({ healthyDefault: "false" }),
   gear_drop_push_enabled: Object.freeze({ healthyDefault: "false" }),
   free_week_after_decline_enabled: Object.freeze({ healthyDefault: "false" }),
+  // The lifecycle drip emails: each sweep stays dark until the captain turns its switch on.
+  lifecycle_email_paywall_abandoned_enabled: Object.freeze({ healthyDefault: "false" }),
+  lifecycle_email_free_week_unused_enabled: Object.freeze({ healthyDefault: "false" }),
+  lifecycle_email_trial_reminder_enabled: Object.freeze({ healthyDefault: "false" }),
 });
+
+/**
+ * Parameters only a Cloud Function reads, so no Swift catalog names them.
+ *
+ * The parity check exists so the app never reads a parameter the template lacks and the template
+ * never carries one nothing reads. A parameter read by `functions/src` is the second case's
+ * legitimate exception, and adding a Swift case just to satisfy the check would be a client change
+ * that no app reads. Everything else about them - shape, rollout or setting contract, the full
+ * replace guard - applies unchanged. Add a key here only when a function reads it.
+ */
+export const SERVER_ONLY_PARAMETERS = Object.freeze([
+  "lifecycle_email_paywall_abandoned_enabled",
+  "lifecycle_email_paywall_abandoned_delay_hours",
+  "lifecycle_email_free_week_unused_enabled",
+  "lifecycle_email_free_week_unused_delay_hours",
+  "lifecycle_email_trial_reminder_enabled",
+  "lifecycle_email_trial_reminder_lead_hours",
+]);
 
 export function isRolloutParameter(key) {
   return Object.hasOwn(ROLLOUT_PARAMETERS, key);
@@ -378,7 +404,7 @@ export function flagParityProblems(localTemplate, swiftSource) {
           "nothing would ever be published, so the switch could never be flipped.",
       ),
     ...templateKeys
-      .filter((key) => !appKeys.includes(key))
+      .filter((key) => !appKeys.includes(key) && !SERVER_ONLY_PARAMETERS.includes(key))
       .map(
         (key) =>
           `${key} is in remoteconfig.template.json but no case in RemoteFeatureFlag.swift ` +

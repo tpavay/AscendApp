@@ -7,6 +7,7 @@ import {
   MAX_PARAMETER_DESCRIPTION_LENGTH,
   SETTING_PARAMETERS,
   ROLLOUT_PARAMETERS,
+  SERVER_ONLY_PARAMETERS,
   appFlagKeys,
   findActiveKillSwitches,
   findArmedSettings,
@@ -195,7 +196,12 @@ test("the template carries exactly the parameters the app knows about", () => {
   const appKeys = appFlagKeys(everyParameterSource);
 
   assert.ok(appKeys.length > 0, "could not parse any keys out of the RemoteConfig enums");
-  assert.deepEqual(Object.keys(templateParameters(localTemplate)).sort(), appKeys);
+  assert.deepEqual(
+    Object.keys(templateParameters(localTemplate))
+      .filter((key) => !SERVER_ONLY_PARAMETERS.includes(key))
+      .sort(),
+    appKeys,
+  );
   assert.deepEqual(
     flagParityProblems(localTemplate, everyParameterSource),
     [],
@@ -709,4 +715,30 @@ test("a result-wrapped CLI response is unwrapped", () => {
   assert.deepEqual(findActiveKillSwitches(live, localTemplate), [
     "public_profile_publishing_enabled",
   ]);
+});
+
+test("every server-only parameter is in the template and held to its own contract", () => {
+  // That a Cloud Function reads each one is proved by executing it in
+  // functions/test/lifecycleDripEmails.test.ts.
+  for (const key of SERVER_ONLY_PARAMETERS) {
+    assert.ok(localTemplate.parameters[key], `${key} is server-only but not in the template`);
+    assert.ok(
+      isRolloutParameter(key) || isSettingParameter(key),
+      `${key} must be a rollout or a setting so the full replace guard covers it`,
+    );
+  }
+});
+
+test("the drip email switches ship off and their delays ship at the documented defaults", () => {
+  const parameters = templateParameters(localTemplate);
+  const switches = SERVER_ONLY_PARAMETERS.filter((key) => key.endsWith("_enabled"));
+  assert.equal(switches.length, 3);
+  for (const key of switches) {
+    assert.equal(parameters[key].defaultValue.value, "false");
+    assert.equal(parameters[key].valueType, "BOOLEAN");
+  }
+  assert.equal(parameters.lifecycle_email_paywall_abandoned_delay_hours.defaultValue.value, "2");
+  assert.equal(parameters.lifecycle_email_free_week_unused_delay_hours.defaultValue.value, "24");
+  assert.equal(parameters.lifecycle_email_trial_reminder_lead_hours.defaultValue.value, "24");
+  assert.deepEqual(templateShapeProblems(localTemplate), []);
 });

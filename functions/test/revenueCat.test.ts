@@ -357,6 +357,9 @@ test("an unrelated active product cannot activate a different entitlement", () =
         ascend_yearly: {
           expiresDate: "2027-08-05T12:00:00.000Z",
           gracePeriodExpiresDate: null,
+          periodType: "normal",
+          unsubscribeDetectedAt: null,
+          billingIssuesDetectedAt: null,
         },
       },
     },
@@ -965,6 +968,9 @@ function subscriberResponse(options: {
   productId: string;
   expiresDate?: string | null;
   gracePeriodExpiresDate?: string | null;
+  periodType?: string | null;
+  unsubscribeDetectedAt?: string | null;
+  billingIssuesDetectedAt?: string | null;
 }): RevenueCatSubscriberResponse {
   const expiresDate = options.expiresDate === undefined ?
     "2027-08-05T12:00:00.000Z" : options.expiresDate;
@@ -980,7 +986,14 @@ function subscriberResponse(options: {
         },
       },
       subscriptions: {
-        [options.productId]: {expiresDate, gracePeriodExpiresDate},
+        [options.productId]: {
+          expiresDate,
+          gracePeriodExpiresDate,
+          periodType: options.periodType === undefined ?
+            "normal" : options.periodType,
+          unsubscribeDetectedAt: options.unsubscribeDetectedAt ?? null,
+          billingIssuesDetectedAt: options.billingIssuesDetectedAt ?? null,
+        },
       },
     },
   };
