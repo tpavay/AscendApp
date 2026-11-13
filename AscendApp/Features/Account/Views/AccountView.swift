@@ -23,9 +23,17 @@ struct AccountView: View {
     @State private var isShowingDeleteAccountConfirmation = false
     @State private var isShowingManageSubscriptions = false
     @State private var restorePurchases = RestorePurchasesViewModel()
+    @State private var cheaperPlanWarning: CheaperPlanWarningViewModel
+
+    /// - Parameter cheaperPlanWarning: Injected so a hosted screen can answer from a fixed store
+    ///   instead of the climber's live one.
+    init(cheaperPlanWarning: CheaperPlanWarningViewModel = CheaperPlanWarningViewModel()) {
+        _cheaperPlanWarning = State(initialValue: cheaperPlanWarning)
+    }
 
     var body: some View {
         @Bindable var restorePurchases = restorePurchases
+        @Bindable var cheaperPlanWarning = cheaperPlanWarning
 
         ScrollView {
             VStack(spacing: 24) {
@@ -89,6 +97,27 @@ struct AccountView: View {
         // Apple's own sheet, not a hand-rolled apps.apple.com URL: it is the only surface that can
         // cancel, change, or resubscribe a plan without leaving Ascend.
         .manageSubscriptionsSheet(isPresented: $isShowingManageSubscriptions)
+        .alert(
+            CheaperPlanWarning.title,
+            isPresented: $cheaperPlanWarning.isPresentingWarning,
+            presenting: cheaperPlanWarning.warning
+        ) { _ in
+            // Neither button carries a role: a `.cancel` role would bold one of them, and the
+            // two have to read as equal choices.
+            Button(CheaperPlanWarning.keepButtonTitle) {
+                cheaperPlanWarning.keepTapped()
+            }
+            Button(CheaperPlanWarning.continueButtonTitle) {
+                cheaperPlanWarning.continueTapped {
+                    isShowingManageSubscriptions = true
+                }
+            }
+        } message: { warning in
+            Text(warning.message)
+        }
+        .task {
+            await cheaperPlanWarning.refresh()
+        }
         .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
                 surface: .settings,
@@ -223,7 +252,9 @@ struct AccountView: View {
                 icon: .settingsManageSubscription,
                 title: "Manage Subscription",
                 action: {
-                    isShowingManageSubscriptions = true
+                    cheaperPlanWarning.manageTapped {
+                        isShowingManageSubscriptions = true
+                    }
                 }
             ),
             SettingsOption(
