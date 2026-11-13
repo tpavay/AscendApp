@@ -71,10 +71,13 @@ export const DRIP_EMAIL_COPY: Record<DripEmailType, DripEmailCopy> = {
       "I'm Tyler, the founder of Ascend.",
       "You downloaded the app and closed it on the first screen, before you " +
         "saw anything else.",
-      "I built Ascend because the stair stepper is the best cardio there is " +
-        "and no app treated it that way.",
-      "Every workout is a climb up a real tower, and it lands on that " +
-        "tower's leaderboard.",
+      "I built Ascend because the stair stepper is the best cardio there " +
+        "is, and no app treated it that way.",
+      "Before Ascend, when I did the stair stepper, I had to log " +
+        "everything manually, and I always climbed alone.",
+      "Now there are leaderboards, and a community you can compete with.",
+      "Compatible headphones log your climbs automatically, and there's a " +
+        "lot more.",
       "There's more behind that first screen, and a note from me waiting " +
         "there. If you open Ascend again you'll find it.",
       "If it isn't for you, no hard feelings. You can unsubscribe below and " +
@@ -89,22 +92,23 @@ export const DRIP_EMAIL_COPY: Record<DripEmailType, DripEmailCopy> = {
   // started a climb or logged a workout since. The delay is a Remote Config
   // number, so no line here may say how many days it has been.
   drip_free_week_unused: {
-    preheader: "Your free week is running. Here is the easiest way to use it.",
+    preheader: "Thanks for downloading Ascend. Your free week is running.",
     subject: "Your first climb is waiting",
     blocks: [
-      "Your free week has started, and you haven't climbed yet.",
-      "That's fine. The first one is the hardest to start.",
-      "Here's the easiest way in:",
+      "Thanks for downloading Ascend and starting your free week.",
+      "We love the stair stepper, and we wanted to make it easier and more " +
+        "fun for other people to use it too.",
+      "Ascend automatically tracks your steps using compatible headphones.",
+      "No headphones? There are two other ways in:",
       {
         bullets: [
-          "Walk up to any stair stepper.",
-          "Put your headphones in.",
-          "Pick a tower.",
+          "Import your workouts from Apple Health.",
+          "Log a climb by hand.",
         ],
       },
-      "Whatever you climb goes on that tower's leaderboard.",
-      "No headphones? You can type in a climb you already did.",
-      "The week is yours to use however you like.",
+      "All your work can be seen, and you can track your best efforts.",
+      "You can compete on leaderboards and climb right next to other " +
+        "people, from gyms and from anywhere else in the world.",
       "If something got in the way, reply to this email and tell me. I read " +
         "every one.",
     ],
