@@ -175,6 +175,13 @@
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops writing the weekly target (weekly_target_days) to the user record; a change stays on the device, marked unsynced, and goes up when the switch returns."
     },
+    "cheaper_plan_cancel_warning_enabled": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Kill switch. Off hides the Heads up shown before Apple's cancellation sheet to a climber on a plan cheaper than the standard yearly plan; Manage Subscription opens Apple's sheet at once. Display only."
+    },
     "onboarding_v3_enabled": {
       "defaultValue": {
         "value": "false"

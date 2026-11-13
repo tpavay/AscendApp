@@ -166,6 +166,12 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// the target itself keeps working because the device's copy is the one Home reads.
     case weeklyTargetWrites = "weekly_target_writes_enabled"
 
+    /// The "Heads up" shown before Apple's cancellation sheet to a climber whose plan costs less than
+    /// the standard yearly plan does today (`docs/cheaper-plan-cancel-warning.md`). Display only. Off,
+    /// Manage Subscription opens Apple's sheet at once, exactly as it did before the warning existed;
+    /// nothing is written or deferred, and the warning returns on the next Settings open.
+    case cheaperPlanCancelWarning = "cheaper_plan_cancel_warning_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
@@ -251,6 +257,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Writes the answers given before sign-in to the profile right after sign-in."
         case .weeklyTargetWrites:
             return "Writes the weekly target to the climber's user record; off keeps it on the device."
+        case .cheaperPlanCancelWarning:
+            return "Shows the Heads up before cancelling a plan cheaper than the standard yearly plan. Off opens Apple's sheet at once."
         }
     }
 }

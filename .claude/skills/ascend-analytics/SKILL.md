@@ -251,6 +251,10 @@ The segment labels identify nested implementation sections and never replace the
   `free_week_granted` is tracked by `MonetizationManager`, not the gate, because the route leaves the gate the moment the week lands and cancels whatever the gate was about to do with the answer.
   The table of events and properties lives in `docs/free-week-after-decline.md`.
   The production board (dashboard `11433611`) carries them right after the v3 cards: a text card, the funnel `93958620` "Free week: saw the letter, got the week, bought during it" (letter shown, granted, purchase completed, `flow_version == v3` only) and the table `93958621` "Free week: every event, how many people" (all four events, every flow). They read zero until `free_week_after_decline_enabled` is on in production, and a renamed event needs both reports repointed.
+- **The cheaper-plan Heads up has three events, and each carries the rate.**
+  `cheaper_plan_warning_shown`, `cheaper_plan_warning_keep_tapped` and `cheaper_plan_warning_continue_tapped` (`CheaperPlanWarningAnalyticsEvent`) are tracked by `CheaperPlanWarningViewModel` from Settings -> Manage Subscription, and each carries the held rate, today's standard yearly rate and the percentage cheaper.
+  A climber who is not on a cheaper plan, or taps while the switch is off or before the store has answered, generates none of them: the tap goes straight to Apple's sheet, so `continue_tapped` is a share of `shown`, never of every Manage Subscription tap.
+  The properties, the eligibility rule and the caveat that the decline offer can sell the welcome rate again live in `docs/cheaper-plan-cancel-warning.md`.
 
 ## Reference
 - `docs/sentry-setup.md` - Sentry role and app configuration.
