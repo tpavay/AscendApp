@@ -138,6 +138,7 @@ struct RootView: View {
             scheduleAuthenticatedSessionWork()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            AppActivityClock.shared.recordDidEnterBackground()
             appSessionTelemetryCoordinator.recordDidEnterBackground()
             AppDiagnosticsRecorder.shared.record(
                 "app_did_enter_background",

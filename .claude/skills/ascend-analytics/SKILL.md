@@ -147,6 +147,9 @@ Acquisition and retention hang off two always-on lifecycle events, defined in `A
   A briefer app switch stays inside the current session, and a foreground with no preceding background emits nothing.
   It carries `session_id`, `session_type` (`cold_launch` / `foreground`), `root_route`, and `auth_state`, and every one of those but `session_id` is a bounded Swift enum.
   `session_id` is the deliberate exception to the low-cardinality rule: it is a per-session join key, generated on the spot and tied to no user or device.
+- **`go_link_opened` is a universal link reaching the app.**
+  A tap on `ascendstepper.com/go?src=<tag>` that iOS hands to Ascend (`docs/universal-links.md`) records it with `src`, a bounded tag (`GoLink.Source`: the three email tags, the four social bio tags, `none`, `other`), and `session_type`, in `app_session_started`'s words - `cold_launch` while the process has never been backgrounded, `foreground` after.
+  It reports and routes nothing, so it joins the session event for route and sign-in state instead of repeating them.
 - **The cold-launch session is reported when the launch settles, not when the root task first ticks.**
   Routing and authentication both resolve after launch and either can move without the other, so `RootView` re-observes on every change.
   The coordinator reports once both are resolved, once `coldLaunchResolutionTimeout` expires, or when a background flushes the still-pending launch - whichever lands first - marking `unresolved` only for the dimension genuinely still unknown.

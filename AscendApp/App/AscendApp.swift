@@ -130,6 +130,12 @@ struct AscendApp: App {
                 .onOpenURL { url in
                     handleDeepLink(url: url)
                 }
+                // A universal link (`ascendstepper.com/go`) arrives as a browsing-web activity;
+                // SwiftUI may also surface it through `onOpenURL`, and the handler absorbs the pair.
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    guard let url = activity.webpageURL else { return }
+                    handleDeepLink(url: url)
+                }
         }
     }
 
@@ -176,6 +182,10 @@ struct AscendApp: App {
         }
 
         if WebStravaAuthorizationPresenter.receive(url) {
+            return
+        }
+
+        if GoLinkHandler.shared.handle(url) {
             return
         }
     }

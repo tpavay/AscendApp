@@ -394,6 +394,19 @@ jobs:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: npx -y firebase-tools@15.22.1 deploy --project ascend-staging-fa7d5 --only hosting --non-interactive --token "$FIREBASE_TOKEN"
 
+      # The first place Firebase's generated apple-app-site-association (which claims every
+      # path) could still win over the deployed file, so it is caught here before production.
+      - name: Verify Hosting serves the apple-app-site-association file
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Retried because a fresh Hosting release can take a moment to reach every edge.
+          for attempt in 1 2 3 4 5; do
+            if node scripts/ci/assert-aasa-served.mjs "https://ascend-staging-fa7d5.web.app"; then exit 0; fi
+            sleep 10
+          done
+          exit 1
+
   upload-testflight:
     name: Upload to TestFlight (Staging)
     needs:

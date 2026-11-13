@@ -486,6 +486,17 @@ jobs:
             "https://${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}.web.app/climbs/manifest.json" \
             --output /dev/null
 
+      - name: Verify Hosting serves the apple-app-site-association file
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Retried because a fresh Hosting release can take a moment to reach every edge.
+          for attempt in 1 2 3 4 5; do
+            if node scripts/ci/assert-aasa-served.mjs "https://${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}.web.app"; then exit 0; fi
+            sleep 10
+          done
+          exit 1
+
   upload-testflight:
     name: Upload to TestFlight (Production)
     if: ${{ needs.production-gate.outputs.ready == 'true' }}

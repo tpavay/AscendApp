@@ -34,6 +34,12 @@ The page sends every visitor to Apple's campaign link for Ascend, with the campa
 Adding a platform means adding one row to `BIO_LINK_CAMPAIGNS` in `web/src/appStore.ts`, a row here, and a campaign of the same name in App Store Connect; nothing invents tokens on the fly.
 Installs attributed to these tokens show up in App Store Connect under Analytics, Sources, Campaigns.
 
+## When the app is installed
+
+On an iPhone that has an Ascend build with the associated-domains entitlement, a tap on the link from an app that hands it to iOS (Mail, Messages, Notes) opens Ascend instead of loading the page below, and the page is never seen.
+In-app browsers load the page first, which is why the in-app-browser instructions below stay.
+`docs/universal-links.md` owns the mechanism, the test steps and the steps the captain does before such a build ships.
+
 ## How the page behaves
 
 The logic is `web/src/goHandoff.ts`; the page is `web/src/pages/go.astro`; `scripts/test/social-bio-link.test.mjs` holds the contract.

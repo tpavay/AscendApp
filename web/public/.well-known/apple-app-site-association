@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "QWGVB7TN4T.com.TylerPavay.AscendApp",
+          "QWGVB7TN4T.com.TylerPavay.AscendApp.staging"
+        ],
+        "components": [
+          { "/": "/go" },
+          { "/": "/go/*" }
+        ]
+      }
+    ]
+  }
+}
