@@ -1,4 +1,5 @@
 import {renderDropEmailFromPayload} from "./dropTemplate";
+import {renderDripEmailFromPayload} from "./dripTemplate";
 import {
   renderBirthdayEmailFromPayload,
   renderFirstAscentClaimedEmailFromPayload,
@@ -100,6 +101,24 @@ export const emailTypeConfigs: Record<EmailType, EmailTypeDefinition> = {
   },
   birthday: {
     render: renderBirthdayEmailFromPayload,
+    retryDelaysMs: standardRetryDelaysMs,
+    sendPolicy: "send_now",
+  },
+  drip_paywall_abandoned: {
+    render: (payload, context) =>
+      renderDripEmailFromPayload("drip_paywall_abandoned", payload, context),
+    retryDelaysMs: standardRetryDelaysMs,
+    sendPolicy: "send_now",
+  },
+  drip_free_week_unused: {
+    render: (payload, context) =>
+      renderDripEmailFromPayload("drip_free_week_unused", payload, context),
+    retryDelaysMs: standardRetryDelaysMs,
+    sendPolicy: "send_now",
+  },
+  drip_trial_reminder: {
+    render: (payload, context) =>
+      renderDripEmailFromPayload("drip_trial_reminder", payload, context),
     retryDelaysMs: standardRetryDelaysMs,
     sendPolicy: "send_now",
   },

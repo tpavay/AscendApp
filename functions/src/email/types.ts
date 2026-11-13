@@ -20,6 +20,9 @@ export const EMAIL_TYPES = [
   "monthly_recap_inactive",
   "drop_announcement",
   "birthday",
+  "drip_paywall_abandoned",
+  "drip_free_week_unused",
+  "drip_trial_reminder",
 ] as const;
 export type EmailType = typeof EMAIL_TYPES[number];
 /** Which email types an environment delivers: all of them, or a list. */
@@ -283,6 +286,19 @@ export interface BirthdayEmailPayload {
   firstName?: string;
 }
 
+/**
+ * A lifecycle drip email (`email/dripCopy.ts` holds the words). Everything the
+ * renderer needs travels on the job: `firstName` is omitted when the climber
+ * has no usable name, and `trialEndsAtMs` / `timeZone` exist only on the trial
+ * reminder, where the charge date is the whole point of the email.
+ */
+export interface DripEmailPayload {
+  ctaUrl: string;
+  firstName?: string;
+  timeZone?: string;
+  trialEndsAtMs?: number;
+}
+
 export type EmailJobPayload =
   | EmptyEmailPayload
   | FirstClimbCompletedPayload
@@ -291,7 +307,8 @@ export type EmailJobPayload =
   | RecapActivePayload
   | RecapInactivePayload
   | DropEmailPayload
-  | BirthdayEmailPayload;
+  | BirthdayEmailPayload
+  | DripEmailPayload;
 
 export interface EmailJobDocument {
   attemptCount: number;

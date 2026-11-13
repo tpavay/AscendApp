@@ -223,6 +223,48 @@
       },
       "valueType": "BOOLEAN",
       "description": "Kill switch. Off stops the one-time import of Apple Health stair workouts from before the climber joined; the workouts onboarding found stay on the device and the next run with the switch on brings them in."
+    },
+    "lifecycle_email_paywall_abandoned_enabled": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Rollout switch, ships off. On queues the founder email to a climber who left on the first paywall and never saw the welcome offer. Also needs free_week_after_decline_enabled. Read by the Cloud Function, not the app."
+    },
+    "lifecycle_email_paywall_abandoned_delay_hours": {
+      "defaultValue": {
+        "value": "2"
+      },
+      "valueType": "NUMBER",
+      "description": "Setting, in hours. How long after the first paywall appeared a climber who never closed it gets the founder email. Read by the Cloud Function, not the app."
+    },
+    "lifecycle_email_free_week_unused_enabled": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Rollout switch, ships off. On queues the founder email to a climber whose free week started and who has not started or logged a climb. Also needs free_week_after_decline_enabled. Read by the Cloud Function."
+    },
+    "lifecycle_email_free_week_unused_delay_hours": {
+      "defaultValue": {
+        "value": "24"
+      },
+      "valueType": "NUMBER",
+      "description": "Setting, in hours. How long after the free week started a climber with no climb gets the founder email. Read by the Cloud Function, not the app."
+    },
+    "lifecycle_email_trial_reminder_enabled": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "valueType": "BOOLEAN",
+      "description": "Rollout switch, ships off. On queues the reminder to a climber on the 7-day welcome trial, ahead of the first charge, unless they cancelled. Read by the Cloud Function, not the app."
+    },
+    "lifecycle_email_trial_reminder_lead_hours": {
+      "defaultValue": {
+        "value": "24"
+      },
+      "valueType": "NUMBER",
+      "description": "Setting, in hours. How long before the welcome trial ends the reminder is queued. Read by the Cloud Function, not the app."
     }
   },
   "parameterGroups": {},

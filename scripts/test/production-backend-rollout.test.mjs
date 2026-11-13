@@ -324,6 +324,19 @@ test("declares every server collection-group field index", () => {
       [],
       true,
     ],
+    // The lifecycle drip sweep finds free weeks that started inside a window
+    // across every user (`lifecycleDripEmails.ts`); a field override restates
+    // the COLLECTION-scoped indexes it would otherwise replace.
+    [
+      "trial",
+      "grantedAt",
+      [
+        {order: "ASCENDING", queryScope: "COLLECTION"},
+        {order: "DESCENDING", queryScope: "COLLECTION"},
+        {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
+      ],
+      false,
+    ],
   ]);
 });
 
