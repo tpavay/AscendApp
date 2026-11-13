@@ -160,6 +160,7 @@ struct RootView: View {
                 LocalReminderCoordinator.shared.sessionEnded()
                 onboardingV3Coordinator.sessionEnded()
                 monetizationManager.releasePendingPurchaseHold()
+                monetizationManager.clearPendingDeclineOffer()
             }
             if currentUid != nil {
                 onboardingV3Coordinator.sessionBegan()

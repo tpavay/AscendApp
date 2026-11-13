@@ -13,6 +13,12 @@ final class MonetizationManager: MonetizationIdentityManaging {
     let freeWeek: FreeWeekAccessStore
     private let telemetry: TelemetryManager
     private let pendingPurchaseHoldStore: PendingPurchaseHoldStore
+    private let declineOfferReplayStore: DeclineOfferReplayStore
+    private let isOnboardingV3Enabled: @MainActor () -> Bool
+    /// The account whose first paywall was on screen when the previous process died, read once at
+    /// launch. A marker written during this process is not a force-close, so it is never replayed.
+    @ObservationIgnored
+    private var declineOfferOwedAtLaunch: String?
     private let verdictBudget: MonetizationVerdictBudget
     private let unattributedGrantSettleDelay: Duration
     private let unattributedGrantSleep: @Sendable (Duration) async throws -> Void
@@ -129,6 +135,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         telemetry: TelemetryManager = .shared,
         onboardingLifecycle: OnboardingFlowAnalyticsCoordinator = .shared,
         userDefaults: UserDefaults = .standard,
+        isOnboardingV3Enabled: @escaping @MainActor () -> Bool = MonetizationManager.liveOnboardingV3Switch,
         verdictBudget: MonetizationVerdictBudget = MonetizationVerdictBudget(),
         unattributedGrantSettleDelay: Duration = .seconds(15),
         unattributedGrantSleep: @escaping @Sendable (Duration) async throws -> Void = {
@@ -147,6 +154,9 @@ final class MonetizationManager: MonetizationIdentityManaging {
         self.telemetry = telemetry
         self.onboardingLifecycle = onboardingLifecycle
         pendingPurchaseHoldStore = PendingPurchaseHoldStore(userDefaults: userDefaults)
+        declineOfferReplayStore = DeclineOfferReplayStore(userDefaults: userDefaults)
+        declineOfferOwedAtLaunch = declineOfferReplayStore.pendingUserID()
+        self.isOnboardingV3Enabled = isOnboardingV3Enabled
         self.verdictBudget = verdictBudget
     }
 
@@ -163,6 +173,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
             self.paywallPresenter.updateSubscriptionStatus(entitlementIDs: entitlementIDs)
             if state.hasActiveEntitlement(self.configuration.revenueCatEntitlementID) {
                 self.releasePendingPurchaseHold()
+                self.clearPendingDeclineOffer()
             }
             self.settleUnattributedAccessGrantIfNeeded(for: state)
         }
@@ -393,12 +404,68 @@ final class MonetizationManager: MonetizationIdentityManaging {
         pendingPurchaseHoldStore.clear()
     }
 
+    // MARK: - Decline offer replay
+
+    /// The v3 onboarding's decline offer rides on the free week rollout: with either switch off the
+    /// gate behaves exactly as it did before the replay existed.
+    private var declineOfferReplayIsOn: Bool {
+        freeWeek.isEnabled && isOnboardingV3Enabled()
+    }
+
+    static func liveOnboardingV3Switch() -> Bool {
+        #if DEBUG || STAGING
+        if OnboardingV3DebugReplay().forcesFlow { return true }
+        #endif
+        return RemoteFeatureFlagStore.shared.isEnabled(.onboardingV3)
+    }
+
+    /// The first paywall reached the screen of a climber who walked the v3 onboarding, so closing
+    /// the app now would lose them the offer the close was about to open.
+    func recordAccessGatePaywallShown() {
+        guard declineOfferReplayIsOn,
+              onboardingFlowVersion == OnboardingAnalyticsContext.currentFlowVersion,
+              let userID = identityGeneration?.userID else { return }
+        declineOfferReplayStore.markPending(for: userID)
+    }
+
+    /// The decline offer reached the screen, by the SDK's chain or by the replay. It is never owed
+    /// to this account again.
+    func recordDeclineOfferShown() {
+        guard let userID = identityGeneration?.userID else { return }
+        declineOfferReplayStore.markShown(for: userID)
+        declineOfferOwedAtLaunch = nil
+    }
+
+    /// Access arrived, a week started, or the climber left: nothing is owed.
+    func clearPendingDeclineOffer() {
+        declineOfferReplayStore.clearPending()
+        declineOfferOwedAtLaunch = nil
+    }
+
+    /// Whether this launch owes the climber the decline offer: their first paywall was on screen
+    /// when the previous process died and they have not seen the offer since. Asked once, by the
+    /// gate that opens first, so a gate that restarts in the same process shows the paywall.
+    func takeOwedDeclineOffer() -> Bool {
+        guard let owed = declineOfferOwedAtLaunch else { return false }
+        guard declineOfferReplayIsOn,
+              identityGeneration?.userID == owed,
+              !declineOfferReplayStore.hasShown(for: owed),
+              !hasAppAccess,
+              pendingPurchaseHold == nil else {
+            return false
+        }
+        declineOfferOwedAtLaunch = nil
+        return true
+    }
+
     func presentPaywall(
         _ placement: SuperwallPlacement,
         params: [String: Any]? = nil,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void = { _ in }
     ) {
-        let tracksOnboardingAccess = placement == .appAccessGate
+        // The replayed decline offer sells the same access, so a purchase or restore made on it is
+        // attributed like one made on the first paywall. Only the first paywall is a funnel step.
+        let tracksOnboardingAccess = placement == .appAccessGate || placement == .paywallDecline
         guard let presentationIdentity = identityGeneration else {
             if tracksOnboardingAccess {
                 recordOnboardingAccessGrantRequestReportedNothing()
@@ -528,6 +595,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
         let flowVersion = onboardingFlowVersion
         let outcome = await freeWeek.startFreeWeek()
         if case .started = outcome, let userID = identity.userID {
+            clearPendingDeclineOffer()
             freeWeek.rememberStartedFlowVersion(flowVersion)
             telemetry.track(
                 FreeWeekAnalyticsEvent.granted(

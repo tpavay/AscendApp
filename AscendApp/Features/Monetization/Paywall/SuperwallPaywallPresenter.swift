@@ -433,7 +433,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             // only thing that separates a deliberate back tap from any other dismissal. A paywall the
             // dashboard chained has no step behind it, so only a registered placement can ask for one.
             let latchedActionName = presentedToken.flatMap { token in
-                token.revision == revision && SuperwallPlacement(rawValue: token.placement) != nil
+                token.revision == revision && SuperwallPlacement(reportedByAscend: token.placement) != nil
                     ? token.latchedActionName
                     : nil
             }
@@ -505,7 +505,7 @@ private extension SuperwallPaywallPresenter {
         _ event: PaywallAnalyticsEvent,
         context: PaywallAnalyticsContext
     ) {
-        guard SuperwallPlacement(rawValue: context.placement) != nil,
+        guard SuperwallPlacement(reportedByAscend: context.placement) != nil,
               let owner = telemetryOwner(for: context.presentationID) else { return }
         track(event, owner: owner)
     }
@@ -696,7 +696,7 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
     }
 
     func handlePaywallShown(context: PaywallAnalyticsContext) {
-        guard SuperwallPlacement(rawValue: context.placement) != nil,
+        guard SuperwallPlacement(reportedByAscend: context.placement) != nil,
               let presentationID = context.presentationID,
               let owner = telemetryOwner(for: presentationID),
               shownPresentationIDs.insert(presentationID).inserted else {
@@ -714,7 +714,7 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
 
     func handlePaywallDismissed(context: PaywallAnalyticsContext) {
         trackPaywallEvent(.dismissed(context: context), context: context)
-        guard SuperwallPlacement(rawValue: context.placement) != nil,
+        guard SuperwallPlacement(reportedByAscend: context.placement) != nil,
               let userID = telemetryOwner(for: context.presentationID)?.identity?.userID else {
             return
         }

@@ -153,6 +153,8 @@ The decline offer is Superwall's, with no Ascend code:
 - The SDK dismisses the first paywall with `PaywallCloseReason.forNextPaywall` and presents the offer itself, through the first registration's own state publisher (`Superwall.internallyHandleImplicitTrigger` reuses `lastPresentationItems.statePublisher`).
   So the offer reports to the handler Ascend registered, and the presenter treats a `forNextPaywall` dismissal as `.followOnPaywallOpening`: nothing has ended, the registration stays, and the gate waits behind the opening watchdog rather than treating the close as a decline.
   This is generic: any paywall the dashboard chains onto a registered placement is owned the same way, with no gift-specific code.
+- The one time the app registers `paywall_decline` itself is the launch after a force-close on the first paywall, which replays the offer the close never opened (`docs/free-week-after-decline.md`, "Force-closing on the first paywall").
+  The offer reports the same either way: through `SuperwallEventRelay`, with no `paywall_*` events from the app, and a `back` action on it is a plain close.
 - Because the offer is owned by the same attempt, its purchases are verified and recovered like the first paywall's, and a `delete_account` control on it works.
   That ownership exists for money safety and routing only: the app emits no `paywall_shown`, `paywall_transaction_*` or `paywall_dismissed` for the offer.
 - Analytics comes from two places, and neither is automatic.

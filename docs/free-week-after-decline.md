@@ -37,6 +37,28 @@ So the two things that can go wrong end on a hosted screen too:
 A pending purchase still outranks everything.
 A climber Apple may already have charged is checked for access behind the spinner, never offered a free week on top (`PendingPurchaseHoldStore`).
 
+## Force-closing on the first paywall
+
+The decline offer (the gift screen) is Superwall's, and the SDK opens it only when the first paywall is closed.
+A climber who force-closes the app on the first paywall never closes it, so they would never meet the offer.
+With `onboarding_v3_enabled` and `free_week_after_decline_enabled` both on, the next launch opens it for them (`DeclineOfferReplayStore`).
+
+- **Pending.** A climber who walked the v3 onboarding has the first paywall reach the screen: the gate records the account as owed the offer.
+- **Shown.** The offer reaches the screen, by the SDK's chain or by the replay: the account is never owed it again.
+  This is what stops a loop, and an account that has seen the offer once never has a pending marker written again.
+- **Cleared.** A purchase, a restore, active entitlement, a started week or signing out clears the pending marker.
+- **Replay.** At launch the gate reads the marker once.
+  If it names the signed-in account, the account holds no access (a paid entitlement or a running week) and no purchase is pending, the gate registers `paywall_decline` instead of `app_access_gate`.
+  Closing the replayed offer is the decline the chain would have reported, so it ends in the founder letter and the week by the rules above.
+  Only the launch after the close replays: a gate that restarts inside the same process opens the first paywall.
+- **Nothing to show.** If Superwall skips the registration (no campaign or no audience match) the climber gets the first paywall and the offer is not owed again; if it fails, the climber gets the first paywall and the next launch asks again.
+
+Both switches off is the behaviour before this existed: nothing is written and nothing is replayed.
+
+What the dashboard has to hold: the replay registers the placement `paywall_decline` with `presented_by_event_name = app_access_gate` as a parameter, which is what the campaign's filter on the first paywall reads when the SDK triggers it itself.
+A campaign filtered on anything else the SDK adds only to its own trigger (the paywall's id or name, say) skips the replay, and the climber falls back to the first paywall.
+Confirm on a staging device that a force-close on the first paywall opens the offer on the next launch.
+
 ## The letter is a courtesy, the access is the promise
 
 The founder letter is a Superwall-hosted paywall with no products, on its own placement, `founder_letter`.
