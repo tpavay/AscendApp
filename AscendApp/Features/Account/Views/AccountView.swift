@@ -115,7 +115,8 @@ struct AccountView: View {
         } message: { warning in
             Text(warning.message)
         }
-        .task {
+        .task(id: isShowingManageSubscriptions) {
+            guard !isShowingManageSubscriptions else { return }
             await cheaperPlanWarning.refresh()
         }
         .sheet(isPresented: $isShowingDeleteAccountConfirmation) {

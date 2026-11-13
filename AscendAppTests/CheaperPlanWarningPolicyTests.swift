@@ -218,7 +218,7 @@ struct CheaperPlanWarningPolicyTests {
         #expect(
             warning.message == "You currently pay $9.99 per year. "
                 + "That's 67% cheaper than the current $29.99 per year. "
-                + "If you cancel, you won't be able to get that rate again."
+                + "If you cancel, you may not be able to get that rate again."
         )
     }
 
@@ -234,7 +234,7 @@ struct CheaperPlanWarningPolicyTests {
         #expect(
             warning.message == "Your rate is $9.99 per year. "
                 + "That's 67% cheaper than the current $29.99 per year. "
-                + "If you cancel, you won't be able to get that rate again."
+                + "If you cancel, you may not be able to get that rate again."
         )
         #expect(!warning.message.contains("You currently pay"))
     }

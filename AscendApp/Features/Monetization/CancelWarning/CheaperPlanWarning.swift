@@ -19,7 +19,7 @@ struct CheaperPlanWarning: Equatable, Sendable {
         return "\(opening) \(heldRate.formattedPrice) per \(heldRate.period.phrase). "
             + "That's \(percentCheaper)% cheaper than the current "
             + "\(standardRate.formattedPrice) per \(standardRate.period.phrase). "
-            + "If you cancel, you won't be able to get that rate again."
+            + "If you cancel, you may not be able to get that rate again."
     }
 }
 

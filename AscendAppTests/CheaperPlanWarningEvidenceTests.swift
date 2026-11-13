@@ -128,7 +128,7 @@ struct CheaperPlanWarningEvidenceTests {
             let opening = inFreeTrial ? "Your rate is $9.99 per year." : "You currently pay $9.99 per year."
             let message = try #require(labels.first { $0.contains("cheaper") })
             #expect(message == "\(opening) That's 67% cheaper than the current $29.99 per year. "
-                + "If you cancel, you won't be able to get that rate again.")
+                + "If you cancel, you may not be able to get that rate again.")
             #expect(events.names == ["cheaper_plan_warning_shown"])
             try screen.photograph(named: "cheaper-plan-heads-up-\(inFreeTrial ? "trial" : "paid")")
         }

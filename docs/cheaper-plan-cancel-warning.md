@@ -37,7 +37,7 @@ Currency strings come from the storefront (`SubscriptionRatePriceFormatter`).
 
 ```
 Heads up
-You currently pay $9.99 per year. That's 67% cheaper than the current $29.99 per year. If you cancel, you won't be able to get that rate again.
+You currently pay $9.99 per year. That's 67% cheaper than the current $29.99 per year. If you cancel, you may not be able to get that rate again.
 [Keep my plan]  [Continue to cancel]
 ```
 
@@ -52,6 +52,7 @@ There is no countdown, no guilt line and no extra confirmation.
 - The read happens when Settings opens, not when the row is tapped. A tap before the store has answered, a failed read, a switch that is off or a climber with no warning opens Apple's sheet at once.
 - A later failed read keeps what the last good one said; it never newly warns and never delays.
 - `Continue to cancel` opens the same sheet the row opened before this existed. `Keep my plan` dismisses and does nothing else.
+- The read runs again when Apple's sheet closes, so a climber who cancelled there and taps Manage Subscription again goes straight to Apple's sheet instead of being warned about a plan that no longer renews.
 
 This is also the App Review and consumer-protection posture: cancelling stays clear and reachable, and a one-tap informational step that leads straight on to it is not a barrier.
 
@@ -72,7 +73,7 @@ It is display only, so there is nothing to defer (`docs/remote-config-kill-switc
 Every event carries `product_id`, `rate` and `standard_rate` (numbers, per billing period and per year), `currency`, `period` (`year`, `month`, `3 months`), `percent_cheaper` (whole number), `is_free_trial` and `surface` (`settings`).
 A tap that never produced a warning sends nothing.
 
-## Is "you won't be able to get that rate again" true?
+## Why the claim is "you may not be able to get that rate again"
 
 **Not reliably, for the welcome rate.**
 `ascend_yearly_welcome` ($9.99 a year) is sold only by the Superwall decline offer, and `docs/superwall-paywall-setup.md` says that offer is shown to everyone who closes the first paywall, a lapsed subscriber included.
@@ -81,6 +82,5 @@ Apple's one-trial-per-subscription-group rule means they would not get a second 
 Whether it does depends on the Superwall campaign's audience, which is a dashboard setting outside this repository.
 Nothing in this repository configures an App Store win-back offer or an offer code that would re-grant it, and the free week grants access, not a price.
 
-The sentence is the captain's wording and ships as written.
-It becomes true if the decline campaign excludes people who have held the welcome product before, and a decision to soften it ("you may not be able to get that rate again") is the captain's.
-For a legacy or grandfathered price the sentence is true, because nothing sells it any more.
+The captain's brief read "you won't be able to get that rate again", and the captain chose to soften it to "may not" rather than change the Superwall campaign's audience, so the sentence stays true for every plan it can name.
+For a legacy or grandfathered price the stronger claim would hold, because nothing sells it any more, but the alert uses one sentence for every plan.

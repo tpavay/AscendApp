@@ -216,6 +216,31 @@ struct CheaperPlanWarningViewModelTests {
         #expect(model.warning != nil)
     }
 
+    @Test
+    func aClimberWhoCancelledInApplesSheetIsNotWarnedAgainAfterItCloses() async {
+        let (model, provider, log) = makeModel(snapshot: Self.welcomeSnapshot)
+        await model.refresh()
+        var opened = 0
+        model.manageTapped { opened += 1 }
+        model.continueTapped { opened += 1 }
+        provider.snapshot = SubscriberRateSnapshot(
+            held: .subscription(
+                rate: Self.rate("ascend_yearly_welcome", 9.99, formatted: "$9.99"),
+                isInFreeTrial: false,
+                willAutoRenew: false
+            ),
+            standardYearly: Self.rate("ascend_yearly", 29.99, formatted: "$29.99")
+        )
+
+        await model.refresh()
+        model.manageTapped { opened += 1 }
+
+        #expect(model.warning == nil)
+        #expect(!model.isPresentingWarning)
+        #expect(opened == 2)
+        #expect(log.names == ["cheaper_plan_warning_shown", "cheaper_plan_warning_continue_tapped"])
+    }
+
     // MARK: - Analytics properties
 
     @Test
