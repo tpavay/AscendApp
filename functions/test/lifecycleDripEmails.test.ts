@@ -591,10 +591,21 @@ test("the three drip types are registered and rendered by the catalog", () => {
   }
 });
 
-const BLOCK_TEXT = (type: DripEmailType): string[] =>
-  DRIP_EMAIL_COPY[type].blocks.flatMap(
-    (block) => typeof block === "string" ? [block] : block.bullets
+const renderedReading = (type: DripEmailType): string => {
+  const rendered = renderDripEmail(
+    type,
+    {
+      ctaUrl: dripLink(type),
+      firstName: "Sam",
+      timeZone: "America/Los_Angeles",
+      trialEndsAtMs: Date.parse("2026-11-22T03:00:00Z"),
+    },
+    {unsubscribeUrl: UNSUBSCRIBE},
+    new Date("2026-11-20T20:00:00Z")
   );
+  const visibleHtml = rendered.html.replace(/<[^>]*>/g, "\n");
+  return [rendered.subject, rendered.text, visibleHtml].join("\n");
+};
 
 test("the layout is a plain left-aligned newsletter note, not the recap shell", () => {
   const rendered = renderEmailContentForJob(
@@ -652,22 +663,23 @@ test("a bulleted block renders as a list in the html and as dashes in the text",
 
 test("the draft copy keeps the founder's voice: no exclamation marks, no em dashes", () => {
   for (const type of DRIP_TYPES) {
-    const copy = DRIP_EMAIL_COPY[type];
-    const everything = [
-      copy.subject, copy.preheader, copy.linkLabel, copy.whyReceived,
-      ...BLOCK_TEXT(type),
-    ].join("\n");
+    const everything = renderedReading(type);
     assert.doesNotMatch(everything, /!/, type);
     assert.doesNotMatch(everything, /—/, type);
   }
 });
 
 test("no drip subject or line guesses what the reader did or how long ago it was", () => {
-  assert.equal(DRIP_EMAIL_COPY.drip_paywall_abandoned.subject,
-    "A quick note from the founder of Ascend");
+  assert.equal(
+    renderDripEmail(
+      "drip_paywall_abandoned",
+      {ctaUrl: dripLink("drip_paywall_abandoned")},
+      {unsubscribeUrl: UNSUBSCRIBE}
+    ).subject,
+    "A quick note from the founder of Ascend"
+  );
   for (const type of DRIP_TYPES) {
-    const everything = [DRIP_EMAIL_COPY[type].subject, ...BLOCK_TEXT(type)]
-      .join("\n");
+    const everything = renderedReading(type);
     assert.doesNotMatch(everything, /left before|couple of hours|a day since/i,
       type);
   }
