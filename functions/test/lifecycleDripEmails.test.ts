@@ -9,10 +9,7 @@ import {
   readDripSettings,
 } from "../src/lifecycleDripEmails";
 import {renderEmailContentForJob} from "../src/email/catalog";
-import {
-  DRIP_EMAIL_COPY,
-  TRIAL_PRICE_LABEL,
-} from "../src/email/dripCopy";
+import {DRIP_EMAIL_COPY} from "../src/email/dripCopy";
 import type {DripEmailType} from "../src/email/dripCopy";
 import {
   dripSuppressionReasonFor,
@@ -25,7 +22,11 @@ import type {
   DripFactReader,
   DripGrantFacts,
 } from "../src/email/dripEligibility";
-import {formatChargeDate} from "../src/email/dripTemplate";
+import {
+  formatChargeDate,
+  formatTrialEndsIn,
+  renderDripEmail,
+} from "../src/email/dripTemplate";
 import {processRevenueCatWebhookEvent} from "../src/revenueCat/processor";
 import {reconcileAppAccessForUser} from "../src/revenueCat/reconciliation";
 import type {
@@ -575,7 +576,11 @@ test("the three drip types are registered and rendered by the catalog", () => {
       } as unknown as EmailJobDocument,
       {unsubscribeUrl: UNSUBSCRIBE}
     );
-    assert.equal(rendered.subject, DRIP_EMAIL_COPY[type].subject);
+    if (type === "drip_trial_reminder") {
+      assert.match(rendered.subject, /^Reminder: your Ascend trial ends /);
+    } else {
+      assert.equal(rendered.subject, DRIP_EMAIL_COPY[type].subject);
+    }
     assert.match(rendered.html, /Hi Sam,/);
     assert.ok(rendered.html.includes(dripLink(type).replace(/&/g, "&amp;")));
     assert.ok(rendered.html.includes(UNSUBSCRIBE));
@@ -586,51 +591,177 @@ test("the three drip types are registered and rendered by the catalog", () => {
   }
 });
 
-test("the layout is one narrow plain column, not the recap shell", () => {
+const renderedReading = (type: DripEmailType): string => {
+  const rendered = renderDripEmail(
+    type,
+    {
+      ctaUrl: dripLink(type),
+      firstName: "Sam",
+      timeZone: "America/Los_Angeles",
+      trialEndsAtMs: Date.parse("2026-11-22T03:00:00Z"),
+    },
+    {unsubscribeUrl: UNSUBSCRIBE},
+    new Date("2026-11-20T20:00:00Z")
+  );
+  const visibleHtml = rendered.html.replace(/<[^>]*>/g, "\n");
+  return [rendered.subject, rendered.text, visibleHtml].join("\n");
+};
+
+test("the layout is a plain left-aligned newsletter note, not the recap shell", () => {
   const rendered = renderEmailContentForJob(
     {payload: {ctaUrl: dripLink("drip_paywall_abandoned")},
       type: "drip_paywall_abandoned"} as unknown as EmailJobDocument,
     {unsubscribeUrl: UNSUBSCRIBE}
   );
-  assert.match(rendered.html, /max-width:480px/);
+  assert.match(rendered.html, /font-family:Arial,Helvetica,sans-serif/);
+  assert.match(rendered.html, /font-size:14px/);
+  assert.match(rendered.html, /line-height:1\.5/);
+  assert.match(rendered.html, /max-width:520px/);
+  assert.match(rendered.html, /text-align:left/);
+  assert.match(rendered.html, /margin:0 0 1\.2em/);
+  assert.doesNotMatch(rendered.html, /Georgia|Times New Roman|text-align:center/);
   assert.doesNotMatch(rendered.html, /<img/i);
+  assert.doesNotMatch(rendered.html, /<table/i);
   assert.doesNotMatch(rendered.html, /border-radius/);
+  assert.doesNotMatch(rendered.html, /background:#[0-9a-f]{6};padding:\d+px 2/i);
   assert.match(rendered.html, />Hi,</);
+});
+
+test("one idea per paragraph: every copy block is its own element and its own text paragraph", () => {
+  for (const type of DRIP_TYPES) {
+    const rendered = renderDripEmail(
+      type,
+      {ctaUrl: dripLink(type), trialEndsAtMs: Date.parse("2026-11-22T03:00:00Z")},
+      {unsubscribeUrl: UNSUBSCRIBE},
+      new Date("2026-11-20T20:00:00Z")
+    );
+    const paragraphs = rendered.text.split("\n\n");
+    for (const block of DRIP_EMAIL_COPY[type].blocks) {
+      if (typeof block === "string") {
+        const filled = block
+          .replace("{chargeDate}", "Saturday, November 21")
+          .replace("{trialEndsIn}", "tomorrow");
+        assert.ok(paragraphs.includes(filled), `${type}: ${filled}`);
+        assert.ok(rendered.html.includes(`>${filled.replace(/'/g, "&#39;")}</p>`) ||
+          rendered.html.includes(`>${filled}</p>`), `${type}: html ${filled}`);
+      }
+    }
+  }
+});
+
+test("a bulleted block renders as a list in the html and as dashes in the text", () => {
+  const rendered = renderDripEmail(
+    "drip_free_week_unused",
+    {ctaUrl: dripLink("drip_free_week_unused")},
+    {unsubscribeUrl: UNSUBSCRIBE}
+  );
+  assert.match(rendered.html, /<ul style="margin:0 0 1\.2em;padding-left:22px;">/);
+  assert.match(rendered.html, /<li>Walk up to any stair stepper\.<\/li>/);
+  assert.match(rendered.text,
+    /- Walk up to any stair stepper\.\n- Put your headphones in\.\n- Pick a tower\.\n\n/);
 });
 
 test("the draft copy keeps the founder's voice: no exclamation marks, no em dashes", () => {
   for (const type of DRIP_TYPES) {
-    const copy = DRIP_EMAIL_COPY[type];
-    const everything = [
-      copy.subject, copy.preheader, copy.linkLabel, copy.whyReceived,
-      ...copy.paragraphs,
-    ].join("\n");
+    const everything = renderedReading(type);
     assert.doesNotMatch(everything, /!/, type);
     assert.doesNotMatch(everything, /—/, type);
   }
 });
 
-test("the trial reminder says it is a reminder, how to cancel and when the charge is", () => {
-  const rendered = renderEmailContentForJob(
-    {
-      payload: {
-        ctaUrl: dripLink("drip_trial_reminder"),
-        timeZone: "America/Los_Angeles",
-        // 03:00Z on the 22nd is still the 21st on the US west coast.
-        trialEndsAtMs: Date.parse("2026-11-22T03:00:00Z"),
-      },
-      type: "drip_trial_reminder",
-    } as unknown as EmailJobDocument,
-    {unsubscribeUrl: UNSUBSCRIBE}
+test("no drip subject or line guesses what the reader did or how long ago it was", () => {
+  assert.equal(
+    renderDripEmail(
+      "drip_paywall_abandoned",
+      {ctaUrl: dripLink("drip_paywall_abandoned")},
+      {unsubscribeUrl: UNSUBSCRIBE}
+    ).subject,
+    "A quick note from the founder of Ascend"
   );
-  assert.match(rendered.text, /This is a reminder/);
-  assert.match(rendered.text, /Settings app/);
-  assert.match(rendered.text, /Cancel Subscription/);
-  assert.match(rendered.text, /Saturday, November 21/);
-  assert.ok(rendered.text.includes(TRIAL_PRICE_LABEL));
-  assert.doesNotMatch(rendered.text, /\{(chargeDate|price)\}/);
-  assert.equal(formatChargeDate(Date.parse("2026-11-22T03:00:00Z"), undefined),
+  for (const type of DRIP_TYPES) {
+    const everything = renderedReading(type);
+    assert.doesNotMatch(everything, /left before|couple of hours|a day since/i,
+      type);
+  }
+});
+
+const REMINDER_TRIAL_END = Date.parse("2026-11-22T03:00:00Z");
+
+const renderReminder = (now: Date, timeZone = "America/Los_Angeles") =>
+  renderDripEmail(
+    "drip_trial_reminder",
+    {
+      ctaUrl: dripLink("drip_trial_reminder"),
+      firstName: "Sam",
+      timeZone,
+      // 03:00Z on the 22nd is still the 21st on the US west coast.
+      trialEndsAtMs: REMINDER_TRIAL_END,
+    },
+    {unsubscribeUrl: UNSUBSCRIBE},
+    now
+  );
+
+test("the trial reminder is the short note the captain asked for, with no price, renewal or cancel steps", () => {
+  const rendered = renderReminder(new Date("2026-11-20T20:00:00Z"));
+  assert.equal(rendered.subject, "Reminder: your Ascend trial ends tomorrow");
+  const body = rendered.text.split("\n\n");
+  assert.deepEqual(body.slice(0, 4), [
+    "Hi Sam,",
+    "I hate forgetting about subscriptions, and I don't want you to pay for " +
+      "something you don't want.",
+    "Your 7-day free trial ends on Saturday, November 21.",
+    "I hope to see you on the leaderboards.",
+  ]);
+  assert.doesNotMatch(rendered.text, /\{(chargeDate|trialEndsIn|price)\}/);
+  assert.doesNotMatch(rendered.text, /\$|renew|cancel|Settings app|reminder, nothing more|need to do anything/i);
+  assert.doesNotMatch(rendered.html, /\$|renew|cancel|Settings app/i);
+  assert.equal(formatChargeDate(REMINDER_TRIAL_END, undefined),
     "Saturday, November 21");
+});
+
+test("the trial reminder subject counts calendar days in the climber's zone and is never a wrong number", () => {
+  const subject = (now: string, timeZone?: string) =>
+    renderReminder(new Date(now), timeZone).subject;
+  // The end is Saturday Nov 21, 7:00 p.m. in Los Angeles.
+  assert.equal(subject("2026-11-20T20:00:00Z"),
+    "Reminder: your Ascend trial ends tomorrow");
+  assert.equal(subject("2026-11-19T20:00:00Z"),
+    "Reminder: your Ascend trial ends in 2 days");
+  assert.equal(subject("2026-11-18T20:00:00Z"),
+    "Reminder: your Ascend trial ends in 3 days");
+  assert.equal(subject("2026-11-21T20:00:00Z"),
+    "Reminder: your Ascend trial ends today");
+  // A sweep that ran late still never says "tomorrow" for a trial that ended.
+  assert.equal(subject("2026-11-23T20:00:00Z"),
+    "Reminder: your Ascend trial ends today");
+});
+
+test("the trial reminder 'tomorrow' follows the climber's midnight, not UTC's", () => {
+  const end = Date.parse("2026-11-22T03:00:00Z");
+  const days = (now: string, zone: string | undefined) =>
+    formatTrialEndsIn(end, zone, new Date(now));
+  // 06:30Z on the 21st is 00:30 on Nov 21 in Chicago: the trial ends the same
+  // calendar day (Nov 21, 9 p.m. Chicago), so it is today, not tomorrow.
+  assert.equal(days("2026-11-21T06:30:00Z", "America/Chicago"), "today");
+  // 05:30Z on the 21st is still 23:30 on Nov 20 in Chicago: tomorrow.
+  assert.equal(days("2026-11-21T05:30:00Z", "America/Chicago"), "tomorrow");
+  // UTC's calendar would call both of those instants the 21st.
+  // No recorded zone falls back to America/Chicago.
+  assert.equal(days("2026-11-21T05:30:00Z", undefined), "tomorrow");
+  assert.equal(days("2026-11-21T06:30:00Z", undefined), "today");
+  // A zone that is not a real one falls back the same way.
+  assert.equal(days("2026-11-21T05:30:00Z", "Not/AZone"), "tomorrow");
+  // Across a daylight-saving change the day count stays a whole number.
+  assert.equal(
+    formatTrialEndsIn(Date.parse("2026-11-03T15:00:00Z"), "America/Chicago",
+      new Date("2026-10-31T15:00:00Z")),
+    "in 3 days"
+  );
+});
+
+test("the trial reminder preheader and subject both fill {trialEndsIn}", () => {
+  const rendered = renderReminder(new Date("2026-11-20T20:00:00Z"));
+  assert.match(rendered.html, />Your 7-day free trial ends tomorrow\.</);
 });
 
 test("a trial reminder with no trial end is refused rather than printing a blank", () => {
