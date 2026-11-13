@@ -278,21 +278,23 @@ class AuthenticationViewModel {
 extension AuthenticationViewModel {
     /// Signs out. With a `surface`, a completed sign-out is reported as `account_signed_out`.
     ///
-    /// Reported the moment the call returns, before the auth listener answers with "no user":
-    /// that answer clears the analytics identity, and an event sent after it is attributed to a
-    /// device nobody is signed in on.
+    /// Held until the identity is about to clear (`TelemetryManager.holdDeparture`): the auth
+    /// listener's "no user" clears the analytics identity, and an event sent after it is
+    /// attributed to a device nobody is signed in on.
     func signOut(surface: AccountExitSurface? = nil) {
         Task { @MainActor in
             await PushNotificationService.shared.unregisterCurrentDevice()
 
+            if let surface {
+                TelemetryManager.shared.holdDeparture(AccountExitAnalyticsEvent.signedOut(surface: surface))
+            }
             do {
                 try authenticationService.signOut()
                 errorMessage = nil
-                if let surface {
-                    TelemetryManager.shared.track(AccountExitAnalyticsEvent.signedOut(surface: surface))
-                }
+                TelemetryManager.shared.sendHeldDeparture()
             }
             catch {
+                TelemetryManager.shared.discardHeldDeparture()
                 errorMessage = error.localizedDescription
             }
         }

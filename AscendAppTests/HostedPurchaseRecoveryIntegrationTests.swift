@@ -148,7 +148,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
         await dismissal.waitUntilCount(2)
         dismissal.resume(call: 2)
 
-        presenter.register(placement: .appAccessGate, identity: identity) { _ in }
+        presenter.register(placement: .appAccessGate, identity: identity, relayAttribution: nil) { _ in }
         await register.waitUntilCount(1)
         let retryRevision = presenter.beginPresentationAttemptForTesting(
             identity: identity,
@@ -204,7 +204,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
 
         presenter.cancelPresentation()
         let replacementIdentity = MonetizationIdentityTransition(revision: 2, userID: "user-b")
-        presenter.register(placement: .appAccessGate, identity: replacementIdentity) { _ in }
+        presenter.register(placement: .appAccessGate, identity: replacementIdentity, relayAttribution: nil) { _ in }
         await Task.yield()
         #expect(register.count == 0)
 
@@ -399,6 +399,53 @@ struct HostedPurchaseRecoveryIntegrationTests {
                 "product_id": .string("ascend_yearly_welcome"),
                 "presentation_id": .string("offer-presentation")
             ])
+        }
+    }
+
+    @Test
+    func theGiftScreensRelayedEventsCarryTheV3PassAndTheGateThatChainedItOnlyForV3() {
+        let offerParams: [String: Any] = [
+            "paywall_name": "Decline Offer",
+            "paywall_identifier": "offer-paywall",
+            "presented_by_event_name": "paywall_decline",
+            "product_id": "ascend_yearly_welcome",
+            "presentation_id": "offer-presentation"
+        ]
+        let unattributed: [String: TelemetryValue] = [
+            "paywall_name": .string("Decline Offer"),
+            "paywall_identifier": .string("offer-paywall"),
+            "placement": .string("paywall_decline"),
+            "product_id": .string("ascend_yearly_welcome"),
+            "presentation_id": .string("offer-presentation")
+        ]
+        let passes: [String?] = [
+            nil,
+            OnboardingAnalyticsContext.legacyFlowVersion,
+            OnboardingAnalyticsContext.currentFlowVersion
+        ]
+        for pass in passes {
+            let harness = makeHarness(runningPass: pass)
+            harness.openHostedPresentation()
+            harness.closeFirstPaywallForOffer()
+            harness.openOffer()
+
+            harness.presenter.relaySuperwallEvent(.paywallOpen, params: offerParams)
+
+            let opened = harness.sink.records.last { $0.name == "sw_paywall_open" }
+                .map { record in record.parameters.filter { unattributed[$0.key] != nil || ["flow_version", "origin_placement", "source"].contains($0.key) } }
+            guard pass == OnboardingAnalyticsContext.currentFlowVersion else {
+                #expect(opened == unattributed)
+                continue
+            }
+            let gateSource = harness.sink.records
+                .last { $0.name == "paywall_reached" }?
+                .parameters["source"]
+            #expect(gateSource != nil)
+            var attributed = unattributed
+            attributed["flow_version"] = .string(OnboardingAnalyticsContext.currentFlowVersion)
+            attributed["origin_placement"] = .string("app_access_gate")
+            attributed["source"] = gateSource
+            #expect(opened == attributed)
         }
     }
 

@@ -55,6 +55,9 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
     private var shownPresentationIDs: Set<String> = []
     private var presentationOperationTail: Task<Void, Never>?
     private var registrationTask: Task<Void, Never>?
+    /// The latest registration's, kept past its dismissal: SuperwallKit reports a close after the
+    /// outcome, and the paywall it chains next belongs to the same registration.
+    private var relayAttribution: SuperwallRelayAttribution?
 
     init(
         purchaseController: RevenueCatPurchaseController = RevenueCatPurchaseController(),
@@ -173,6 +176,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             placement: placement,
             params: params,
             identity: nil,
+            relayAttribution: nil,
             onOutcome: onOutcome
         )
     }
@@ -181,12 +185,14 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         placement: SuperwallPlacement,
         params: [String: Any]? = nil,
         identity: MonetizationIdentityTransition,
+        relayAttribution: SuperwallRelayAttribution?,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
     ) {
         registerInternal(
             placement: placement,
             params: params,
             identity: identity,
+            relayAttribution: relayAttribution,
             onOutcome: onOutcome
         )
     }
@@ -195,9 +201,11 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         placement: SuperwallPlacement,
         params: [String: Any]?,
         identity: MonetizationIdentityTransition?,
+        relayAttribution: SuperwallRelayAttribution?,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
     ) {
         guard isConfigured else { return }
+        self.relayAttribution = relayAttribution
         let revision = attemptRegistry.begin()
         registrations[revision] = Registration(
             placement: placement.rawValue,
@@ -631,13 +639,18 @@ extension SuperwallPaywallPresenter: SuperwallDelegate {
         }
     }
 
-    func handleSuperwallEvent(withInfo eventInfo: SuperwallEventInfo) {
+    func relaySuperwallEvent(_ event: SuperwallEventObjc, params: [String: Any]) {
         if let record = SuperwallEventRelay.record(
-            for: SuperwallEventObjc(event: eventInfo.event),
-            params: eventInfo.params
+            for: event,
+            params: params,
+            attribution: relayAttribution
         ) {
             telemetry.track(record)
         }
+    }
+
+    func handleSuperwallEvent(withInfo eventInfo: SuperwallEventInfo) {
+        relaySuperwallEvent(SuperwallEventObjc(event: eventInfo.event), params: eventInfo.params)
 
         switch eventInfo.event {
         case .transactionStart(let product, let paywallInfo):

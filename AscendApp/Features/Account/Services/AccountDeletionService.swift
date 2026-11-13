@@ -219,12 +219,19 @@ final class AccountDeletionService {
         // Step 10: Delete the Firebase Auth account (credentials already fresh
         // from Step 1, Apple token already revoked right after reauth).
         updateProgress("Deleting account...")
-        try await deleteAuthAccount()
+        // The deletion is irreversible once the auth account is gone, so that is the moment it
+        // completed - the local sweep after it can still fail without bringing the account back.
+        // Held rather than sent afterwards: Firebase reports "no user" to the auth listener, which
+        // clears the analytics identity, before `deleteAuthAccount()` returns here.
+        telemetry.holdDeparture(AccountExitAnalyticsEvent.deleted(surface: surface))
+        do {
+            try await deleteAuthAccount()
+        } catch {
+            telemetry.discardHeldDeparture()
+            throw error
+        }
         hasDeletedAuthAccount = true
-        // The deletion is irreversible from here, so this is the moment it completed - the local
-        // sweep after it can still fail without bringing the account back. Reported before any
-        // further await: the auth listener's "no user" clears the analytics identity.
-        telemetry.track(AccountExitAnalyticsEvent.deleted(surface: surface))
+        telemetry.sendHeldDeparture()
         completedSteps += 1
 
         // Step 11: Commit local deletion and clear caches

@@ -244,6 +244,14 @@ final class TelemetryManager: @unchecked Sendable {
                 return (true, state.isCollectionEnabled)
             }
 
+            let departure = lock.withLock { state -> TelemetryRecord? in
+                defer { state.heldDepartureRecord = nil }
+                return state.heldDepartureRecord
+            }
+            if result.hadIdentity, result.enabled, let departure {
+                deliver(departure)
+            }
+
             guard result.hadIdentity else { return false }
 
             // The persisted mirror is cleared whether or not the sinks are listening: an identity
@@ -255,6 +263,36 @@ final class TelemetryManager: @unchecked Sendable {
             forwardClearedIdentity()
             return true
         }
+    }
+
+    /// Holds the event that reports an account leaving, so it reaches the account that left.
+    ///
+    /// Whatever ends the session also makes Firebase answer "no user", and that answer can reach
+    /// `clearUserId()` before the call that ended it returns - `User.delete()` queues its
+    /// completion behind the auth-state notification. A held event is sent by `clearUserId()`
+    /// the moment before the identity goes, or by ``sendHeldDeparture()`` if the caller returns
+    /// first, and exactly once either way.
+    func holdDeparture(_ event: any TelemetryEvent) {
+        let record = event.record
+        lock.withLock { $0.heldDepartureRecord = record }
+    }
+
+    /// Sends the held departure if `clearUserId()` has not already sent it.
+    func sendHeldDeparture() {
+        deliveryLane.withLock {
+            let departure = lock.withLock { state -> TelemetryRecord? in
+                defer { state.heldDepartureRecord = nil }
+                return state.isCollectionEnabled ? state.heldDepartureRecord : nil
+            }
+            if let departure {
+                deliver(departure)
+            }
+        }
+    }
+
+    /// Drops the held departure: the action it reported did not complete.
+    func discardHeldDeparture() {
+        lock.withLock { $0.heldDepartureRecord = nil }
     }
 
     private func forwardClearedIdentity() {
@@ -496,5 +534,6 @@ private extension TelemetryManager {
         /// Mirrors `TelemetryIdentityStore` so the transition is decided under the lock rather
         /// than against a value another thread may already have moved.
         var identifiedUserID: String?
+        var heldDepartureRecord: TelemetryRecord?
     }
 }

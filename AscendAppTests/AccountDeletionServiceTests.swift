@@ -225,7 +225,37 @@ struct AccountDeletionServiceTests {
             try await failed.deleteAccount(modelContext: try makeModelContext())
         }
 
+        telemetry.clearUserId()
         #expect(sink.records.filter { $0.name == "account_deleted" }.count == 1)
+    }
+
+    /// Firebase's `User.delete()` queues its completion behind the auth-state notification, so the
+    /// auth listener clears the analytics identity before `deleteAuthAccount()` returns.
+    @Test
+    func aDeletionIsReportedToTheClimberWhoLeftWhenTheAuthListenerClearsTheIdentityFirst() async throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("user-a")
+        let gateway = RecordingAccountDeletionGateway()
+        var deletionsSentWhileIdentified = -1
+        gateway.onAuthDeletion = {
+            #expect(telemetry.clearUserId())
+            deletionsSentWhileIdentified = sink.records.filter { $0.name == "account_deleted" }.count
+        }
+
+        let service = AccountDeletionService(
+            gateway: gateway,
+            localCleanup: StubLocalCleanup(),
+            surface: .appAccessGate,
+            telemetry: telemetry
+        )
+        try await service.deleteAccount(modelContext: try makeModelContext())
+
+        #expect(deletionsSentWhileIdentified == 1)
+        #expect(sink.userIDs.last == .some(nil))
+        let exits = sink.records.filter { $0.name == "account_deleted" }
+        #expect(exits.count == 1)
+        #expect(exits.first?.parameters["surface"] == .string("app_access_gate"))
     }
 
     @Test("Drains authenticated work before deletion and discards it after success", .bug(id: 389))
@@ -625,6 +655,7 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
     var storageDeletionError: Error?
     var authDeletionError: Error?
     var cancelTaskAfterAuthDeletion = false
+    var onAuthDeletion: (() -> Void)?
 
     func reauthenticate() async throws -> ReauthenticationResult {
         steps.append(.reauthenticate)
@@ -679,6 +710,7 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
         if let authDeletionError {
             throw authDeletionError
         }
+        onAuthDeletion?()
         if cancelTaskAfterAuthDeletion {
             withUnsafeCurrentTask { task in
                 task?.cancel()

@@ -433,6 +433,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
             placement: placement,
             params: params,
             identity: presentationIdentity,
+            relayAttribution: relayAttribution(for: placement, params: params),
             onOutcome: { [weak self] outcome in
                 guard let self,
                       self.activePaywallAttempt?.revision == attemptRevision,
@@ -451,6 +452,19 @@ final class MonetizationManager: MonetizationIdentityManaging {
                     self.activePaywallAttempt = nil
                 }
             }
+        )
+    }
+
+    private func relayAttribution(
+        for placement: SuperwallPlacement,
+        params: [String: Any]?
+    ) -> SuperwallRelayAttribution? {
+        let flowVersion = onboardingFlowVersion
+        guard flowVersion == OnboardingAnalyticsContext.currentFlowVersion else { return nil }
+        return SuperwallRelayAttribution(
+            flowVersion: flowVersion,
+            originPlacement: placement.rawValue,
+            source: params?["source"] as? String
         )
     }
 
