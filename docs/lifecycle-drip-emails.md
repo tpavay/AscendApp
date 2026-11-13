@@ -18,7 +18,7 @@ The queue, consent rule, worker, unsubscribe and sender are the existing email s
 Every link is `https://ascendstepper.com/go?src=<tag>`.
 On a phone with an Ascend build that carries the associated-domains entitlement, tapping the link opens the app itself and the app records `go_link_opened` with the tag (`docs/universal-links.md`, which also owns the in-app-browser caveat and what the captain does before that build ships).
 Anywhere else `/go` is a web page that opens the App Store listing.
-That page does not yet read an `email-*` source, so on that path these tags attribute nothing, and an install counts as `Link-direct`, until `web/src/pages/go.astro` and `docs/social-bio-link.md` learn them.
+That page has no App Store campaign token for an `email-*` source (`BIO_LINK_CAMPAIGNS` in `web/src/appStore.ts`), so on that path these tags attribute no install, which counts as `Link-direct`, until `web/src/appStore.ts` and `docs/social-bio-link.md` learn them.
 
 A climber who got in through the founder letter gets no "your week ends tomorrow" email, by the captain's decision: the hard paywall is already waiting.
 
