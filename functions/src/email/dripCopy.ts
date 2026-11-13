@@ -69,19 +69,18 @@ export const DRIP_EMAIL_COPY: Record<DripEmailType, DripEmailCopy> = {
     subject: "A quick note from the founder of Ascend",
     blocks: [
       "I'm Tyler, the founder of Ascend.",
-      "You downloaded the app and closed it on the first screen, before you " +
-        "saw anything else.",
+      "I noticed you downloaded the app recently, but closed out before " +
+        "getting past the first screen.",
       "I built Ascend because the stair stepper is the best cardio there " +
-        "is, and no app treated it that way.",
-      "Before Ascend, when I did the stair stepper, I had to log " +
-        "everything manually, and I always climbed alone.",
-      "Now there are leaderboards, and a community you can compete with.",
-      "Compatible headphones log your climbs automatically, and there's a " +
-        "lot more.",
-      "There's more behind that first screen, and a note from me waiting " +
-        "there. If you open Ascend again you'll find it.",
-      "If it isn't for you, no hard feelings. You can unsubscribe below and " +
-        "I won't write again.",
+        "is, yet no app actually treated it that way. Before Ascend, I had " +
+        "to log every workout by hand, and I always climbed alone.",
+      "Now, your steps track automatically through your headphones, and " +
+        "you have global leaderboards and a real community to race against.",
+      "There is a lot more behind that first screen, including a welcome " +
+        "gift I left waiting for you. Open Ascend back up to claim it and " +
+        "take a look around.",
+      "If it isn't for you, no hard feelings at all. You can unsubscribe " +
+        "below and I won't write again.",
     ],
     linkLabel: "Open Ascend",
     whyReceived: "You get this because you chose to hear from Ascend when " +
@@ -96,21 +95,21 @@ export const DRIP_EMAIL_COPY: Record<DripEmailType, DripEmailCopy> = {
     subject: "Your first climb is waiting",
     blocks: [
       "Thanks for downloading Ascend and starting your free week.",
-      "We love the stair stepper, and we wanted to make it easier and more " +
-        "fun for other people to use it too.",
-      "Ascend automatically tracks your steps using compatible headphones.",
-      "No headphones? There are two other ways in:",
+      "I love the stair stepper, and I built this app to make your " +
+        "sessions easier to track and a lot more fun. Here is how to get " +
+        "the most out of your week:",
       {
         bullets: [
-          "Import your workouts from Apple Health.",
-          "Log a climb by hand.",
+          "Hands-free tracking: Ascend counts your steps automatically " +
+            "using compatible headphones.",
+          "Flexible logging: No headphones? You can import workouts " +
+            "straight from Apple Health or log them manually.",
+          "Real competition: Every session is saved so you can track your " +
+            "personal bests, climb real towers, and compete against " +
+            "climbers around the world.",
         ],
       },
-      "All your work can be seen, and you can track your best efforts.",
-      "You can compete on leaderboards and climb right next to other " +
-        "people, from gyms and from anywhere else in the world.",
-      "If something got in the way, reply to this email and tell me. I read " +
-        "every one.",
+      "Your first climb is waiting whenever you're ready.",
     ],
     linkLabel: "Open Ascend",
     whyReceived: "You get this because you chose to hear from Ascend when " +
