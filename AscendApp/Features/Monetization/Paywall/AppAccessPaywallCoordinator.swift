@@ -226,7 +226,7 @@ final class AppAccessPaywallCoordinator {
         // take is one-shot: whatever happens to the offer, the next opening is the paywall.
         let replaysDeclineOffer = Self.declineOfferReplaySources.contains(source)
             && monetizationManager.takeOwedDeclineOffer()
-        let placement: SuperwallPlacement = replaysDeclineOffer ? .paywallDecline : .appAccessGate
+        let placement: SuperwallPlacement = replaysDeclineOffer ? .declineOfferReplay : .appAccessGate
         var params: [String: Any] = [
             "source": replaysDeclineOffer ? "decline_offer_replay" : source,
             "gate_attempt_id": UUID().uuidString.lowercased()

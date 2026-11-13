@@ -465,7 +465,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     ) {
         // The replayed decline offer sells the same access, so a purchase or restore made on it is
         // attributed like one made on the first paywall. Only the first paywall is a funnel step.
-        let tracksOnboardingAccess = placement == .appAccessGate || placement == .paywallDecline
+        let tracksOnboardingAccess = placement == .appAccessGate || placement == .declineOfferReplay
         guard let presentationIdentity = identityGeneration else {
             if tracksOnboardingAccess {
                 recordOnboardingAccessGrantRequestReportedNothing()

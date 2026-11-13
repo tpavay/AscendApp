@@ -1,4 +1,5 @@
 import Foundation
+@testable import SuperwallKit
 import Testing
 @testable import AscendApp
 
@@ -10,6 +11,23 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DeclineOfferReplayTests {
+    // MARK: - The placement
+
+    @Test
+    func theReplayRegistersAPlacementTheSDKAcceptsFromAnApp() {
+        // SuperwallKit drops a registration named after one of its own events without a callback,
+        // which would leave the gate on its spinner until the watchdog gave up.
+        let reservedNames = Set(SuperwallEventObjc.allCases.map(\.description))
+
+        #expect(reservedNames.contains("paywall_decline"))
+        #expect(!reservedNames.contains(SuperwallPlacement.declineOfferReplay.rawValue))
+    }
+
+    @Test(arguments: [SuperwallPlacement.declineOfferReplay.rawValue, "paywall_decline"])
+    func theDeclineOfferIsNeverReportedByAscend(placement: String) {
+        #expect(SuperwallPlacement(reportedByAscend: placement) == nil)
+    }
+
     // MARK: - The marker
 
     @Test
@@ -81,7 +99,7 @@ struct DeclineOfferReplayTests {
         let second = await makeLaunch(defaults: defaults)
         second.coordinator.start()
 
-        #expect(second.presenter.placements == [.paywallDecline])
+        #expect(second.presenter.placements == [.declineOfferReplay])
         #expect(second.presenter.sources == ["decline_offer_replay"])
         #expect(
             second.presenter.params(at: 0)?["presented_by_event_name"] as? String
@@ -102,7 +120,7 @@ struct DeclineOfferReplayTests {
         #expect(second.coordinator.phase == .hostedPresented)
         second.presenter.send(.dismissedWithoutPurchase, registration: 0)
 
-        #expect(second.presenter.placements == [.paywallDecline, .founderLetter])
+        #expect(second.presenter.placements == [.declineOfferReplay, .founderLetter])
     }
 
     @Test
@@ -118,7 +136,7 @@ struct DeclineOfferReplayTests {
         second.presenter.send(.purchased, registration: 0)
 
         #expect(second.coordinator.phase == .accessConfirmed)
-        #expect(second.presenter.placements == [.paywallDecline])
+        #expect(second.presenter.placements == [.declineOfferReplay])
     }
 
     // MARK: - Once
@@ -186,7 +204,7 @@ struct DeclineOfferReplayTests {
         second.coordinator.start()
         second.presenter.send(.skipped(reason: "no_audience_match"), registration: 0)
 
-        #expect(second.presenter.placements == [.paywallDecline, .appAccessGate])
+        #expect(second.presenter.placements == [.declineOfferReplay, .appAccessGate])
         #expect(second.presenter.sources == ["decline_offer_replay", "decline_offer_unavailable"])
         let third = await makeLaunch(defaults: defaults)
         third.coordinator.start()
@@ -203,11 +221,11 @@ struct DeclineOfferReplayTests {
         let second = await makeLaunch(defaults: defaults)
         second.coordinator.start()
         second.presenter.send(.failed(message: "Plans could not open."), registration: 0)
-        #expect(second.presenter.placements == [.paywallDecline, .appAccessGate])
+        #expect(second.presenter.placements == [.declineOfferReplay, .appAccessGate])
 
         let third = await makeLaunch(defaults: defaults)
         third.coordinator.start()
-        #expect(third.presenter.placements == [.paywallDecline])
+        #expect(third.presenter.placements == [.declineOfferReplay])
     }
 
     // MARK: - Nobody entitled is ever shown it

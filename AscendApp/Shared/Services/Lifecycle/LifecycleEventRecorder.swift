@@ -145,7 +145,7 @@ final class LifecycleEventRecorder {
         // offer is the same paywall whether the SDK chains it or the app replays it, and the first
         // paywall's own events already say the climber was at the gate.
         guard placement != SuperwallPlacement.founderLetter.rawValue,
-              placement != SuperwallPlacement.paywallDecline.rawValue else { return }
+              placement != SuperwallPlacement.declineOfferReplay.rawValue else { return }
 
         var payload: [String: Any] = ["placement": placement]
         if let reason {

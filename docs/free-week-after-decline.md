@@ -48,14 +48,17 @@ With `onboarding_v3_enabled` and `free_week_after_decline_enabled` both on, the 
   This is what stops a loop, and an account that has seen the offer once never has a pending marker written again.
 - **Cleared.** A purchase, a restore, active entitlement, a started week or signing out clears the pending marker.
 - **Replay.** At launch the gate reads the marker once.
-  If it names the signed-in account, the account holds no access (a paid entitlement or a running week) and no purchase is pending, the gate registers `paywall_decline` instead of `app_access_gate`.
+  If it names the signed-in account, the account holds no access (a paid entitlement or a running week) and no purchase is pending, the gate registers `decline_offer_replay` instead of `app_access_gate`.
+  It cannot register `paywall_decline`: that is one of Superwall's own event names, and SuperwallKit drops an app's registration of one without calling back at all.
   Closing the replayed offer is the decline the chain would have reported, so it ends in the founder letter and the week by the rules above.
   Only the launch after the close replays: a gate that restarts inside the same process opens the first paywall.
 - **Nothing to show.** If Superwall skips the registration (no campaign or no audience match) the climber gets the first paywall and the offer is not owed again; if it fails, the climber gets the first paywall and the next launch asks again.
 
 Both switches off is the behaviour before this existed: nothing is written and nothing is replayed.
 
-What the dashboard has to hold: the replay registers the placement `paywall_decline` with `presented_by_event_name = app_access_gate` as a parameter, which is what the campaign's filter on the first paywall reads when the SDK triggers it itself.
+What the dashboard has to hold: the decline offer campaign carries `decline_offer_replay` as a second trigger beside `paywall_decline`, in staging and production.
+Firstmate adds that trigger in the Superwall dashboard as a separate step from this change; until it exists, the replay is skipped and the climber falls back to the first paywall, with the offer not owed again.
+The replay passes `presented_by_event_name = app_access_gate` as a parameter, which is what the campaign's filter on the first paywall reads when the SDK triggers it itself.
 A campaign filtered on anything else the SDK adds only to its own trigger (the paywall's id or name, say) skips the replay, and the climber falls back to the first paywall.
 Confirm on a staging device that a force-close on the first paywall opens the offer on the next launch.
 
