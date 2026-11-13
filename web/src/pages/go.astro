@@ -1,10 +1,10 @@
 ---
 // ascendstepper.com/go - the one link every social bio and lifecycle email points at.
 //
-// On an iPhone the page first tries the app's own scheme (ascendapp://go) in a hidden frame,
-// because a mail app's own browser or Chrome loads this page instead of letting iOS hand the
-// universal link to Ascend (`docs/universal-links.md`). Only if the page is still on screen
-// after a short wait does it carry on to the App Store as below.
+// A lifecycle email's link (`?src=email-...`) opened on an iPhone in anything but Safari itself -
+// Gmail's viewer, Chrome - reaches this page instead of the app, because only iOS honours a
+// universal link. There the page tries the app's own scheme (ascendapp://go) once, stays up, and
+// offers `Open Ascend` beside the App Store link (`docs/universal-links.md`).
 //
 // Instagram's in-app browser drops an apps.apple.com navigation on the floor,
 // so the bio cannot carry the App Store URL itself. This page reads the user
@@ -147,8 +147,18 @@ const socialImageUrl = 'https://ascendstepper.com/images/ascend-social-card.png'
 
     .status:empty { display: none; }
 
-    .in-app-only { display: none; }
-    [data-handoff="in-app"] .in-app-only { display: block; }
+    .in-app-only, .app-only { display: none; }
+    [data-handoff="in-app"] .in-app-only, [data-handoff="app"] .app-only { display: block; }
+
+    .store-link {
+      margin-top: 20px;
+      color: var(--accent);
+      font-size: 17px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .store-link:hover { color: var(--accent-hover); }
 
     .manual {
       margin-top: 20px;
@@ -213,6 +223,7 @@ const socialImageUrl = 'https://ascendstepper.com/images/ascend-social-card.png'
 
     <a id="open" class="open" href={directStoreURL} rel="noopener">Get Ascend</a>
     <p id="status" class="status" aria-live="polite"></p>
+    <a id="store-link" class="store-link app-only" href={directStoreURL} rel="noopener">Get Ascend on the App Store</a>
 
     <!-- One line per sentence on purpose: Astro's HTML compression drops a
          line break between a tag and text, which read as "Safarior". -->
@@ -236,61 +247,35 @@ const socialImageUrl = 'https://ascendstepper.com/images/ascend-social-card.png'
   </footer>
 
   <script>
-    import { attemptAppOpen, handoffPlan } from '../goHandoff';
+    import { handoffPlan } from '../goHandoff';
 
     const plan = handoffPlan(navigator.userAgent, location.search);
     const root = document.documentElement;
     const open = document.getElementById('open') as HTMLAnchorElement | null;
     const openBrowser = document.getElementById('open-browser') as HTMLAnchorElement | null;
+    const storeLink = document.getElementById('store-link') as HTMLAnchorElement | null;
     const badge = document.querySelector<HTMLAnchorElement>('.store-badge');
     const status = document.getElementById('status');
 
-    root.dataset.handoff = plan.inApp ? 'in-app' : 'browser';
+    root.dataset.handoff = plan.mode;
     root.dataset.campaign = plan.campaignToken;
 
     if (open) open.href = plan.handoffURL;
     if (openBrowser) openBrowser.href = plan.storeURL;
-    if (badge) badge.href = plan.handoffURL;
+    if (storeLink) storeLink.href = plan.storeLinkURL;
+    if (badge) badge.href = plan.storeLinkURL;
 
-    if (!plan.redirect && open) open.textContent = 'Open the App Store';
-
-    function continueToStore() {
-      if (plan.redirect) {
-        if (status) status.textContent = 'Opening the App Store…';
-        location.replace(plan.handoffURL);
-      } else {
-        // Let the button paint first, then try the hand-off on the visitor's
-        // behalf. A webview that refuses a scripted scheme navigation still
-        // passes a tapped one on, which is what the button is for.
-        window.setTimeout(() => {
-          location.href = plan.handoffURL;
-        }, 350);
-      }
-    }
-
-    if (plan.appURL) {
-      attemptAppOpen(
-        {
-          openInFrame(url) {
-            const frame = document.createElement('iframe');
-            frame.setAttribute('aria-hidden', 'true');
-            frame.tabIndex = -1;
-            frame.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden;';
-            frame.src = url;
-            document.body.appendChild(frame);
-          },
-          isHidden: () => document.visibilityState === 'hidden',
-          listen(type, handler) {
-            (type === 'visibilitychange' ? document : window).addEventListener(type, handler);
-          },
-          setTimeout: (handler, delayMs) => window.setTimeout(handler, delayMs),
-          clearTimeout: (id) => window.clearTimeout(id)
-        },
-        plan.appURL,
-        continueToStore
-      );
+    if (plan.redirect) {
+      if (status) status.textContent = 'Opening the App Store…';
+      location.replace(plan.handoffURL);
     } else {
-      continueToStore();
+      if (open) open.textContent = plan.mode === 'app' ? 'Open Ascend' : 'Open the App Store';
+      // Let the button paint first, then try the hand-off on the visitor's
+      // behalf, once. A webview that refuses a scripted scheme navigation
+      // still passes a tapped one on, which is what the button is for.
+      window.setTimeout(() => {
+        location.href = plan.handoffURL;
+      }, 350);
     }
   </script>
 </body>

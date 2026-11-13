@@ -9,9 +9,9 @@ import Foundation
 /// as that file's paths - `/go` and anything under `/go/` - so a link the site never promised the
 /// app cannot be reported as one it did.
 ///
-/// The same link also arrives as `<this build's scheme>://go?src=<tag>`: the `/go` page tries that
-/// form first on an iPhone, because a mail app's own browser or Chrome loads the page instead of
-/// letting iOS hand the universal link over.
+/// The same link also arrives as `<this build's scheme>://go?src=<tag>`: the `/go` page offers that
+/// form for a lifecycle email's link, because a mail app's own browser or Chrome loads the page
+/// instead of letting iOS hand the universal link over.
 struct GoLink: Equatable, Sendable {
     static let host = "ascendstepper.com"
     static let path = "/go"

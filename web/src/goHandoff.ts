@@ -28,9 +28,6 @@ export function classifyBrowser(userAgent: string): BrowserClassification {
 // answers to its own scheme, so this page only ever reaches the App Store build.
 export const APP_URL_SCHEME = 'ascendapp';
 
-// How long the page waits for the app to take over before it falls back to the App Store.
-export const APP_FALLBACK_DELAY_MS = 1500;
-
 // The `src` tags the app reports (`GoLink.Source`). Anything else is dropped from the app link
 // rather than passed on as text a stranger put in a URL.
 export const GO_LINK_SOURCES: readonly string[] = [
@@ -50,19 +47,37 @@ export function appOpenURL(source: string | null | undefined): string {
     : `${APP_URL_SCHEME}://go`;
 }
 
+// Mobile Safari itself, as opposed to Chrome, Firefox, Edge or the Google app, which all carry
+// Safari's token too. `SFSafariViewController` sends Safari's user agent, so it counts as Safari.
+export function isPlainMobileSafari(userAgent: string): boolean {
+  const ua = userAgent ?? '';
+  return /\bSafari\/\d/.test(ua) && !/\b(CriOS|FxiOS|EdgiOS|GSA)\//.test(ua);
+}
+
+function isEmailSource(source: string | null): boolean {
+  return (source ?? '').trim().toLowerCase().startsWith('email-');
+}
+
+// `app`: a lifecycle email's link opened on an iPhone in a browser that did not let iOS hand it to
+// Ascend (Gmail's viewer, Chrome). The page tries the app once and keeps both choices on screen.
+// `in-app`: the tap-first App Store page. `browser`: straight to the product page.
+export type HandoffMode = 'app' | 'in-app' | 'browser';
+
 export interface HandoffPlan {
+  mode: HandoffMode;
   inApp: boolean;
-  // On iOS, the app's own link, tried before anything else: a mail app's own browser or Chrome
-  // loads this page instead of letting iOS hand the universal link to Ascend.
+  // The app's own link, in `app` mode only.
   appURL: string | null;
   campaignToken: string;
   // The product page every browser can open.
   storeURL: string;
-  // Where the big button and the automatic attempt go. In an iOS in-app
-  // browser that is the App Store app's own scheme; everywhere else the
-  // product page.
+  // The App Store link this browser can follow: the App Store app's own
+  // scheme in an iOS in-app browser, the product page everywhere else.
+  storeLinkURL: string;
+  // Where the big button and the automatic attempt go: the app in `app`
+  // mode, otherwise the store link.
   handoffURL: string;
-  // Outside an in-app browser the page navigates straight to the store.
+  // Only `browser` mode navigates straight to the store.
   redirect: boolean;
 }
 
@@ -74,52 +89,18 @@ export function handoffPlan(userAgent: string, search: string): HandoffPlan {
   const source = sourceFromSearch(search);
   const browser = classifyBrowser(userAgent);
   const storeURL = appStoreCampaignURL(source, 'https');
-  const useAppScheme = browser.inApp && browser.ios;
+  const storeLinkURL = browser.inApp && browser.ios ? appStoreCampaignURL(source, 'itms-apps') : storeURL;
+  const appURL = browser.ios && isEmailSource(source) && !isPlainMobileSafari(userAgent) ? appOpenURL(source) : null;
+  const mode: HandoffMode = appURL ? 'app' : browser.inApp ? 'in-app' : 'browser';
 
   return {
+    mode,
     inApp: browser.inApp,
-    appURL: browser.ios ? appOpenURL(source) : null,
+    appURL,
     campaignToken: bioLinkCampaignToken(source),
     storeURL,
-    handoffURL: useAppScheme ? appStoreCampaignURL(source, 'itms-apps') : storeURL,
-    redirect: !browser.inApp
+    storeLinkURL,
+    handoffURL: appURL ?? storeLinkURL,
+    redirect: mode === 'browser'
   };
-}
-
-export interface AppOpenEnvironment {
-  // Loads the app link without navigating the page, so a phone without Ascend shows no error.
-  openInFrame(url: string): void;
-  isHidden(): boolean;
-  listen(type: 'visibilitychange' | 'pagehide' | 'blur', handler: () => void): void;
-  setTimeout(handler: () => void, delayMs: number): number;
-  clearTimeout(id: number): void;
-}
-
-// Tries the app, then runs `fallback` once if the page is still on screen after the delay. The
-// page going hidden, being paged away or losing focus means the app took over, so a climber who
-// comes back from Ascend is never also sent to the App Store.
-export function attemptAppOpen(
-  env: AppOpenEnvironment,
-  appURL: string,
-  fallback: () => void,
-  delayMs: number = APP_FALLBACK_DELAY_MS
-): void {
-  let settled = false;
-  const timer = env.setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    if (!env.isHidden()) fallback();
-  }, delayMs);
-  const cancel = () => {
-    if (settled) return;
-    settled = true;
-    env.clearTimeout(timer);
-  };
-
-  env.listen('visibilitychange', () => {
-    if (env.isHidden()) cancel();
-  });
-  env.listen('pagehide', cancel);
-  env.listen('blur', cancel);
-  env.openInFrame(appURL);
 }
