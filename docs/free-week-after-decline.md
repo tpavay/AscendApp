@@ -206,7 +206,10 @@ Also:
   A week that could not be started has already reported `free_week_offered`, so it shows as the next `paywall_reached` carrying `source: free_week_unavailable`.
   A paywall Superwall could not present reports `provider_outcome: hosted_unavailable`, and the attempt that follows carries `source: presentation_retry` or `foreground_retry`.
   A `sign_out` from the hosted paywall reports `provider_outcome: sign_out_requested` with `recovery_reason: hosted_sign_out_requested`.
+  The landed exit is `account_signed_out` (or `account_deleted`) with `surface: app_access_gate`, sent when the action completes and still attributed to the climber who left.
+  `paywall_reached` (every placement, the founder letter included) and the terminal both carry `flow_version`, so a purchase or a week is attributed to the onboarding that led to it.
 - The letter itself reports through `SuperwallEventRelay` like every hosted screen, as `sw_paywall_open` and `sw_paywall_close` with `placement: founder_letter`.
+  During a v3 pass those events, and the gift screen's, also carry `flow_version`, `origin_placement` and `source`.
 - The `has_app_access` user property still means a paid entitlement. A climber on their week reads `false`.
 
 ## Privacy

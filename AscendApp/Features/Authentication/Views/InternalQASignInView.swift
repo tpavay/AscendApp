@@ -1,6 +1,11 @@
 import SwiftUI
 
 struct InternalQASignInView: View {
+    /// The onboarding context the QA sign-in reports under. The v3 sign-in screen hands its own
+    /// over, so a QA account walking v3 reads as v3; everywhere else it is the v1 sign-in's.
+    var onboardingContext = OnboardingAnalyticsEvent.authContext
+    var entry: String?
+
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
@@ -234,7 +239,12 @@ struct InternalQASignInView: View {
     }
 
     private func signIn(email: String, password: String) async {
-        await authVM.signInWithInternalQA(email: email, password: password)
+        await authVM.signInWithInternalQA(
+            email: email,
+            password: password,
+            onboardingContext: onboardingContext,
+            entry: entry
+        )
 
         if authVM.authenticationState == .authenticated {
             dismiss()

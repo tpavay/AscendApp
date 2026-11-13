@@ -84,6 +84,7 @@ struct RootView: View {
             // which routes back to the landing screen - there is nothing left here to dismiss the
             // way Settings does.
             DeleteAccountConfirmationView(
+                surface: rootRoute == .updateRequired ? .updateRequired : .appAccessGate,
                 onAccountDeleted: {},
                 onDeletionUnresolvedChange: gateAccountDeletionDidChangeResolution
             )
@@ -364,7 +365,7 @@ struct RootView: View {
         if let accountDataConflict {
             AccountDataConflictView(
                 conflict: accountDataConflict,
-                onSignOut: authVM.signOut
+                onSignOut: { authVM.signOut(surface: .accountDataConflict) }
             )
             .trackOnce(screen: .accountDataConflict)
         } else {
@@ -419,7 +420,7 @@ struct RootView: View {
 
         case .resolving:
             routeScreen(route) {
-                AppAccessResolvingView(onSignOut: authVM.signOut)
+                AppAccessResolvingView(onSignOut: { authVM.signOut(surface: .appAccessResolving) })
             }
 
         case .onboarding(let stage):
@@ -437,7 +438,7 @@ struct RootView: View {
                     accountDeletionDismissalRevision: gateAccountDeletionDismissalRevision,
                     onRequestOnboardingBack: postAuthOnboardingCoordinator.reopenLastStage,
                     onDeleteAccount: { presentGateAccountDeletion() },
-                    onSignOut: authVM.signOut
+                    onSignOut: { authVM.signOut(surface: .appAccessGate) }
                 )
             }
 

@@ -38,6 +38,7 @@ final class NotificationPrimerViewModel {
         declineNotifications: @escaping @MainActor () async -> Void = {
             await ClimbDropNotificationState.shared.disable()
         },
+        telemetry: TelemetryManager = .shared,
         track: (@MainActor (_ choice: PreAuthOnboardingNotificationChoice) -> Void)? = nil
     ) {
         self.coordinator = coordinator
@@ -52,7 +53,12 @@ final class NotificationPrimerViewModel {
         self.declineNotifications = declineNotifications
         // Telemetry reports under the flow's own analytics context unless a test replaces it.
         self.track = track ?? { [weak coordinator] choice in
-            NotificationPrimerViewModel.report(choice, in: coordinator?.analyticsContext)
+            NotificationPrimerViewModel.report(
+                choice,
+                emailOptIn: coordinator?.answers.emailOptIn,
+                in: coordinator?.analyticsContext,
+                telemetry: telemetry
+            )
         }
     }
 
@@ -82,7 +88,7 @@ final class NotificationPrimerViewModel {
 
         await declineNotifications()
         record(.skipped)
-        coordinator.advance()
+        coordinator.advance(as: .skip)
     }
 
     /// Email is a separate answer from push: it is saved whichever button leaves the step, so Not now
@@ -96,7 +102,15 @@ final class NotificationPrimerViewModel {
         track(choice)
     }
 
-    private static func report(_ choice: PreAuthOnboardingNotificationChoice, in context: OnboardingAnalyticsContext?) {
+    /// One answer event carries both choices the step collects. The email box is read from the
+    /// answers `record` just wrote, so the event says what was saved, not what the box showed
+    /// earlier. Counts of the box are consent intent: the delivered consent is written after sign-in.
+    private static func report(
+        _ choice: PreAuthOnboardingNotificationChoice,
+        emailOptIn: Bool?,
+        in context: OnboardingAnalyticsContext?,
+        telemetry: TelemetryManager
+    ) {
         let status = switch choice {
         case .allowed: "allow"
         case .denied: "decline"
@@ -104,11 +118,18 @@ final class NotificationPrimerViewModel {
         }
 
         if let context {
-            TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.notificationPermissionSelected(context: context, status: status)
+            telemetry.track(
+                OnboardingAnalyticsEvent.notificationPermissionSelected(
+                    context: context,
+                    status: status,
+                    emailOptIn: emailOptIn
+                )
             )
         }
-        TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
-        OnboardingAnalyticsUserProperties.setNotificationChoice(status)
+        telemetry.setUserProperty("notifications_inputted", value: "true")
+        OnboardingAnalyticsUserProperties.setNotificationChoice(status, telemetry: telemetry)
+        if let emailOptIn {
+            OnboardingAnalyticsUserProperties.setEmailOptIn(emailOptIn, telemetry: telemetry)
+        }
     }
 }

@@ -8,6 +8,15 @@ enum OnboardingAuthMode: Equatable {
     /// "Already have an account? Sign in", from the first screen: no list, then normal routing.
     case returning
 
+    /// The `entry` the sign-in events report, so a returning climber's shortcut is told apart from
+    /// one who walked the whole flow.
+    var analyticsEntry: String {
+        switch self {
+        case .saveEveryClimb: "walkthrough"
+        case .returning: "welcome_shortcut"
+        }
+    }
+
     /// A climber who reached the sign-in screen from the first screen is a returning one.
     init(arrivedFrom previous: OnboardingV3Step?) {
         self = previous == .welcome ? .returning : .saveEveryClimb

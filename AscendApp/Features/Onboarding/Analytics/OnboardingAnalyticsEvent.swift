@@ -178,11 +178,34 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     case backTapped(context: OnboardingAnalyticsContext, inputType: String)
     case signOutTapped(context: OnboardingAnalyticsContext, inputType: String)
     case signOutConfirmed(context: OnboardingAnalyticsContext)
-    case notificationPermissionSelected(context: OnboardingAnalyticsContext, status: String)
+    /// `emailOptIn` is the v3 primer's email checkbox, recorded beside the push answer because one
+    /// tap on the step leaves both. `nil` for the v1 screen, which asks for email on its own step.
+    case notificationPermissionSelected(
+        context: OnboardingAnalyticsContext,
+        status: String,
+        emailOptIn: Bool? = nil
+    )
     case firstClimbSelected(context: OnboardingAnalyticsContext, climbID: String, climbName: String)
-    case authStarted(provider: String)
-    case authCompleted(provider: String)
-    case authFailed(provider: String, reason: String)
+    /// The auth events default to the v1 sign-in screen's context. The v3 sign-in screen passes the
+    /// flow's own context and how the climber got there, so a v3 sign-in reads as `flow_version=v3`
+    /// at the real step position instead of as a v1 one. `entry` is `walkthrough` or
+    /// `welcome_shortcut`, and nil outside v3.
+    case authStarted(
+        provider: String,
+        context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    )
+    case authCompleted(
+        provider: String,
+        context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    )
+    case authFailed(
+        provider: String,
+        reason: String,
+        context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    )
     case paywallReached(placement: String, source: String?, context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.paywallContext)
     case flowCompleted(context: OnboardingAnalyticsContext, completionReason: OnboardingFlowCompletionReason)
 
@@ -286,19 +309,25 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 context: context,
                 parameters: ["from_step": .string(context.stepID)]
             )
-        case .notificationPermissionSelected(let context, let status):
+        case .notificationPermissionSelected(let context, let status, let emailOptIn):
+            var parameters: [String: TelemetryValue] = [
+                "question_id": .string("notifications"),
+                "screen_id": .string(context.stepID),
+                "input_type": .string("permission_prompt"),
+                "selection_type": .string("single_select"),
+                "answer_id": .string(status),
+                "status": .string(status),
+                "has_answer": .bool(true)
+            ]
+
+            if let emailOptIn {
+                parameters["email_opt_in"] = .bool(emailOptIn)
+            }
+
             return makeRecord(
                 name: "onboarding_question_answered",
                 context: context,
-                parameters: [
-                    "question_id": .string("notifications"),
-                    "screen_id": .string(context.stepID),
-                    "input_type": .string("permission_prompt"),
-                    "selection_type": .string("single_select"),
-                    "answer_id": .string(status),
-                    "status": .string(status),
-                    "has_answer": .bool(true)
-                ]
+                parameters: parameters
             )
         case .firstClimbSelected(let context, let climbID, let climbName):
             return makeRecord(
@@ -315,26 +344,25 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                     "climb_name": .string(climbName)
                 ]
             )
-        case .authStarted(let provider):
+        case .authStarted(let provider, let context, let entry):
             return makeRecord(
                 name: "onboarding_auth_started",
-                context: Self.authContext,
-                parameters: ["provider": .string(provider)]
+                context: context,
+                parameters: Self.authParameters(provider: provider, entry: entry)
             )
-        case .authCompleted(let provider):
+        case .authCompleted(let provider, let context, let entry):
             return makeRecord(
                 name: "onboarding_auth_completed",
-                context: Self.authContext,
-                parameters: ["provider": .string(provider)]
+                context: context,
+                parameters: Self.authParameters(provider: provider, entry: entry)
             )
-        case .authFailed(let provider, let reason):
+        case .authFailed(let provider, let reason, let context, let entry):
+            var parameters = Self.authParameters(provider: provider, entry: entry)
+            parameters["reason"] = .string(reason)
             return makeRecord(
                 name: "onboarding_auth_failed",
-                context: Self.authContext,
-                parameters: [
-                    "provider": .string(provider),
-                    "reason": .string(reason)
-                ]
+                context: context,
+                parameters: parameters
             )
         case .paywallReached(let placement, let source, let context):
             var parameters: [String: TelemetryValue] = [
@@ -357,6 +385,14 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 parameters: ["completion_reason": .string(completionReason.rawValue)]
             )
         }
+    }
+
+    private static func authParameters(provider: String, entry: String?) -> [String: TelemetryValue] {
+        var parameters: [String: TelemetryValue] = ["provider": .string(provider)]
+        if let entry {
+            parameters["entry"] = .string(entry)
+        }
+        return parameters
     }
 
     private func makeRecord(

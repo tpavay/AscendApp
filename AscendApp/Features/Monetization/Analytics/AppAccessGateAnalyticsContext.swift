@@ -47,6 +47,28 @@ struct AppAccessGateAnalyticsContext: Sendable {
     let recoveryReason: AppAccessGateRecoveryReason?
     let identityMatches: Bool
     let entitlementActive: Bool?
+    /// The onboarding pass the gate was reached from, so the terminal reads as that flow's outcome.
+    let flowVersion: String?
+
+    init(
+        attemptCorrelationID: String,
+        placement: String,
+        recoveryPath: AppAccessGateRecoveryPath,
+        providerOutcome: AppAccessGateProviderOutcome,
+        recoveryReason: AppAccessGateRecoveryReason?,
+        identityMatches: Bool,
+        entitlementActive: Bool?,
+        flowVersion: String? = nil
+    ) {
+        self.attemptCorrelationID = attemptCorrelationID
+        self.placement = placement
+        self.recoveryPath = recoveryPath
+        self.providerOutcome = providerOutcome
+        self.recoveryReason = recoveryReason
+        self.identityMatches = identityMatches
+        self.entitlementActive = entitlementActive
+        self.flowVersion = flowVersion
+    }
 
     var parameters: [String: TelemetryValue] {
         var parameters: [String: TelemetryValue] = [
@@ -61,6 +83,9 @@ struct AppAccessGateAnalyticsContext: Sendable {
         }
         if let entitlementActive {
             parameters["entitlement_active"] = .bool(entitlementActive)
+        }
+        if let flowVersion {
+            parameters["flow_version"] = .string(flowVersion)
         }
         return parameters
     }

@@ -78,7 +78,7 @@ struct OnboardingClaimCityScreen: View {
     /// Skip leaves the city unset, clearing one an earlier pass claimed.
     static func skip(_ coordinator: OnboardingV3Coordinator) {
         coordinator.update { $0.city = nil }
-        coordinator.advance()
+        coordinator.advance(as: .skip)
     }
 
     // MARK: - Footer

@@ -78,6 +78,26 @@ struct OnboardingGateHandOffTests {
     }
 
     @Test
+    func everyPlacementsPaywallReachedNamesThePassThatLedThere() {
+        let v3 = fixture(passFlowVersion: "v3")
+        v3.manager.presentPaywall(.appAccessGate, params: ["source": "app_access_gate"])
+        let v3Reached = v3.sink.records.first { $0.name == "paywall_reached" }
+        #expect(v3Reached?.parameters["flow_version"] == .string("v3"))
+        #expect(v3Reached?.parameters["placement"] == .string("app_access_gate"))
+        #expect(v3Reached?.parameters["source"] == .string("app_access_gate"))
+
+        let letter = fixture(passFlowVersion: "v3")
+        letter.manager.presentPaywall(.founderLetter, params: ["source": "paid_offers_declined"])
+        let letterReached = letter.sink.records.first { $0.name == "paywall_reached" }
+        #expect(letterReached?.parameters["flow_version"] == .string("v3"))
+        #expect(letterReached?.parameters["source"] == .string("paid_offers_declined"))
+
+        let v1 = fixture(passFlowVersion: "v1")
+        v1.manager.presentPaywall(.appAccessGate, params: ["source": "app_access_gate"])
+        #expect(v1.sink.records.first { $0.name == "paywall_reached" }?.parameters["flow_version"] == .string("v1"))
+    }
+
+    @Test
     func completingAV3PassReportsAContextTheV3FunnelCanPlace() {
         let f = fixture(passFlowVersion: "v3")
 

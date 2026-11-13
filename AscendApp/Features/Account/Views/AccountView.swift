@@ -91,6 +91,7 @@ struct AccountView: View {
         .manageSubscriptionsSheet(isPresented: $isShowingManageSubscriptions)
         .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
+                surface: .settings,
                 onAccountDeleted: {
                     dismiss()
                 }
@@ -102,7 +103,7 @@ struct AccountView: View {
         ) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
-                authVM.signOut()
+                authVM.signOut(surface: .settings)
             }
         } message: {
             Text("You'll need to sign back in to access your account.")

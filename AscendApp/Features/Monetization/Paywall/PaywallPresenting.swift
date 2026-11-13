@@ -18,6 +18,7 @@ protocol PaywallPresenting: AnyObject {
         placement: SuperwallPlacement,
         params: [String: Any]?,
         identity: MonetizationIdentityTransition,
+        relayAttribution: SuperwallRelayAttribution?,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
     )
 }
@@ -34,6 +35,7 @@ extension PaywallPresenting {
         placement: SuperwallPlacement,
         params: [String: Any]?,
         identity: MonetizationIdentityTransition,
+        relayAttribution: SuperwallRelayAttribution?,
         onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
     ) {
         register(placement: placement, params: params, onOutcome: onOutcome)

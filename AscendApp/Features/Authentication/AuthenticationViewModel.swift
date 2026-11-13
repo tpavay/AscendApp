@@ -276,32 +276,45 @@ class AuthenticationViewModel {
 
 @MainActor
 extension AuthenticationViewModel {
-    func signOut() {
+    /// Signs out. With a `surface`, a completed sign-out is reported as `account_signed_out`.
+    ///
+    /// Held until the identity is about to clear (`TelemetryManager.holdDeparture`): the auth
+    /// listener's "no user" clears the analytics identity, and an event sent after it is
+    /// attributed to a device nobody is signed in on.
+    func signOut(surface: AccountExitSurface? = nil) {
         Task { @MainActor in
             await PushNotificationService.shared.unregisterCurrentDevice()
 
+            if let surface {
+                TelemetryManager.shared.holdDeparture(AccountExitAnalyticsEvent.signedOut(surface: surface))
+            }
             do {
                 try authenticationService.signOut()
                 errorMessage = nil
+                TelemetryManager.shared.sendHeldDeparture()
             }
             catch {
+                TelemetryManager.shared.discardHeldDeparture()
                 errorMessage = error.localizedDescription
             }
         }
     }
 
-    func signInWithGoogle() async {
+    func signInWithGoogle(
+        onboardingContext: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    ) async {
         authenticationState = .authenticatingWithGoogle
         errorMessage = nil
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.google.rawValue)
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.google.rawValue, context: onboardingContext, entry: entry)
         )
 
         do {
             _ = try await authenticationService.signInWithGoogle()
             recordSuccessfulSignIn(provider: .google)
             TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.google.rawValue)
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.google.rawValue, context: onboardingContext, entry: entry)
             )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
@@ -310,7 +323,9 @@ extension AuthenticationViewModel {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.google.rawValue,
-                        reason: "cancelled"
+                        reason: "cancelled",
+                        context: onboardingContext,
+                        entry: entry
                     )
                 )
                 // User canceled - just reset state without showing error
@@ -319,7 +334,9 @@ extension AuthenticationViewModel {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.google.rawValue,
-                        reason: "failed"
+                        reason: "failed",
+                        context: onboardingContext,
+                        entry: entry
                     )
                 )
                 TelemetryManager.shared.log(.authSignInFailed)
@@ -330,7 +347,12 @@ extension AuthenticationViewModel {
         }
     }
 
-    func signInWithInternalQA(email: String, password: String) async {
+    func signInWithInternalQA(
+        email: String,
+        password: String,
+        onboardingContext: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    ) async {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID) else {
@@ -354,21 +376,23 @@ extension AuthenticationViewModel {
         authenticationState = .authenticatingWithInternalQA
         errorMessage = nil
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.internalQA.rawValue)
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.internalQA.rawValue, context: onboardingContext, entry: entry)
         )
 
         do {
             _ = try await authenticationService.signInWithEmail(email: trimmedEmail, password: password)
             recordSuccessfulSignIn(provider: .internalQA)
             TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.internalQA.rawValue)
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.internalQA.rawValue, context: onboardingContext, entry: entry)
             )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             TelemetryManager.shared.track(
                 OnboardingAnalyticsEvent.authFailed(
                     provider: AuthProviderKind.internalQA.rawValue,
-                    reason: "failed"
+                    reason: "failed",
+                    context: onboardingContext,
+                    entry: entry
                 )
             )
             TelemetryManager.shared.log(.authSignInFailed)
@@ -383,18 +407,21 @@ extension AuthenticationViewModel {
         }
     }
     
-    func signInWithApple() async {
+    func signInWithApple(
+        onboardingContext: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
+        entry: String? = nil
+    ) async {
         authenticationState = .authenticatingWithApple
         errorMessage = nil
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.apple.rawValue)
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.apple.rawValue, context: onboardingContext, entry: entry)
         )
 
         do {
             _ = try await authenticationService.signInWithApple()
             recordSuccessfulSignIn(provider: .apple)
             TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.apple.rawValue)
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.apple.rawValue, context: onboardingContext, entry: entry)
             )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
@@ -403,7 +430,9 @@ extension AuthenticationViewModel {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.apple.rawValue,
-                        reason: "cancelled"
+                        reason: "cancelled",
+                        context: onboardingContext,
+                        entry: entry
                     )
                 )
                 // User canceled - just reset state without showing error
@@ -412,7 +441,9 @@ extension AuthenticationViewModel {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.apple.rawValue,
-                        reason: "failed"
+                        reason: "failed",
+                        context: onboardingContext,
+                        entry: entry
                     )
                 )
                 TelemetryManager.shared.log(.authSignInFailed)

@@ -18,13 +18,24 @@ enum SuperwallEventRelay {
         "presentation_id": "presentation_id"
     ]
 
-    static func record(for event: SuperwallEventObjc, params: [String: Any]) -> TelemetryRecord? {
+    static func record(
+        for event: SuperwallEventObjc,
+        params: [String: Any],
+        attribution: SuperwallRelayAttribution? = nil
+    ) -> TelemetryRecord? {
         guard let name = relayedName(for: event) else { return nil }
 
         var parameters: [String: TelemetryValue] = [:]
         for (sdkKey, propertyName) in propertyNames {
             if let value = (params[sdkKey] as? String)?.nilIfBlank {
                 parameters[propertyName] = .string(value)
+            }
+        }
+        if let attribution {
+            parameters["flow_version"] = .string(attribution.flowVersion)
+            parameters["origin_placement"] = .string(attribution.originPlacement)
+            if let source = attribution.source?.nilIfBlank {
+                parameters["source"] = .string(source)
             }
         }
         return TelemetryRecord(name: name, parameters: parameters)
@@ -43,4 +54,18 @@ enum SuperwallEventRelay {
         default: nil
         }
     }
+}
+
+/// What Ascend knows about the placement it registered, stamped on every `sw_*` event that
+/// presentation produces - including a paywall the dashboard chains after it, such as the gift
+/// screen after the gate, whose own `placement` names only the trigger that chained it.
+///
+/// Built only while a v3 onboarding pass is the active flow, so the v1 and non-onboarding events
+/// keep exactly the properties they always had.
+struct SuperwallRelayAttribution: Equatable, Sendable {
+    let flowVersion: String
+    /// The placement Ascend registered, such as `app_access_gate`.
+    let originPlacement: String
+    /// The `source` Ascend registered the placement with, if any.
+    let source: String?
 }

@@ -1016,7 +1016,8 @@ final class AppAccessPaywallCoordinator {
                     recoveryReason: recoveryReason,
                     identityMatches: monetizationManager.identityGeneration
                         == presentationIdentity,
-                    entitlementActive: entitlementActive
+                    entitlementActive: entitlementActive,
+                    flowVersion: monetizationManager.onboardingFlowVersion
                 )
             ),
             ifIdentifiedAs: userID
