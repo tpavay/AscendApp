@@ -34,7 +34,6 @@ export const CI_RELEVANT_PATHS = [
   "fastlane/**",
   "SharedTestVectors/**",
   "docs/social-bio-link.md",
-  "docs/universal-links.md",
   "docs/superwall-paywall-setup.md",
   "docs/onboarding-design-guide.md",
   "docs/app-store-brief.md",

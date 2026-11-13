@@ -55,15 +55,61 @@ test("Firebase's generated file, which claims every path, fails", async () => {
   assert.match(problems.join("\n"), /appAssociation is NONE/);
 });
 
-test("both deploy workflows run the check right after they deploy Hosting", async () => {
+// Each job's steps as `{ name, run }`, in order. Only the shape these workflows use is read: a
+// `- name:` item under a job's `steps:`, and its `run:` either inline or as a `|` block.
+function jobSteps(workflow) {
+  const jobs = new Map();
+  let job = null;
+  let step = null;
+  let runIndent = null;
+  for (const line of workflow.split("\n")) {
+    const indent = line.length - line.trimStart().length;
+    if (runIndent !== null) {
+      if (line.trim() === "" || indent > runIndent) {
+        step.run.push(line.trim());
+        continue;
+      }
+      runIndent = null;
+    }
+    const jobName = line.match(/^  ([A-Za-z0-9_-]+):\s*$/)?.[1];
+    if (jobName) {
+      job = [];
+      jobs.set(jobName, job);
+      step = null;
+      continue;
+    }
+    const stepName = line.match(/^ {6}- name:\s*(.+?)\s*$/)?.[1];
+    if (stepName && job) {
+      step = { name: stepName, run: [] };
+      job.push(step);
+      continue;
+    }
+    const run = line.match(/^ {8}run:\s*(.*?)\s*$/)?.[1];
+    if (run !== undefined && step) {
+      if (run === "|") runIndent = 8;
+      else step.run.push(run);
+    }
+  }
+  return jobs;
+}
+
+test("both deploy workflows run the check against their own site after they deploy Hosting", async () => {
   for (const [workflow, host] of [
     ["deploy-production.yml", "https://${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}.web.app"],
     ["deploy-staging.yml", "https://ascend-staging-fa7d5.web.app"]
   ]) {
-    const text = await readFile(join(repositoryRoot, ".github/workflows", workflow), "utf8");
-    const deploy = text.indexOf("      - name: Deploy Hosting\n");
-    const verify = text.indexOf("      - name: Verify Hosting serves the apple-app-site-association file\n");
-    assert.ok(deploy !== -1 && verify > deploy, `${workflow} verifies after the Hosting deploy`);
-    assert.ok(text.includes(`node scripts/ci/assert-aasa-served.mjs "${host}"`), `${workflow} checks ${host}`);
+    const jobs = jobSteps(await readFile(join(repositoryRoot, ".github/workflows", workflow), "utf8"));
+    const [steps] = [...jobs.values()].filter((steps) => steps.some(({ name }) => name === "Deploy Hosting"));
+    assert.ok(steps, `${workflow} has a job that deploys Hosting`);
+
+    const names = steps.map(({ name }) => name);
+    const deploy = names.indexOf("Deploy Hosting");
+    const verify = names.indexOf("Verify Hosting serves the apple-app-site-association file");
+    assert.ok(verify > deploy, `${workflow} verifies the file in the Hosting job, after the deploy`);
+
+    const invocations = steps[verify].run
+      .map((line) => line.match(/node scripts\/ci\/assert-aasa-served\.mjs "([^"]+)"/)?.[1])
+      .filter(Boolean);
+    assert.deepEqual([...new Set(invocations)], [host], `${workflow} checks ${host}`);
   }
 });

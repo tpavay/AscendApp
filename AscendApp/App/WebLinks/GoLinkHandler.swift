@@ -16,17 +16,14 @@ final class GoLinkHandler {
     static let duplicateWindow: TimeInterval = 5
 
     private let telemetry: TelemetryManager
-    private let activityClock: AppActivityClock
     private let now: () -> Date
     private var lastHandled: (url: URL, at: Date)?
 
     init(
         telemetry: TelemetryManager = .shared,
-        activityClock: AppActivityClock = .shared,
         now: @escaping () -> Date = { .now }
     ) {
         self.telemetry = telemetry
-        self.activityClock = activityClock
         self.now = now
     }
 
@@ -44,14 +41,7 @@ final class GoLinkHandler {
         }
         lastHandled = (url, moment)
 
-        // A process that has never been backgrounded is the one this link started. A resume from
-        // the background has been backgrounded by definition.
-        telemetry.track(
-            GoLinkAnalyticsEvent.opened(
-                source: link.source,
-                sessionType: activityClock.hasEnteredBackground ? .foreground : .coldLaunch
-            )
-        )
+        telemetry.track(GoLinkAnalyticsEvent.opened(source: link.source))
         return true
     }
 }

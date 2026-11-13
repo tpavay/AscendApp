@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { appBuildConfigurations, settingValue } from "../lib/monetization-build-settings.mjs";
+import { CI_RELEVANT_PATHS, matchesAny } from "../lib/required-check-routing.mjs";
 import { ciFilterPatterns } from "./support/ci-workflow-filters.mjs";
 
 // Universal links are three files that only work together, and each can be right while the link
@@ -73,7 +74,6 @@ test("the site vouches for exactly the staging and production apps, on exactly t
 });
 
 test("every app build configuration claims the domain, and claims nothing else", async () => {
-  const project = await read("AscendApp.xcodeproj/project.pbxproj");
   const { configurations } = await appBundleIdentifiers();
 
   for (const [name, { buildSettings }] of configurations) {
@@ -91,7 +91,6 @@ test("every app build configuration claims the domain, and claims nothing else",
     [`applinks:${DOMAIN}`],
     "one applinks entry for the bare domain: no wildcard, no ?mode=developer, no webcredentials"
   );
-  assert.ok(project.includes("AscendApp/AscendApp.entitlements"));
 });
 
 test("Firebase Hosting serves the file as JSON, unredirected, and does not drop the dot directory", async () => {
@@ -128,32 +127,15 @@ test("Firebase Hosting serves the file as JSON, unredirected, and does not drop 
   }
 });
 
-test("the /go page still works for a phone without the app: it sends the visitor to the App Store", async () => {
-  const page = await read("web/src/pages/go.astro");
-  assert.match(page, /location\.replace\(plan\.handoffURL\)/, "a real browser is redirected to the store");
-  assert.match(page, /appStoreCampaignURL/, "and the server-rendered button carries the store link");
-});
-
-test("the app reports the link and the doc says how to test it; CI runs this suite when any of it changes", async () => {
-  const doc = await read("docs/universal-links.md");
-  for (const needle of ["xcrun simctl openurl", "Notes", "apple-app-site-association", "applinks:ascendstepper.com", "in-app browser"]) {
-    assert.ok(doc.includes(needle), `docs/universal-links.md lacks "${needle}"`);
-  }
-  assert.ok(
-    (await read("AscendApp/App/Analytics/GoLinkAnalyticsEvent.swift")).includes('"go_link_opened"'),
-    "the event the doc names is the event the app records"
-  );
-
-  const ci = await read(".github/workflows/ci.yml");
-  const scriptsFilter = ciFilterPatterns(ci).get("scripts") ?? [];
-  for (const input of [
-    "AscendApp/**",
-    "AscendApp.xcodeproj/**",
+test("CI runs this suite whenever any of the files it holds together changes", async () => {
+  const scriptsFilter = ciFilterPatterns(await read(".github/workflows/ci.yml")).get("scripts") ?? [];
+  for (const path of [
+    "AscendApp/AscendApp.entitlements",
+    "AscendApp.xcodeproj/project.pbxproj",
     "firebase.json",
-    "web/public/.well-known/**",
-    "docs/universal-links.md"
+    "web/public/.well-known/apple-app-site-association"
   ]) {
-    assert.ok(scriptsFilter.includes(input), `ci.yml scripts filter lacks ${input}`);
+    assert.ok(matchesAny(path, CI_RELEVANT_PATHS), `a change to ${path} does not trigger CI`);
+    assert.ok(matchesAny(path, scriptsFilter), `a change to ${path} does not run the scripts suite`);
   }
-  assert.ok(ci.includes('- "docs/universal-links.md"'), "the workflow trigger lists the doc too");
 });

@@ -11,7 +11,6 @@ final class AppActivityClock {
 
     private let launchedAt: Date
     private var foregroundedAt: Date
-    private(set) var hasEnteredBackground = false
 
     init(launchedAt: Date = .now) {
         self.launchedAt = launchedAt
@@ -20,12 +19,6 @@ final class AppActivityClock {
 
     func recordWillEnterForeground(at date: Date = .now) {
         foregroundedAt = date
-    }
-
-    /// Whether this process has ever left the foreground. Until it has, anything that arrives is
-    /// arriving on the launch that started it - a link that opened the app cold.
-    func recordDidEnterBackground() {
-        hasEnteredBackground = true
     }
 
     func secondsSinceLaunch(at date: Date = .now) -> Int {

@@ -79,27 +79,20 @@ struct GoLinkTests {
 
     // MARK: - Reporting a link
 
-    @Test("A link that starts the process reports a cold launch, and a later one a foreground")
-    func reportsHowTheAppWasOpened() throws {
+    @Test("A go link is reported as go_link_opened carrying only its source tag")
+    func reportsTheOpen() throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
-        let clock = AppActivityClock()
-        let handler = GoLinkHandler(
-            telemetry: makeTestTelemetry(sink: sink),
-            activityClock: clock
-        )
+        let handler = GoLinkHandler(telemetry: makeTestTelemetry(sink: sink))
 
         #expect(handler.handle(try #require(URL(string: "https://ascendstepper.com/go?src=email-paywall-abandoned"))))
-        clock.recordDidEnterBackground()
         #expect(handler.handle(try #require(URL(string: "https://ascendstepper.com/go?src=email-trial-reminder"))))
 
         let records = sink.records
         #expect(records.map(\.name) == ["go_link_opened", "go_link_opened"])
         #expect(records[0].parameters["src"] == .string("email-paywall-abandoned"))
-        #expect(records[0].parameters["session_type"] == .string("cold_launch"))
         #expect(records[1].parameters["src"] == .string("email-trial-reminder"))
-        #expect(records[1].parameters["session_type"] == .string("foreground"))
         let envelopeKeys: Set<String> = ["app_environment", "build_config", "app_version", "build_number"]
-        #expect(Set(records[0].parameters.keys).subtracting(envelopeKeys) == ["src", "session_type"])
+        #expect(Set(records[0].parameters.keys).subtracting(envelopeKeys) == ["src"])
     }
 
     @Test("One link delivered through both SwiftUI callbacks is one open")
@@ -108,7 +101,6 @@ struct GoLinkTests {
         var moment = Date(timeIntervalSince1970: 1_000)
         let handler = GoLinkHandler(
             telemetry: makeTestTelemetry(sink: sink),
-            activityClock: AppActivityClock(),
             now: { moment }
         )
         let url = try #require(URL(string: "https://ascendstepper.com/go?src=email-free-week-unused"))
@@ -126,10 +118,7 @@ struct GoLinkTests {
     @Test("A different link inside the window is not a duplicate")
     func reportsDifferentLinksSeparately() throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
-        let handler = GoLinkHandler(
-            telemetry: makeTestTelemetry(sink: sink),
-            activityClock: AppActivityClock()
-        )
+        let handler = GoLinkHandler(telemetry: makeTestTelemetry(sink: sink))
 
         handler.handle(try #require(URL(string: "https://ascendstepper.com/go?src=email-free-week-unused")))
         handler.handle(try #require(URL(string: "https://ascendstepper.com/go?src=email-trial-reminder")))
@@ -140,10 +129,7 @@ struct GoLinkTests {
     @Test("Links that are not go links are left for the app's other handlers")
     func leavesOtherLinksAlone() throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
-        let handler = GoLinkHandler(
-            telemetry: makeTestTelemetry(sink: sink),
-            activityClock: AppActivityClock()
-        )
+        let handler = GoLinkHandler(telemetry: makeTestTelemetry(sink: sink))
 
         for link in [
             "https://ascendstepper.com/privacy",

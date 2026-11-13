@@ -61,25 +61,19 @@ An installed build that has been told to stop claiming the link simply goes back
 | Parameter | Values |
 |---|---|
 | `src` | `email-paywall-abandoned`, `email-free-week-unused`, `email-trial-reminder`, `instagram`, `tiktok`, `youtube`, `facebook`, `none` (no `src`), `other` (any other `src`) |
-| `session_type` | `cold_launch` when the link started this process, `foreground` when the app was already running or suspended |
 
 `src` is bounded on purpose (`ascend-analytics`): an unregistered tag is `other`, never the text a stranger put in a URL.
 A new email gets a case in `GoLink.Source` and a row here.
-`session_type` uses the words `app_session_started` uses, so the two join.
-"Cold launch" means this process has not yet been through the background (`AppActivityClock.hasEnteredBackground`).
-Climber route and sign-in state are not repeated on the event; they are on the session event.
+The event does not say whether the link launched the app or brought a running one forward: a process iOS started in the background, for a Health delivery or a push, would look like one the link started.
+Climber route and sign-in state are not repeated on the event; they are on `app_session_started`.
 
 ## What the captain has to do before this ships
 
-The Associated Domains capability is **not** enabled on any of the App IDs yet.
-Read from the App Store Connect API on 2026-11-13, the capabilities on `com.TylerPavay.AscendApp`, `com.TylerPavay.AscendApp.staging` and `com.TylerPavay.AscendApp.dev` are each exactly Apple ID sign-in, HealthKit, in-app purchase and push notifications.
-The App IDs are made in the developer account and the CI signing profiles are made from them, so both steps happen before the first archive that carries the entitlement.
+The Associated Domains capability is enabled on both App IDs that archive in CI, `com.TylerPavay.AscendApp` (App Store Connect id `KFLA2LJ45H`) and `com.TylerPavay.AscendApp.staging` (`9NG4886NU3`).
+What remains is regenerating the two signing profiles, because they were made from those App IDs before the capability was on.
+The dev App ID (`com.TylerPavay.AscendApp.dev`, `B6N2PL2224`) builds with automatic signing, so Xcode turns the capability on the first time a signed-in team member builds it.
 
-1. **Enable the capability** on the two App IDs that archive in CI.
-   developer.apple.com, Certificates, Identifiers & Profiles, Identifiers, then `com.TylerPavay.AscendApp` (App Store Connect id `KFLA2LJ45H`) and `com.TylerPavay.AscendApp.staging` (`9NG4886NU3`).
-   Tick **Associated Domains**, then Save.
-   The dev App ID (`com.TylerPavay.AscendApp.dev`, `B6N2PL2224`) builds with automatic signing, so Xcode turns the capability on the first time a signed-in team member builds it; do it in the same page if a device build complains.
-2. **Regenerate the two profiles** in the signing repository.
+1. **Regenerate the two profiles** in the signing repository.
    CI runs `fastlane match` read-only, and the profiles it fetches were made before the capability existed, so a staging or production archive fails with a message that the profile does not support Associated Domains until they are replaced.
    From a checkout with the signing repository's access:
 
@@ -90,9 +84,9 @@ The App IDs are made in the developer account and the CI signing profiles are ma
 
    Run it without `MATCH_READONLY`, and leave out the widget and watch identifiers: they carry no entitlement that changed.
    The profiles keep their names (`match AppStore com.TylerPavay.AscendApp[.staging]`), so no workflow or Fastfile edit follows.
-3. **Do both before this branch reaches `develop`.**
-   A push to `develop` starts the staging archive, and it fails until step 2 is done.
-4. **Deploy Hosting before the build reaches phones.**
+2. **Do it before this branch reaches `develop`.**
+   A push to `develop` starts the staging archive, and it fails until step 1 is done.
+3. **Deploy Hosting before the build reaches phones.**
    The file is only live on `ascendstepper.com` after a production deploy, because that site is served by the production Firebase project.
    A phone reads the file when the app is installed or updated, so a build that reaches a phone before the file is live does not claim the link until iOS next refreshes it.
    The production deploy checks the file itself (`scripts/ci/assert-aasa-served.mjs`, run after Hosting on staging and again on production) and fails if the file is not served as JSON, is redirected, or is Firebase's generated one.
@@ -120,7 +114,7 @@ A simulator already holds an answer for a domain it has asked about, so after ch
 2. Open the Notes app and type `https://ascendstepper.com/go?src=email-trial-reminder`.
 3. Tap the link, rather than pasting it in Safari's address bar (a typed address is a navigation inside Safari and is never handed to an app).
    Ascend should open with no web page flashing first.
-4. Terminate Ascend from the app switcher and tap again for the cold launch.
+4. Terminate Ascend from the app switcher and tap again, to see the link launch the app.
 5. Long-press the link: the menu should offer **Open in Ascend**.
    That entry is how you tell a working association from a slow one.
 6. With the app deleted, tap the link: the page loads and the App Store listing opens.
@@ -141,7 +135,7 @@ Apple keeps its own copy at `https://app-site-association.cdn-apple.com/a/v1/asc
 
 - `node --test scripts/test/universal-links-contract.test.mjs` keeps the entitlement, the file, the bundle IDs in the project and the hosting config consistent.
 - `node --test scripts/test/assert-aasa-served.test.mjs` pins the post-deploy check.
-- `AscendAppTests/GoLinkTests.swift` covers which URLs match, the `src` bound, the cold-launch and foreground reporting and the duplicate delivery.
+- `AscendAppTests/GoLinkTests.swift` covers which URLs match, the `src` bound, the event and the duplicate delivery.
 
 ## Both builds installed on one phone
 
