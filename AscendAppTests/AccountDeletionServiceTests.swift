@@ -200,6 +200,7 @@ struct AccountDeletionServiceTests {
     func aCompletedDeletionReportsTheScreenItCameFromAndAFailedOneReportsNothing() async throws {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = makeTestTelemetry(sink: sink)
+        telemetry.setUserId("user-a")
 
         let completed = AccountDeletionService(
             gateway: RecordingAccountDeletionGateway(),
@@ -225,7 +226,7 @@ struct AccountDeletionServiceTests {
             try await failed.deleteAccount(modelContext: try makeModelContext())
         }
 
-        telemetry.clearUserId()
+        #expect(telemetry.clearUserId())
         #expect(sink.records.filter { $0.name == "account_deleted" }.count == 1)
     }
 
