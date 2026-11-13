@@ -216,6 +216,17 @@ struct CheaperPlanWarningViewModelTests {
         #expect(model.warning != nil)
     }
 
+    // MARK: - Apple's sheet closing
+
+    private static let cancelledWelcomeSnapshot = SubscriberRateSnapshot(
+        held: .subscription(
+            rate: rate("ascend_yearly_welcome", 9.99, formatted: "$9.99"),
+            isInFreeTrial: false,
+            willAutoRenew: false
+        ),
+        standardYearly: rate("ascend_yearly", 29.99, formatted: "$29.99")
+    )
+
     @Test
     func aClimberWhoCancelledInApplesSheetIsNotWarnedAgainAfterItCloses() async {
         let (model, provider, log) = makeModel(snapshot: Self.welcomeSnapshot)
@@ -223,22 +234,48 @@ struct CheaperPlanWarningViewModelTests {
         var opened = 0
         model.manageTapped { opened += 1 }
         model.continueTapped { opened += 1 }
-        provider.snapshot = SubscriberRateSnapshot(
-            held: .subscription(
-                rate: Self.rate("ascend_yearly_welcome", 9.99, formatted: "$9.99"),
-                isInFreeTrial: false,
-                willAutoRenew: false
-            ),
-            standardYearly: Self.rate("ascend_yearly", 29.99, formatted: "$29.99")
-        )
+        provider.snapshot = Self.cancelledWelcomeSnapshot
 
-        await model.refresh()
+        await model.systemFlowClosed()
         model.manageTapped { opened += 1 }
 
-        #expect(model.warning == nil)
+        #expect(provider.readCount == 2)
         #expect(!model.isPresentingWarning)
         #expect(opened == 2)
         #expect(log.names == ["cheaper_plan_warning_shown", "cheaper_plan_warning_continue_tapped"])
+    }
+
+    @Test
+    func aReadThatFailsAfterApplesSheetClosesDoesNotBringTheOldWarningBack() async {
+        let (model, provider, log) = makeModel(snapshot: Self.welcomeSnapshot)
+        await model.refresh()
+        model.manageTapped { }
+        model.continueTapped { }
+        provider.snapshot = nil
+
+        await model.systemFlowClosed()
+        var opened = 0
+        model.manageTapped { opened += 1 }
+
+        #expect(model.warning == nil)
+        #expect(opened == 1)
+        #expect(log.names == ["cheaper_plan_warning_shown", "cheaper_plan_warning_continue_tapped"])
+    }
+
+    @Test
+    func aClimberWhoKeptTheirPlanInApplesSheetIsWarnedAgainAfterItCloses() async {
+        let (model, provider, _) = makeModel(snapshot: Self.welcomeSnapshot)
+        await model.refresh()
+        model.manageTapped { }
+        model.continueTapped { }
+
+        await model.systemFlowClosed()
+        var opened = 0
+        model.manageTapped { opened += 1 }
+
+        #expect(provider.readCount == 2)
+        #expect(model.isPresentingWarning)
+        #expect(opened == 0)
     }
 
     // MARK: - Analytics properties

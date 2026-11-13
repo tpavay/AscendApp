@@ -62,6 +62,13 @@ final class CheaperPlanWarningViewModel {
         refreshTask = nil
     }
 
+    /// Apple's sheet closed. Whatever the climber did there, the warning read before it opened no
+    /// longer describes their plan, so it is dropped before the store is asked again.
+    func systemFlowClosed() async {
+        warning = nil
+        await refresh()
+    }
+
     /// The Manage Subscription tap. Shows the warning when there is one ready, otherwise hands
     /// straight to Apple's sheet - it never waits on the store.
     func manageTapped(openSystemFlow: @MainActor () -> Void) {

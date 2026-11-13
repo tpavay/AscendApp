@@ -1,7 +1,7 @@
 # Cheaper-plan cancel warning
 
 A climber who goes to cancel a plan that costs less than the standard yearly plan sees one "Heads up" first.
-It says what they pay, how much cheaper that is than today's standard yearly price, and that the rate is not coming back.
+It says what they pay, how much cheaper that is than today's standard yearly price, and that they may not be able to get that rate again.
 Then it gets out of the way: both buttons leave, and neither is a trap.
 
 ## Where it lives
@@ -52,7 +52,7 @@ There is no countdown, no guilt line and no extra confirmation.
 - The read happens when Settings opens, not when the row is tapped. A tap before the store has answered, a failed read, a switch that is off or a climber with no warning opens Apple's sheet at once.
 - A later failed read keeps what the last good one said; it never newly warns and never delays.
 - `Continue to cancel` opens the same sheet the row opened before this existed. `Keep my plan` dismisses and does nothing else.
-- The read runs again when Apple's sheet closes, so a climber who cancelled there and taps Manage Subscription again goes straight to Apple's sheet instead of being warned about a plan that no longer renews.
+- When Apple's sheet closes, the warning it was opened from is dropped and the plan is read again, so a climber who cancelled there and taps Manage Subscription again goes straight to Apple's sheet instead of being warned about a plan that no longer renews, even if that read fails.
 
 This is also the App Review and consumer-protection posture: cancelling stays clear and reachable, and a one-tap informational step that leads straight on to it is not a barrier.
 
