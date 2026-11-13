@@ -717,17 +717,11 @@ test("a result-wrapped CLI response is unwrapped", () => {
   ]);
 });
 
-test("every server-only parameter is read by a Cloud Function and held to its own contract", () => {
-  // The exemption from the Swift parity check is only honest while something reads the key, so a
-  // function that stops reading one fails here instead of leaving a lever that moves nothing.
-  const functionSource = readFileSync(
-    new URL("../../functions/src/lifecycleDripEmails.ts", import.meta.url),
-    "utf8",
-  );
-
+test("every server-only parameter is in the template and held to its own contract", () => {
+  // That a Cloud Function reads each one is proved by executing it in
+  // functions/test/lifecycleDripEmails.test.ts.
   for (const key of SERVER_ONLY_PARAMETERS) {
     assert.ok(localTemplate.parameters[key], `${key} is server-only but not in the template`);
-    assert.ok(functionSource.includes(`"${key}"`), `${key} is server-only but no function reads it`);
     assert.ok(
       isRolloutParameter(key) || isSettingParameter(key),
       `${key} must be a rollout or a setting so the full replace guard covers it`,

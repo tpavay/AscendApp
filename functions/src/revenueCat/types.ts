@@ -46,6 +46,9 @@ export interface RevenueCatEntitlement {
 export interface RevenueCatSubscription {
   expiresDate: string | null;
   gracePeriodExpiresDate: string | null;
+  periodType: string | null;
+  unsubscribeDetectedAt: string | null;
+  billingIssuesDetectedAt: string | null;
 }
 
 export interface AppAccessProjection {
@@ -56,6 +59,14 @@ export interface AppAccessProjection {
   productId: string | null;
   expiresAt: Date | null;
   accessUntil: Date;
+  /**
+   * Whether the active subscription will renew, and its period ("trial",
+   * "intro", "normal"...). Null when access is inactive or is not a
+   * subscription. Read from the subscriber, never the triggering event, so a
+   * reconciliation carries a cancellation forward instead of erasing it.
+   */
+  willRenew: boolean | null;
+  periodType: string | null;
   revenueCatAppId: string;
   revenueCatRequestDateMs: number;
   sourceEventId: string;

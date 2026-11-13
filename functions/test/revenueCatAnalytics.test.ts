@@ -685,6 +685,8 @@ function projection(
     productId: "ascend_yearly",
     expiresAt,
     accessUntil: expiresAt,
+    willRenew: true,
+    periodType: "normal",
     revenueCatAppId: CONFIG.appId,
     revenueCatRequestDateMs: NOW.getTime(),
     sourceEventId: "event-123",

@@ -20,6 +20,18 @@ import type {DripEmailType} from "../../src/email/dripCopy.js";
 import {processEmailJobs} from "../../src/email/processor.js";
 import {buildEmailJobId} from "../../src/email/queue.js";
 import type {EmailJobDocument} from "../../src/email/types.js";
+import {
+  FirestoreRevenueCatEntitlementStore,
+} from "../../src/revenueCat/firestoreStore.js";
+import {processRevenueCatWebhookEvent} from "../../src/revenueCat/processor.js";
+import {
+  reconcileAppAccessForUser,
+} from "../../src/revenueCat/reconciliation.js";
+import type {
+  RevenueCatServerConfig,
+  RevenueCatSubscriberResponse,
+  RevenueCatWebhookEvent,
+} from "../../src/revenueCat/types.js";
 
 const HOUR = 60 * 60 * 1000;
 const EMAIL_JOBS = "email_jobs";
@@ -374,6 +386,141 @@ test("a cancelled or converted trial gets no reminder, at sweep or at send time"
     (await readJob("drip_trial_reminder", "later-cancels"))?.status,
     "skipped"
   );
+  assert.equal(sends.length, 0);
+});
+
+const RC_CONFIG: RevenueCatServerConfig = {
+  allowedProductIds: ["ascend_yearly_welcome"],
+  apiKey: "test-api-key-123456789012345678901234",
+  appId: "app123",
+  entitlementId: "app_access",
+  webhookAuthorization: "Bearer test-authorization-secret-1234567890",
+  webhookSigningSecret: "test-signing-secret-12345678901234567890",
+};
+
+/**
+ * One climber's welcome trial, driven through the real webhook processor and
+ * reconciliation against the real entitlement store.
+ */
+class WelcomeTrial {
+  private requestDateMs: number;
+  private unsubscribeDetectedAt: string | null = null;
+  private readonly endsAt: Date;
+  private readonly store = new FirestoreRevenueCatEntitlementStore(db);
+
+  constructor(private readonly uid: string, endsInMs: number) {
+    this.endsAt = new Date(now.getTime() + endsInMs);
+    this.requestDateMs = now.getTime() - 3 * HOUR;
+  }
+
+  private subscriber(): RevenueCatSubscriberResponse {
+    this.requestDateMs += 1000;
+    return {
+      requestDateMs: this.requestDateMs,
+      subscriber: {
+        entitlements: {app_access: {
+          expiresDate: this.endsAt.toISOString(),
+          gracePeriodExpiresDate: null,
+          productIdentifier: "ascend_yearly_welcome",
+        }},
+        subscriptions: {ascend_yearly_welcome: {
+          billingIssuesDetectedAt: null,
+          expiresDate: this.endsAt.toISOString(),
+          gracePeriodExpiresDate: null,
+          periodType: "trial",
+          unsubscribeDetectedAt: this.unsubscribeDetectedAt,
+        }},
+      },
+    };
+  }
+
+  private dependencies() {
+    return {
+      analyticsEnvironment: null,
+      config: RC_CONFIG,
+      now: () => now,
+      store: this.store,
+      subscriberClient: {fetchSubscriber: async () => this.subscriber()},
+      userVerifier: {isFirebaseUser: async () => true},
+    };
+  }
+
+  async webhook(type: string): Promise<void> {
+    const event: RevenueCatWebhookEvent = {
+      appId: RC_CONFIG.appId,
+      appUserIds: [this.uid],
+      eventTimestampMs: now.getTime(),
+      expirationAtMs: this.endsAt.getTime(),
+      gracePeriodExpirationAtMs: null,
+      id: `${this.uid}-${type}-${now.getTime()}`,
+      identityOverflowCount: 0,
+      isTrialConversion: false,
+      lifecycleReason: null,
+      newProductId: null,
+      periodType: "trial",
+      productId: "ascend_yearly_welcome",
+      store: "app_store",
+      type,
+    };
+    await processRevenueCatWebhookEvent(event, event.id, this.dependencies());
+  }
+
+  cancelInSettings(): void {
+    this.unsubscribeDetectedAt = new Date(now.getTime() - HOUR).toISOString();
+  }
+
+  async reconcileOnLaunch(): Promise<void> {
+    await reconcileAppAccessForUser(this.uid, this.dependencies());
+  }
+}
+
+test("a trial cancelled and then reconciled on launch gets no reminder, at sweep or at send time", async () => {
+  await db.recursiveDelete(db.collection("_revenuecat_webhook_events"));
+  await seedClimber("cancelled");
+  const cancelled = new WelcomeTrial("cancelled", 20 * HOUR);
+  await seedClimber("cancels-later");
+  const cancelsLater = new WelcomeTrial("cancels-later", 20 * HOUR);
+
+  await cancelled.webhook("INITIAL_PURCHASE");
+  cancelled.cancelInSettings();
+  await cancelled.webhook("CANCELLATION");
+  await cancelled.reconcileOnLaunch();
+  await cancelsLater.webhook("INITIAL_PURCHASE");
+
+  const grant = await db.doc("users/cancelled/entitlements/app_access").get();
+  assert.equal(grant.get("willRenew"), false);
+  assert.equal(grant.get("periodType"), "trial");
+
+  const summary = await runDripSweeps(now, allOn);
+  assert.equal(summary.drip_trial_reminder.queued, 1);
+  assert.equal(summary.drip_trial_reminder.suppressed, 1);
+  assert.equal(await readJob("drip_trial_reminder", "cancelled"), null);
+
+  cancelsLater.cancelInSettings();
+  await cancelsLater.webhook("CANCELLATION");
+  await cancelsLater.reconcileOnLaunch();
+  await processEmailJobs.run({} as never);
+
+  assert.equal(
+    (await readJob("drip_trial_reminder", "cancels-later"))?.status,
+    "skipped"
+  );
+  assert.equal(sends.length, 0);
+});
+
+test("a cancellation only reconciliation saw still holds the reminder back", async () => {
+  await db.recursiveDelete(db.collection("_revenuecat_webhook_events"));
+  await seedClimber("sam");
+  const trial = new WelcomeTrial("sam", 20 * HOUR);
+  await trial.webhook("INITIAL_PURCHASE");
+  await runDripSweeps(now, allOn);
+  assert.ok(await readJob("drip_trial_reminder", "sam"));
+
+  trial.cancelInSettings();
+  await trial.reconcileOnLaunch();
+  await processEmailJobs.run({} as never);
+
+  assert.equal((await readJob("drip_trial_reminder", "sam"))?.status, "skipped");
   assert.equal(sends.length, 0);
 });
 

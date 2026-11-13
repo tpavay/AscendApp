@@ -44,11 +44,12 @@ export const WELCOME_PRODUCT_IDS: readonly string[] = [
 ];
 
 /**
- * The RevenueCat event types a grant may last have been written by while the
- * climber is still on an uncancelled first trial. Anything else - a renewal
- * (converted), a cancellation (opted out), a billing issue, a product change -
- * means the reminder is wrong or unneeded, so the list is an allowlist and an
- * unknown value fails closed.
+ * For a grant written before the projection carried `willRenew` and
+ * `periodType`: the RevenueCat event types it may last have been written by
+ * while the climber is still on an uncancelled first trial. Anything else - a
+ * renewal (converted), a cancellation (opted out), a billing issue, a product
+ * change - means the reminder is wrong or unneeded, so the list is an
+ * allowlist and an unknown value fails closed.
  */
 export const TRIAL_PENDING_SOURCE_EVENTS: readonly string[] = [
   "INITIAL_PURCHASE",
@@ -57,17 +58,26 @@ export const TRIAL_PENDING_SOURCE_EVENTS: readonly string[] = [
 ];
 
 /**
- * A first trial is seven days, and a free week can run before the purchase,
- * so a grant document older than this when it expires cannot be a first
- * trial. It is what keeps a welcome-product year bought without a trial from
- * being mistaken for one when its first year ends.
+ * For a grant written before the projection carried `periodType`: a first
+ * trial is seven days, and a free week can run before the purchase, so a
+ * grant document older than this when it expires cannot be a first trial. It
+ * is what keeps a welcome-product year bought without a trial from being
+ * mistaken for one when its first year ends.
  */
 export const TRIAL_MAX_GRANT_AGE_MS = 15 * 24 * 60 * 60 * 1000;
+
+/** The subscriber's renewal state, as the projection recorded it. */
+export interface DripGrantRenewal {
+  periodType: string | null;
+  willRenew: boolean | null;
+}
 
 export interface DripGrantFacts {
   createdAtMs: number | null;
   expiresAtMs: number | null;
   productId: string | null;
+  /** Null for a grant written before the projection recorded renewal. */
+  renewal: DripGrantRenewal | null;
   source: string | null;
   sourceEventType: string | null;
 }
@@ -157,16 +167,15 @@ export async function dripSuppressionReasonFor(
       !WELCOME_PRODUCT_IDS.includes(grant.productId)) {
       return "not_welcome_trial";
     }
-    if (grant.sourceEventType === "CANCELLATION") return "trial_cancelled";
-    if (!grant.sourceEventType ||
-      !TRIAL_PENDING_SOURCE_EVENTS.includes(grant.sourceEventType)) {
-      return "trial_converted_or_changed";
-    }
+    const pending = grant.renewal ?
+      renewalTrialState(grant.renewal) :
+      legacyTrialState(grant);
+    if (pending) return pending;
     if (grant.expiresAtMs === null || grant.expiresAtMs <= nowMs) {
       return "trial_ended";
     }
-    if (grant.createdAtMs === null ||
-      grant.expiresAtMs - grant.createdAtMs > TRIAL_MAX_GRANT_AGE_MS) {
+    if (!grant.renewal && (grant.createdAtMs === null ||
+      grant.expiresAtMs - grant.createdAtMs > TRIAL_MAX_GRANT_AGE_MS)) {
       return "not_first_trial";
     }
     if (context.expectedTrialEndsAtMs !== undefined &&
@@ -176,6 +185,36 @@ export async function dripSuppressionReasonFor(
     return null;
   }
   }
+}
+
+/**
+ * Whether the recorded renewal state is a trial that will still renew.
+ * @param {DripGrantRenewal} renewal - What the projection recorded
+ * @return {DripSuppressionReason | null} Reason, or null for a live trial
+ */
+function renewalTrialState(
+  renewal: DripGrantRenewal
+): DripSuppressionReason | null {
+  if (renewal.willRenew === false) return "trial_cancelled";
+  if (renewal.willRenew !== true || renewal.periodType !== "trial") {
+    return "trial_converted_or_changed";
+  }
+  return null;
+}
+
+/**
+ * The same question for a grant that predates the renewal fields, answered
+ * from the last event that wrote it.
+ * @param {DripGrantFacts} grant - The grant
+ * @return {DripSuppressionReason | null} Reason, or null for a live trial
+ */
+function legacyTrialState(grant: DripGrantFacts): DripSuppressionReason | null {
+  if (grant.sourceEventType === "CANCELLATION") return "trial_cancelled";
+  if (!grant.sourceEventType ||
+    !TRIAL_PENDING_SOURCE_EVENTS.includes(grant.sourceEventType)) {
+    return "trial_converted_or_changed";
+  }
+  return null;
 }
 
 /**
@@ -211,6 +250,12 @@ export function makeFirestoreDripFactReader(
           toMillis(snapshot.get("expiresAt")),
         productId: typeof snapshot.get("productId") === "string" ?
           snapshot.get("productId") : null,
+        renewal: snapshot.get("willRenew") === undefined ? null : {
+          periodType: typeof snapshot.get("periodType") === "string" ?
+            snapshot.get("periodType") : null,
+          willRenew: typeof snapshot.get("willRenew") === "boolean" ?
+            snapshot.get("willRenew") : null,
+        },
         source: typeof snapshot.get("source") === "string" ?
           snapshot.get("source") : null,
         sourceEventType: typeof snapshot.get("sourceEventType") === "string" ?

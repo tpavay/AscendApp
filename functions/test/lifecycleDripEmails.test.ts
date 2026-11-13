@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {join} from "node:path";
+import {pathToFileURL} from "node:url";
 import {
   buildDripDedupeKey,
   DRIP_DEFAULT_HOURS,
@@ -24,6 +26,14 @@ import type {
   DripGrantFacts,
 } from "../src/email/dripEligibility";
 import {formatChargeDate} from "../src/email/dripTemplate";
+import {processRevenueCatWebhookEvent} from "../src/revenueCat/processor";
+import {reconcileAppAccessForUser} from "../src/revenueCat/reconciliation";
+import type {
+  AppAccessProjection,
+  RevenueCatServerConfig,
+  RevenueCatSubscriberResponse,
+  RevenueCatWebhookEvent,
+} from "../src/revenueCat/types";
 import {EMAIL_TYPES} from "../src/email/types";
 import type {EmailJobDocument} from "../src/email/types";
 
@@ -56,6 +66,7 @@ function readerFor(world: World): DripFactReader {
       createdAtMs: NOW.getTime() - 2 * HOUR,
       expiresAtMs: NOW.getTime() + 20 * HOUR,
       productId: "ascend_yearly_welcome",
+      renewal: {periodType: "trial", willRenew: true},
       source: null,
       sourceEventType: "INITIAL_PURCHASE",
       ...world.grant,
@@ -79,6 +90,7 @@ const reason = (type: DripEmailType, world: World, trialEnd?: number) =>
 const week = {expiresAtMs: NOW.getTime() + 6 * 24 * HOUR};
 const freeWeekGrant = {
   productId: "ascend_free_week",
+  renewal: null,
   source: "trial",
   sourceEventType: "FREE_WEEK_GRANT",
 };
@@ -227,7 +239,7 @@ test("free week email: only for a week that is running with no climb", async () 
   );
 });
 
-test("trial reminder: only for an uncancelled first welcome trial", async () => {
+test("trial reminder: only for an uncancelled welcome trial", async () => {
   const end = NOW.getTime() + 20 * HOUR;
   assert.equal(await reason("drip_trial_reminder", {grant: {}}, end), null);
   assert.equal(await reason("drip_trial_reminder", {}), "no_trial");
@@ -240,21 +252,29 @@ test("trial reminder: only for an uncancelled first welcome trial", async () => 
     "not_welcome_trial"
   );
   assert.equal(
-    await reason("drip_trial_reminder", {grant: {sourceEventType: "CANCELLATION"}}),
+    await reason("drip_trial_reminder", {grant: {
+      renewal: {periodType: "trial", willRenew: false},
+    }}),
     "trial_cancelled"
   );
-  for (const converted of ["RENEWAL", "BILLING_ISSUE", "PRODUCT_CHANGE", "WHATEVER"]) {
+  for (const renewal of [
+    {periodType: "normal", willRenew: true},
+    {periodType: "intro", willRenew: true},
+    {periodType: null, willRenew: true},
+    {periodType: "trial", willRenew: null},
+  ]) {
     assert.equal(
-      await reason("drip_trial_reminder", {grant: {sourceEventType: converted}}),
+      await reason("drip_trial_reminder", {grant: {renewal}}),
       "trial_converted_or_changed",
-      converted
+      JSON.stringify(renewal)
     );
   }
-  for (const pending of ["UNCANCELLATION", "CLIENT_RECONCILIATION"]) {
+  // The recorded renewal state decides, whatever event last wrote the grant.
+  for (const sourceEventType of ["CLIENT_RECONCILIATION", "CANCELLATION", "RENEWAL"]) {
     assert.equal(
-      await reason("drip_trial_reminder", {grant: {sourceEventType: pending}}),
+      await reason("drip_trial_reminder", {grant: {sourceEventType}}),
       null,
-      pending
+      sourceEventType
     );
   }
   assert.equal(
@@ -262,15 +282,226 @@ test("trial reminder: only for an uncancelled first welcome trial", async () => 
     "trial_ended"
   );
   assert.equal(
-    await reason("drip_trial_reminder", {grant: {
-      createdAtMs: NOW.getTime() + 20 * HOUR - TRIAL_MAX_GRANT_AGE_MS - 1,
-    }}),
-    "not_first_trial"
-  );
-  assert.equal(
     await reason("drip_trial_reminder", {grant: {}}, end + HOUR),
     "trial_moved"
   );
+});
+
+test("trial reminder: a grant from before renewal was recorded falls back to its last event", async () => {
+  const legacy = (grant: Partial<DripGrantFacts>) =>
+    reason("drip_trial_reminder", {grant: {renewal: null, ...grant}});
+  assert.equal(await legacy({}), null);
+  assert.equal(await legacy({sourceEventType: "CANCELLATION"}), "trial_cancelled");
+  for (const converted of ["RENEWAL", "BILLING_ISSUE", "PRODUCT_CHANGE", "WHATEVER"]) {
+    assert.equal(
+      await legacy({sourceEventType: converted}),
+      "trial_converted_or_changed",
+      converted
+    );
+  }
+  for (const pending of ["UNCANCELLATION", "CLIENT_RECONCILIATION"]) {
+    assert.equal(await legacy({sourceEventType: pending}), null, pending);
+  }
+  assert.equal(
+    await legacy({
+      createdAtMs: NOW.getTime() + 20 * HOUR - TRIAL_MAX_GRANT_AGE_MS - 1,
+    }),
+    "not_first_trial"
+  );
+});
+
+// -- A cancelled trial stays cancelled through reconciliation ----------------
+
+const RC_CONFIG: RevenueCatServerConfig = {
+  allowedProductIds: ["ascend_yearly_welcome"],
+  apiKey: "test-api-key-123456789012345678901234",
+  appId: "app123",
+  entitlementId: "app_access",
+  webhookAuthorization: "Bearer test-authorization-secret-1234567890",
+  webhookSigningSecret: "test-signing-secret-12345678901234567890",
+};
+const TRIAL_ENDS = new Date(NOW.getTime() + 20 * HOUR);
+
+function welcomeSubscriber(
+  requestDateMs: number,
+  unsubscribeDetectedAt: string | null
+): RevenueCatSubscriberResponse {
+  return {
+    requestDateMs,
+    subscriber: {
+      entitlements: {app_access: {
+        expiresDate: TRIAL_ENDS.toISOString(),
+        gracePeriodExpiresDate: null,
+        productIdentifier: "ascend_yearly_welcome",
+      }},
+      subscriptions: {ascend_yearly_welcome: {
+        billingIssuesDetectedAt: null,
+        expiresDate: TRIAL_ENDS.toISOString(),
+        gracePeriodExpiresDate: null,
+        periodType: "trial",
+        unsubscribeDetectedAt,
+      }},
+    },
+  };
+}
+
+function welcomeEvent(id: string, type: string): RevenueCatWebhookEvent {
+  return {
+    appId: RC_CONFIG.appId,
+    appUserIds: ["u1"],
+    eventTimestampMs: NOW.getTime(),
+    expirationAtMs: TRIAL_ENDS.getTime(),
+    gracePeriodExpirationAtMs: null,
+    id,
+    identityOverflowCount: 0,
+    isTrialConversion: false,
+    lifecycleReason: null,
+    newProductId: null,
+    periodType: "trial",
+    productId: "ascend_yearly_welcome",
+    store: "app_store",
+    type,
+  };
+}
+
+/**
+ * The webhook and the reconciliation writing one climber's grant, the way
+ * `FirestoreRevenueCatEntitlementStore` stores it, read back as drip facts.
+ */
+class OneClimberGrantStore {
+  stored: AppAccessProjection | null = null;
+  private readonly claimed = new Set<string>();
+
+  async claimEvent(event: RevenueCatWebhookEvent) {
+    const outcome = this.claimed.has(event.id) ? "duplicate" : "claimed";
+    this.claimed.add(event.id);
+    return {claimDigest: event.id, outcome} as const;
+  }
+  async completeEvent(
+    _event: RevenueCatWebhookEvent,
+    _digest: string,
+    projections: AppAccessProjection[]
+  ) {
+    for (const projection of projections) {
+      await this.writeProjection(projection);
+    }
+  }
+  async failEvent() {}
+  async writeProjection(projection: AppAccessProjection) {
+    this.stored = projection;
+    return true;
+  }
+  reader(): DripFactReader {
+    return {
+      ...readerFor({}),
+      grant: async () => this.stored?.isActive ? {
+        createdAtMs: NOW.getTime() - 2 * HOUR,
+        expiresAtMs: this.stored.accessUntil.getTime(),
+        productId: this.stored.productId,
+        renewal: {
+          periodType: this.stored.periodType,
+          willRenew: this.stored.willRenew,
+        },
+        source: null,
+        sourceEventType: this.stored.sourceEventType,
+      } : null,
+    };
+  }
+}
+
+test("a trial cancelled and then reconciled on launch still gets no reminder", async () => {
+  const store = new OneClimberGrantStore();
+  let subscriber = welcomeSubscriber(NOW.getTime() - 3 * HOUR, null);
+  const dependencies = {
+    analyticsEnvironment: null,
+    config: RC_CONFIG,
+    now: () => NOW,
+    store,
+    subscriberClient: {fetchSubscriber: async () => subscriber},
+    userVerifier: {isFirebaseUser: async () => true},
+  };
+
+  await processRevenueCatWebhookEvent(
+    welcomeEvent("purchase", "INITIAL_PURCHASE"), "purchase", dependencies
+  );
+  assert.equal(
+    await dripSuppressionReasonFor("drip_trial_reminder", "u1", store.reader(), {
+      now: NOW,
+    }),
+    null
+  );
+
+  subscriber = welcomeSubscriber(
+    NOW.getTime() - 2 * HOUR, new Date(NOW.getTime() - 2 * HOUR).toISOString()
+  );
+  await processRevenueCatWebhookEvent(
+    welcomeEvent("cancel", "CANCELLATION"), "cancel", dependencies
+  );
+  subscriber = {...subscriber, requestDateMs: NOW.getTime() - HOUR};
+  const reconciled = await reconcileAppAccessForUser("u1", dependencies);
+
+  assert.equal(reconciled.outcome, "active");
+  assert.equal(store.stored?.isActive, true);
+  assert.equal(store.stored?.sourceEventType, "CLIENT_RECONCILIATION");
+  assert.equal(store.stored?.willRenew, false);
+  assert.equal(
+    await dripSuppressionReasonFor("drip_trial_reminder", "u1", store.reader(), {
+      now: NOW,
+    }),
+    "trial_cancelled"
+  );
+  assert.equal(
+    await dripSuppressionReasonForJob(
+      {
+        payload: {trialEndsAtMs: TRIAL_ENDS.getTime()},
+        recipientUid: "u1",
+        type: "drip_trial_reminder",
+      } as unknown as EmailJobDocument,
+      NOW,
+      store.reader()
+    ),
+    "trial_cancelled"
+  );
+});
+
+test("a cancellation the webhook never delivered is carried by reconciliation", async () => {
+  const store = new OneClimberGrantStore();
+  await reconcileAppAccessForUser("u1", {
+    config: RC_CONFIG,
+    now: () => NOW,
+    store,
+    subscriberClient: {fetchSubscriber: async () => welcomeSubscriber(
+      NOW.getTime(), new Date(NOW.getTime() - HOUR).toISOString()
+    )},
+    userVerifier: {isFirebaseUser: async () => true},
+  });
+
+  assert.equal(store.stored?.isActive, true);
+  assert.equal(store.stored?.periodType, "trial");
+  assert.equal(
+    await dripSuppressionReasonFor("drip_trial_reminder", "u1", store.reader(), {
+      now: NOW,
+    }),
+    "trial_cancelled"
+  );
+});
+
+test("readDripSettings acts on every server-only Remote Config parameter", async () => {
+  // __dirname is the compiled lib/test directory; walk up to the repo root.
+  const {SERVER_ONLY_PARAMETERS} = await import(pathToFileURL(
+    join(__dirname, "../../../scripts/lib/remote-config-template.mjs")
+  ).href) as {SERVER_ONLY_PARAMETERS: readonly string[]};
+  const baseline = readDripSettings({});
+
+  assert.ok(SERVER_ONLY_PARAMETERS.length > 0);
+  for (const key of SERVER_ONLY_PARAMETERS) {
+    const value = key.endsWith("_enabled") ? "true" : "5";
+    assert.notDeepEqual(
+      readDripSettings({parameters: {[key]: {defaultValue: {value}}}}),
+      baseline,
+      `${key} is server-only but readDripSettings ignores it`
+    );
+  }
 });
 
 test("the processor's check reads the job's own type, uid and queued trial end", async () => {

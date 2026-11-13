@@ -339,6 +339,8 @@ function paidProjection(
     productId: "ascend_yearly",
     expiresAt: expiry,
     accessUntil: expiry,
+    willRenew: true,
+    periodType: "normal",
     revenueCatAppId: "app123",
     revenueCatRequestDateMs: requestDateMs,
     sourceEventId,

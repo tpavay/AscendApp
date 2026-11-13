@@ -76,6 +76,8 @@ export function buildAppAccessProjection(
     isActiveAt(entitlementExpiresAt, response.requestDateMs)
   );
   const expiresAt = isActive ? entitlementExpiresAt : null;
+  const subscription = isActive && entitlementProductId ?
+    response.subscriber.subscriptions[entitlementProductId] : undefined;
   return {
     schemaVersion: 1,
     uid,
@@ -86,6 +88,11 @@ export function buildAppAccessProjection(
     accessUntil: isActive ?
       expiresAt ?? NON_EXPIRING_ACCESS_UNTIL :
       INACTIVE_ACCESS_UNTIL,
+    willRenew: subscription ?
+      subscription.unsubscribeDetectedAt === null &&
+        subscription.billingIssuesDetectedAt === null :
+      null,
+    periodType: subscription?.periodType ?? null,
     revenueCatAppId: config.appId,
     revenueCatRequestDateMs: response.requestDateMs,
     sourceEventId: event.id,
@@ -129,6 +136,12 @@ function parseSubscriberResponse(value: unknown): RevenueCatSubscriberResponse {
       expiresDate: nullableString(subscription.expires_date),
       gracePeriodExpiresDate:
         nullableString(subscription.grace_period_expires_date),
+      periodType: nullableString(subscription.period_type)?.toLowerCase() ??
+        null,
+      unsubscribeDetectedAt:
+        nullableString(subscription.unsubscribe_detected_at),
+      billingIssuesDetectedAt:
+        nullableString(subscription.billing_issues_detected_at),
     };
   }
 

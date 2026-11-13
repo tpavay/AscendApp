@@ -51,15 +51,21 @@ A failed read throws, so a transient error can never deliver mail that should ha
   The first paywall's own `paywall_shown_app_access_gate_v1` must exist.
 - `drip_free_week_unused` needs a free week record whose week is still running.
   It is suppressed by a grant that is not the free week's (a purchase or comp) and by any saved workout or started headphone session (`users/{uid}/workouts`, `users/{uid}/attempt_heartbeats`).
-- `drip_trial_reminder` needs the grant `users/{uid}/entitlements/app_access` the RevenueCat webhook projects (`docs/revenuecat-server-entitlement-enforcement.md`) to be a welcome-product grant that is not the free week, not past its end, and whose last projected event is `INITIAL_PURCHASE`, `UNCANCELLATION` or `CLIENT_RECONCILIATION`.
-  A `CANCELLATION` means the climber cancelled the trial and gets no reminder.
-  Any other event type (`RENEWAL`, `BILLING_ISSUE`, `PRODUCT_CHANGE`) means it converted or changed, and fails closed.
+- `drip_trial_reminder` needs the grant `users/{uid}/entitlements/app_access` the RevenueCat webhook projects (`docs/revenuecat-server-entitlement-enforcement.md`) to be a welcome-product grant that is not the free week, not past its end, and whose recorded renewal state is a trial that will renew: `periodType` `trial` and `willRenew` `true`.
+  `willRenew` `false` means the climber cancelled the trial (or billing failed) and gets no reminder.
+  Any other `periodType`, or either field null, means it converted, changed, or is not known, and fails closed.
   The queued trial end must still equal the grant's, so a moved end is skipped.
-  A grant document that was created more than 15 days before it expires cannot be a first trial (a free week can run before the purchase), so a welcome-product year bought with no trial is not reminded.
 
-Known limit: the grant carries no `periodType` and no auto-renew flag, so a trial is recognised by product and by the last projected event.
-A cancellation the webhook has not yet projected is not seen.
-Persisting `periodType` and `willRenew` on the projection is the follow-up that removes both the product inference and the 15-day guard.
+Both fields come from the RevenueCat subscriber the projection is built from (the subscription's `period_type`, `unsubscribe_detected_at` and `billing_issues_detected_at`), never from the event that triggered the write.
+That is what keeps a cancellation through `reconcileAppAccess`: the app reconciles on launch and foreground while a cancelled trial is still active, and reconciliation writes `sourceEventType` `CLIENT_RECONCILIATION`, but it reads the same subscriber, so `willRenew` stays `false`.
+It also carries a cancellation the webhook never delivered, because a change in either field counts as a change worth rewriting the projection for.
+Neither field takes part in any access decision; the rules never read them.
+
+A grant written before the projection recorded these fields falls back to its last projected event: `INITIAL_PURCHASE`, `UNCANCELLATION` or `CLIENT_RECONCILIATION` passes, `CANCELLATION` and anything else does not, and a grant document created more than 15 days before it expires cannot be a first trial.
+The next webhook or reconciliation for that climber rewrites the grant with both fields.
+
+Known limit: a cancellation RevenueCat itself has not yet seen when the worker sends is not seen.
+The welcome trial is recognised by product id, so a product that carries a trial must be listed in `WELCOME_PRODUCT_IDS`.
 
 ## Consent, dedupe, delivery
 
@@ -111,6 +117,5 @@ It holds no logic; `{chargeDate}` and `{price}` are the only placeholders, and `
 ## Follow-ups, not built
 
 - Record the decline offer's shown event and the letter's shown event, then add the two missing emails (see above).
-- Persist `periodType` and `willRenew` on the RevenueCat projection.
 - Teach `/go` the `email-*` source tags.
 - Production: a pinned `TRANSACTIONAL_EMAIL_CONFIG` version listing the types the captain chooses, then the switches.
