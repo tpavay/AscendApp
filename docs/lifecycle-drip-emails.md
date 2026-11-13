@@ -94,7 +94,7 @@ A template that cannot be read sends nothing.
 | `lifecycle_email_trial_reminder_lead_hours` | number | `24` | Hours before the trial ends. A trial with under 2 hours left is not reminded. |
 
 A delay outside 15 minutes to 14 days, or one that is not a number, is a typo and falls back to its default.
-`scripts/lib/remote-config-template.mjs` lists them in `SERVER_ONLY_PARAMETERS`: no Swift catalog names them, so the template parity check exempts exactly those keys, and `scripts/test/remote-config-template.test.mjs` fails if a function stops reading one.
+`scripts/lib/remote-config-template.mjs` lists them in `SERVER_ONLY_PARAMETERS`: no Swift catalog names them, so the template parity check exempts exactly those keys, and `functions/test/lifecycleDripEmails.test.ts` fails if `readDripSettings` stops acting on one.
 Merging to `develop` publishes them additively to dev and staging; production is a publish by hand, and none of the switches is on there.
 
 ## Windows and cost
