@@ -50,6 +50,15 @@ final class AppAccessPaywallCoordinator {
     /// from one that never did is not a climber saying no.
     private var didPresentHosted = false
     private var didShowLetter = false
+    /// The first paywall closed and the dashboard's decline offer is opening onto the same
+    /// registration, so the next `presented` is the offer rather than the paywall.
+    private var declineOfferIsOpening = false
+
+    /// The openings that may be answered with the decline offer a force-close cost the climber.
+    /// Anything else is the gate reopening after something the climber did in this session.
+    private static let declineOfferReplaySources: Set<String> = [
+        "app_access_gate", "presentation_retry", "foreground_retry"
+    ]
 
     init(
         monetizationManager: MonetizationManager,
@@ -155,6 +164,7 @@ final class AppAccessPaywallCoordinator {
         guard state.hasActiveEntitlement(
             monetizationManager.configuration.revenueCatEntitlementID
         ) else { return }
+        monetizationManager.clearPendingDeclineOffer()
         // Active entitlement truth wins every presentation state. Retire all callback authority
         // before publishing confirmation so a late hosted terminal or retry cannot reopen a
         // paywall over a climber who already has access.
@@ -211,28 +221,49 @@ final class AppAccessPaywallCoordinator {
         if presentationIdentity != nil {
             monetizationManager.cancelPaywallPresentation()
         }
+        // A force-close on the first paywall cost the climber the offer its close would have
+        // opened (`docs/free-week-after-decline.md`), so this launch opens the offer first. The
+        // take is one-shot: whatever happens to the offer, the next opening is the paywall.
+        let replaysDeclineOffer = Self.declineOfferReplaySources.contains(source)
+            && monetizationManager.takeOwedDeclineOffer()
+        let placement: SuperwallPlacement = replaysDeclineOffer ? .declineOfferReplay : .appAccessGate
+        var params: [String: Any] = [
+            "source": replaysDeclineOffer ? "decline_offer_replay" : source,
+            "gate_attempt_id": UUID().uuidString.lowercased()
+        ]
+        if replaysDeclineOffer {
+            // The campaign is filtered to the first paywall (`docs/superwall-paywall-setup.md`), and
+            // the SDK's own trigger names its presenter in this parameter.
+            params["presented_by_event_name"] = SuperwallPlacement.appAccessGate.rawValue
+        }
         presentationRevision &+= 1
         let revision = presentationRevision
         presentationIdentity = identity
-        presentationAttemptID = UUID().uuidString.lowercased()
+        presentationAttemptID = params["gate_attempt_id"] as? String
         didPresentHosted = false
+        declineOfferIsOpening = false
         armOpeningWatchdog(presentationRevision: revision, presentationIdentity: identity)
 
         monetizationManager.presentPaywall(
-            .appAccessGate,
-            params: [
-                "source": source,
-                "gate_attempt_id": presentationAttemptID as Any
-            ]
+            placement,
+            params: params
         ) { [weak self] outcome in
             guard let self, self.presentationRevision == revision,
                   self.lastTerminalPresentationRevision != revision,
                   self.monetizationManager.identityGeneration == identity else { return }
-            self.handleHostedOutcome(
-                outcome,
-                presentationRevision: revision,
-                presentationIdentity: identity
-            )
+            if replaysDeclineOffer {
+                self.handleDeclineOfferReplayOutcome(
+                    outcome,
+                    presentationRevision: revision,
+                    presentationIdentity: identity
+                )
+            } else {
+                self.handleHostedOutcome(
+                    outcome,
+                    presentationRevision: revision,
+                    presentationIdentity: identity
+                )
+            }
         }
     }
 
@@ -342,13 +373,23 @@ final class AppAccessPaywallCoordinator {
             didPresentHosted = true
             failedHostedPresentations = 0
             phase = .hostedPresented
+            if declineOfferIsOpening {
+                // The close the SDK answered with the offer: it is on screen, so it is not owed.
+                declineOfferIsOpening = false
+                monetizationManager.recordDeclineOfferShown()
+            } else {
+                // Until the offer opens, a force-close here loses it.
+                monetizationManager.recordAccessGatePaywallShown()
+            }
         case .followOnPaywallOpening:
+            declineOfferIsOpening = true
             armOpeningWatchdog(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity
             )
         case .purchased, .restored:
             watchdogTask?.cancel()
+            monetizationManager.clearPendingDeclineOffer()
             recordGateTerminal(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
@@ -453,6 +494,83 @@ final class AppAccessPaywallCoordinator {
                 reason: .hostedError
             )
         }
+    }
+
+    /// The decline offer, registered by the app because the climber force-closed the first paywall
+    /// before the SDK could open it.
+    ///
+    /// Closing it is the same decline the chain would have reported, so it ends in the founder
+    /// letter and the free week by the same rules. An offer Superwall has nothing to show for is not
+    /// owed again, and the climber gets the first paywall instead: the replay is a courtesy, never
+    /// a wall in front of the gate.
+    private func handleDeclineOfferReplayOutcome(
+        _ outcome: PaywallPresentationOutcome,
+        presentationRevision: UInt,
+        presentationIdentity: MonetizationIdentityTransition
+    ) {
+        switch outcome {
+        case .presented:
+            watchdogTask?.cancel()
+            didPresentHosted = true
+            failedHostedPresentations = 0
+            phase = .hostedPresented
+            monetizationManager.recordDeclineOfferShown()
+        case .followOnPaywallOpening:
+            armOpeningWatchdog(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity
+            )
+        case .dismissedWithoutPurchase, .backRequested:
+            watchdogTask?.cancel()
+            handlePaidOffersDeclined(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                reason: outcome == .backRequested ? .hostedBackRequested : .hostedDismissed
+            )
+        case let .skipped(reason):
+            // A holdout or no audience match is Superwall deciding against this climber, so it is
+            // final. A placement no campaign triggers yet is still owed: the next launch asks again.
+            watchdogTask?.cancel()
+            if SuperwallSkipReasonCategory(rawValue: reason)?.isDeliberate == true {
+                monetizationManager.recordDeclineOfferShown()
+            }
+            openFirstPaywallInsteadOfDeclineOffer(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                reason: .hostedSkipped
+            )
+        case .failed:
+            // Still owed: the next launch asks again.
+            watchdogTask?.cancel()
+            openFirstPaywallInsteadOfDeclineOffer(
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity,
+                reason: .hostedError
+            )
+        case .purchased, .restored, .pendingApproval, .verificationUnavailable,
+             .deleteAccountRequested, .signOutRequested:
+            handleHostedOutcome(
+                outcome,
+                presentationRevision: presentationRevision,
+                presentationIdentity: presentationIdentity
+            )
+        }
+    }
+
+    private func openFirstPaywallInsteadOfDeclineOffer(
+        presentationRevision: UInt,
+        presentationIdentity: MonetizationIdentityTransition,
+        reason: AppAccessGateRecoveryReason
+    ) {
+        recordGateTerminal(
+            presentationRevision: presentationRevision,
+            presentationIdentity: presentationIdentity,
+            providerOutcome: .hostedUnavailable,
+            recoveryPath: .hosted,
+            recoveryReason: reason,
+            entitlementActive: entitlementPresence
+        )
+        presentHosted(source: "decline_offer_unavailable")
     }
 
     /// Internal integration seam for crossing the production presenter/controller boundary in

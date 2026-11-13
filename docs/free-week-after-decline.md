@@ -37,6 +37,33 @@ So the two things that can go wrong end on a hosted screen too:
 A pending purchase still outranks everything.
 A climber Apple may already have charged is checked for access behind the spinner, never offered a free week on top (`PendingPurchaseHoldStore`).
 
+## Force-closing on the first paywall
+
+The decline offer (the gift screen) is Superwall's, and the SDK opens it only when the first paywall is closed.
+A climber who force-closes the app on the first paywall never closes it, so they would never meet the offer.
+With `onboarding_v3_enabled` and `free_week_after_decline_enabled` both on, the next launch opens it for them (`DeclineOfferReplayStore`).
+
+- **Pending.** A climber who walked the v3 onboarding has the first paywall reach the screen: the gate records the account as owed the offer.
+- **Shown.** The offer reaches the screen, by the SDK's chain or by the replay: the account is never owed it again.
+  This is what stops a loop, and an account that has seen the offer once never has a pending marker written again.
+- **Cleared.** A purchase, a restore, active entitlement, a started week or signing out clears the pending marker.
+- **Replay.** At launch the gate reads the marker once.
+  If it names the signed-in account, the account holds no access (a paid entitlement or a running week) and no purchase is pending, the gate registers `decline_offer_replay` instead of `app_access_gate`.
+  It cannot register `paywall_decline`: that is one of Superwall's own event names, and SuperwallKit drops an app's registration of one without calling back at all.
+  Closing the replayed offer is the decline the chain would have reported, so it ends in the founder letter and the week by the rules above.
+  Only the launch after the close replays: a gate that restarts inside the same process opens the first paywall.
+- **Nothing to show.** The climber gets the first paywall whenever the offer cannot open.
+  A skip Superwall decided for this climber (a holdout, no audience match, an existing subscription) means the offer is not owed again.
+  A skip because no campaign triggers `decline_offer_replay`, any other skip, and a failure keep it owed, so the next launch asks again.
+
+Both switches off is the behaviour before this existed: nothing is written and nothing is replayed.
+
+What the dashboard has to hold: the decline offer campaign carries `decline_offer_replay` as a second trigger beside `paywall_decline`, in staging and production.
+Firstmate adds that trigger in the Superwall dashboard as a separate step from this change; until it exists, the replay is skipped as placement not found, the climber falls back to the first paywall, and the offer stays owed until a launch after the trigger exists.
+The replay passes `presented_by_event_name = app_access_gate` as a parameter, which is what the campaign's filter on the first paywall reads when the SDK triggers it itself.
+A campaign filtered on anything else the SDK adds only to its own trigger (the paywall's id or name, say) skips the replay, and the climber falls back to the first paywall.
+Confirm on a staging device that a force-close on the first paywall opens the offer on the next launch.
+
 ## The letter is a courtesy, the access is the promise
 
 The founder letter is a Superwall-hosted paywall with no products, on its own placement, `founder_letter`.

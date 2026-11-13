@@ -36,10 +36,21 @@ enum SuperwallSkipReasonCategory: String, Sendable {
     case noAudienceMatch = "no_audience_match"
     case placementDisabled = "placement_disabled"
     case userSubscribed = "user_subscribed"
+    case placementNotFound = "placement_not_found"
     case other
+
+    /// Superwall chose not to show this climber the paywall, as opposed to having no campaign that
+    /// could show it to anybody.
+    var isDeliberate: Bool {
+        switch self {
+        case .holdout, .noAudienceMatch, .userSubscribed: true
+        case .placementDisabled, .placementNotFound, .other: false
+        }
+    }
 
     static func classify(_ description: String) -> Self {
         let value = description.lowercased()
+        if value.contains("not part of a campaign") || value.contains("not found") { return .placementNotFound }
         if value.contains("holdout") { return .holdout }
         if value.contains("audience") || value.contains("rule") { return .noAudienceMatch }
         if value.contains("disable") || value.contains("config") { return .placementDisabled }
