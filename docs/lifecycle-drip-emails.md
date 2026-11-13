@@ -121,7 +121,7 @@ Only the three drip emails use this renderer; every other email type keeps its o
 
 ## Editing the words
 
-Every subject and sentence is in `functions/src/email/dripCopy.ts`, marked as a draft awaiting the captain's edit.
+Every subject and sentence is in `functions/src/email/dripCopy.ts`, in the wording the captain approved.
 It holds no logic.
 A block is a string (one paragraph) or `{bullets: [...]}`.
 `{chargeDate}` and `{trialEndsIn}` are the only placeholders, and only the trial reminder has them.

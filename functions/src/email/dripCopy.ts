@@ -1,11 +1,9 @@
 /**
  * THE WORDS OF THE LIFECYCLE DRIP EMAILS.
  *
- * DRAFT, AWAITING THE CAPTAIN'S EDIT. Every subject and sentence below was
- * written by an agent in the voice of the founder letter
- * (`docs/free-week-after-decline.md`) so there is something to react to. None
- * of it has been read or approved by the captain. Edit freely: this is the
- * only file that holds drip wording, and changing it touches no logic.
+ * Approved by the captain. Every subject and sentence below is the captain's
+ * final wording for all three emails. This is the only file that holds drip
+ * wording, and changing it touches no logic.
  *
  * Voice: first person from the founder, short, no exclamation marks, no hype,
  * no pressure.
