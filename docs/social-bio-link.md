@@ -34,10 +34,19 @@ The page sends every visitor to Apple's campaign link for Ascend, with the campa
 Adding a platform means adding one row to `BIO_LINK_CAMPAIGNS` in `web/src/appStore.ts`, a row here, and a campaign of the same name in App Store Connect; nothing invents tokens on the fly.
 Installs attributed to these tokens show up in App Store Connect under Analytics, Sources, Campaigns.
 
+## When the app is installed
+
+On an iPhone that has an Ascend build with the associated-domains entitlement, a tap on the link from an app that hands it to iOS (Mail, Messages, Notes) opens Ascend instead of loading the page below, and the page is never seen.
+In-app browsers and Chrome load the page first.
+A social bio link there behaves exactly as described below; only a lifecycle email's link (`src` starting `email-`) on an iPhone outside Safari itself gets the page's `Open Ascend` mode instead.
+`docs/universal-links.md` owns the mechanism, the test steps and the steps the captain does before such a build ships.
+
 ## How the page behaves
 
 The logic is `web/src/goHandoff.ts`; the page is `web/src/pages/go.astro`; `scripts/test/social-bio-link.test.mjs` holds the contract.
 
+- **A lifecycle email's link on an iPhone, outside Safari itself:** the page stays up with `Open Ascend` and `Get Ascend on the App Store`, tries the app once, and never redirects (`docs/universal-links.md`).
+  Every other visit is one of the two cases below.
 - **In an in-app browser** (Instagram, Facebook, Messenger, TikTok, the YouTube app, or any other: an iOS user agent with no `Safari/` token, or an Android one carrying the `; wv)` WebView marker): the page stays on screen with one large button, `Open the App Store`, that links to the App Store app's own scheme (`itms-apps://`, which a webview passes to iOS even when it refuses an `https://apps.apple.com` hand-off).
   The same hand-off is attempted automatically a moment after the page paints.
   Under the button, a short instruction says what to tap if nothing opened (the `···` menu, then `Open in Safari` or `Open in browser`), plus a plain link to the https product page.

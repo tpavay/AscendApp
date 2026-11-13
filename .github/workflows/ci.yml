@@ -138,6 +138,10 @@ jobs:
               - "web/src/goHandoff.ts"
               - "web/src/pages/go.astro"
               - "docs/social-bio-link.md"
+              # The universal-links suite holds the entitlement, the
+              # apple-app-site-association file and the hosting headers to each
+              # other.
+              - "web/public/.well-known/**"
               - "docs/superwall-paywall-setup.md"
               - "docs/onboarding-design-guide.md"
               - "docs/app-store-brief.md"

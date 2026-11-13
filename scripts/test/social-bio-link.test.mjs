@@ -14,7 +14,12 @@ import {
   appStoreCampaignURL,
   bioLinkCampaignToken
 } from "../../web/src/appStore.ts";
-import { classifyBrowser, handoffPlan } from "../../web/src/goHandoff.ts";
+import {
+  appOpenURL,
+  classifyBrowser,
+  handoffPlan,
+  isPlainMobileSafari
+} from "../../web/src/goHandoff.ts";
 import { ciFilterPatterns } from "./support/ci-workflow-filters.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
@@ -51,6 +56,8 @@ const USER_AGENTS = {
   chrome: iphone("CriOS/141.0.7390.56 Mobile/15E148 Safari/604.1"),
   firefox: iphone("FxiOS/141.0 Mobile/15E148 Safari/605.1.15"),
   edge: iphone("Version/18.0 EdgiOS/141.0.3537.57 Mobile/15E148 Safari/604.1"),
+  googleApp: iphone("GSA/389.0.788413049 Mobile/15E148 Safari/604.1"),
+  gmailViewer: iphone("Mobile/15E148"),
   desktopSafari: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15",
   desktopChrome: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
   androidChrome: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36",
@@ -133,6 +140,69 @@ test("an iOS in-app browser gets the tap-first App Store scheme; everything else
   // the direct campaign.
   assert.equal(handoffPlan(USER_AGENTS.safari, "?utm_x=1&src=tiktok").campaignToken, "TikTok-bio");
   assert.equal(handoffPlan(USER_AGENTS.safari, "").campaignToken, "Link-direct");
+});
+
+test("only Safari itself counts as plain Mobile Safari", () => {
+  assert.equal(isPlainMobileSafari(USER_AGENTS.safari), true);
+  for (const name of ["chrome", "firefox", "edge", "googleApp", "gmailViewer", "instagram", "youtube"]) {
+    assert.equal(isPlainMobileSafari(USER_AGENTS[name]), false, name);
+  }
+});
+
+test("an email link on an iPhone outside Safari tries the app once and offers both choices, without a redirect", () => {
+  for (const name of ["chrome", "firefox", "edge", "googleApp", "gmailViewer", "instagram"]) {
+    for (const tag of ["email-paywall-abandoned", "email-free-week-unused", "email-trial-reminder"]) {
+      const plan = handoffPlan(USER_AGENTS[name], `?src=${tag}`);
+      assert.equal(plan.mode, "app", `${name} ${tag}`);
+      assert.equal(plan.appURL, `ascendapp://go?src=${tag}`);
+      assert.equal(plan.handoffURL, plan.appURL, "the button and the one attempt both open the app");
+      assert.equal(plan.redirect, false, "the page stays up rather than going to the store");
+    }
+  }
+
+  // The second choice is the App Store link this browser can follow.
+  assert.equal(handoffPlan(USER_AGENTS.chrome, "?src=email-trial-reminder").storeLinkURL, campaignURL("Link-direct"));
+  assert.equal(
+    handoffPlan(USER_AGENTS.gmailViewer, "?src=email-trial-reminder").storeLinkURL,
+    campaignURL("Link-direct", "itms-apps")
+  );
+
+  // An email-looking tag the app does not know still opens the app, without the tag.
+  assert.equal(handoffPlan(USER_AGENTS.chrome, "?src=email-x%26y").appURL, "ascendapp://go");
+  assert.equal(handoffPlan(USER_AGENTS.chrome, "?src=%20Email-Trial-Reminder").appURL, "ascendapp://go?src=email-trial-reminder");
+});
+
+test("every other visit keeps the store hand-off and never tries the app", () => {
+  const cases = [
+    ["safari", "?src=email-trial-reminder", true],
+    ["desktopSafari", "?src=email-trial-reminder", true],
+    ["desktopChrome", "?src=email-trial-reminder", true],
+    ["androidChrome", "?src=email-trial-reminder", true],
+    ["androidInstagram", "?src=email-trial-reminder", false],
+    ["chrome", "?src=instagram", true],
+    ["chrome", "", true],
+    ["chrome", "?src=other", true],
+    ["instagram", "?src=instagram", false],
+    ["gmailViewer", "", false]
+  ];
+  for (const [name, search, redirect] of cases) {
+    const plan = handoffPlan(USER_AGENTS[name], search);
+    assert.equal(plan.appURL, null, `${name} ${search}`);
+    assert.notEqual(plan.mode, "app", `${name} ${search}`);
+    assert.equal(plan.redirect, redirect, `${name} ${search}`);
+    assert.equal(plan.handoffURL, plan.storeLinkURL, `${name} ${search}`);
+    assert.doesNotMatch(plan.handoffURL, /^ascendapp:/, `${name} ${search}`);
+  }
+});
+
+test("the app link carries only a tag the app knows", () => {
+  for (const tag of ["email-paywall-abandoned", "email-free-week-unused", "email-trial-reminder", "instagram", "tiktok", "youtube", "facebook"]) {
+    assert.equal(appOpenURL(tag), `ascendapp://go?src=${tag}`);
+  }
+  assert.equal(appOpenURL(" Email-Trial-Reminder "), "ascendapp://go?src=email-trial-reminder");
+  for (const source of [null, undefined, "", "none", "other", "twitter", "x&y=1", "__proto__", "javascript:alert(1)"]) {
+    assert.equal(appOpenURL(source), "ascendapp://go", `source ${JSON.stringify(source)}`);
+  }
 });
 
 test("the /go page is served clean, never hardcodes the store, and loads no tracking", async () => {
