@@ -17,6 +17,10 @@ import {
 } from "../../src/lifecycleDripEmails.js";
 import type {DripSettings} from "../../src/lifecycleDripEmails.js";
 import type {DripEmailType} from "../../src/email/dripCopy.js";
+import {
+  formatChargeDate,
+  formatTrialEndsIn,
+} from "../../src/email/dripTemplate.js";
 import {processEmailJobs} from "../../src/email/processor.js";
 import {buildEmailJobId} from "../../src/email/queue.js";
 import type {EmailJobDocument} from "../../src/email/types.js";
@@ -195,7 +199,7 @@ test("the worker sends it once, with an unsubscribe link, and a rerun sends noth
   await processEmailJobs.run({} as never);
 
   assert.equal(sends.length, 1);
-  assert.equal(sends[0].subject, "You left before the climb started");
+  assert.equal(sends[0].subject, "A quick note from the founder of Ascend");
   assert.deepEqual(sends[0].to, ["sam@example.com"]);
   assert.match(sends[0].text, /Unsubscribe: https:\/\/ascendstepper\.com\/api\/unsubscribe/);
   assert.match(sends[0].text, /go\?src=email-paywall-abandoned/);
@@ -360,9 +364,13 @@ test("a climber whose welcome trial ends within a day gets the reminder with the
 
   await processEmailJobs.run({} as never);
   assert.equal(sends.length, 1);
-  assert.equal(sends[0].subject, "A reminder about your Ascend trial");
-  assert.match(sends[0].text, /This is a reminder/);
-  assert.match(sends[0].text, /Cancel Subscription/);
+  const trialEndsAtMs = payload.trialEndsAtMs as number;
+  const endsIn = formatTrialEndsIn(trialEndsAtMs, "Pacific/Auckland", new Date());
+  assert.equal(sends[0].subject, `Reminder: your Ascend trial ends ${endsIn}`);
+  assert.ok(sends[0].text.includes(
+    `Your 7-day free trial ends on ${formatChargeDate(trialEndsAtMs, "Pacific/Auckland")}.`
+  ));
+  assert.doesNotMatch(sends[0].text, /This is a reminder|Cancel Subscription|renews|\$/);
   assert.match(sends[0].text, /go\?src=email-trial-reminder/);
 });
 
