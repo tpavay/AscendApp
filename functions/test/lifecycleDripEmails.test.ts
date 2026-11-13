@@ -656,9 +656,9 @@ test("a bulleted block renders as a list in the html and as dashes in the text",
     {unsubscribeUrl: UNSUBSCRIBE}
   );
   assert.match(rendered.html, /<ul style="margin:0 0 1\.2em;padding-left:22px;">/);
-  assert.match(rendered.html, /<li>Walk up to any stair stepper\.<\/li>/);
+  assert.match(rendered.html, /<li>Hands-free tracking: Ascend counts your steps automatically using compatible headphones\.<\/li>/);
   assert.match(rendered.text,
-    /- Walk up to any stair stepper\.\n- Put your headphones in\.\n- Pick a tower\.\n\n/);
+    /- Hands-free tracking: Ascend counts your steps automatically using compatible headphones\.\n- Flexible logging: No headphones\? You can import workouts straight from Apple Health or log them manually\.\n- Real competition: [^\n]+\n\n/);
 });
 
 test("the draft copy keeps the founder's voice: no exclamation marks, no em dashes", () => {

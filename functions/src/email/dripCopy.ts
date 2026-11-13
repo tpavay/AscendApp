@@ -1,11 +1,9 @@
 /**
  * THE WORDS OF THE LIFECYCLE DRIP EMAILS.
  *
- * DRAFT, AWAITING THE CAPTAIN'S EDIT. Every subject and sentence below was
- * written by an agent in the voice of the founder letter
- * (`docs/free-week-after-decline.md`) so there is something to react to. None
- * of it has been read or approved by the captain. Edit freely: this is the
- * only file that holds drip wording, and changing it touches no logic.
+ * Approved by the captain. Every subject and sentence below is the captain's
+ * final wording for all three emails. This is the only file that holds drip
+ * wording, and changing it touches no logic.
  *
  * Voice: first person from the founder, short, no exclamation marks, no hype,
  * no pressure.
@@ -69,16 +67,18 @@ export const DRIP_EMAIL_COPY: Record<DripEmailType, DripEmailCopy> = {
     subject: "A quick note from the founder of Ascend",
     blocks: [
       "I'm Tyler, the founder of Ascend.",
-      "You downloaded the app and closed it on the first screen, before you " +
-        "saw anything else.",
-      "I built Ascend because the stair stepper is the best cardio there is " +
-        "and no app treated it that way.",
-      "Every workout is a climb up a real tower, and it lands on that " +
-        "tower's leaderboard.",
-      "There's more behind that first screen, and a note from me waiting " +
-        "there. If you open Ascend again you'll find it.",
-      "If it isn't for you, no hard feelings. You can unsubscribe below and " +
-        "I won't write again.",
+      "I noticed you downloaded the app recently, but closed out before " +
+        "getting past the first screen.",
+      "I built Ascend because the stair stepper is the best cardio there " +
+        "is, yet no app actually treated it that way. Before Ascend, I had " +
+        "to log every workout by hand, and I always climbed alone.",
+      "Now, your steps track automatically through your headphones, and " +
+        "you have global leaderboards and a real community to race against.",
+      "There is a lot more behind that first screen, including a welcome " +
+        "gift I left waiting for you. Open Ascend back up to claim it and " +
+        "take a look around.",
+      "If it isn't for you, no hard feelings at all. You can unsubscribe " +
+        "below and I won't write again.",
     ],
     linkLabel: "Open Ascend",
     whyReceived: "You get this because you chose to hear from Ascend when " +
@@ -89,24 +89,25 @@ export const DRIP_EMAIL_COPY: Record<DripEmailType, DripEmailCopy> = {
   // started a climb or logged a workout since. The delay is a Remote Config
   // number, so no line here may say how many days it has been.
   drip_free_week_unused: {
-    preheader: "Your free week is running. Here is the easiest way to use it.",
+    preheader: "Thanks for downloading Ascend. Your free week is running.",
     subject: "Your first climb is waiting",
     blocks: [
-      "Your free week has started, and you haven't climbed yet.",
-      "That's fine. The first one is the hardest to start.",
-      "Here's the easiest way in:",
+      "Thanks for downloading Ascend and starting your free week.",
+      "I love the stair stepper, and I built this app to make your " +
+        "sessions easier to track and a lot more fun. Here is how to get " +
+        "the most out of your week:",
       {
         bullets: [
-          "Walk up to any stair stepper.",
-          "Put your headphones in.",
-          "Pick a tower.",
+          "Hands-free tracking: Ascend counts your steps automatically " +
+            "using compatible headphones.",
+          "Flexible logging: No headphones? You can import workouts " +
+            "straight from Apple Health or log them manually.",
+          "Real competition: Every session is saved so you can track your " +
+            "personal bests, climb real towers, and compete against " +
+            "climbers around the world.",
         ],
       },
-      "Whatever you climb goes on that tower's leaderboard.",
-      "No headphones? You can type in a climb you already did.",
-      "The week is yours to use however you like.",
-      "If something got in the way, reply to this email and tell me. I read " +
-        "every one.",
+      "Your first climb is waiting whenever you're ready.",
     ],
     linkLabel: "Open Ascend",
     whyReceived: "You get this because you chose to hear from Ascend when " +
