@@ -4,7 +4,7 @@ A short plain note from the founder, sent to a climber who stopped at one point 
 Each email goes only for the furthest stage the climber reached, and is suppressed if they reached a later one.
 The emails are built switched off: every sweep ships dark, and production does not deliver the types until the captain adds them to its secret.
 
-Code: `functions/src/lifecycleDripEmails.ts` (the sweeps), `functions/src/email/dripEligibility.ts` (who is still right for it), `functions/src/email/dripTemplate.ts` (the plain renderer), `functions/src/email/dripCopy.ts` (every word).
+Code: `functions/src/lifecycleDripEmails.ts` (the sweeps), `functions/src/email/dripEligibility.ts` (who is still right for it), `functions/src/email/dripTemplate.ts` (the plain renderer and the subject's day count), `functions/src/email/dripCopy.ts` (every word).
 The queue, consent rule, worker, unsubscribe and sender are the existing email system (`.claude/skills/ascend-web-email`).
 
 ## The emails
@@ -13,7 +13,7 @@ The queue, consent rule, worker, unsubscribe and sender are the existing email s
 |---|---|---|---|
 | `drip_paywall_abandoned` | The first paywall appeared and was never closed. The climber left before the welcome offer or the founder letter could open. | 2 hours after the paywall was shown | `email-paywall-abandoned` |
 | `drip_free_week_unused` | The free week started, and the climber has not started a climb or logged a workout. | 24 hours after the week started | `email-free-week-unused` |
-| `drip_trial_reminder` | On the 7-day free trial of the welcome product (`ascend_yearly_welcome`, $9.99 a year), not cancelled. | 24 hours before the trial ends | `email-trial-reminder` |
+| `drip_trial_reminder` | On the 7-day free trial of the welcome product (`ascend_yearly_welcome`), not cancelled. | 24 hours before the trial ends | `email-trial-reminder` |
 
 Every link is `https://ascendstepper.com/go?src=<tag>`.
 There is no app deep link: `/go` opens the App Store listing.
@@ -109,10 +109,27 @@ The 6-hour lateness bound means a sweep that was down, or a switch turned on lat
 Indexes are in `firestore.indexes.json` (two composites and a `trial.grantedAt` field override); they deploy before the function does.
 Each segment is paged and bounded, and logs `lifecycleDripEmails.scanTruncated` at error level if the bound is hit.
 
+## The look
+
+The reference is a plain newsletter-style note, which the captain preferred to the earlier centered serif letter (restyled 2026-11-13).
+It is one left-aligned column, 520px wide at most, in Arial/Helvetica/sans-serif at 14px with a line height of 1.5.
+Each idea is its own paragraph with a 1.2em gap, so most paragraphs are one sentence, and only things that belong together share one.
+A short list is a real bulleted list (`-` lines in the plain-text part).
+The link is a plain text link on its own line, then the signature, then the small grey footer with why they got it, Privacy Policy and Unsubscribe.
+No images, no buttons, no template chrome.
+Only the three drip emails use this renderer; every other email type keeps its own.
+
 ## Editing the words
 
 Every subject and sentence is in `functions/src/email/dripCopy.ts`, marked as a draft awaiting the captain's edit.
-It holds no logic; `{chargeDate}` and `{price}` are the only placeholders, and `TRIAL_PRICE_LABEL` is a literal to keep in step with App Store Connect.
+It holds no logic.
+A block is a string (one paragraph) or `{bullets: [...]}`.
+`{chargeDate}` and `{trialEndsIn}` are the only placeholders, and only the trial reminder has them.
+
+The trial reminder says nothing about price, renewal, how to cancel or what to do: only that the 7-day free trial ends on the date, then one friendly closing line (the alternative, "There are plenty of new features on the way.", sits in a code comment beside it).
+Its subject is `Reminder: your Ascend trial ends tomorrow`, computed at render time.
+`{trialEndsIn}` counts calendar days between now and the trial end in the climber's own time zone (America/Chicago when none is recorded), so it agrees with the date in the body: `tomorrow` for one day, `in N days` for more, `today` for none or a late send.
+No line may name how long ago something happened, because the delays above are Remote Config numbers.
 
 ## Follow-ups, not built
 
