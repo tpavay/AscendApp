@@ -527,10 +527,13 @@ final class AppAccessPaywallCoordinator {
                 presentationIdentity: presentationIdentity,
                 reason: outcome == .backRequested ? .hostedBackRequested : .hostedDismissed
             )
-        case .skipped:
-            // No campaign or no audience match: there is nothing to replay, now or on a later launch.
+        case let .skipped(reason):
+            // A holdout or no audience match is Superwall deciding against this climber, so it is
+            // final. A placement no campaign triggers yet is still owed: the next launch asks again.
             watchdogTask?.cancel()
-            monetizationManager.recordDeclineOfferShown()
+            if SuperwallSkipReasonCategory(rawValue: reason)?.isDeliberate == true {
+                monetizationManager.recordDeclineOfferShown()
+            }
             openFirstPaywallInsteadOfDeclineOffer(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,

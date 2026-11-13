@@ -52,12 +52,14 @@ With `onboarding_v3_enabled` and `free_week_after_decline_enabled` both on, the 
   It cannot register `paywall_decline`: that is one of Superwall's own event names, and SuperwallKit drops an app's registration of one without calling back at all.
   Closing the replayed offer is the decline the chain would have reported, so it ends in the founder letter and the week by the rules above.
   Only the launch after the close replays: a gate that restarts inside the same process opens the first paywall.
-- **Nothing to show.** If Superwall skips the registration (no campaign or no audience match) the climber gets the first paywall and the offer is not owed again; if it fails, the climber gets the first paywall and the next launch asks again.
+- **Nothing to show.** The climber gets the first paywall whenever the offer cannot open.
+  A skip Superwall decided for this climber (a holdout, no audience match, an existing subscription) means the offer is not owed again.
+  A skip because no campaign triggers `decline_offer_replay`, any other skip, and a failure keep it owed, so the next launch asks again.
 
 Both switches off is the behaviour before this existed: nothing is written and nothing is replayed.
 
 What the dashboard has to hold: the decline offer campaign carries `decline_offer_replay` as a second trigger beside `paywall_decline`, in staging and production.
-Firstmate adds that trigger in the Superwall dashboard as a separate step from this change; until it exists, the replay is skipped and the climber falls back to the first paywall, with the offer not owed again.
+Firstmate adds that trigger in the Superwall dashboard as a separate step from this change; until it exists, the replay is skipped as placement not found, the climber falls back to the first paywall, and the offer stays owed until a launch after the trigger exists.
 The replay passes `presented_by_event_name = app_access_gate` as a parameter, which is what the campaign's filter on the first paywall reads when the SDK triggers it itself.
 A campaign filtered on anything else the SDK adds only to its own trigger (the paywall's id or name, say) skips the replay, and the climber falls back to the first paywall.
 Confirm on a staging device that a force-close on the first paywall opens the offer on the next launch.

@@ -193,8 +193,12 @@ struct DeclineOfferReplayTests {
         #expect(launch.presenter.placements == [.appAccessGate, .appAccessGate])
     }
 
-    @Test
-    func anOfferTheSuperwallCampaignHasNothingToShowForFallsBackToThePaywallAndIsNotOwedAgain() async {
+    @Test(arguments: [
+        SuperwallSkipReasonCategory.holdout, .noAudienceMatch, .userSubscribed
+    ])
+    func anOfferSuperwallDeliberatelySkipsFallsBackToThePaywallAndIsNotOwedAgain(
+        reason: SuperwallSkipReasonCategory
+    ) async {
         let defaults = makeDefaults()
         let first = await makeLaunch(defaults: defaults)
         first.coordinator.start()
@@ -202,13 +206,41 @@ struct DeclineOfferReplayTests {
 
         let second = await makeLaunch(defaults: defaults)
         second.coordinator.start()
-        second.presenter.send(.skipped(reason: "no_audience_match"), registration: 0)
+        second.presenter.send(.skipped(reason: reason.rawValue), registration: 0)
 
         #expect(second.presenter.placements == [.declineOfferReplay, .appAccessGate])
         #expect(second.presenter.sources == ["decline_offer_replay", "decline_offer_unavailable"])
+        #expect(DeclineOfferReplayStore(userDefaults: defaults).hasShown(for: "user-a"))
         let third = await makeLaunch(defaults: defaults)
         third.coordinator.start()
         #expect(third.presenter.placements == [.appAccessGate])
+    }
+
+    @Test
+    func anOfferNoCampaignTriggersYetFallsBackToThePaywallAndIsAskedForAgainNextLaunch() async {
+        let defaults = makeDefaults()
+        let first = await makeLaunch(defaults: defaults)
+        first.coordinator.start()
+        first.presenter.send(.presented, registration: 0)
+
+        let second = await makeLaunch(defaults: defaults)
+        second.coordinator.start()
+        let reason = SuperwallSkipReasonCategory.classify(String(describing: PaywallSkippedReason.placementNotFound))
+        second.presenter.send(.skipped(reason: reason.rawValue), registration: 0)
+
+        #expect(second.presenter.placements == [.declineOfferReplay, .appAccessGate])
+        #expect(!DeclineOfferReplayStore(userDefaults: defaults).hasShown(for: "user-a"))
+        let third = await makeLaunch(defaults: defaults)
+        third.coordinator.start()
+        #expect(third.presenter.placements == [.declineOfferReplay])
+    }
+
+    @Test
+    func theSDKsSkipReasonsClassifyIntoWhetherTheSkipWasDeliberate() {
+        #expect(SuperwallSkipReasonCategory.classify(String(describing: PaywallSkippedReason.placementNotFound)) == .placementNotFound)
+        #expect(SuperwallSkipReasonCategory.classify(String(describing: PaywallSkippedReason.noAudienceMatch)) == .noAudienceMatch)
+        #expect(!SuperwallSkipReasonCategory.placementNotFound.isDeliberate)
+        #expect(SuperwallSkipReasonCategory.noAudienceMatch.isDeliberate)
     }
 
     @Test
