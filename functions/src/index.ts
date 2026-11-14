@@ -51,6 +51,7 @@ export {
   expireRevenueCatEntitlements,
 } from "./revenueCat/expiration";
 export {birthdayEmails} from "./birthdayEmails";
+export {lifecycleDripEmails} from "./lifecycleDripEmails";
 export {
   composeMonthlyRecaps,
   composeWeeklyRecaps,

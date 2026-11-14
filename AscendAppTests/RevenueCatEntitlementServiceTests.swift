@@ -191,7 +191,6 @@ struct RevenueCatEntitlementServiceTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "subscriber",
-            postAuthOnboardingPhase: .complete,
             entitlementState: service.entitlementState,
             requiredEntitlementID: "app_access"
         )
@@ -230,7 +229,6 @@ struct RevenueCatEntitlementServiceTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "subscriber",
-            postAuthOnboardingPhase: .complete,
             entitlementState: service.entitlementState,
             requiredEntitlementID: "app_access"
         )
@@ -491,7 +489,6 @@ struct RevenueCatEntitlementServiceTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "subscriber",
-            postAuthOnboardingPhase: .complete,
             entitlementState: service.entitlementState,
             requiredEntitlementID: "app_access"
         )
@@ -862,7 +859,6 @@ private func route(for entitlementState: MonetizationEntitlementState) -> AppRoo
         updatePresentation: nil,
         authenticationState: .authenticated,
         userId: "billing-state-climber",
-        postAuthOnboardingPhase: .complete,
         entitlementState: entitlementState,
         requiredEntitlementID: "app_access"
     )

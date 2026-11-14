@@ -86,21 +86,6 @@ struct EmailPreferenceLiveWindowEvidenceTests {
         #expect(copy.contains("new climb drops"))
     }
 
-    @Test
-    func theOnboardingStepIsPhotographedWithItsPreTickedBox() async throws {
-        let copy = try await snapshot(
-            PostAuthOnboardingFlowView(
-                stage: .notifications,
-                onBack: {},
-                onContinue: {}
-            )
-            .environment(AuthenticationViewModel()),
-            named: "onboarding-notifications-step",
-            wrapInNavigationStack: false
-        )
-        #expect(copy.contains("email me when climbs drop"))
-    }
-
     // MARK: - Hosting
 
     /// Hosts the shipping view in a real window at iPhone 16 Pro size, so

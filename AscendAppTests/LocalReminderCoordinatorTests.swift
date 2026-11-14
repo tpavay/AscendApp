@@ -259,11 +259,10 @@ struct LocalReminderCoordinatorTests {
         )
     }
 
-    /// With the rollout off nothing has handed anything off, and the foreground retry used to treat
-    /// this target as undelivered, delete it, and leave the next reconcile with no target.
+    /// With nothing handed off, the foreground retry used to treat this target as undelivered,
+    /// delete it, and leave the next reconcile with no target.
     @Test
     func aTargetSetInSettingsSurvivesTheForegroundRetryAndKeepsTheNudge() async throws {
-        #expect(!RemoteFeatureFlagStore(snapshot: .shippedDefaults).isEnabled(.onboardingV3))
         let center = CoordinatorRecordingCenter()
         let store = try answersStore(target: nil)
         store.update { $0.usualClimbMinutes = nil }

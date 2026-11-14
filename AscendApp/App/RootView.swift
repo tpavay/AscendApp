@@ -18,9 +18,7 @@ struct RootView: View {
     @Environment(\.openURL) private var openURL
     @State private var appVersionGateState = AppVersionGateState.shared
     @State private var enrichmentService = AppleHealthEnrichmentService.shared
-    @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var onboardingV3Coordinator = OnboardingV3Coordinator()
-    @State private var onboardingV3RouteLatch = OnboardingV3RouteLatch()
     @State private var onboardingV3HandOff: OnboardingV3SignInHandOff?
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
@@ -30,7 +28,6 @@ struct RootView: View {
     @State private var isGateDeletionUnresolved = false
     @State private var isGateDeletionDismissPending = false
     @State private var gateAccountDeletionDismissalRevision: UInt = 0
-    @State private var profileCompletionCheckTask: Task<Void, Never>?
     private let authenticatedBootstrapCoordinator = AuthenticatedBootstrapCoordinator.shared
     private let appSessionTelemetryCoordinator = AppSessionTelemetryCoordinator.shared
 
@@ -38,10 +35,6 @@ struct RootView: View {
         Group {
             switch rootRoute {
             case .updateRequired:
-                routeContent(for: rootRoute)
-            case .signedOut:
-                routeContent(for: rootRoute)
-            case .signedOutHold:
                 routeContent(for: rootRoute)
             case .preAuthOnboarding:
                 routeContent(for: rootRoute)
@@ -51,8 +44,6 @@ struct RootView: View {
                 routeContent(for: rootRoute)
             case .resolving:
                 authenticatedContent(for: .resolving)
-            case .onboarding:
-                authenticatedContent(for: rootRoute)
             case .paywall:
                 authenticatedContent(for: .paywall)
             case .mainApp:
@@ -97,7 +88,6 @@ struct RootView: View {
             )
         }
         .task {
-            onboardingV3RouteLatch.beginHold()
             observeColdLaunchSession()
             AppDiagnosticsRecorder.shared.record(
                 "app_root_task_started",
@@ -105,7 +95,6 @@ struct RootView: View {
             )
             enrichmentService.configure(modelContext: modelContext)
             LocalReminderCoordinator.shared.configure(modelContext: modelContext)
-            postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             scheduleAuthenticatedSessionWork()
         }
         // Its own task so the catalogue fetch runs alongside session work rather
@@ -144,11 +133,6 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
         }
-        #if DEBUG || STAGING
-        .onReceive(NotificationCenter.default.publisher(for: .onboardingV3DebugReplayRequested)) { _ in
-            onboardingV3RouteLatch.forceFlow()
-        }
-        #endif
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
             AppDiagnosticsRecorder.shared.record(
                 "app_will_terminate",
@@ -181,8 +165,6 @@ struct RootView: View {
                     "route": rootRoute.diagnosticName
                 ]
             )
-            postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
-            completePostAuthOnboardingIfRemoteProfileExists()
             runOnboardingV3HandOffAfterSignIn()
             scheduleAuthenticatedSessionWork()
         }
@@ -210,15 +192,6 @@ struct RootView: View {
         .onChange(of: appVersionGateState.isUpdateRequired) { _, isUpdateRequired in
             guard !isUpdateRequired else { return }
             scheduleAuthenticatedSessionWork()
-        }
-        .onChange(of: authVM.hasRemoteDisplayName) { _, _ in
-            completePostAuthOnboardingIfRemoteProfileExists()
-        }
-        .onChange(of: authVM.isProfileLoaded) { _, _ in
-            completePostAuthOnboardingIfRemoteProfileExists()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .postAuthOnboardingStateDidChange)) { _ in
-            postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid, force: true)
         }
         .onChange(of: onboardingFlowCompletionCandidate, initial: true) { _, reason in
             guard let reason else { return }
@@ -309,35 +282,15 @@ struct RootView: View {
     }
 
     private var rootRoute: AppRootRoute {
-        let resolvedRoute = AppRootRouteResolver.resolve(
+        AppRootRouteResolver.resolve(
             updatePresentation: appVersionGateState.presentation,
             authenticationState: authVM.authenticationState,
             userId: authVM.user?.uid,
-            postAuthOnboardingPhase: postAuthOnboardingCoordinator.phase,
             entitlementState: monetizationManager.entitlementStateForRouting,
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
             allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting,
-            // The switch alone. A pass this device once finished says nothing about which screen a
-            // signed-out climber sees: reading it here sent every climber who signed out to the
-            // onboarding the switch replaced, on that launch and on every one after it.
-            showsPreAuthOnboardingV3: onboardingV3RouteLatch.showsFlow,
             freeWeekAccess: monetizationManager.freeWeekAccessForRouting
         )
-
-        // At the very start of onboarding we do not yet know whether this account
-        // already finished it on another device, and `completePostAuthOnboardingIfRemoteProfileExists`
-        // cannot answer that until the profile has loaded. Holding here is what
-        // stops the first question flashing at a climber who has already answered
-        // it. Deliberately keyed to `.first` rather than to a named stage: the
-        // stage that opens onboarding has changed once already.
-        if case .onboarding(let stage) = resolvedRoute,
-           stage == .first,
-           authVM.user != nil,
-           !authVM.isProfileLoaded {
-            return .resolving
-        }
-
-        return resolvedRoute
     }
 
     private var coldLaunchAuthState: AppLifecycleAnalyticsEvent.AuthState {
@@ -355,7 +308,6 @@ struct RootView: View {
     private var onboardingFlowCompletionCandidate: OnboardingFlowCompletionReason? {
         OnboardingFlowCompletionResolver.completionReason(
             rootRoute: rootRoute,
-            postAuthPhase: postAuthOnboardingCoordinator.phase,
             confirmedAccessReason: monetizationManager.onboardingCompletionReasonForActiveAccess
         )
     }
@@ -391,16 +343,6 @@ struct RootView: View {
                 )
             }
 
-        case .signedOut:
-            routeScreen(route) {
-                LandingScreen()
-            }
-
-        case .signedOutHold:
-            routeScreen(route) {
-                SignedOutHoldView()
-            }
-
         case .preAuthOnboarding:
             routeScreen(route) {
                 OnboardingV3FlowView(coordinator: onboardingV3Coordinator)
@@ -423,20 +365,10 @@ struct RootView: View {
                 AppAccessResolvingView(onSignOut: { authVM.signOut(surface: .appAccessResolving) })
             }
 
-        case .onboarding(let stage):
-            routeScreen(route) {
-                PostAuthOnboardingFlowView(
-                    stage: stage,
-                    onBack: postAuthOnboardingCoordinator.moveBack,
-                    onContinue: postAuthOnboardingCoordinator.completeCurrentStage
-                )
-            }
-
         case .paywall:
             routeScreen(route) {
                 AppAccessPaywallPlaceholderView(
                     accountDeletionDismissalRevision: gateAccountDeletionDismissalRevision,
-                    onRequestOnboardingBack: postAuthOnboardingCoordinator.reopenLastStage,
                     onDeleteAccount: { presentGateAccountDeletion() },
                     onSignOut: { authVM.signOut(surface: .appAccessGate) }
                 )
@@ -456,10 +388,6 @@ struct RootView: View {
     /// route the app resolved and then stay silent for the rest of the session. Each branch
     /// is its own identity, so a route change tears the guard down and the next route
     /// reports itself.
-    ///
-    /// The stage of an `.onboarding` route is not an identity change, so a climber walking
-    /// the post-auth flow banks one `onboarding_flow` view, not one per step - the 21 steps
-    /// are the onboarding funnel's job.
     @ViewBuilder
     private func routeScreen(
         _ route: AppRootRoute,
@@ -523,12 +451,11 @@ struct RootView: View {
     private func onboardingV3HandOffService() -> OnboardingV3SignInHandOff {
         if let onboardingV3HandOff { return onboardingV3HandOff }
 
-        let postAuthOnboardingCoordinator = postAuthOnboardingCoordinator
         let onboardingV3Coordinator = onboardingV3Coordinator
         let handOff = OnboardingV3SignInHandOff.live(
             session: authVM,
             markPostSignInOnboardingComplete: {
-                postAuthOnboardingCoordinator.markCurrentUserComplete()
+                OnboardingCompletionRecorder.recordCompleted()
                 onboardingV3Coordinator.finish()
             },
             importHealthHistory: { answers in
@@ -706,74 +633,6 @@ struct RootView: View {
 
     private func isCurrentAuthenticatedSession(_ expectedUserId: String) -> Bool {
         Task.isCancelled == false && authVM.user?.uid == expectedUserId
-    }
-
-    @MainActor
-    private func completePostAuthOnboardingIfRemoteProfileExists() {
-        #if DEBUG
-        if let userId = authVM.user?.uid,
-           PostAuthOnboardingStore().isDebugReplayActive(for: userId) {
-            profileCompletionCheckTask?.cancel()
-            profileCompletionCheckTask = nil
-            return
-        }
-        #endif
-
-        // A climber who reached the paywall already has a complete remote profile, so without this
-        // guard the next profile load would mark onboarding complete again and silently undo the
-        // back tap they just made.
-        guard !postAuthOnboardingCoordinator.isReopenedByClimber else {
-            profileCompletionCheckTask?.cancel()
-            profileCompletionCheckTask = nil
-            return
-        }
-
-        guard let user = authVM.user,
-              authVM.isProfileLoaded,
-              authVM.hasRemoteDisplayName else {
-            profileCompletionCheckTask?.cancel()
-            profileCompletionCheckTask = nil
-            return
-        }
-
-        profileCompletionCheckTask?.cancel()
-        profileCompletionCheckTask = Task { @MainActor in
-            let userData = try? await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
-            guard !Task.isCancelled,
-                  !postAuthOnboardingCoordinator.isReopenedByClimber,
-                  let userData,
-                  isCompletePostAuthProfile(userData) else {
-                return
-            }
-
-            postAuthOnboardingCoordinator.markCurrentUserComplete()
-        }
-    }
-
-    private func isCompletePostAuthProfile(_ userData: UserDisplayNameData) -> Bool {
-        guard let displayName = userData.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !displayName.isEmpty,
-              let age = userData.age,
-              (13...120).contains(age),
-              let genderRawValue = userData.gender,
-              ProfileGender(rawValue: genderRawValue) != nil,
-              let weightKg = userData.weightKg,
-              weightKg > 0,
-              weightKg <= 400,
-              let locationCity = userData.locationCity?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !locationCity.isEmpty,
-              locationCity.count <= 120,
-              let locationCountry = userData.locationCountry,
-              locationCountry.range(of: #"^[A-Z]{2}$"#, options: .regularExpression) != nil else {
-            return false
-        }
-
-        if let locationRegion = userData.locationRegion?.trimmingCharacters(in: .whitespacesAndNewlines),
-           locationRegion.count > 120 {
-            return false
-        }
-
-        return true
     }
 }
 

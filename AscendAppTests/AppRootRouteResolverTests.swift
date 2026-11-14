@@ -4,38 +4,40 @@ import Testing
 
 struct AppRootRouteResolverTests {
     @Test
-    func resolvesSignedOutWhenThereIsNoAuthenticatedUser() {
+    func resolvesTheOnboardingWhenThereIsNoAuthenticatedUser() {
         let route = AppRootRouteResolver.resolve(
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: nil,
-            postAuthOnboardingPhase: .complete,
             entitlementState: .active(["app_access"]),
             requiredEntitlementID: "app_access"
         )
 
-        #expect(route == .signedOut)
+        #expect(route == .preAuthOnboarding)
     }
 
-    /// An authenticated state with no account behind it is nobody signed in, and takes the same
-    /// signed-out decision as any other: with the v3 onboarding on it never falls to the landing.
+    /// Nobody signed in gets the onboarding, however the question is asked. There is no switch and
+    /// no other signed-out screen, so a fresh install and a climber who just signed out are
+    /// indistinguishable here.
     @Test
-    func anAuthenticatedStateWithNoUserTakesTheSignedOutDecision() {
-        func route(showsV3: Bool?) -> AppRootRoute {
-            AppRootRouteResolver.resolve(
-                updatePresentation: nil,
-                authenticationState: .authenticated,
-                userId: nil,
-                postAuthOnboardingPhase: .complete,
-                entitlementState: .active(["app_access"]),
-                requiredEntitlementID: "app_access",
-                showsPreAuthOnboardingV3: showsV3
-            )
-        }
+    func aSignedOutClimberAlwaysGetsTheOnboarding() {
+        let signedOut = AppRootRouteResolver.resolve(
+            updatePresentation: nil,
+            authenticationState: .unauthenticated,
+            userId: nil,
+            entitlementState: .unknown,
+            requiredEntitlementID: "app_access"
+        )
+        let noAccountBehindAuthenticated = AppRootRouteResolver.resolve(
+            updatePresentation: nil,
+            authenticationState: .authenticated,
+            userId: nil,
+            entitlementState: .active(["app_access"]),
+            requiredEntitlementID: "app_access"
+        )
 
-        #expect(route(showsV3: true) == .preAuthOnboarding)
-        #expect(route(showsV3: nil) == .signedOutHold)
-        #expect(route(showsV3: false) == .signedOut)
+        #expect(signedOut == .preAuthOnboarding)
+        #expect(noAccountBehindAuthenticated == .preAuthOnboarding)
     }
 
     @Test
@@ -44,7 +46,6 @@ struct AppRootRouteResolverTests {
             updatePresentation: nil,
             authenticationState: .authenticatingWithApple,
             userId: nil,
-            postAuthOnboardingPhase: .signedOut,
             entitlementState: .unknown,
             requiredEntitlementID: "app_access"
         )
@@ -53,26 +54,11 @@ struct AppRootRouteResolverTests {
     }
 
     @Test
-    func resolvesOnboardingBeforeCheckingAccess() {
+    func resolvesPaywallWithoutAccess() {
         let route = AppRootRouteResolver.resolve(
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "user-1",
-            postAuthOnboardingPhase: .onboarding(.stairStepperBaseline),
-            entitlementState: .inactive,
-            requiredEntitlementID: "app_access"
-        )
-
-        #expect(route == .onboarding(.stairStepperBaseline))
-    }
-
-    @Test
-    func resolvesPaywallWhenOnboardingIsCompleteWithoutAccess() {
-        let route = AppRootRouteResolver.resolve(
-            updatePresentation: nil,
-            authenticationState: .authenticated,
-            userId: "user-1",
-            postAuthOnboardingPhase: .complete,
             entitlementState: .inactive,
             requiredEntitlementID: "app_access"
         )
@@ -86,7 +72,6 @@ struct AppRootRouteResolverTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "user-1",
-            postAuthOnboardingPhase: .complete,
             entitlementState: .inactive,
             requiredEntitlementID: "app_access",
             allowsUnentitledAppAccess: true
@@ -96,12 +81,11 @@ struct AppRootRouteResolverTests {
     }
 
     @Test
-    func resolvesMainAppWhenOnboardingIsCompleteWithAccess() {
+    func resolvesMainAppWithAccess() {
         let route = AppRootRouteResolver.resolve(
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "user-1",
-            postAuthOnboardingPhase: .complete,
             entitlementState: .active(["app_access"]),
             requiredEntitlementID: "app_access"
         )
@@ -115,7 +99,6 @@ struct AppRootRouteResolverTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "user-1",
-            postAuthOnboardingPhase: .complete,
             entitlementState: .unknown,
             requiredEntitlementID: "app_access"
         )
@@ -129,7 +112,6 @@ struct AppRootRouteResolverTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "user-1",
-            postAuthOnboardingPhase: .complete,
             entitlementState: .unknown,
             requiredEntitlementID: "app_access",
             allowsUnentitledAppAccess: true
@@ -153,7 +135,6 @@ struct AppRootRouteLockoutPrecedenceTests {
             updatePresentation: .required,
             authenticationState: .authenticated,
             userId: "user-1",
-            postAuthOnboardingPhase: .complete,
             entitlementState: .inactive,
             requiredEntitlementID: "app_access"
         )
@@ -177,35 +158,11 @@ struct AppRootRouteLockoutPrecedenceTests {
                 updatePresentation: .required,
                 authenticationState: state,
                 userId: nil,
-                postAuthOnboardingPhase: .signedOut,
                 entitlementState: .unknown,
                 requiredEntitlementID: "app_access"
             )
 
             #expect(route == .updateRequired, "\(state) escaped the lockout")
-        }
-    }
-
-    @Test("No onboarding phase can outrank the lockout", .bug(id: 429))
-    func lockoutOutranksEveryOnboardingPhase() {
-        let phases: [PostAuthOnboardingPhase] = [
-            .signedOut,
-            .resolving,
-            .onboarding(.stairStepperBaseline),
-            .complete
-        ]
-
-        for phase in phases {
-            let route = AppRootRouteResolver.resolve(
-                updatePresentation: .required,
-                authenticationState: .authenticated,
-                userId: "user-1",
-                postAuthOnboardingPhase: phase,
-                entitlementState: .inactive,
-                requiredEntitlementID: "app_access"
-            )
-
-            #expect(route == .updateRequired, "\(phase) escaped the lockout")
         }
     }
 
@@ -222,7 +179,6 @@ struct AppRootRouteLockoutPrecedenceTests {
                 updatePresentation: .required,
                 authenticationState: .authenticated,
                 userId: "user-1",
-                postAuthOnboardingPhase: .complete,
                 entitlementState: entitlementState,
                 requiredEntitlementID: "app_access"
             )
@@ -238,7 +194,6 @@ struct AppRootRouteLockoutPrecedenceTests {
             updatePresentation: .required,
             authenticationState: .authenticated,
             userId: "user-1",
-            postAuthOnboardingPhase: .complete,
             entitlementState: .active(["app_access"]),
             requiredEntitlementID: "app_access",
             allowsUnentitledAppAccess: true
@@ -251,20 +206,18 @@ struct AppRootRouteLockoutPrecedenceTests {
     /// anybody off their route - that is the whole difference between the two verdicts.
     @Test("The recommended nudge changes no route", .bug(id: 429))
     func recommendedUpdateLeavesEveryRouteAlone() {
-        let cases: [(AuthenticationState, PostAuthOnboardingPhase, MonetizationEntitlementState, AppRootRoute)] = [
-            (.unauthenticated, .signedOut, .unknown, .signedOut),
-            (.restoringSession, .signedOut, .unknown, .restoringSession),
-            (.authenticated, .onboarding(.stairStepperBaseline), .inactive, .onboarding(.stairStepperBaseline)),
-            (.authenticated, .complete, .inactive, .paywall),
-            (.authenticated, .complete, .active(["app_access"]), .mainApp)
+        let cases: [(AuthenticationState, MonetizationEntitlementState, AppRootRoute)] = [
+            (.unauthenticated, .unknown, .preAuthOnboarding),
+            (.restoringSession, .unknown, .restoringSession),
+            (.authenticated, .inactive, .paywall),
+            (.authenticated, .active(["app_access"]), .mainApp)
         ]
 
-        for (authenticationState, phase, entitlementState, expected) in cases {
+        for (authenticationState, entitlementState, expected) in cases {
             let route = AppRootRouteResolver.resolve(
                 updatePresentation: .recommended,
                 authenticationState: authenticationState,
                 userId: "user-1",
-                postAuthOnboardingPhase: phase,
                 entitlementState: entitlementState,
                 requiredEntitlementID: "app_access"
             )
@@ -278,14 +231,12 @@ struct AppRootRouteLockoutPrecedenceTests {
 struct AppRootRouteFreeWeekTests {
     private func routeAtTheGate(
         entitlementState: MonetizationEntitlementState,
-        freeWeekAccess: FreeWeekRoutingAccess,
-        postAuthOnboardingPhase: PostAuthOnboardingPhase = .complete
+        freeWeekAccess: FreeWeekRoutingAccess
     ) -> AppRootRoute {
         AppRootRouteResolver.resolve(
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "user-1",
-            postAuthOnboardingPhase: postAuthOnboardingPhase,
             entitlementState: entitlementState,
             requiredEntitlementID: "app_access",
             freeWeekAccess: freeWeekAccess
@@ -319,20 +270,16 @@ struct AppRootRouteFreeWeekTests {
     }
 
     @Test
-    func aFreeWeekNeverSkipsOnboardingOrTheUpdateLockout() {
-        #expect(
-            routeAtTheGate(
-                entitlementState: .inactive,
-                freeWeekAccess: .live,
-                postAuthOnboardingPhase: .onboarding(.first)
-            ) == .onboarding(.first)
+    func aFreeWeekNeverSkipsTheUpdateLockout() {
+        let route = AppRootRouteResolver.resolve(
+            updatePresentation: .required,
+            authenticationState: .authenticated,
+            userId: "user-1",
+            entitlementState: .inactive,
+            requiredEntitlementID: "app_access",
+            freeWeekAccess: .live
         )
-        #expect(
-            routeAtTheGate(
-                entitlementState: .inactive,
-                freeWeekAccess: .live,
-                postAuthOnboardingPhase: .resolving
-            ) == .resolving
-        )
+
+        #expect(route == .updateRequired)
     }
 }

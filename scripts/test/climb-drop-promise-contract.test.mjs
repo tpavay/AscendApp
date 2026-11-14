@@ -24,10 +24,10 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 /** The five surfaces that make the climb-drop promise, and what they say. */
 const CLIMB_DROP_COPY_SURFACES = [
   {
-    file: "AscendApp/Features/Onboarding/Views/PostAuthOnboardingFlowView.swift",
+    file: "AscendApp/Features/Onboarding/V3/Notifications/NotificationPrimerContent.swift",
     strings: [
-      "Get an Ascend alert when new climbs open.",
-      "Email me when climbs drop.",
+      "when new climbs open.",
+      "Email me when climbs drop",
     ],
   },
   {

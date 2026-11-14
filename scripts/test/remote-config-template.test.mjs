@@ -7,6 +7,7 @@ import {
   MAX_PARAMETER_DESCRIPTION_LENGTH,
   SETTING_PARAMETERS,
   ROLLOUT_PARAMETERS,
+  SERVER_ONLY_PARAMETERS,
   appFlagKeys,
   findActiveKillSwitches,
   findArmedSettings,
@@ -195,7 +196,12 @@ test("the template carries exactly the parameters the app knows about", () => {
   const appKeys = appFlagKeys(everyParameterSource);
 
   assert.ok(appKeys.length > 0, "could not parse any keys out of the RemoteConfig enums");
-  assert.deepEqual(Object.keys(templateParameters(localTemplate)).sort(), appKeys);
+  assert.deepEqual(
+    Object.keys(templateParameters(localTemplate))
+      .filter((key) => !SERVER_ONLY_PARAMETERS.includes(key))
+      .sort(),
+    appKeys,
+  );
   assert.deepEqual(
     flagParityProblems(localTemplate, everyParameterSource),
     [],
@@ -226,13 +232,13 @@ test("a setting is held to its own shape contract, not the kill-switch one", () 
 test("a rollout ships off, and a checked-in true is refused", () => {
   // The opposite of a kill switch: the feature is dark until an operator turns it on, so the
   // checked-in healthy state is "false" and publishing a "true" would launch it fleet-wide.
-  assert.ok(isRolloutParameter("onboarding_v3_enabled"));
+  assert.ok(isRolloutParameter("free_week_after_decline_enabled"));
   assert.ok(!isRolloutParameter("workout_cloud_backup_writes_enabled"));
-  assert.equal(ROLLOUT_PARAMETERS.onboarding_v3_enabled.healthyDefault, "false");
+  assert.equal(ROLLOUT_PARAMETERS.free_week_after_decline_enabled.healthyDefault, "false");
 
   const shipped = {
     parameters: {
-      onboarding_v3_enabled: {
+      free_week_after_decline_enabled: {
         defaultValue: {value: "false"},
         valueType: "BOOLEAN",
         description: "rollout",
@@ -241,7 +247,7 @@ test("a rollout ships off, and a checked-in true is refused", () => {
   };
   assert.deepEqual(templateShapeProblems(shipped), []);
 
-  shipped.parameters.onboarding_v3_enabled.defaultValue.value = "true";
+  shipped.parameters.free_week_after_decline_enabled.defaultValue.value = "true";
   const problems = templateShapeProblems(shipped);
   assert.equal(problems.length, 1);
   assert.match(problems[0], /is a rollout and must ship at "false"/);
@@ -249,15 +255,15 @@ test("a rollout ships off, and a checked-in true is refused", () => {
 
 test("a rollout that is off is the healthy state, not a tripped switch", () => {
   const live = liveTemplateMatchingCheckedIn();
-  assert.equal(live.parameters.onboarding_v3_enabled.defaultValue.value, "false");
+  assert.equal(live.parameters.free_week_after_decline_enabled.defaultValue.value, "false");
   assert.deepEqual(findActiveKillSwitches(live, localTemplate), []);
 });
 
 test("a rollout an operator turned on stops the full replace that would pull it back", () => {
   const live = liveTemplateMatchingCheckedIn();
-  live.parameters.onboarding_v3_enabled.defaultValue.value = "true";
+  live.parameters.free_week_after_decline_enabled.defaultValue.value = "true";
 
-  assert.deepEqual(findArmedSettings(live, localTemplate), ["onboarding_v3_enabled"]);
+  assert.deepEqual(findArmedSettings(live, localTemplate), ["free_week_after_decline_enabled"]);
   assert.deepEqual(findActiveKillSwitches(live, localTemplate), []);
 });
 
@@ -414,20 +420,20 @@ test("a lever that returns to parity on its own needs no follow-up step", () => 
 
 test("a rollout that is on names the console step, and says the checked-in false stays", () => {
   const live = liveTemplateMatchingCheckedIn();
-  live.parameters.onboarding_v3_enabled.defaultValue.value = "true";
+  live.parameters.free_week_after_decline_enabled.defaultValue.value = "true";
 
-  const step = overrideRecoveryStep("onboarding_v3_enabled", live);
+  const step = overrideRecoveryStep("free_week_after_decline_enabled", live);
 
   assert.match(step, /restates "false" over the live "true"/);
   assert.match(step, /checked-in value stays false/);
-  assert.match(step, /set onboarding_v3_enabled back to "true" in the console/);
+  assert.match(step, /set free_week_after_decline_enabled back to "true" in the console/);
 });
 
 test("a rollout scoped by conditions names them in the console step", () => {
   const live = liveTemplateMatchingCheckedIn();
-  live.parameters.onboarding_v3_enabled.conditionalValues = { Internal: { value: "true" } };
+  live.parameters.free_week_after_decline_enabled.conditionalValues = { Internal: { value: "true" } };
 
-  const step = overrideRecoveryStep("onboarding_v3_enabled", live);
+  const step = overrideRecoveryStep("free_week_after_decline_enabled", live);
 
   assert.match(step, /over the live "false" and its conditional values/);
   assert.match(step, /back to "false" and its conditional values in the console/);
@@ -435,10 +441,10 @@ test("a rollout scoped by conditions names them in the console step", () => {
 
 test("a rollout the live project holds off needs no follow-up step", () => {
   const live = liveTemplateMatchingCheckedIn();
-  live.parameters.onboarding_v3_enabled.description = "reworded in the console";
+  live.parameters.free_week_after_decline_enabled.description = "reworded in the console";
 
-  assert.deepEqual(findArmedSettings(live, localTemplate), ["onboarding_v3_enabled"]);
-  assert.equal(overrideRecoveryStep("onboarding_v3_enabled", live), null);
+  assert.deepEqual(findArmedSettings(live, localTemplate), ["free_week_after_decline_enabled"]);
+  assert.equal(overrideRecoveryStep("free_week_after_decline_enabled", live), null);
 });
 
 test("only settings marked monotonic read as monotonic", () => {
@@ -709,4 +715,30 @@ test("a result-wrapped CLI response is unwrapped", () => {
   assert.deepEqual(findActiveKillSwitches(live, localTemplate), [
     "public_profile_publishing_enabled",
   ]);
+});
+
+test("every server-only parameter is in the template and held to its own contract", () => {
+  // That a Cloud Function reads each one is proved by executing it in
+  // functions/test/lifecycleDripEmails.test.ts.
+  for (const key of SERVER_ONLY_PARAMETERS) {
+    assert.ok(localTemplate.parameters[key], `${key} is server-only but not in the template`);
+    assert.ok(
+      isRolloutParameter(key) || isSettingParameter(key),
+      `${key} must be a rollout or a setting so the full replace guard covers it`,
+    );
+  }
+});
+
+test("the drip email switches ship off and their delays ship at the documented defaults", () => {
+  const parameters = templateParameters(localTemplate);
+  const switches = SERVER_ONLY_PARAMETERS.filter((key) => key.endsWith("_enabled"));
+  assert.equal(switches.length, 3);
+  for (const key of switches) {
+    assert.equal(parameters[key].defaultValue.value, "false");
+    assert.equal(parameters[key].valueType, "BOOLEAN");
+  }
+  assert.equal(parameters.lifecycle_email_paywall_abandoned_delay_hours.defaultValue.value, "2");
+  assert.equal(parameters.lifecycle_email_free_week_unused_delay_hours.defaultValue.value, "24");
+  assert.equal(parameters.lifecycle_email_trial_reminder_lead_hours.defaultValue.value, "24");
+  assert.deepEqual(templateShapeProblems(localTemplate), []);
 });

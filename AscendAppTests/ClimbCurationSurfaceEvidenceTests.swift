@@ -39,46 +39,6 @@ struct ClimbCurationSurfaceEvidenceTests {
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
 
-    /// The page publishes itself as one combined element whose label names every
-    /// card it draws, so the tree holds the same list the collage shows.
-    @Test("The landmarks value page shows four distinct landmarks in two columns", .bug(id: 440))
-    func landmarksValuePageShowsNoLandmarkTwice() async throws {
-        try await RenderedScreen.host(
-            flat(
-                OnboardingLandmarksValuePageContent(
-                    subtitle: OnboardingValuePages.landmarkSubtitle(raceableLandmarkCount: 30)
-                )
-            ),
-            size: Self.screenSize
-        ) { screen in
-            let text = try await screen.copy()
-
-            for label in ["statue", "empire", "eiffel", "burj"] {
-                #expect(text.contains(label), "expected \(label) in: \(text)")
-            }
-            #expect(!text.contains("machu"))
-            #expect(!text.contains("everest"))
-
-            try screen.photograph(named: "onboarding-landmarks-value-page")
-        }
-    }
-
-    /// The collage is hidden from the accessibility tree by design, so which
-    /// landmarks it draws is checked by eye on the photograph; what the tree can
-    /// hold is that the screen photographed is the guide's landmark page.
-    @Test("The pre-auth guide collage repeats no landmark", .bug(id: 440))
-    func preAuthGuideCollageRepeatsNoLandmark() async throws {
-        try await RenderedScreen.host(
-            flat(OnboardingFeatureGuideFlowScreen(onFinish: {})),
-            size: Self.screenSize
-        ) { screen in
-            let text = try await screen.copy()
-            #expect(text.contains("most iconic landmarks"), "expected the landmark guide page in: \(text)")
-
-            try screen.photograph(named: "onboarding-preauth-guide-collage")
-        }
-    }
-
     @Test("A hidden mountain reached through history reads Not Raceable", .bug(id: 440))
     func hiddenMountainDetailIsNotRaceable() async throws {
         let everest = try #require(

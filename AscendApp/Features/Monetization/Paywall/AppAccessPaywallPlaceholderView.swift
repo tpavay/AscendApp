@@ -12,18 +12,15 @@ struct AppAccessPaywallPlaceholderView: View {
     private let accountDeletionDismissalRevision: UInt
     private let onDeleteAccount: @MainActor () -> Void
     private let onSignOut: @MainActor () -> Void
-    private let onRequestOnboardingBack: (@MainActor () -> Bool)?
 
     init(
         automaticallyStarts: Bool = true,
         accountDeletionDismissalRevision: UInt = 0,
-        onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onDeleteAccount: @escaping @MainActor () -> Void,
         onSignOut: @escaping @MainActor () -> Void = {}
     ) {
         self.automaticallyStarts = automaticallyStarts
         self.accountDeletionDismissalRevision = accountDeletionDismissalRevision
-        self.onRequestOnboardingBack = onRequestOnboardingBack
         self.onDeleteAccount = onDeleteAccount
         self.onSignOut = onSignOut
     }
@@ -33,7 +30,6 @@ struct AppAccessPaywallPlaceholderView: View {
             manager: monetizationManager,
             automaticallyStarts: automaticallyStarts,
             accountDeletionDismissalRevision: accountDeletionDismissalRevision,
-            onRequestOnboardingBack: onRequestOnboardingBack,
             onDeleteAccount: onDeleteAccount,
             onSignOut: onSignOut
         )
@@ -51,7 +47,6 @@ private struct AppAccessPaywallContentView: View {
         manager: MonetizationManager,
         automaticallyStarts: Bool,
         accountDeletionDismissalRevision: UInt,
-        onRequestOnboardingBack: (@MainActor () -> Bool)?,
         onDeleteAccount: @escaping @MainActor () -> Void,
         onSignOut: @escaping @MainActor () -> Void
     ) {
@@ -61,7 +56,6 @@ private struct AppAccessPaywallContentView: View {
         _coordinator = State(
             initialValue: AppAccessPaywallCoordinator(
                 monetizationManager: manager,
-                onRequestOnboardingBack: onRequestOnboardingBack,
                 onRequestAccountDeletion: onDeleteAccount,
                 onRequestSignOut: onSignOut
             )

@@ -60,14 +60,10 @@ struct DeclineOfferReplayTests {
         #expect(store.hasShown(for: "user-a"))
     }
 
-    @Test(arguments: [Switch.freeWeek, .onboardingV3])
-    func withEitherSwitchOffNothingIsRemembered(off: Switch) async {
+    @Test
+    func withTheSwitchOffNothingIsRemembered() async {
         let defaults = makeDefaults()
-        let launch = await makeLaunch(
-            defaults: defaults,
-            freeWeekEnabled: off != .freeWeek,
-            onboardingV3Enabled: off != .onboardingV3
-        )
+        let launch = await makeLaunch(defaults: defaults, freeWeekEnabled: false)
 
         launch.coordinator.start()
         launch.presenter.send(.presented, registration: 0)
@@ -371,11 +367,6 @@ struct DeclineOfferReplayTests {
 
     // MARK: - Harness
 
-    enum Switch: CaseIterable {
-        case freeWeek
-        case onboardingV3
-    }
-
     private func makeDefaults() -> UserDefaults {
         UserDefaults(suiteName: "DeclineOfferReplayTests-\(UUID().uuidString)")!
     }
@@ -384,7 +375,6 @@ struct DeclineOfferReplayTests {
         defaults: UserDefaults,
         userID: String = "user-a",
         freeWeekEnabled: Bool = true,
-        onboardingV3Enabled: Bool = true,
         walkedV3: Bool = true,
         runningWeekDaysAgo: Double? = nil
     ) async -> Launch {
@@ -433,8 +423,7 @@ struct DeclineOfferReplayTests {
             freeWeek: freeWeek.store,
             telemetry: telemetry,
             onboardingLifecycle: lifecycle,
-            userDefaults: defaults,
-            isOnboardingV3Enabled: { onboardingV3Enabled }
+            userDefaults: defaults
         )
         let coordinator = AppAccessPaywallCoordinator(
             monetizationManager: manager,

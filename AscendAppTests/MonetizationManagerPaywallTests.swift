@@ -336,7 +336,7 @@ struct MonetizationManagerPaywallTests {
             telemetry: telemetry
         )
         lifecycle.recordFlowStartedIfNeeded(
-            context: PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
+            context: OnboardingAnalyticsContext.legacyPostAuth("stair_stepper_baseline")
         )
 
         let manager = MonetizationManager(
@@ -504,7 +504,6 @@ struct MonetizationManagerPaywallTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "returning-subscriber",
-            postAuthOnboardingPhase: .complete,
             entitlementState: manager.entitlementStateForRouting,
             requiredEntitlementID: "app_access"
         )
@@ -526,7 +525,6 @@ struct MonetizationManagerPaywallTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "returning-subscriber",
-            postAuthOnboardingPhase: .complete,
             entitlementState: manager.entitlementStateForRouting,
             requiredEntitlementID: "app_access"
         )

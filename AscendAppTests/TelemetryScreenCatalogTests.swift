@@ -15,12 +15,9 @@ struct TelemetryScreenCatalogTests {
     /// the deliberate act; the diff is the review.
     private static let pinnedCatalog: [String: String] = [
         "app_update_required": "AppUpdateRequiredView",
-        "landing": "LandingScreen",
-        "signed_out_hold": "SignedOutHoldView",
         "auth_signing_in": "RootView",
         "session_restoring": "RootView",
         "app_access_resolving": "AppAccessResolvingView",
-        "onboarding_flow": "PostAuthOnboardingFlowView",
         "app_access_gate": "AppAccessPaywallPlaceholderView",
         "account_data_conflict": "AccountDataConflictView",
         "onboarding_welcome": "OnboardingWelcomeScreen",

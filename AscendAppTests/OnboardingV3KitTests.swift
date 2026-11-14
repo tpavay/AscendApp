@@ -298,7 +298,6 @@ struct OnboardingV3KitTests {
     private func route(
         state: AuthenticationState,
         userId: String? = nil,
-        showsV3: Bool?,
         updatePresentation: AppUpdatePresentation? = nil,
         entitlementState: MonetizationEntitlementState = .inactive
     ) -> AppRootRoute {
@@ -306,10 +305,8 @@ struct OnboardingV3KitTests {
             updatePresentation: updatePresentation,
             authenticationState: state,
             userId: userId,
-            postAuthOnboardingPhase: .complete,
             entitlementState: entitlementState,
-            requiredEntitlementID: "app_access",
-            showsPreAuthOnboardingV3: showsV3
+            requiredEntitlementID: "app_access"
         )
     }
 
@@ -318,13 +315,13 @@ struct OnboardingV3KitTests {
     /// spinner. There is no second route for the new onboarding.
     @Test
     func aSignedInClimberWithoutAccessGoesToTheAppAccessGate() {
-        #expect(route(state: .authenticated, userId: "u1", showsV3: false) == .paywall)
+        #expect(route(state: .authenticated, userId: "u1") == .paywall)
     }
 
     @Test
     func aSignedInClimberWhoAlreadyPaysGoesStraightToTheApp() {
         let paying = route(
-            state: .authenticated, userId: "u1", showsV3: false,
+            state: .authenticated, userId: "u1",
             entitlementState: .active(["app_access"])
         )
 
@@ -334,7 +331,7 @@ struct OnboardingV3KitTests {
     @Test
     func theGateWaitsForTheEntitlementInsteadOfGuessing() {
         let unknown = route(
-            state: .authenticated, userId: "u1", showsV3: false,
+            state: .authenticated, userId: "u1",
             entitlementState: .unknown
         )
 
@@ -342,51 +339,15 @@ struct OnboardingV3KitTests {
     }
 
     @Test
-    func signedOutWithTheSwitchOnRoutesToTheFlow() {
-        #expect(route(state: .unauthenticated, showsV3: true) == .preAuthOnboarding)
+    func signedOutRoutesToTheFlow() {
+        #expect(route(state: .unauthenticated) == .preAuthOnboarding)
     }
 
     @Test
-    func signedOutWithTheSwitchOffKeepsTodaysLanding() {
-        #expect(route(state: .unauthenticated, showsV3: false) == .signedOut)
-    }
-
-    @Test
-    func theSwitchDefaultsOffSoEveryExistingCallerIsUnchanged() {
-        let route = AppRootRouteResolver.resolve(
-            updatePresentation: nil,
-            authenticationState: .unauthenticated,
-            userId: nil,
-            postAuthOnboardingPhase: .signedOut,
-            entitlementState: .unknown,
-            requiredEntitlementID: "app_access"
-        )
-
-        #expect(route == .signedOut)
-    }
-
-    @Test
-    func theSwitchChangesNothingOnceTheClimberIsSigningInOrSignedIn() {
-        #expect(route(state: .authenticatingWithApple, showsV3: true) == .signingIn)
-        #expect(route(state: .restoringSession, showsV3: true) == .restoringSession)
-        #expect(route(state: .authenticated, userId: "u1", showsV3: true) == .paywall)
-    }
-
-    /// An undecided launch never shows either flow, so a climber can never start one and be swapped
-    /// into the other. Above it the lockout still wins, and a signed-in climber never sees it.
-    @Test
-    func anUndecidedLaunchHoldsOnlyTheSignedOutRoute() {
-        #expect(route(state: .unauthenticated, showsV3: nil) == .signedOutHold)
-        #expect(route(state: .restoringSession, showsV3: nil) == .restoringSession)
-        #expect(route(state: .authenticated, userId: "u1", showsV3: nil) == .paywall)
-        #expect(route(state: .unauthenticated, showsV3: nil, updatePresentation: .required) == .updateRequired)
-    }
-
-    @Test
-    func theHoldIsAWaypointThatReportsItself() {
-        #expect(AppRootRoute.signedOutHold.telemetryScreenName == .signedOutHold)
-        #expect(AppLifecycleAnalyticsEvent.RootRoute(.signedOutHold) == .signedOutHold)
-        #expect(AppLifecycleAnalyticsEvent.RootRoute.signedOutHold.isResolved == false)
+    func onceTheClimberIsSigningInOrSignedInTheFlowIsLeft() {
+        #expect(route(state: .authenticatingWithApple) == .signingIn)
+        #expect(route(state: .restoringSession) == .restoringSession)
+        #expect(route(state: .authenticated, userId: "u1") == .paywall)
     }
 
     /// The first badge on a screen pops with no delay at all, and a zero-length hold before the

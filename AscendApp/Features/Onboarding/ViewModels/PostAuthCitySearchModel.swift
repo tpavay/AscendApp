@@ -222,10 +222,13 @@ extension PostAuthCurrentLocationResolver: @preconcurrency CLLocationManagerDele
 }
 
 @MainActor
-final class PostAuthCitySearchModel: NSObject, ObservableObject {
+final class PostAuthCitySearchModel: ObservableObject {
+    /// The most suggestions a climber is offered under the field.
+    private static let suggestionLimit = 5
+
     @Published var query = "" {
         didSet {
-            updateCompleterQuery()
+            updateSearch()
         }
     }
 
@@ -234,13 +237,14 @@ final class PostAuthCitySearchModel: NSObject, ObservableObject {
     @Published private(set) var isResolving = false
     @Published private(set) var errorMessage: String?
 
-    private let completer = MKLocalSearchCompleter()
-    private var completionsByID: [String: MKLocalSearchCompletion] = [:]
+    private let source: any PostAuthCitySuggestionSource
 
-    override init() {
-        super.init()
-        completer.delegate = self
-        completer.resultTypes = [.address]
+    /// - Parameter source: Where suggestions come from. Apple Maps unless a test says otherwise.
+    init(source: (any PostAuthCitySuggestionSource)? = nil) {
+        self.source = source ?? MapKitCitySuggestionSource()
+        self.source.onResult = { [weak self] result in
+            self?.handle(result)
+        }
     }
 
     func setSelectedLocation(_ selection: PostAuthLocationSelection) {
@@ -251,11 +255,6 @@ final class PostAuthCitySearchModel: NSObject, ObservableObject {
     }
 
     func resolve(_ suggestion: PostAuthCitySearchSuggestion) async -> PostAuthLocationSelection? {
-        guard let completion = completionsByID[suggestion.id] else {
-            errorMessage = "Choose a city result."
-            return nil
-        }
-
         isResolving = true
         errorMessage = nil
 
@@ -264,10 +263,7 @@ final class PostAuthCitySearchModel: NSObject, ObservableObject {
         }
 
         do {
-            let request = MKLocalSearch.Request(completion: completion)
-            request.resultTypes = [.address]
-            let response = try await MKLocalSearch(request: request).start()
-            if let selection = response.mapItems.lazy.compactMap({ PostAuthLocationSelection(placemark: $0.placemark) }).first {
+            if let selection = try await source.resolve(suggestion) {
                 setSelectedLocation(selection)
                 return selection
             }
@@ -280,59 +276,36 @@ final class PostAuthCitySearchModel: NSObject, ObservableObject {
         }
     }
 
-    private func updateSuggestions(from completions: [MKLocalSearchCompletion]) {
-        var seenIDs = Set<String>()
-        var nextCompletionsByID: [String: MKLocalSearchCompletion] = [:]
-        let uniqueSuggestions = completions
-            .map(PostAuthCitySearchSuggestion.init)
-            .filter { suggestion in
-                let isNew = seenIDs.insert(suggestion.id).inserted
-                if isNew {
-                    nextCompletionsByID[suggestion.id] = completions.first {
-                        "\($0.title)|\($0.subtitle)" == suggestion.id
-                    }
-                }
-                return isNew
-            }
-            .prefix(5)
-
-        completionsByID = nextCompletionsByID
-        suggestions = Array(uniqueSuggestions)
-        isSearching = false
-        errorMessage = nil
+    private func handle(_ result: Result<[PostAuthCitySearchSuggestion], any Error>) {
+        switch result {
+        case .success(let found):
+            var seenIDs = Set<String>()
+            suggestions = found
+                .filter { seenIDs.insert($0.id).inserted }
+                .prefix(Self.suggestionLimit)
+                .map { $0 }
+            isSearching = false
+            errorMessage = nil
+        case .failure:
+            suggestions = []
+            isSearching = false
+            errorMessage = "City search failed. Try again."
+        }
     }
 
-    private func handleSearchFailure() {
-        completionsByID = [:]
-        suggestions = []
-        isSearching = false
-        errorMessage = "City search failed. Try again."
-    }
-
-    private func updateCompleterQuery() {
+    private func updateSearch() {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedQuery.count >= 2 else {
-            completionsByID = [:]
             suggestions = []
             isSearching = false
             errorMessage = nil
-            completer.queryFragment = ""
+            source.search(fragment: "")
             return
         }
 
         isSearching = true
         errorMessage = nil
-        completer.queryFragment = normalizedQuery
-    }
-}
-
-extension PostAuthCitySearchModel: @preconcurrency MKLocalSearchCompleterDelegate {
-    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        updateSuggestions(from: completer.results)
-    }
-
-    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
-        handleSearchFailure()
+        source.search(fragment: normalizedQuery)
     }
 }
 

@@ -13,8 +13,8 @@ struct OnboardingScreenViewPassDedupeTests {
         let harness = Harness()
         let steps = [
             OnboardingAnalyticsEvent.welcomeContext,
-            Self.context(for: .gender),
-            Self.context(for: .firstClimb),
+            Self.context(for: "gender"),
+            Self.context(for: "first_climb"),
             OnboardingAnalyticsEvent.paywallContext
         ]
 
@@ -37,7 +37,7 @@ struct OnboardingScreenViewPassDedupeTests {
         let telemetry = makeTestTelemetry(sink: sink)
 
         let firstLaunch = OnboardingFlowAnalyticsCoordinator(userDefaults: defaults, telemetry: telemetry)
-        for step in [OnboardingAnalyticsEvent.welcomeContext, Self.context(for: .gender)] {
+        for step in [OnboardingAnalyticsEvent.welcomeContext, Self.context(for: "gender")] {
             firstLaunch.recordFlowStartedIfNeeded(context: step)
             firstLaunch.reportResumeIfNeeded(context: step)
             OnboardingScreenViewRecorder(lifecycle: firstLaunch).recordIfNeeded(step, telemetry: telemetry)
@@ -46,7 +46,7 @@ struct OnboardingScreenViewPassDedupeTests {
 
         // The process dies. A relaunch rebuilds the coordinator over the persisted pass.
         let relaunch = OnboardingFlowAnalyticsCoordinator(userDefaults: defaults, telemetry: telemetry)
-        for step in [Self.context(for: .gender), Self.context(for: .age)] {
+        for step in [Self.context(for: "gender"), Self.context(for: "age")] {
             relaunch.recordFlowStartedIfNeeded(context: step)
             relaunch.reportResumeIfNeeded(context: step)
             OnboardingScreenViewRecorder(lifecycle: relaunch).recordIfNeeded(step, telemetry: telemetry)
@@ -140,7 +140,7 @@ struct OnboardingScreenViewPassDedupeTests {
         let harness = Harness()
         harness.record(Self.v3Welcome)
         harness.lifecycle.adoptPassOwner("user-1")
-        harness.record(Self.context(for: .gender))
+        harness.record(Self.context(for: "gender"))
         harness.lifecycle.recordFlowCompletedIfNeeded(reason: .purchase)
 
         #expect(harness.flowVersions(of: "onboarding_flow_started") == ["v3"])
@@ -200,8 +200,8 @@ struct OnboardingScreenViewPassDedupeTests {
         }
     }
 
-    private static func context(for stage: PostAuthOnboardingStage) -> OnboardingAnalyticsContext {
-        stage.analyticsContext
+    private static func context(for stepID: String) -> OnboardingAnalyticsContext {
+        .legacyPostAuth(stepID)
     }
 
     private static func makeDefaults() -> UserDefaults {

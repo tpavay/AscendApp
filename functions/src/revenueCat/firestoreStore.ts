@@ -253,7 +253,7 @@ implements RevenueCatEntitlementStore {
       // A recovery check is polled rather than event-driven, and it carries a
       // fresh RevenueCat request stamp every time, so the ordering rule alone
       // would rewrite both documents on every call. Nothing an authorization
-      // decision reads has changed in that case.
+      // decision or the trial reminder reads has changed in that case.
       if (isProjectedAccessUnchanged(
         existingStatus,
         existingGrant,
@@ -378,6 +378,8 @@ function isProjectedAccessUnchanged(
   const accessUntil = status.get("accessUntil");
   return status.get("isActive") === projection.isActive &&
     (status.get("productId") ?? null) === projection.productId &&
+    (status.get("willRenew") ?? null) === projection.willRenew &&
+    (status.get("periodType") ?? null) === projection.periodType &&
     accessUntil instanceof admin.firestore.Timestamp &&
     accessUntil.toMillis() === projection.accessUntil.getTime();
 }

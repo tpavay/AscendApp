@@ -2,9 +2,8 @@ import Foundation
 import Testing
 @testable import AscendApp
 
-/// Debug Tools' "Replay New Onboarding From Welcome": the replay clears the v3 state on the device
-/// and opens the flow even when `onboarding_v3_enabled` is off, and the sign-out it makes returns
-/// the live coordinator to Welcome.
+/// Debug Tools' "Replay New Onboarding From Welcome": the replay clears the onboarding state on the
+/// device, and the sign-out it makes returns the live coordinator to Welcome.
 @MainActor
 struct OnboardingV3DebugReplayTests {
     private func makeDefaults() -> UserDefaults {
@@ -32,17 +31,6 @@ struct OnboardingV3DebugReplayTests {
     }
 
     @Test
-    func resetTurnsTheFlowOverrideOn() {
-        let defaults = makeDefaults()
-        let replay = OnboardingV3DebugReplay(userDefaults: defaults)
-        #expect(!replay.forcesFlow)
-
-        replay.reset()
-
-        #expect(replay.forcesFlow)
-    }
-
-    @Test
     func theReplaysSignOutReturnsALiveCoordinatorToWelcomeUnfinishedAndUnanswered() {
         let defaults = makeDefaults()
         let store = PreAuthOnboardingStore(userDefaults: defaults)
@@ -63,18 +51,4 @@ struct OnboardingV3DebugReplayTests {
         #expect(coordinator.answers == PreAuthOnboardingAnswers())
     }
 
-    @Test
-    func theLatchOpensTheFlowWhenTheOverrideIsOnWithTheSwitchOff() async {
-        let defaults = makeDefaults()
-        let off = RemoteFeatureFlagStore()
-        let latch = OnboardingV3RouteLatch(store: off, firstFetch: {}, holdLimit: .milliseconds(1))
-        latch.beginHold()
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(latch.showsFlow == false)
-
-        OnboardingV3DebugReplay(userDefaults: defaults).reset()
-        latch.forceFlow()
-
-        #expect(latch.showsFlow == true)
-    }
 }

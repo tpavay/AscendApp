@@ -8,6 +8,7 @@ import {
   transactionalEmailConfig,
 } from "./config";
 import {renderEmailContentForJob} from "./catalog";
+import {dripSuppressionReasonForJob} from "./dripEligibility";
 import {isEmailJobSuppressed} from "./preferences";
 import {sendTransactionalEmail, EmailDeliveryError} from "./provider";
 import {getNextRetryDelayMs} from "./retry";
@@ -274,6 +275,24 @@ async function processClaimedJob(
     await markJobSkipped(jobRef, nowTimestamp);
     console.log("processEmailJobs skipped by preferences", {
       jobId: jobRef.id,
+    });
+    return "skipped";
+  }
+
+  // A drip email is only right for the furthest stage the climber reached, so
+  // the stage is read again here: they may have bought, started the week,
+  // climbed or cancelled since the job was queued. Throws on a failed read for
+  // the same reason the preference check does.
+  const dripSuppression = await dripSuppressionReasonForJob(
+    job,
+    nowTimestamp.toDate()
+  );
+  if (dripSuppression) {
+    await markJobSkipped(jobRef, nowTimestamp);
+    console.log("processEmailJobs skipped by drip eligibility", {
+      jobId: jobRef.id,
+      reason: dripSuppression,
+      type: job.type,
     });
     return "skipped";
   }

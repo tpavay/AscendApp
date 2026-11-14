@@ -150,21 +150,4 @@ struct SignInNamelessClimberPathTests {
                 == .writePlaceholder
         )
     }
-
-    /// Onboarding opens on the first survey question, not on a name. The stage
-    /// the rejection was about is gone from the flow entirely.
-    @MainActor
-    @Test
-    func onboardingOpensWithoutEverAskingForAName() {
-        let suiteName = "SignInNamelessClimberPathTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-
-        let store = PostAuthOnboardingStore(userDefaults: defaults)
-        let coordinator = PostAuthOnboardingCoordinator(store: store)
-        coordinator.resolve(userId: "reviewer")
-
-        #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
-        #expect(!PostAuthOnboardingStage.allCases.contains { $0.rawValue == "displayName" })
-    }
 }

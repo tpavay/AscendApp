@@ -223,11 +223,10 @@ struct OnboardingCompletionAtAccessConfirmationTests {
             manager.adoptPurchaseEntitlementState(MonetizationEntitlementState.active(["app_access"]), for: identity)
         }
 
-        /// What `RootView` does once the route is Home and the post-auth phase is complete.
+        /// What `RootView` does once the route is Home.
         func completeIfRouted() {
             let reason = OnboardingFlowCompletionResolver.completionReason(
                 rootRoute: .mainApp,
-                postAuthPhase: .complete,
                 confirmedAccessReason: manager.onboardingCompletionReasonForActiveAccess
             )
             guard let reason else { return }

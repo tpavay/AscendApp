@@ -249,13 +249,10 @@ struct AppSessionTelemetryCoordinatorTests {
         #expect(
             Set(AppLifecycleAnalyticsEvent.RootRoute.allCases.map(\.rawValue)) == [
                 "update_required",
-                "signed_out",
-                "signed_out_hold",
                 "pre_auth_onboarding",
                 "signing_in",
                 "restoring_session",
                 "resolving",
-                "onboarding",
                 "paywall",
                 "main_app",
                 "unresolved"

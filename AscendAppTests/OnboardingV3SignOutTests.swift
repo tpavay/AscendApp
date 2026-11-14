@@ -5,7 +5,7 @@ import UIKit
 @testable import AscendApp
 
 /// One phone across launches: the preferences and the photo folder outlive the process, and each
-/// launch builds a coordinator and a latch over them the way the root does.
+/// launch builds a coordinator over them the way the root does.
 @MainActor
 private struct SignOutDevice {
     let defaults: UserDefaults
@@ -23,32 +23,23 @@ private struct SignOutDevice {
 
     var store: PreAuthOnboardingStore { PreAuthOnboardingStore(userDefaults: defaults) }
 
-    /// A cold launch. `switchAnswer` is what the backend last told this device about
-    /// `onboarding_v3_enabled`, or `nil` for a device it has never answered.
-    func launch(signedIn: Bool, switchAnswer: Bool? = true) -> SignOutLaunch {
-        launch(
-            firstCallback: FirstAuthCallback(reportedUser: signedIn, followedRestoredUser: signedIn),
-            switchAnswer: switchAnswer
-        )
+    /// A cold launch.
+    func launch(signedIn: Bool) -> SignOutLaunch {
+        launch(firstCallback: FirstAuthCallback(reportedUser: signedIn, followedRestoredUser: signedIn))
     }
 
     /// A cold launch whose first auth-state callback reports `firstCallback`, delivered the way the
     /// root forwards it.
     func launch(
         firstCallback: FirstAuthCallback,
-        protectedDataAvailable: Bool = true,
-        switchAnswer: Bool? = true
+        protectedDataAvailable: Bool = true
     ) -> SignOutLaunch {
-        let flags = switchAnswer.map { answer in
-            RemoteFeatureFlagStore(snapshot: .resolving(remoteValues: [RemoteFeatureFlag.onboardingV3.key: answer]))
-        } ?? RemoteFeatureFlagStore()
         let launch = SignOutLaunch(
             coordinator: OnboardingV3Coordinator(
                 store: store,
                 photos: photos,
                 now: everyTapAfterTheTransition()
-            ),
-            latch: OnboardingV3RouteLatch(store: flags, firstFetch: {}, holdLimit: .seconds(600))
+            )
         )
         launch.coordinator.firstAuthCallbackArrived(firstCallback, protectedDataAvailable: protectedDataAvailable)
         return launch
@@ -59,17 +50,14 @@ private struct SignOutDevice {
 @MainActor
 private struct SignOutLaunch {
     let coordinator: OnboardingV3Coordinator
-    let latch: OnboardingV3RouteLatch
 
     func route(_ state: AuthenticationState, userId: String? = nil) -> AppRootRoute {
         AppRootRouteResolver.resolve(
             updatePresentation: nil,
             authenticationState: state,
             userId: userId,
-            postAuthOnboardingPhase: .complete,
             entitlementState: .inactive,
-            requiredEntitlementID: "app_access",
-            showsPreAuthOnboardingV3: latch.showsFlow
+            requiredEntitlementID: "app_access"
         )
     }
 
@@ -89,14 +77,15 @@ private struct SignOutLaunch {
     }
 }
 
-/// Signing out with `onboarding_v3_enabled` on.
+/// Signing out of the onboarding.
 ///
 /// The report this exists for, on a staging phone on 2026-11-11: the captain finished the v3
-/// onboarding, signed in, signed out from Settings and was shown the onboarding the switch
-/// replaced - the old landing screen, "Get fit with the stair stepper" behind Get Started, the old
-/// sign-in behind Sign In - and closing and reopening the app showed it again. The pass he had
-/// finished was read as "the signed-out screens are over", and it was kept across sign-out and
-/// across launches, so the route fell through to the landing screen for good.
+/// onboarding, signed in, signed out from Settings and was shown the onboarding it replaced - the
+/// old landing screen, "Get fit with the stair stepper" behind Get Started, the old sign-in behind
+/// Sign In - and closing and reopening the app showed it again. The pass he had finished was read
+/// as "the signed-out screens are over", and it was kept across sign-out and across launches. That
+/// landing screen no longer exists; these tests hold that no state of nobody signed in reaches
+/// anything but the flow.
 @MainActor
 struct OnboardingV3SignOutTests {
     // MARK: - The reproduction
@@ -328,48 +317,17 @@ struct OnboardingV3SignOutTests {
 
     // MARK: - The route
 
-    private static let everyAuthenticationState: [AuthenticationState] = [
-        .unauthenticated,
-        .authenticatingWithApple,
-        .authenticatingWithGoogle,
-        .authenticatingWithInternalQA,
-        .restoringSession,
-        .authenticated
-    ]
-
-    /// Nobody signed in, the switch on, a finished pass on the device: no authentication state
-    /// reaches the old landing screen, an authenticated state with no account behind it included.
+    /// Nobody signed in with a finished pass on the device: no authentication state reaches a
+    /// signed-out screen other than the flow, an authenticated state with no account behind it
+    /// included.
     @Test
-    func noStateWithNobodySignedInReachesTheOldLandingWhileTheSwitchIsOn() throws {
+    func noStateWithNobodySignedInReachesAnythingButTheFlow() throws {
         let device = try SignOutDevice()
         device.store.update { $0.completedAt = Date() }
         let launch = device.launch(signedIn: false)
 
-        for state in Self.everyAuthenticationState {
-            #expect(launch.route(state) != .signedOut, "\(state) reached the old landing screen")
-        }
+        #expect(launch.route(.unauthenticated) == .preAuthOnboarding)
         #expect(launch.route(.authenticated) == .preAuthOnboarding)
-    }
-
-    /// The hold is unchanged: a device the backend has never answered still waits rather than
-    /// guessing, whatever it finished before.
-    @Test
-    func aLaunchThatHasNotReadTheSwitchStillHolds() throws {
-        let device = try SignOutDevice()
-        device.store.update { $0.completedAt = Date() }
-
-        let launch = device.launch(signedIn: false, switchAnswer: nil)
-
-        #expect(launch.route(.unauthenticated) == .signedOutHold)
-        #expect(launch.route(.authenticated) == .signedOutHold)
-    }
-
-    /// The switch off is still the onboarding that shipped before it, whole.
-    @Test
-    func theSwitchOffStillOpensTheLandingScreen() throws {
-        let launch = try SignOutDevice().launch(signedIn: false, switchAnswer: false)
-
-        #expect(launch.route(.unauthenticated) == .signedOut)
     }
 
     private static func jpegData() throws -> Data {
@@ -387,14 +345,7 @@ private struct SignedOutRouteScreen: View {
     let launch: SignOutLaunch
 
     var body: some View {
-        switch launch.route(.unauthenticated) {
-        case .preAuthOnboarding:
-            OnboardingV3FlowView(coordinator: launch.coordinator)
-        case .signedOut:
-            LandingScreen()
-        default:
-            SignedOutHoldView()
-        }
+        OnboardingV3FlowView(coordinator: launch.coordinator)
     }
 }
 
@@ -420,8 +371,7 @@ struct OnboardingV3SignOutEvidenceTests {
             #expect(welcome.contains("congratulations"))
             #expect(welcome.contains("get started"))
             #expect(welcome.contains("already have an account? sign in"))
-            // Neither the sign-in screen the last climber left by, nor the onboarding the switch
-            // replaced.
+            // Neither the sign-in screen the last climber left by, nor the onboarding it replaced.
             #expect(!welcome.contains("save every"))
             #expect(!welcome.contains("stair stepper app"))
             #expect(!welcome.contains("get fit with the stair stepper"))

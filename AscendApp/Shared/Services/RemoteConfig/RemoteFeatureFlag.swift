@@ -108,15 +108,6 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// it is not offered and every stored status is left exactly as it is.
     case climbLogging = "climb_logging_enabled"
 
-    /// The onboarding of 1.3.0: selling screens and setup questions, then sign-in. A climber who signs
-    /// in holding no access meets the app-access paywall, as ever. Off, a signed-out climber gets the
-    /// flow that shipped before it, whole. Display and
-    /// routing only - it writes nothing, and the answers it collects stay on the device until
-    /// ``onboardingAnswersProfileWrite`` lets the post-sign-in hand-off send them. Unlike a kill
-    /// switch it ships off, because it is a rollout and not a path that must keep running
-    /// (`docs/remote-config-kill-switches.md`).
-    case onboardingV3 = "onboarding_v3_enabled"
-
     /// Scheduling the local weekly-target nudge. Off, nothing new is scheduled and the pending nudge
     /// is cleared; the climber's target and climbs are untouched, and the next reconcile after the
     /// switch returns schedules it again.
@@ -166,12 +157,18 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// the target itself keeps working because the device's copy is the one Home reads.
     case weeklyTargetWrites = "weekly_target_writes_enabled"
 
+    /// The "Heads up" shown before Apple's cancellation sheet to a climber whose plan costs less than
+    /// the standard yearly plan does today (`docs/cheaper-plan-cancel-warning.md`). Display only. Off,
+    /// Manage Subscription opens Apple's sheet at once, exactly as it did before the warning existed;
+    /// nothing is written or deferred, and the warning returns on the next Settings open.
+    case cheaperPlanCancelWarning = "cheaper_plan_cancel_warning_enabled"
+
     var key: String { rawValue }
 
     /// The value used when the Remote Config backend has never successfully answered on this
     /// device.
     ///
-    /// Every kill switch ships `true`, and the rollouts - ``onboardingV3``, ``gearDropPush`` and ``freeWeekAfterDecline`` - ship `false`. Fetch failure falls back to the app's normal, tested behaviour
+    /// Every kill switch ships `true`, and the rollouts - ``gearDropPush`` and ``freeWeekAfterDecline`` - ship `false`. Fetch failure falls back to the app's normal, tested behaviour
     /// rather than to "off". The reasoning is written up in
     /// `docs/remote-config-kill-switches.md`; the short version is that a fetch failure almost
     /// always means "this device is offline", and an offline device that silently stopped backing
@@ -179,7 +176,7 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
     /// prevent.
     var shippedDefault: Bool {
         switch self {
-        case .onboardingV3, .gearDropPush, .freeWeekAfterDecline: false
+        case .gearDropPush, .freeWeekAfterDecline: false
         default: true
         }
     }
@@ -233,8 +230,6 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Resumes a dead session automatically on relaunch instead of asking first."
         case .climbLogging:
             return "Offers Log it and saves typed climbs; re-derives a climb's leaderboard status."
-        case .onboardingV3:
-            return "Shows the 1.3.0 pre-sign-in onboarding to signed-out climbers. Ships off."
         case .weeklyTargetReminder:
             return "Schedules the local nudge when a climber is short of their weekly target."
         case .trialEndingReminder:
@@ -251,6 +246,8 @@ enum RemoteFeatureFlag: String, CaseIterable, Sendable {
             return "Writes the answers given before sign-in to the profile right after sign-in."
         case .weeklyTargetWrites:
             return "Writes the weekly target to the climber's user record; off keeps it on the device."
+        case .cheaperPlanCancelWarning:
+            return "Shows the Heads up before cancelling a plan cheaper than the standard yearly plan. Off opens Apple's sheet at once."
         }
     }
 }

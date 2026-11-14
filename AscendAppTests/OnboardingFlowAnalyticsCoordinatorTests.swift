@@ -36,10 +36,10 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         fixture.coordinator.recordFlowStartedIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
         let relaunchedCoordinator = fixture.makeRelaunchedCoordinator()
         relaunchedCoordinator.recordFlowStartedIfNeeded(
-            context: PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
+            context: OnboardingAnalyticsContext.legacyPostAuth("stair_stepper_baseline")
         )
         relaunchedCoordinator.reportResumeIfNeeded(
-            context: PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
+            context: OnboardingAnalyticsContext.legacyPostAuth("stair_stepper_baseline")
         )
         relaunchedCoordinator.recordFlowCompletedIfNeeded(reason: .existingEntitlement)
 
@@ -59,7 +59,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         let fixture = makeFixture()
         defer { fixture.cleanUp() }
 
-        let resumedContext = PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
+        let resumedContext = OnboardingAnalyticsContext.legacyPostAuth("stair_stepper_baseline")
         fixture.coordinator.recordFlowStartedIfNeeded(context: resumedContext)
         fixture.coordinator.reportResumeIfNeeded(context: resumedContext)
         fixture.coordinator.recordFlowCompletedIfNeeded(reason: .purchase)
@@ -80,12 +80,12 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         fixture.coordinator.recordFlowStartedIfNeeded(context: OnboardingAnalyticsEvent.welcomeContext)
         fixture.telemetry.track(
             OnboardingAnalyticsEvent.backTapped(
-                context: PostAuthOnboardingStage.gender.analyticsContext,
+                context: OnboardingAnalyticsContext.legacyPostAuth("gender"),
                 inputType: "button"
             )
         )
         fixture.coordinator.recordFlowStartedIfNeeded(
-            context: PostAuthOnboardingStage.motivation.analyticsContext
+            context: OnboardingAnalyticsContext.legacyPostAuth("motivation")
         )
         fixture.coordinator.recordFlowCompletedIfNeeded(reason: .restore)
 
@@ -208,7 +208,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         let relaunchedCoordinator = fixture.makeRelaunchedCoordinator()
         relaunchedCoordinator.adoptPassOwner("climber-a")
         relaunchedCoordinator.recordFlowStartedIfNeeded(
-            context: PostAuthOnboardingStage.gender.analyticsContext
+            context: OnboardingAnalyticsContext.legacyPostAuth("gender")
         )
         relaunchedCoordinator.recordFlowCompletedIfNeeded(reason: .restore)
 
@@ -228,7 +228,7 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
 
         fixture.coordinator.resetPass()
         fixture.coordinator.recordFlowStartedIfNeeded(
-            context: PostAuthOnboardingStage.stairStepperBaseline.analyticsContext
+            context: OnboardingAnalyticsContext.legacyPostAuth("stair_stepper_baseline")
         )
         fixture.coordinator.recordFlowCompletedIfNeeded(reason: .existingEntitlement)
 
@@ -293,28 +293,18 @@ struct OnboardingFlowAnalyticsCoordinatorTests {
         #expect(
             OnboardingFlowCompletionResolver.completionReason(
                 rootRoute: .paywall,
-                postAuthPhase: .complete,
                 confirmedAccessReason: .purchase
             ) == nil
         )
         #expect(
             OnboardingFlowCompletionResolver.completionReason(
                 rootRoute: .mainApp,
-                postAuthPhase: .onboarding(.firstClimb),
-                confirmedAccessReason: .purchase
-            ) == nil
-        )
-        #expect(
-            OnboardingFlowCompletionResolver.completionReason(
-                rootRoute: .mainApp,
-                postAuthPhase: .complete,
                 confirmedAccessReason: nil
             ) == nil
         )
         #expect(
             OnboardingFlowCompletionResolver.completionReason(
                 rootRoute: .mainApp,
-                postAuthPhase: .complete,
                 confirmedAccessReason: .restore
             ) == .restore
         )
