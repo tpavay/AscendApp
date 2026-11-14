@@ -77,7 +77,7 @@ Until that is decided the switch stays off.
 The onboarding is not behind a switch.
 `onboarding_v3_enabled` shipped as a rollout and was retired in 1.3.0: a fresh install on a slow or blocked network read its shipped `false` after the 1.5 second hold the route latch allowed, and opened the older flow, which is how App Review reached a city step that could not be left (Guideline 2.1(a), 2026-11-14).
 A signed-out climber gets the onboarding on every launch, so the root route reads no flag and holds on nothing.
-The parameter is left in the live Remote Config projects, where no build reads it, until the captain deletes it by hand.
+The parameter is no longer in `remoteconfig.template.json`, so it stays in each live Remote Config project only until the next full replace publish (`scripts/deploy-remote-config.mjs --apply`) drops it, which is harmless because no build reads it.
 
 ### Settings, which are not switches
 
