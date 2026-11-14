@@ -510,14 +510,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
 
     @Test(arguments: [true, false])
     func aBackThatSuperwallFollowsWithTheOfferLetsItOpen(lapsedSubscriber: Bool) async {
-        var reopenCount = 0
-        let harness = makeHarness(
-            onRequestOnboardingBack: {
-                reopenCount += 1
-                return true
-            },
-            lapsedSubscriber: lapsedSubscriber
-        )
+        let harness = makeHarness(lapsedSubscriber: lapsedSubscriber)
         harness.openHostedPresentation()
         harness.presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back.rawValue)
 
@@ -537,7 +530,6 @@ struct HostedPurchaseRecoveryIntegrationTests {
         #expect(harness.coordinator.phase == .openingHosted)
         await harness.presenter.drainPresentationOperationsForTesting()
         #expect(harness.registrations == ["app_access_gate"])
-        #expect(reopenCount == 0)
         #expect(harness.sink.records.contains { $0.name == "onboarding_back_tapped" } == false)
     }
 
@@ -550,12 +542,7 @@ struct HostedPurchaseRecoveryIntegrationTests {
             (false, OnboardingAnalyticsContext.currentFlowVersion)
         ]
         for climber in climbers {
-            var reopenCount = 0
             let harness = makeHarness(
-                onRequestOnboardingBack: {
-                    reopenCount += 1
-                    return true
-                },
                 lapsedSubscriber: climber.lapsedSubscriber,
                 runningPass: climber.runningPass
             )
@@ -569,7 +556,6 @@ struct HostedPurchaseRecoveryIntegrationTests {
                 result: .declined
             )
 
-            #expect(reopenCount == 0)
             #expect(harness.coordinator.phase == .openingHosted)
             await harness.presenter.drainPresentationOperationsForTesting()
             #expect(harness.registrations == ["app_access_gate"])
@@ -578,12 +564,8 @@ struct HostedPurchaseRecoveryIntegrationTests {
     }
 
     @Test
-    func aBackOnTheRegisteredPaywallStillReachesTheStageBehindTheGate() {
-        var reopenCount = 0
-        let harness = makeHarness(onRequestOnboardingBack: {
-            reopenCount += 1
-            return true
-        })
+    func aBackOnTheRegisteredPaywallIsRecordedAsABack() {
+        let harness = makeHarness()
         harness.openHostedPresentation()
 
         harness.presenter.handleCustomPaywallAction(withName: SuperwallCustomAction.back.rawValue)
@@ -592,7 +574,6 @@ struct HostedPurchaseRecoveryIntegrationTests {
             result: .declined
         )
 
-        #expect(reopenCount == 1)
         #expect(harness.sink.records.filter { $0.name == "onboarding_back_tapped" }.count == 1)
     }
 
@@ -799,7 +780,6 @@ struct HostedPurchaseRecoveryIntegrationTests {
         identityMatchesPurchase: Bool = true,
         clock: GateTestClock? = nil,
         onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
-        onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         transactionIDs: [UInt64?] = [],
         lapsedSubscriber: Bool = false,
         runningPass: String? = nil
@@ -881,7 +861,6 @@ struct HostedPurchaseRecoveryIntegrationTests {
             AppAccessPaywallCoordinator(
                 monetizationManager: manager,
                 telemetry: telemetry,
-                onRequestOnboardingBack: onRequestOnboardingBack,
                 onRequestAccountDeletion: onRequestAccountDeletion,
                 retryPolicy: .test,
                 sleep: sleep

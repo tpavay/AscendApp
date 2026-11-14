@@ -36,7 +36,6 @@ struct LifetimeAccessTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "lifetime-climber",
-            postAuthOnboardingPhase: .complete,
             entitlementState: state,
             requiredEntitlementID: Self.entitlementID
         )

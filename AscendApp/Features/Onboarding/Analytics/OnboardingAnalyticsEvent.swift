@@ -6,8 +6,8 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
     /// The onboarding of 1.3.0: selling screens and setup, then sign-in, which is where the tracked flow ends.
     /// The paywall that follows for a climber without access is the app-access gate, a Superwall paywall.
     static let currentFlowVersion = "v3"
-    /// The flow that ships while `onboarding_v3_enabled` is off. Every context the old screens
-    /// build defaults to it, so switching the new flow on never relabels the old funnel.
+    /// The flow 1.2 and earlier shipped, which no build reaches any more. Contexts a pass recorded
+    /// on one of those builds still carry it, so a climber who updates mid-flow is not relabelled.
     static let legacyFlowVersion = "v1"
 
     /// The v3 funnel, in order. Written out by hand on purpose and never derived from
@@ -36,7 +36,8 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
         "auth"
     ]
 
-    /// The v1 funnel's order, kept only while the old flow still ships behind the v3 switch.
+    /// The v1 funnel's order. No build reaches those screens now, but a pass persisted by one, and the
+    /// paywall a climber meets with no pass running, still report under `flow_version=v1`.
     static let legacyOrderedStepIDs = [
         "welcome",
         "watch_yourself_get_better",
@@ -154,7 +155,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     )
 
     static let paywallContext = OnboardingAnalyticsContext(
-        segmentID: PostAuthOnboardingStage.segmentID,
+        segmentID: "post_auth_onboarding",
         stepID: "paywall"
     )
 
@@ -176,16 +177,13 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
         properties: [String: TelemetryValue]
     )
     case backTapped(context: OnboardingAnalyticsContext, inputType: String)
-    case signOutTapped(context: OnboardingAnalyticsContext, inputType: String)
-    case signOutConfirmed(context: OnboardingAnalyticsContext)
     /// `emailOptIn` is the v3 primer's email checkbox, recorded beside the push answer because one
-    /// tap on the step leaves both. `nil` for the v1 screen, which asks for email on its own step.
+    /// tap on the step leaves both.
     case notificationPermissionSelected(
         context: OnboardingAnalyticsContext,
         status: String,
         emailOptIn: Bool? = nil
     )
-    case firstClimbSelected(context: OnboardingAnalyticsContext, climbID: String, climbName: String)
     /// The auth events default to the v1 sign-in screen's context. The v3 sign-in screen passes the
     /// flow's own context and how the climber got there, so a v3 sign-in reads as `flow_version=v3`
     /// at the real step position instead of as a v1 one. `entry` is `walkthrough` or
@@ -291,24 +289,6 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                     "input_type": .string(inputType)
                 ]
             )
-        case .signOutTapped(let context, let inputType):
-            // The opening screen's leading control is a sign-out, not a back tap, so it
-            // reports as one: counting it as navigation would read as a climber moving
-            // backwards through a flow that has nothing behind it.
-            return makeRecord(
-                name: "onboarding_sign_out_tapped",
-                context: context,
-                parameters: [
-                    "from_step": .string(context.stepID),
-                    "input_type": .string(inputType)
-                ]
-            )
-        case .signOutConfirmed(let context):
-            return makeRecord(
-                name: "onboarding_sign_out_confirmed",
-                context: context,
-                parameters: ["from_step": .string(context.stepID)]
-            )
         case .notificationPermissionSelected(let context, let status, let emailOptIn):
             var parameters: [String: TelemetryValue] = [
                 "question_id": .string("notifications"),
@@ -328,21 +308,6 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 name: "onboarding_question_answered",
                 context: context,
                 parameters: parameters
-            )
-        case .firstClimbSelected(let context, let climbID, let climbName):
-            return makeRecord(
-                name: "onboarding_question_answered",
-                context: context,
-                parameters: [
-                    "question_id": .string("first_climb"),
-                    "screen_id": .string(context.stepID),
-                    "input_type": .string("single_select"),
-                    "selection_type": .string("single_select"),
-                    "answer_id": .string(climbID),
-                    "has_answer": .bool(true),
-                    "climb_id": .string(climbID),
-                    "climb_name": .string(climbName)
-                ]
             )
         case .authStarted(let provider, let context, let entry):
             return makeRecord(

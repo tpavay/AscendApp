@@ -119,8 +119,7 @@ extension PreAuthOnboardingAnswers {
     }
 }
 
-/// The one place pre-sign-in answers live, grown from the older `PreAuthOnboardingSurveyStore`
-/// that the post-sign-in flow still reads while the switch is off.
+/// The one place pre-sign-in answers live.
 ///
 /// One JSON value under one key, so a screen never leaves the answers half written and an
 /// undecodable value reads as "nothing answered" rather than failing the flow.

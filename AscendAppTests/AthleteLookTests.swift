@@ -102,33 +102,6 @@ struct AthleteLookTests {
         payload["hairStyle"] = nil
         #expect(FirestoreAthleteLookRepository.look(from: payload) == nil)
     }
-
-    /// The athlete step follows the gender answer that picks its body, and the funnel counts it in
-    /// the same place.
-    @Test
-    func theAthleteStepFollowsGender() {
-        let stages = PostAuthOnboardingStage.allCases
-        #expect(stages.firstIndex(of: .athlete) == stages.firstIndex(of: .gender).map { $0 + 1 })
-
-        let ids = OnboardingAnalyticsContext.legacyOrderedStepIDs
-        #expect(ids.firstIndex(of: "athlete") == ids.firstIndex(of: "gender").map { $0 + 1 })
-        #expect(PostAuthOnboardingStage.athlete.analyticsInputType == "button")
-    }
-
-    /// Finished climbers' snapshots name every stage that existed when they finished, so a
-    /// snapshot naming the athlete step decodes whole and nobody is sent back to onboarding.
-    @Test
-    func aSnapshotNamingTheAthleteStepDecodesEverywhere() throws {
-        let snapshot = PostAuthOnboardingSnapshot(
-            currentStage: .athlete,
-            completedStages: Set(PostAuthOnboardingStage.allCases),
-            isComplete: true
-        )
-        let decoded = try JSONDecoder().decode(PostAuthOnboardingSnapshot.self, from: JSONEncoder().encode(snapshot))
-
-        #expect(decoded.isComplete)
-        #expect(decoded.completedStages.contains(.athlete))
-    }
 }
 
 @MainActor
@@ -146,27 +119,6 @@ struct AthleteLookStoreTests {
 
         #expect(store.saved == nil)
         #expect(store.current == .starting(for: .woman))
-    }
-
-    @Test
-    func theGenderAnswerOnboardingJustGaveSurvivesTheFirstLoad() async {
-        let (store, _) = store(FakeAthleteLookRepository(looks: [:], failing: ["me"]), gender: nil)
-        store.start(with: .woman)
-
-        await store.load(userId: "me")
-
-        #expect(store.current == .starting(for: .woman))
-    }
-
-    @Test
-    func anotherSignedInAccountStartsAfreshFromItsOwnAnswer() async {
-        let (store, _) = store(FakeAthleteLookRepository(looks: [:]), gender: nil)
-        store.start(with: .woman)
-        await store.load(userId: "me")
-
-        await store.load(userId: "someone-else")
-
-        #expect(store.current == .starting(for: nil))
     }
 
     @Test

@@ -516,31 +516,6 @@ final class UserDataRepository: Sendable {
         }
     }
 
-    func updateOnboardingFirstClimb(
-        userId: String,
-        email: String? = nil,
-        climbId: String
-    ) async throws {
-        let userRef = db.collection("users").document(userId)
-        let document = try await userRef.getDocument()
-
-        if document.exists {
-            try await userRef.setData([
-                "onboarding_first_climb_id": climbId,
-                "lastUpdated": FieldValue.serverTimestamp()
-            ], merge: true)
-        } else {
-            try await saveUserToFirestore(
-                userId: userId,
-                email: email,
-                firstName: nil,
-                lastName: nil,
-                displayName: nil,
-                onboardingFirstClimbId: climbId
-            )
-        }
-    }
-
     /// Sets or clears the climber's weekly target on their private user record. It is never
     /// mirrored publicly, and a missing record is not created for it: the target waits on the
     /// device until the record exists (`WeeklyTargetService`).

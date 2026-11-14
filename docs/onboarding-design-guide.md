@@ -237,7 +237,7 @@ Value screens:
 
 Survey/question screens:
 - Top row: leading control, progress bar, optional skip only if the step is truly skippable.
-  The leading control is a back button on every screen that has something behind it, and the sign-out control on the opening post-auth screen, which does not.
+  The leading control is a back button on every screen that has something behind it.
 - Brand mark can appear on section starts, not every question if it creates vertical crowding.
 - Question starts around 185-225 y on 844-height screens.
 - Answers start 28-40 below headline.
@@ -264,8 +264,6 @@ Paywall:
 Use three categories of imagery:
 
 1. Emotional hero images
-   - `OnboardingWelcomeBackground`
-   - `AuthStaircaseBackground`
    - Dark landmark photography
    - Mountain/route/rank visuals
 
@@ -285,266 +283,22 @@ Use real screenshots for "this app delivers" screens. Use badge art and landmark
 
 Do not use generic fitness illustrations. The user should see landmarks, rank rows, climb cards, badges, or the Ascend interface.
 
-## Recommended Flow
+## The Shipped Flow
 
-This is the V1 flow to ship, counting auth and demographics as onboarding.
-The enforced count of shipped screens and their ordered IDs is the funnel contract in the `ascend-analytics` skill, not a number restated here.
+There is one onboarding, and a signed-out climber gets it on every launch: the selling screens, the setup questions, then sign-in, where the flow ends.
+`OnboardingV3Step` is the authority on the screens and their order, `OnboardingV3Coordinator` owns the navigation, and the enforced count of screens and their ordered IDs is the funnel contract in the `ascend-analytics` skill, not a number restated here.
+What a climber without access meets after sign-in is the app-access gate, a Superwall paywall (`docs/superwall-paywall-setup.md`).
 
-### 1. Welcome
+The earlier flow - a landing screen, a value carousel, a sign-in screen, then survey, demographic and first-climb questions after sign-in - was removed in 1.3.0, together with the `onboarding_v3_enabled` rollout that chose between the two.
+It was removed rather than left behind the switch because a fresh install on a slow or blocked network fell back to it, and its city question could not be left when Apple Maps failed (Guideline 2.1(a), 2026-11-14).
 
-Purpose: recognition.
+A signed-in climber is never sent through questions.
+A climber who signed in on an older build and never finished those questions meets the app-access gate on update, and sets the answers they skipped (gender, birthday, height and weight, city) from Profile, where each has an editor.
+Nothing in the app waits on them: leaderboard filters and the profile read a missing value as unset.
 
-Copy:
-- Headline: `Race the world up real landmarks.`
-- Subhead: `From your stair stepper.`
-- CTA: `GET STARTED`
-- Secondary: `Already have an account? Sign in`, routing to `SignUpView` (it serves both sign-up and sign-in)
-
-Visual:
-- Use `OnboardingWelcomeBackground`.
-- Keep wordmark small and premium.
-- Accent only `real landmarks`.
-
-### 2. Value - Climb Real Landmarks
-
-Copy:
-- Headline: `Climb Real Landmarks`
-- Subtitle: `Take on the Empire State Building, Eiffel Tower, Burj Khalifa, and more from your stair stepper.`
-  Only name landmarks that are `available` in the catalogue - a named climb the user cannot start is a broken promise on the screen that sells the app.
-- CTA: `Continue`
-
-Visual:
-- Use globe screenshot plus a horizontal strip of the 10 launch landmark thumbnails.
-- Show tier-colored borders.
-
-### 3. Value - See Where You Stand
-
-Copy:
-- Headline: `See Where You Stand`
-- Subtitle: `Every climb has a leaderboard. Every session has a rank.`
-- CTA: `Continue`
-
-Visual:
-- Use `OnboardingEmpireLeaderboardScreenshot`.
-- Highlight the user's row in lime.
-
-### 4. Value - Earn First Ascents
-
-Copy:
-- Headline: `Claim It First`
-- Subtitle: `First Ascent open. The first finisher claims it forever.`
-- CTA: `Continue`
-
-Visual:
-- Use `FirstAscentBadgeDetailed`.
-- Add a ghost FA row below the badge: `OPEN`, `Awaiting first finisher`, `--:--:--`.
-
-### 5. Survey Transition
-
-Purpose: convert setup friction into personalization.
-
-Copy:
-- Eyebrow: `BUILD YOUR FIELD`
-- Headline: `Set up your first climb.`
-- Subtitle: `Answer a few questions so Ascend can place you on the right start line.`
-- Time note: `Takes 1 minute`
-- CTA: `Start`
-
-Visual:
-- Minimal field/map line art or the angular A mark over a faint route line.
-
-### 6. Baseline Qualifier
-
-Copy:
-- Eyebrow: `STAIR STEPPER BASELINE`
-- Headline: `Do you have access to a stair stepper?`
-- Options:
-  - `Yes`
-  - `No`
-- CTA: `Continue`
-
-Behavior:
-- Single-select, no branching. The answer only informs the smart-default first-climb
-  recommendation (`PostAuthFirstClimbRecommendationPolicy`); it does not change which
-  screens the flow shows. A dedicated "no access" flow was investigated and rejected
-  at current data volume (2026-09-09).
-
-### 7. Problem Mirror Question
-
-Copy:
-- Eyebrow: `THE PROBLEM`
-- Headline: `What makes stair sessions easy to waste?`
-- Options:
-  - `No clear target`
-  - `No reason to push`
-  - `No record of progress`
-  - `No one to race`
-  - `They already count for me`
-- CTA: `Continue`
-
-### 8. Motivation Question
-
-Copy:
-- Eyebrow: `COMPETITIVE PULL`
-- Headline: `What pulls more effort out of you?`
-- Options:
-  - `Beating my last result`
-  - `Passing other climbers`
-  - `Claiming a first`
-  - `Finishing a hard target`
-  - `Keeping a streak alive`
-- CTA: `Continue`
-
-### 9. Frequency Question
-
-Copy:
-- Eyebrow: `CURRENT VOLUME`
-- Headline: `How often do you use the stair stepper?`
-- Options:
-  - `Less than once a week`
-  - `1-2 times a week`
-  - `3-4 times a week`
-  - `5+ times a week`
-- CTA: `Continue`
-
-### 10. Session Length Question
-
-Copy:
-- Eyebrow: `SESSION SIZE`
-- Headline: `How long is a typical stair session?`
-- Options:
-  - `Under 10 minutes`
-  - `10-20 minutes`
-  - `20-40 minutes`
-  - `40+ minutes`
-- CTA: `Continue`
-
-### 11. Goal Segmentation
-
-Copy:
-- Eyebrow: `TRAINING TARGET`
-- Headline: `What are you climbing for?`
-- Subtitle: `Choose up to 2.`
-- Options:
-  - `Better endurance`
-  - `Weight loss`
-  - `Stronger legs and glutes`
-  - `Training for races/events`
-  - `Hiking and outdoor performance`
-  - `Long-term health`
-- CTA: `Continue`
-
-Behavior:
-- Max 2 selections.
-- Selected options use lime fill or lime stroke.
-
-### 12. Mirror Moment
-
-Purpose: name the user's situation before showing the solution.
-
-Copy:
-- Headline: `Your stair work needs a field.`
-- Body: `You are not here to log cardio. You are here to climb, race, rank, and make the work count.`
-- CTA: `Build My Field`
-
-Visual:
-- Leaderboard silhouette with the user's row empty.
-- Keep it dark and direct.
-
-### 13. Calculation / Loading
-
-Copy:
-- Headline: `Calibrating your climb field`
-- Progress labels:
-  - `Reading your baseline`
-  - `Choosing your first climb`
-  - `Opening leaderboard divisions`
-  - `Checking First Ascent windows`
-
-Visual:
-- Route line animates upward.
-- Lime progress bar.
-- No fake percentages unless the timer maps to real progress.
-
-### 14. Smart First-Climb Reveal
-
-Copy:
-- Headline: `Start with [Landmark].`
-- Subtitle examples:
-  - Beginner: `Statue of Liberty is your first clean target. Finish it, then climb bigger.`
-  - Some experience: `Space Needle gives you a real climb without burying the first win.`
-  - Regular: `Empire State Building puts you on the board fast.`
-  - Serious athlete: `Burj Khalifa is open. Prove the engine.`
-- CTA: `View Climb`
-
-Visual:
-- Landmark card with steps, estimated time, tier, and FA state.
-- Do not route straight into live attempt. Route to climb detail.
-
-### 15. Feature Demo - Live Climbs
-
-Copy:
-- Headline: `Race The Climb Live`
-- Subtitle: `Pick a landmark. Start the attempt. Watch the field move as you climb.`
-- CTA: `Continue`
-
-Visual:
-- Live replay leaderboard screenshot or live attempt mock.
-- The user's row should be visually anchored.
-
-### 16. Feature Demo - Records
-
-Copy:
-- Headline: `Beat Your Records`
-- Subtitle: `Best Efforts turn every stair session into a record book.`
-- CTA: `Continue`
-
-Visual:
-- Use progress/record screenshot.
-- Show one record, not a dense analytics dashboard.
-
-### 17. Feature Demo - Collection
-
-Copy:
-- Headline: `Collect Climbs`
-- Subtitle: `Every landmark you finish becomes part of your climb history.`
-- CTA: `Continue`
-
-Visual:
-- Use 3-card collection preview.
-- Copy must say `Climbs collected`, not completed.
-
-### 18. Launch Social Proof / Scarcity
-
-Launch-safe copy:
-- Headline: `The first field is forming.`
-- Subtitle: `Launch climbs open with empty First Ascent slots. Move early or watch someone else claim them.`
-- CTA: `Continue`
-
-Post-launch copy when real proof exists:
-- Headline: `The field is real.`
-- Subtitle: `Climbers in your league are racing right now.`
-
-Rules:
-- Do not fake user counts.
-- Use early tester quotes only if they are real.
-- Until real numbers exist, use scarcity from open First Ascents and launch-wave framing.
-
-### 19. Auth
-
-Copy:
-- Headline: `Enter The Field`
-- Subtitle: `Save your climbs, ranks, and First Ascent claims.`
-- Buttons:
-  - `Continue with Apple`
-  - `Continue with Google`
-  - `Continue with Email`
-- Legal: inline Terms and Privacy links.
-
-Visual:
-- Use `AuthStaircaseBackground`.
-- Use angular A mark and/or `AscendWordmark`.
-- Keep provider buttons familiar and high contrast.
+The one screen that asks for a city, `OnboardingClaimCityScreen`, is optional.
+Apple Maps is a network call, and a reviewer's network, a restricted one or any `MKError` ends a search the climber did nothing wrong in, so the screen carries a Skip in its header in every state, and a failed search says so beside it.
+`OnboardingCityStepCannotTrapTests` fails a search on purpose, through `PostAuthCitySuggestionSource`, and holds that the Skip is still there and moves the climber on without a city.
 
 ### Name - Resolved, Never Asked
 
@@ -576,7 +330,7 @@ Behavior:
 - A profile that already resolves to a name is never overwritten, legacy `displayName`-only records included.
   Resolution writes only when the profile carries no name at all.
 
-The one carve-out is the pre-sign-in profile screen of the v3 flow (08, `OnboardingProfileSetupScreen`, behind `onboarding_v3_enabled`), which offers optional First name and Last name fields beside a photo, gender, birthday, height and weight.
+The one carve-out is the pre-sign-in profile screen of the flow (08, `OnboardingProfileSetupScreen`), which offers optional First name and Last name fields beside a photo, gender, birthday, height and weight.
 It is not the rejected step: Skip and Continue both pass with the fields empty, and nothing waits on them.
 What a climber types is held on the device and written after sign-in by the hand-off, which fills blanks only - it replaces a `CHANGE ME` placeholder and never a real name the account already carries.
 A typed name outranks the provider's on an account with no stored name, because the screen shows the climber exactly that name: resolution sees one pending, writes nothing, and leaves it to the hand-off, which runs only after resolution has settled.
@@ -587,106 +341,9 @@ A name `DisplayNamePolicy` refuses gets an inline hint, the row keeps the defaul
 A photo picked there waits on the device the same way and is uploaded through the existing profile photo path under `users/{uid}/profile_pictures/`, for an account that has none.
 Do not make either field required, and do not add a name screen anywhere else.
 
-The opening post-auth screen carries the sign-out control, because it is the only route from onboarding back to the sign-in screen for a climber who signed into the wrong account.
-
-### 20. Required Demographics
-
-Break into low-friction screens unless the combined form remains clean:
-
-Gender:
-- Headline: `What's your gender?`
-- No subtitle. Gender drives no comparison group, filter, or profile field, so there is no honest public-context line to write - see the closing note in this section.
-- Options map to `ProfileGender` cases and are titled:
-  - `Male`
-  - `Female`
-  - `Other`
-  - `Prefer not to say`
-
-Birthday:
-- Headline: `When were you born?`
-- Body: `Your age keeps leaderboard context honest.`
-- Input: date wheel bounded to birthdays that produce an age from 13 through 120.
-- Ascend stores the birthday privately and publishes only the derived age - see `ascend-profile`.
-
-Weight:
-- Headline: `What is your body weight?`
-- Body: `Weight can appear in profile and leaderboard-adjacent context.`
-- Input: respect current measurement system.
-
-Location:
-- Headline: `Where are you climbing from?`
-- Body: `Region gives the field a place.`
-- Input: country/region first, city optional only if product wants it.
-
-Use direct public-context copy where it is accurate. Do not hide that a field may appear on profiles and leaderboard-adjacent surfaces, and do not invent a public use a field does not have.
-
-Gender is the deliberate exception, not an oversight to fix.
-It ships with no subtitle because the value drives no comparison group, no filter, and no profile field.
-The only place a climber ever sees it is the `M` / `F` abbreviation in the demographic row of the Live Replay and per-climb completion leaderboards.
-Earlier copy calling it a division or a leaderboard comparison described behavior the app does not have; do not restore it.
-
-### 21. Value Reveal
-
-Copy:
-- Headline: `You're on the field.`
-- Subtitle: `Your profile is ready. Your first climb is waiting.`
-- CTA: `Continue`
-
-Visual:
-- Leaderboard preview with the user's display name, demographic context, and smart first climb.
-- If there are no real competitors yet, show empty-slot structure instead of fake people.
-
-### 22. Notifications
-
-Copy:
-- Headline: `Never miss a First Ascent.`
-- Subtitle: `Get an Ascend alert when new climbs open. Be ready to claim the First Ascent before anyone else.`
-- CTA: `Turn On Notifications`
-- Secondary: `Not Now`
-
-Visual:
-- First Ascent badge plus clock/drop card.
-- Push is the only permission asked here.
-  Do not bundle other permission requests.
-- A pre-ticked `Email me when climbs drop.` checkbox sits between the copy block and the CTA stack.
-  It is an independent answer: the CTA never ticks it, unticking it never suppresses the iOS prompt, and either button saves whatever state it is in.
-  It is the `onboarding` source of the recorded email consent - see `functions/EMAIL_SETUP.md` for the consent record it writes.
-
-### 23. Paywall
-
-Purpose: make subscription the natural next click.
-
-Headline options:
-- `Unlock The Field`
-- `Start Climbing For Rank`
-- `Race Every Landmark`
-
-Recommended paywall structure:
-1. Top visual: First Ascent badge or active leaderboard card.
-2. Promise: `Every climb, every leaderboard, every First Ascent window.`
-3. Benefits:
-   - `Race live climbs`
-   - `Claim First Ascents`
-   - `Track records and trends`
-   - `Sync and protect your climb history`
-4. Plan selector: Yearly, highlighted and selected by default, beside Lifetime.
-   Prices, trials, and per-plan copy are owned by `docs/superwall-paywall-setup.md`.
-5. CTA: follows the selected plan; trial and renewal language belong to Yearly only.
-6. Footer:
-   - `Restore Purchase`
-   - `Terms`
-   - `Privacy`
-
-Pricing display:
-- Show yearly as the default selected plan.
-- Show monthly as the comparison plan.
-- Show trial language only while yearly is selected.
-- Switch the headline, CTA, price, and legal disclosure to immediate monthly billing when monthly is selected.
-- Do not offer a weekly plan.
-
 ## App Workflow Map
 
-Use this as the organizing layer for product planning. The numbered onboarding screens above are the entry ramp; the workflows below are the actual app loops those screens should prepare the user to enter.
+Use this as the organizing layer for product planning. The onboarding above is the entry ramp; the workflows below are the actual app loops those screens should prepare the user to enter.
 
 ### 1. Acquisition And Account Entry
 
@@ -694,14 +351,12 @@ User goal: understand the promise, trust the product, and create an account.
 
 Primary path:
 1. Welcome
-2. Value carousel
-3. Survey transition
-4. Auth
+2. Selling screens and setup questions
+3. Auth
 
 App surfaces:
-- `LandingScreen`
-- `OnboardingValueCarouselView`
-- `SignUpView`
+- `OnboardingV3FlowView`
+- `OnboardingAuthScreen`
 - `AuthenticationViewModel`
 
 State and data:
@@ -731,8 +386,7 @@ Primary path:
 9. Smart first-climb reveal
 
 App surfaces:
-- `PostAuthOnboardingFlowView`
-- `OnboardingFirstClimbHandoffStore`
+- `OnboardingFirstClimbHandoffStore`, read only, until 1.4.0: a first climb a climber staged on 1.2 or earlier and had not yet carried into the app
 - `MainTabView` climb-detail handoff
 
 State and data:
@@ -1118,20 +772,13 @@ Avoid:
 ## Implementation Notes
 
 Current local assets already support the direction:
-- `OnboardingWelcomeBackground`
-- `OnboardingGlobalClimbsBackground`
 - `OnboardingGlobalClimbsScreenshot`
 - `OnboardingEmpireLeaderboardScreenshot`
 - `OnboardingWorkoutsScreenshot`
-- `OnboardingProgressScreenshot`
 - `OnboardingQuestionsBackground`
-- `AuthStaircaseBackground`
 - `FirstAscentBadgeDetailed`
 
 Current SwiftUI scaffolds already match much of this:
-- `LandingScreen`
-- `OnboardingValueCarouselView`
-- `OnboardingValueShowcaseChrome`
 - `OnboardingPrimaryCTAButtonStyle`
 - `AscendWordmark`
 

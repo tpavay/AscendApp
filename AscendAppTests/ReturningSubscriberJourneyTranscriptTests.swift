@@ -33,14 +33,12 @@ struct ReturningSubscriberJourneyTranscriptTests {
 
         func record(
             _ step: String,
-            userId: String?,
-            onboarding: PostAuthOnboardingPhase = .complete
+            userId: String?
         ) {
             let route = AppRootRouteResolver.resolve(
                 updatePresentation: nil,
                 authenticationState: authentication.authenticationState,
                 userId: userId,
-                postAuthOnboardingPhase: onboarding,
                 entitlementState: monetization.entitlementStateForRouting,
                 requiredEntitlementID: "app_access"
             )
@@ -69,7 +67,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         let signOut = monetization.prepareIdentityReset()
         await monetization.resetIdentity(transition: signOut)
         authentication.authenticationState = .unauthenticated
-        record("2. Signs out -> welcome screen", userId: nil)
+        record("2. Signs out -> onboarding", userId: nil)
 
         // 3. They sign back in. The identity is claimed synchronously, the RevenueCat answer is not
         //    back yet, and routing is evaluated right here - the exact instant the bug fired.
@@ -85,7 +83,7 @@ struct ReturningSubscriberJourneyTranscriptTests {
         try await waitForEntitlementResolution(of: monetization)
         record("4. RevenueCat answers: subscription active", userId: "returning-subscriber")
 
-        #expect(routes == [.mainApp, .signedOut, .resolving, .mainApp])
+        #expect(routes == [.mainApp, .preAuthOnboarding, .resolving, .mainApp])
         #expect(paywallPresenter.registrations.isEmpty, "The app-access paywall was registered")
 
         let rendered = """
@@ -129,10 +127,8 @@ struct ReturningSubscriberJourneyTranscriptTests {
                 updatePresentation: nil,
                 authenticationState: authentication.authenticationState,
                 userId: userId,
-                postAuthOnboardingPhase: .complete,
                 entitlementState: monetization.entitlementStateForRouting,
-                requiredEntitlementID: "app_access",
-                showsPreAuthOnboardingV3: true
+                requiredEntitlementID: "app_access"
             )
         }
 
@@ -186,13 +182,10 @@ struct ReturningSubscriberJourneyTranscriptTests {
     private func describe(_ route: AppRootRoute) -> String {
         switch route {
         case .updateRequired: "updateRequired (hard update lockout)"
-        case .signedOut: "signedOut (welcome screen, with Already have an account? Sign in)"
-        case .signedOutHold: "signedOutHold (wordmark, until the launch decides the signed-out route)"
-        case .preAuthOnboarding: "preAuthOnboarding (v3 flow, signed out)"
+        case .preAuthOnboarding: "preAuthOnboarding (the onboarding, signed out)"
         case .signingIn: "signingIn"
         case .restoringSession: "restoringSession"
         case .resolving: "resolving (the spinner, while access is worked out)"
-        case .onboarding(let stage): "onboarding(\(stage))"
         case .paywall: "paywall (app-access gate)"
         case .mainApp: "mainApp"
         }

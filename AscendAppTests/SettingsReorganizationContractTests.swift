@@ -103,27 +103,6 @@ struct SettingsReorganizationContractTests {
     }
 
     @Test
-    func onboardingCollectsABirthdayWithoutRenamingTheExistingFunnelStage() throws {
-        let flow = try source(
-            at: "AscendApp/Features/Onboarding/Views/PostAuthOnboardingFlowView.swift"
-        )
-        let stage = try source(
-            at: "AscendApp/Features/Onboarding/Models/PostAuthOnboardingStage.swift"
-        )
-
-        #expect(flow.contains("private struct PostAuthBirthdayScreen"))
-        #expect(flow.contains("headline: \"When were you born?\""))
-        #expect(flow.contains("DatePicker("))
-        // `pickerStyle` configures `Picker`, not `DatePicker`: applying it here
-        // silently leaves the compact field inside chrome sized for a wheel.
-        #expect(flow.contains(".datePickerStyle(.wheel)"))
-        #expect(flow.contains("updateOnboardingBirthday"))
-        #expect(!flow.contains("PostAuthAgeWheelPicker"))
-        #expect(stage.contains("case age"))
-        #expect(stage.contains("case .age:\n            return \"date\""))
-    }
-
-    @Test
     func reorganizedViewsAddNoAnimationOrTransition() throws {
         let paths = [
             "AscendApp/Features/Account/Views/AccountView.swift",

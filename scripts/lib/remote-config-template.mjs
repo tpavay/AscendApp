@@ -54,14 +54,12 @@ export const SETTING_PARAMETERS = Object.freeze({
  * is not drift to quietly overwrite - it is the operator having shipped the feature, and restating
  * the checked-in `false` over it would pull the feature back from every climber at once.
  *
- * `onboarding_v3_enabled` is the first: the 1.3.0 onboarding is built behind it and stays dark
- * until the captain turns it on. `gear_drop_push_enabled` is the second: the gear push stays silent
- * until the captain decides the consent question for climbers who opted in to climb alerts only.
- * `free_week_after_decline_enabled` is the third: the founder letter and the server-granted free
+ * `gear_drop_push_enabled` is the first: the gear push stays silent until the captain decides the
+ * consent question for climbers who opted in to climb alerts only.
+ * `free_week_after_decline_enabled` is the second: the founder letter and the server-granted free
  * week stay dark, and a decline reopens the paywall, until the captain turns it on.
  */
 export const ROLLOUT_PARAMETERS = Object.freeze({
-  onboarding_v3_enabled: Object.freeze({ healthyDefault: "false" }),
   gear_drop_push_enabled: Object.freeze({ healthyDefault: "false" }),
   free_week_after_decline_enabled: Object.freeze({ healthyDefault: "false" }),
   // The lifecycle drip emails: each sweep stays dark until the captain turns its switch on.

@@ -247,7 +247,6 @@ private struct RootRouteEvidenceHarness: View {
             updatePresentation: gateState.presentation,
             authenticationState: .authenticated,
             userId: "climber-on-a-stale-build",
-            postAuthOnboardingPhase: .complete,
             entitlementState: entitlementState,
             requiredEntitlementID: "app_access"
         )
