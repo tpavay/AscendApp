@@ -9,12 +9,17 @@ struct OnboardingClaimCityScreen: View {
     let coordinator: OnboardingV3Coordinator
 
     @State private var model: OnboardingCityClaimModel
-    @StateObject private var search = PostAuthCitySearchModel()
+    @StateObject private var search: PostAuthCitySearchModel
     @StateObject private var locationResolver = PostAuthCurrentLocationResolver()
     @FocusState private var isSearchFocused: Bool
 
-    init(coordinator: OnboardingV3Coordinator, model: OnboardingCityClaimModel? = nil) {
+    init(
+        coordinator: OnboardingV3Coordinator,
+        model: OnboardingCityClaimModel? = nil,
+        search: PostAuthCitySearchModel = PostAuthCitySearchModel()
+    ) {
         self.coordinator = coordinator
+        _search = StateObject(wrappedValue: search)
         _model = State(initialValue: model ?? OnboardingCityClaimModel(initialCity: coordinator.answers.city))
     }
 

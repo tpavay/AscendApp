@@ -618,6 +618,17 @@ Location:
 - Body: `Region gives the field a place.`
 - Input: country/region first, city optional only if product wants it.
 
+The city is optional, and a screen that asks for it never holds a climber on it.
+App Review rejected 1.3.0 (build 2026111301) under Guideline 2.1(a) on 2026-11-14 because the older post-auth step showed "City search failed. Try again." with CONTINUE disabled and nothing else to press.
+Apple Maps is a network call, and a reviewer's network, a restricted one or any `MKError` ends a search the climber did nothing wrong in.
+So the post-auth step (`PostAuthLocationScreen`) always offers `SKIP FOR NOW`, which moves on without writing a city, and the v3 claim-your-city screen (`OnboardingClaimCityScreen`) always carries its header Skip.
+The city is set later from Profile.
+Searches run behind `PostAuthCitySuggestionSource`, so a failed one can be reproduced without Apple Maps (`PostAuthCityStepCannotTrapTests`).
+
+A fresh install can still land on this older step on a slow or blocked network.
+`OnboardingV3RouteLatch` holds a device the backend has never answered for 1.5 seconds, and a first fetch that fails or runs out the clock leaves that launch on the shipped `false`, so it opens the flow that shipped before v3, with `onboarding_v3_enabled` on in production since 2026-11-13.
+That is why the older flow has to be exit-safe on its own.
+
 Use direct public-context copy where it is accurate. Do not hide that a field may appear on profiles and leaderboard-adjacent surfaces, and do not invent a public use a field does not have.
 
 Gender is the deliberate exception, not an oversight to fix.

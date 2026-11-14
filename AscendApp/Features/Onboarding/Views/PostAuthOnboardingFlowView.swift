@@ -550,9 +550,9 @@ private struct PostAuthWeightScreen: View {
     }
 }
 
-private struct PostAuthLocationScreen: View {
+struct PostAuthLocationScreen: View {
     @Environment(AuthenticationViewModel.self) private var authVM
-    @StateObject private var citySearch = PostAuthCitySearchModel()
+    @StateObject private var citySearch: PostAuthCitySearchModel
     @StateObject private var currentLocation = PostAuthCurrentLocationResolver()
     @FocusState private var isSearchFocused: Bool
 
@@ -564,6 +564,19 @@ private struct PostAuthLocationScreen: View {
     @State private var selectionMethod: String?
     @State private var isSaving = false
 
+    /// - Parameter citySearch: Apple Maps unless a test supplies a search of its own.
+    init(
+        stage: PostAuthOnboardingStage,
+        citySearch: PostAuthCitySearchModel = PostAuthCitySearchModel(),
+        onBack: @escaping () -> Void,
+        onContinue: @escaping () -> Void
+    ) {
+        self.stage = stage
+        _citySearch = StateObject(wrappedValue: citySearch)
+        self.onBack = onBack
+        self.onContinue = onContinue
+    }
+
     var body: some View {
         PostAuthProfileQuestionShell(
             stage: stage,
@@ -571,6 +584,11 @@ private struct PostAuthLocationScreen: View {
             subtitle: "Set your city for profile and leaderboard context. You can change this later in profile.",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
             isContinueEnabled: isValidSelection && !isSaving && !citySearch.isResolving && !currentLocation.isResolving,
+            // Always there, never a reaction to a failure: a search Apple Maps never answers draws
+            // no error at all, and a rejected save is the same dead end. App Review was stopped on
+            // this screen under Guideline 2.1(a) with nothing else to press.
+            secondaryTitle: "SKIP FOR NOW",
+            onSecondary: skipLocation,
             onBack: onBack,
             onContinue: saveLocation
         ) { metrics in
@@ -658,6 +676,15 @@ private struct PostAuthLocationScreen: View {
             selectedLocation.city.count <= 120 &&
             selectedLocation.countryCode.range(of: #"^[A-Z]{2}$"#, options: .regularExpression) != nil &&
             (selectedLocation.region?.count ?? 0) <= 120
+    }
+
+    /// Moves on with no city. Nothing is written, so nothing can fail; Profile sets it later.
+    private func skipLocation() {
+        guard !isSaving else { return }
+
+        authVM.errorMessage = nil
+        trackPostAuthInput(stage: stage, properties: ["action_id": .string("skip")])
+        onContinue()
     }
 
     private func saveLocation() {
