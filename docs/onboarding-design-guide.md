@@ -661,6 +661,9 @@ Design principle:
 
 ## Component Specs
 
+> **History.** This section describes the removed 1.2 onboarding flow and is kept as history.
+> For the current flow, read [The Shipped Flow](#the-shipped-flow); `OnboardingV3Step` is the authority on its screens and their order.
+
 ### Answer Option Row
 
 Default:
@@ -754,6 +757,9 @@ Do not use arrow icons on CTAs.
 
 ## Animation
 
+> **History.** This section describes the removed 1.2 onboarding flow and is kept as history.
+> For the current flow, read [The Shipped Flow](#the-shipped-flow); `OnboardingV3Step` is the authority on its screens and their order.
+
 Use animation sparingly:
 
 - Value carousel: horizontal paging, dot transition, screenshot parallax no more than 4-8 points.
@@ -787,6 +793,9 @@ Build order:
 
 ## Reference Pattern Mapping
 
+> **History.** This section describes the removed 1.2 onboarding flow and is kept as history.
+> For the current flow, read [The Shipped Flow](#the-shipped-flow); `OnboardingV3Step` is the authority on its screens and their order.
+
 | Phase | Reference Pattern | Ascend Version |
 |---|---|---|
 | Welcome | Puff Count splash with big proof and logo | Full-bleed mountain/rank visual, wordmark, `Race the world up real landmarks` |
@@ -801,6 +810,9 @@ Build order:
 | Paywall | Puff testimonial plus benefits plus plan selector | First Ascent/leaderboard visual plus yearly trial plan |
 
 ## Workflow Build Plan
+
+> **History.** This section describes the removed 1.2 onboarding flow and is kept as history.
+> For the current flow, read [The Shipped Flow](#the-shipped-flow); `OnboardingV3Step` is the authority on its screens and their order.
 
 Build in workflow order, not screen order. Each workflow should leave the app in a coherent, testable state before moving to the next one.
 
