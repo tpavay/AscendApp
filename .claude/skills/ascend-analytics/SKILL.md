@@ -158,11 +158,11 @@ Enforced by `AscendAppTests/AppInstallationTelemetryReporterTests.swift` and `As
 
 ## Onboarding funnel contract
 
-Onboarding is the one funnel measured screen-by-screen, so it has a fixed contract: **21 visible screens, each emitting exactly one `onboarding_screen_viewed`**, plus a decision event on every interactive screen.
-Read this before adding, removing, reordering, or renaming an onboarding screen - changing the flow means changing this table and the tests that enforce it.
+Onboarding is the one funnel measured screen-by-screen, so it has a fixed contract: **every `OnboardingV3Step` emits exactly one `onboarding_screen_viewed` per pass**, plus a decision event on every interactive screen.
+Read this before adding, removing, reordering, or renaming an onboarding screen - changing the flow means changing `OnboardingV3Step`, `OnboardingAnalyticsContext.orderedStepIDs` and the tests that enforce them.
 
-Enforcement lives in `AscendAppTests/OnboardingAnalyticsEventTests.swift` (ordered screen coverage, dedupe, per-screen properties), `AscendAppTests/OnboardingAnalyticsFunnelTranscriptTests.swift` (renders the whole funnel as a transcript from real emissions, and asserts the clean-pass event counts plus the resumed and back-navigation paths), and `AscendAppTests/OnboardingFlowAnalyticsCoordinatorTests.swift` (the one lifecycle pair: pass persistence, account ownership, and completion attribution).
-Those tests are the executable source of truth; this table is the readable one.
+Enforcement lives in `AscendAppTests/OnboardingAnalyticsEventTests.swift` (ordered screen coverage, dedupe, per-screen properties), `AscendAppTests/OnboardingV3KitTests.swift` (the hand-written funnel order matches the step enum), and `AscendAppTests/OnboardingFlowAnalyticsCoordinatorTests.swift` (the one lifecycle pair: pass persistence, account ownership, and completion attribution).
+Those tests are the executable source of truth.
 
 ### The funnel, in order
 
