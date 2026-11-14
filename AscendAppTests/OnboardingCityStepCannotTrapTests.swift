@@ -152,10 +152,10 @@ struct OnboardingCityStepCannotTrapTests {
 
     @Test
     func suggestionsAreDedupedAndCappedAtFive() {
-        let found = (0..<8).map { PostAuthCitySearchSuggestion(id: "\($0 / 2)", title: "City \($0)", subtitle: "") }
+        let found = [0, 0, 1, 2, 3, 4, 5, 6].map { PostAuthCitySearchSuggestion(id: "\($0)", title: "City \($0)", subtitle: "") }
         let model = PostAuthCitySearchModel(source: FakeCitySource(searchResult: .success(found)))
         model.query = "City"
 
-        #expect(model.suggestions.map(\.id) == ["0", "1", "2", "3"])
+        #expect(model.suggestions.map(\.id) == ["0", "1", "2", "3", "4"])
     }
 }
