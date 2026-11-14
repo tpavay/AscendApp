@@ -20,10 +20,6 @@ class DebugToolsViewModel {
         static let seedWorkouts = "Seed Workouts"
         static let clearSeededWorkouts = "Clear Seeded Workouts"
         static let replayNewOnboardingFromWelcome = "Replay New Onboarding From Welcome"
-        static let resetPostAuthOnboarding = "Reset Post-Auth Onboarding"
-        static let replayPostAuthOnboarding = "Replay Onboarding Now"
-        static let replayFullOnboardingFromLanding = "Replay From Landing"
-        static let completePostAuthOnboarding = "Complete Post-Auth Onboarding"
         static let resetRoutineBuilderWalkthrough = "Reset Routine Builder Walkthrough"
         static let forceAppAccessGate = "Force App Access Gate"
         static let presentAppAccessPaywall = "Present App Access Paywall"
@@ -72,31 +68,13 @@ class DebugToolsViewModel {
     private var onboardingSection: DebugSection {
         DebugSection(
             title: "Onboarding",
-            subtitle: "Replay the onboarding funnel for the current account without creating a new user",
+            subtitle: "Replay the onboarding without creating a new user",
             actions: [
                 DebugAction(
                     title: ActionTitle.replayNewOnboardingFromWelcome,
-                    description: "Tests the new (v3) onboarding. Signs out, clears the v3 answers and finished mark, and forces the v3 flow on even if onboarding_v3_enabled is off, so the next screen is Welcome. The override stays on until the app is deleted. Covers Welcome through sign-in: Debug builds allow unentitled app access, so you land in the app after sign-in. To see the paywall afterwards, use \(ActionTitle.forceAppAccessGate).",
+                    description: "Tests the new (v3) onboarding. Signs out and clears the v3 answers and finished mark, so the next screen is Welcome. Covers Welcome through sign-in: Debug builds allow unentitled app access, so you land in the app after sign-in. To see the paywall afterwards, use \(ActionTitle.forceAppAccessGate).",
                     icon: "sparkles",
                     iconColor: .accent
-                ),
-                DebugAction(
-                    title: ActionTitle.replayPostAuthOnboarding,
-                    description: "Legacy post-auth flow. Starts the signed-in post-auth onboarding flow from the first profile screen and temporarily disables the remote-profile auto-skip.",
-                    icon: "play.circle.fill",
-                    iconColor: .accent
-                ),
-                DebugAction(
-                    title: ActionTitle.replayFullOnboardingFromLanding,
-                    description: "Legacy post-auth flow. Sets the same replay flag, signs out, then lets you start from the landing screen and log back into this same account.",
-                    icon: "rectangle.portrait.and.arrow.right",
-                    iconColor: .orange
-                ),
-                DebugAction(
-                    title: ActionTitle.completePostAuthOnboarding,
-                    description: "Legacy post-auth flow. Marks the current account as having completed the post-auth onboarding flow.",
-                    icon: "checkmark.seal.fill",
-                    iconColor: .green
                 ),
                 DebugAction(
                     title: ActionTitle.resetRoutineBuilderWalkthrough,
@@ -181,17 +159,9 @@ class DebugToolsViewModel {
         do {
             // Map action titles to service methods
             switch action.title {
-            case ActionTitle.resetPostAuthOnboarding:
-                let userId = try currentUserId()
-                PostAuthOnboardingStore().reset(for: userId)
-                OnboardingFlowAnalyticsCoordinator.shared.resetPass()
-                NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
-                successMessage = "Reset post-auth onboarding for this user."
-
             case ActionTitle.replayNewOnboardingFromWelcome:
                 OnboardingV3DebugReplay().reset()
                 OnboardingFlowAnalyticsCoordinator.shared.resetPass()
-                NotificationCenter.default.post(name: .onboardingV3DebugReplayRequested, object: nil)
                 authVM.signOut()
                 successMessage = "New onboarding replay is ready. You are signed out and the next screen is Welcome. The replay covers Welcome through sign-in, then you land in the app because Debug builds allow unentitled app access. To see the paywall afterwards, use \(ActionTitle.forceAppAccessGate)."
 
@@ -199,28 +169,6 @@ class DebugToolsViewModel {
                 UserDefaults.standard.removeObject(forKey: RoutineBuilderCoachMark.seenStorageKey)
                 UserDefaults.standard.removeObject(forKey: RoutineWindowCoachMark.seenStorageKey)
                 successMessage = "Routine builder walkthrough will play again on this device."
-
-            case ActionTitle.replayPostAuthOnboarding:
-                let userId = try currentUserId()
-                PostAuthOnboardingStore().beginDebugReplay(for: userId)
-                OnboardingFlowAnalyticsCoordinator.shared.resetPass()
-                NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
-                successMessage = "Started onboarding replay for this user."
-
-            case ActionTitle.replayFullOnboardingFromLanding:
-                let userId = try currentUserId()
-                PostAuthOnboardingStore().beginDebugReplay(for: userId)
-                OnboardingFlowAnalyticsCoordinator.shared.resetPass()
-                NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
-                authVM.signOut()
-                successMessage = "Replay is ready. Sign back into this account from the landing screen."
-
-            case ActionTitle.completePostAuthOnboarding:
-                let userId = try currentUserId()
-                PostAuthOnboardingStore().markComplete(for: userId)
-                SettingsManager.shared.hasCompletedBaseLevelOnboarding = true
-                NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
-                successMessage = "Marked post-auth onboarding complete for this user."
 
             case ActionTitle.presentAppAccessPaywall:
                 guard MonetizationManager.shared.isSuperwallConfigured else {

@@ -13,13 +13,10 @@ extension AppRootRoute {
     var telemetryScreenName: TelemetryScreenName? {
         switch self {
         case .updateRequired: .appUpdateRequired
-        case .signedOut: .landing
-        case .signedOutHold: .signedOutHold
         case .preAuthOnboarding: nil
         case .signingIn: .authSigningIn
         case .restoringSession: .sessionRestoring
         case .resolving: .appAccessResolving
-        case .onboarding: .onboardingFlow
         case .paywall: .appAccessGate
         case .mainApp: nil
         }

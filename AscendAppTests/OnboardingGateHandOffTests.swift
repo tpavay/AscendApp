@@ -143,16 +143,11 @@ struct OnboardingGateHandOffTests {
     }
 
     @Test
-    func backDuringAV3PassIsAPlainCloseThatNeverReopensALegacyStage() {
+    func backDuringAV3PassIsAPlainClose() {
         let f = fixture(passFlowVersion: "v3")
-        var reopenCount = 0
         let coordinator = AppAccessPaywallCoordinator(
             monetizationManager: f.manager,
             telemetry: f.telemetry,
-            onRequestOnboardingBack: {
-                reopenCount += 1
-                return true
-            },
             sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
         )
 
@@ -160,9 +155,8 @@ struct OnboardingGateHandOffTests {
         coordinator.handleHostedOutcomeForTesting(.presented)
         coordinator.handleHostedOutcomeForTesting(.backRequested)
 
-        // A plain close: no legacy stage reopens, and with no free week on offer the paywall the
-        // climber closed is the one that comes back.
-        #expect(reopenCount == 0)
+        // A plain close: with no free week on offer the paywall the climber closed is the one that
+        // comes back.
         #expect(f.presenter.registrations == [.appAccessGate, .appAccessGate])
         #expect(f.presenter.registeredSource == "paid_offers_declined")
         #expect(coordinator.phase == .openingHosted)
@@ -175,16 +169,11 @@ struct OnboardingGateHandOffTests {
     }
 
     @Test
-    func backInALegacyPassStillReopensTheStageBehindTheGate() {
+    func backInALegacyPassIsAPlainCloseToo() {
         let f = fixture(passFlowVersion: "v1")
-        var reopenCount = 0
         let coordinator = AppAccessPaywallCoordinator(
             monetizationManager: f.manager,
             telemetry: f.telemetry,
-            onRequestOnboardingBack: {
-                reopenCount += 1
-                return true
-            },
             sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
         )
 
@@ -192,23 +181,18 @@ struct OnboardingGateHandOffTests {
         coordinator.handleHostedOutcomeForTesting(.presented)
         coordinator.handleHostedOutcomeForTesting(.backRequested)
 
-        #expect(reopenCount == 1)
+        #expect(f.presenter.registeredSource == "paid_offers_declined")
         let back = f.sink.records.first { $0.name == "onboarding_back_tapped" }
         #expect(back?.parameters["flow_version"] == .string("v1"))
         #expect(back?.parameters["step_index"] == .int(20))
     }
 
     @Test
-    func aDeclineOfferOpeningDuringAV3PassCountsNoBackAndReopensNothing() {
+    func aDeclineOfferOpeningDuringAV3PassCountsNoBack() {
         let f = fixture(passFlowVersion: "v3")
-        var reopenCount = 0
         let coordinator = AppAccessPaywallCoordinator(
             monetizationManager: f.manager,
             telemetry: f.telemetry,
-            onRequestOnboardingBack: {
-                reopenCount += 1
-                return true
-            },
             sleep: { _ in try await Task.sleep(for: .seconds(3_600)) }
         )
 
@@ -216,7 +200,6 @@ struct OnboardingGateHandOffTests {
         coordinator.handleHostedOutcomeForTesting(.presented)
         coordinator.handleHostedOutcomeForTesting(.followOnPaywallOpening)
 
-        #expect(reopenCount == 0)
         #expect(coordinator.phase == .openingHosted)
         #expect(f.sink.records.contains { $0.name == "onboarding_back_tapped" } == false)
     }

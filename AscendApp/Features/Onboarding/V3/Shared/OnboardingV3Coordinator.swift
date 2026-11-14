@@ -49,9 +49,7 @@ final class OnboardingV3Coordinator {
 
     /// Whether the answers on this device were carried into an account: the climber signed in at the
     /// end of the flow. It says whose the answers are, and never which screen a signed-out climber
-    /// sees. That is the switch's alone (``OnboardingV3RouteLatch``): a finished pass that hid this
-    /// flow sent every climber who signed out to the onboarding it replaced, on that launch and on
-    /// every one after it.
+    /// sees: every signed-out climber gets this flow, whatever this device finished before.
     var isFinished: Bool { answers.completedAt != nil }
 
     var canGoBack: Bool { !trail.isEmpty }

@@ -10,14 +10,14 @@ All five of them say the alert arrives **when** a climb opens:
 
 | Surface | Copy |
 |---|---|
-| `PostAuthOnboardingFlowView.swift` | "Get an Ascend alert when new climbs open. Be ready to claim the First Ascent before anyone else." / "Email me when climbs drop." |
+| `NotificationPrimerContent.swift` | "A nudge when new gear drops and when new climbs open." / "Email me when climbs drop, plus weekly recaps and updates from Ascend." |
 | `NotificationSettingsView.swift` | "New climb drops" / "A new landmark opens in the catalog." |
 | `CollectionSection.swift` | "Be the first to know when new climbs drop." |
 | `PrestigeSection.swift` | "…be first up when the next climb drops." |
 | `EmailPreferencesContentView.swift` | "Ascend emails you when a climb drops and when you hit a milestone." |
 
 So the contract is an alert at the open, delivered to everyone at once, not advance notice.
-The 1.3.0 onboarding primer, behind `onboarding_v3_enabled`, says the same: "when new climbs open" (`NotificationPrimerContent.swift`).
+The onboarding primer (`NotificationPrimerContent.swift`) says the same: "when new climbs open".
 
 **Advance notice is not available to promise.**
 The catalogue is a static file published by a hosting deploy and carries no unlock timestamp, so there is nothing to count back from.

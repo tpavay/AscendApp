@@ -96,30 +96,6 @@ struct OnboardingAnalyticsEventTests {
     }
 
     @Test
-    func firstClimbSelectedIncludesRecommendationContext() {
-        let context = OnboardingAnalyticsContext(
-            segmentID: "post_auth_onboarding",
-            stepID: "first_climb"
-        )
-
-        let record = OnboardingAnalyticsEvent.firstClimbSelected(
-            context: context,
-            climbID: "empire-state-building",
-            climbName: "Empire State Building"
-        ).record
-
-        #expect(record.name == "onboarding_question_answered")
-        expectStringParameter(record, "flow_id", "onboarding")
-        expectStringParameter(record, "segment_id", "post_auth_onboarding")
-        expectStringParameter(record, "question_id", "first_climb")
-        expectStringParameter(record, "input_type", "single_select")
-        expectStringParameter(record, "selection_type", "single_select")
-        expectStringParameter(record, "answer_id", "empire-state-building")
-        expectStringParameter(record, "climb_id", "empire-state-building")
-        expectStringParameter(record, "climb_name", "Empire State Building")
-    }
-
-    @Test
     func onboardingPaywallReachedKeepsPlacementAndSource() {
         let record = OnboardingAnalyticsEvent.paywallReached(
             placement: "app_access_gate",
@@ -164,63 +140,6 @@ struct OnboardingAnalyticsEventTests {
     }
 
     @Test
-    func bodyMetricsCompletionCapturesHeightWeightAndMeasurementSystem() {
-        let record = OnboardingAnalyticsEvent.screenCompleted(
-            context: PostAuthOnboardingStage.weight.analyticsContext,
-            inputType: PostAuthOnboardingStage.weight.analyticsInputType,
-            properties: [
-                "measurement_system": .string("imperial"),
-                "profile_height_group": .string(
-                    OnboardingAnalyticsUserProperties.heightGroupValue(forHeightCm: 177.8)
-                ),
-                "profile_weight_group": .string(
-                    OnboardingAnalyticsUserProperties.weightGroupValue(forWeightKg: 83.9)
-                )
-            ]
-        ).record
-
-        expectStringParameter(record, "screen_id", "weight")
-        expectStringParameter(record, "input_type", "measurement")
-        expectStringParameter(record, "measurement_system", "imperial")
-        expectStringParameter(record, "profile_height_group", "165_179_cm")
-        expectStringParameter(record, "profile_weight_group", "150_199_lb")
-    }
-
-    @Test
-    func locationCompletionCapturesCountryAndSelectionMethod() {
-        let record = OnboardingAnalyticsEvent.screenCompleted(
-            context: PostAuthOnboardingStage.location.analyticsContext,
-            inputType: PostAuthOnboardingStage.location.analyticsInputType,
-            properties: [
-                "profile_country": .string("US"),
-                "selection_method": .string("current_location")
-            ]
-        ).record
-
-        expectStringParameter(record, "screen_id", "location")
-        expectStringParameter(record, "input_type", "location")
-        expectStringParameter(record, "profile_country", "US")
-        expectStringParameter(record, "selection_method", "current_location")
-    }
-
-    @Test
-    func demographicCompletionsCaptureSelectedBuckets() {
-        let genderRecord = OnboardingAnalyticsEvent.screenCompleted(
-            context: PostAuthOnboardingStage.gender.analyticsContext,
-            inputType: PostAuthOnboardingStage.gender.analyticsInputType,
-            properties: ["profile_gender": .string("non_binary")]
-        ).record
-        let ageRecord = OnboardingAnalyticsEvent.screenCompleted(
-            context: PostAuthOnboardingStage.age.analyticsContext,
-            inputType: PostAuthOnboardingStage.age.analyticsInputType,
-            properties: ["profile_age_group": .string("25_34")]
-        ).record
-
-        expectStringParameter(genderRecord, "profile_gender", "non_binary")
-        expectStringParameter(ageRecord, "profile_age_group", "25_34")
-    }
-
-    @Test
     func authScreenViewedUsesStableAuthContext() {
         let record = OnboardingAnalyticsEvent.screenViewed(
             context: OnboardingAnalyticsEvent.authContext
@@ -234,7 +153,7 @@ struct OnboardingAnalyticsEventTests {
     }
 
     @Test
-    func paywallScreenViewedJoinsPostAuthOnboardingFunnel() {
+    func paywallScreenViewedKeepsItsOwnSegment() {
         let record = OnboardingAnalyticsEvent.screenViewed(
             context: OnboardingAnalyticsEvent.paywallContext
         ).record
@@ -245,13 +164,6 @@ struct OnboardingAnalyticsEventTests {
         expectStringParameter(record, "step_id", "paywall")
         expectStringParameter(record, "screen_id", "paywall")
         expectIntParameter(record, "step_index", 20)
-    }
-
-    @Test
-    func paywallFollowsTheLastPostAuthStage() {
-        #expect(
-            OnboardingAnalyticsEvent.paywallContext.stepIndex > PostAuthOnboardingStage.firstClimb.progressIndex
-        )
     }
 
     @Test
@@ -270,32 +182,10 @@ struct OnboardingAnalyticsEventTests {
         expectBoolParameter(record, "resume", false)
     }
 
-    /// The opening post-auth screen's leading control signs out, so it must not
-    /// report as backwards navigation through a flow with no earlier step.
-    @Test
-    func signOutFromTheOpeningScreenReportsItsOwnEventsRatherThanABackTap() {
-        let context = PostAuthOnboardingStage.first.analyticsContext
-
-        let tapped = OnboardingAnalyticsEvent.signOutTapped(
-            context: context,
-            inputType: "button"
-        ).record
-
-        #expect(tapped.name == "onboarding_sign_out_tapped")
-        expectStringParameter(tapped, "from_step", "stair_stepper_baseline")
-        expectStringParameter(tapped, "input_type", "button")
-        expectIntParameter(tapped, "step_count", 21)
-
-        let confirmed = OnboardingAnalyticsEvent.signOutConfirmed(context: context).record
-
-        #expect(confirmed.name == "onboarding_sign_out_confirmed")
-        expectStringParameter(confirmed, "from_step", "stair_stepper_baseline")
-    }
-
     @Test
     func backTappedNamesTheStepBeingLeft() {
         let record = OnboardingAnalyticsEvent.backTapped(
-            context: PostAuthOnboardingStage.gender.analyticsContext,
+            context: OnboardingAnalyticsContext(segmentID: "post_auth_onboarding", stepID: "gender"),
             inputType: "button"
         ).record
 
@@ -307,169 +197,6 @@ struct OnboardingAnalyticsEventTests {
         expectStringParameter(record, "input_type", "button")
     }
 
-    @Test
-    func preAuthBackTapNamesTheValuePageBeingLeft() throws {
-        let pages = OnboardingValuePages.all
-        let context = try #require(
-            OnboardingValueCarouselView.analyticsContext(pages: pages, index: 1)
-        )
-
-        let record = OnboardingAnalyticsEvent.backTapped(context: context, inputType: "gesture").record
-
-        #expect(record.name == "onboarding_back_tapped")
-        expectStringParameter(record, "flow_id", "onboarding")
-        expectStringParameter(record, "segment_id", "pre_auth_value_onboarding")
-        expectStringParameter(record, "from_step", pages[1].id)
-        expectStringParameter(record, "input_type", "gesture")
-    }
-}
-
-@MainActor
-struct OnboardingScreenViewCoverageTests {
-    @Test
-    func everyVisibleOnboardingScreenEmitsExactlyOnce() {
-        let sink = InMemoryTelemetrySink(destination: .analytics)
-        let telemetry = makeTestTelemetry(sink: sink)
-        let suiteName = "OnboardingScreenViewCoverageTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        let recorder = OnboardingScreenViewRecorder(
-            lifecycle: OnboardingFlowAnalyticsCoordinator(userDefaults: defaults, telemetry: telemetry)
-        )
-        let contexts = canonicalVisibleContexts()
-
-        for context in contexts {
-            recorder.recordIfNeeded(context, telemetry: telemetry)
-            recorder.recordIfNeeded(context, telemetry: telemetry)
-        }
-
-        let records = sink.records.filter { $0.name == "onboarding_screen_viewed" }
-        let screenIDs = records.compactMap { record -> String? in
-            guard case .string(let screenID)? = record.parameters["screen_id"] else { return nil }
-            return screenID
-        }
-
-        #expect(screenIDs == [
-            "welcome",
-            "watch_yourself_get_better",
-            "reason_to_come_back",
-            "auth",
-            "stair_stepper_baseline",
-            "exercise_level",
-            "goal",
-            "motivation",
-            "plan",
-            "summit_landmarks",
-            "real_time",
-            "daily_climbs",
-            "gender",
-            "athlete",
-            "age",
-            "weight",
-            "location",
-            "notifications",
-            "loading",
-            "first_climb",
-            "paywall"
-        ])
-        #expect(Set(screenIDs).count == 21)
-        #expect(screenIDs.contains("features") == false)
-        #expect(records.allSatisfy { $0.parameters["viewed"] == .bool(true) })
-        #expect(records.allSatisfy { $0.parameters["step_id"] == $0.parameters["screen_id"] })
-        #expect(records.allSatisfy { $0.parameters["flow_id"] == .string("onboarding") })
-        #expect(records.allSatisfy { $0.parameters["flow_version"] == .string("v1") })
-        #expect(records.allSatisfy { $0.parameters["segment_id"] != nil })
-        #expect(records.map { $0.parameters["step_index"] } == (0..<21).map(TelemetryValue.int))
-        #expect(records.allSatisfy { $0.parameters["step_count"] == .int(21) })
-        #expect(records.allSatisfy { $0.parameters["app_environment"] != nil })
-    }
-
-    /// Contexts are built from content arrays, so a step can drift out of the canonical order.
-    /// Onboarding is the one flow a user cannot route around, so the drift resolves to an
-    /// out-of-band index rather than taking a shipped build down with it.
-    @Test
-    func anUnknownStepResolvesToNoCanonicalPositionInsteadOfTrapping() {
-        #expect(OnboardingAnalyticsContext.canonicalStepIndex(for: "not_an_onboarding_step") == nil)
-        #expect(OnboardingAnalyticsContext.unknownStepIndex < 0)
-    }
-
-    @Test
-    func everyStepTheFlowActuallyBuildsIsCanonical() {
-        for context in canonicalVisibleContexts() {
-            #expect(
-                OnboardingAnalyticsContext.canonicalStepIndex(for: context.stepID) == context.stepIndex,
-                "\(context.stepID) is not in the canonical onboarding order"
-            )
-        }
-    }
-
-    @Test
-    func featuresContainerHasNoVisibleScreenContext() {
-        #expect(PostAuthOnboardingStage.features.visibleScreenAnalyticsContext == nil)
-        #expect(
-            PostAuthOnboardingStage.allCases
-                .filter { $0 != .features }
-                .allSatisfy { $0.visibleScreenAnalyticsContext != nil }
-        )
-    }
-
-    private func canonicalVisibleContexts() -> [OnboardingAnalyticsContext] {
-        var contexts = [OnboardingAnalyticsEvent.welcomeContext]
-        contexts.append(contentsOf: OnboardingValuePages.all.indices.compactMap {
-            OnboardingValueCarouselView.analyticsContext(
-                pages: OnboardingValuePages.all,
-                index: $0
-            )
-        })
-        contexts.append(OnboardingAnalyticsEvent.authContext)
-
-        for stage in PostAuthOnboardingStage.allCases {
-            if stage == .features {
-                contexts.append(contentsOf: OnboardingFeatureGuideFlowScreen.analyticsContexts(
-                    segmentID: "post_auth_features"
-                ))
-            } else if let context = stage.visibleScreenAnalyticsContext {
-                contexts.append(context)
-            }
-        }
-
-        contexts.append(OnboardingAnalyticsEvent.paywallContext)
-        return contexts
-    }
-}
-
-@MainActor
-struct OnboardingValueCarouselAnalyticsContextTests {
-    @Test
-    func contextUsesPageIdentityAndPosition() throws {
-        let pages = OnboardingValuePages.all
-        let context = try #require(OnboardingValueCarouselView.analyticsContext(pages: pages, index: 0))
-
-        #expect(context.segmentID == "pre_auth_value_onboarding")
-        #expect(context.stepID == pages[0].id)
-        #expect(context.stepIndex == 1)
-        #expect(context.stepCount == 21)
-    }
-
-    @Test
-    func everyValuePageHasAUniqueStepID() {
-        let pages = OnboardingValuePages.all
-        let stepIDs = pages.indices.compactMap {
-            OnboardingValueCarouselView.analyticsContext(pages: pages, index: $0)?.stepID
-        }
-
-        #expect(stepIDs.count == pages.count)
-        #expect(Set(stepIDs).count == pages.count)
-    }
-
-    @Test
-    func outOfRangeIndexHasNoContext() {
-        let pages = OnboardingValuePages.all
-
-        #expect(OnboardingValueCarouselView.analyticsContext(pages: pages, index: pages.count) == nil)
-        #expect(OnboardingValueCarouselView.analyticsContext(pages: pages, index: -1) == nil)
-        #expect(OnboardingValueCarouselView.analyticsContext(pages: [], index: 0) == nil)
-    }
 }
 
 private func expectStringParameter(_ record: TelemetryRecord, _ key: String, _ expected: String) {

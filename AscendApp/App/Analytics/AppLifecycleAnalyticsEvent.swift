@@ -45,24 +45,21 @@ extension AppLifecycleAnalyticsEvent {
     /// wait expired - a real, countable outcome, never a fallback for an unmapped route.
     enum RootRoute: String, CaseIterable, Sendable {
         case updateRequired = "update_required"
-        case signedOut = "signed_out"
-        case signedOutHold = "signed_out_hold"
         case preAuthOnboarding = "pre_auth_onboarding"
         case signingIn = "signing_in"
         case restoringSession = "restoring_session"
         case resolving
-        case onboarding
         case paywall
         case mainApp = "main_app"
         case unresolved
 
-        /// `signed_out_hold`, `signing_in`, `restoring_session` and `resolving` are waypoints the app leaves on its
+        /// `signing_in`, `restoring_session` and `resolving` are waypoints the app leaves on its
         /// own, so a launch that is sitting on one has not chosen a destination yet.
         var isResolved: Bool {
             switch self {
-            case .updateRequired, .signedOut, .preAuthOnboarding, .onboarding, .paywall, .mainApp:
+            case .updateRequired, .preAuthOnboarding, .paywall, .mainApp:
                 true
-            case .signedOutHold, .signingIn, .restoringSession, .resolving, .unresolved:
+            case .signingIn, .restoringSession, .resolving, .unresolved:
                 false
             }
         }
@@ -71,10 +68,6 @@ extension AppLifecycleAnalyticsEvent {
             switch route {
             case .updateRequired:
                 self = .updateRequired
-            case .signedOut:
-                self = .signedOut
-            case .signedOutHold:
-                self = .signedOutHold
             case .preAuthOnboarding:
                 self = .preAuthOnboarding
             case .signingIn:
@@ -83,8 +76,6 @@ extension AppLifecycleAnalyticsEvent {
                 self = .restoringSession
             case .resolving:
                 self = .resolving
-            case .onboarding:
-                self = .onboarding
             case .paywall:
                 self = .paywall
             case .mainApp:

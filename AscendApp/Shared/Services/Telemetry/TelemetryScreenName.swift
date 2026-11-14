@@ -16,9 +16,8 @@ import Foundation
 ///
 /// The onboarding funnel is measured by `onboarding_screen_viewed` with a `screen_id`
 /// (see the `ascend-analytics` skill), which is what funnels read. The v3 flow's screens are also
-/// catalog screens, so `screen_view` carries them beside every other surface; the older flow
-/// reports only the two route boundaries that contain its 21 steps, ``landing`` and
-/// ``onboardingFlow``. Entry-point detail is likewise left to the events
+/// catalog screens, so `screen_view` carries them beside every other surface. Entry-point detail is
+/// likewise left to the events
 /// that already carry it - `live_climb_detail_view` and friends - rather than duplicated
 /// onto the screen.
 enum TelemetryScreenName: String, CaseIterable, Sendable {
@@ -26,12 +25,9 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     // MARK: - Root routes
 
     case appUpdateRequired = "app_update_required"
-    case landing
-    case signedOutHold = "signed_out_hold"
     case authSigningIn = "auth_signing_in"
     case sessionRestoring = "session_restoring"
     case appAccessResolving = "app_access_resolving"
-    case onboardingFlow = "onboarding_flow"
     case appAccessGate = "app_access_gate"
     case accountDataConflict = "account_data_conflict"
 
@@ -163,12 +159,9 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     var screenClass: String {
         switch self {
         case .appUpdateRequired: "AppUpdateRequiredView"
-        case .landing: "LandingScreen"
-        case .signedOutHold: "SignedOutHoldView"
         case .authSigningIn: "RootView"
         case .sessionRestoring: "RootView"
         case .appAccessResolving: "AppAccessResolvingView"
-        case .onboardingFlow: "PostAuthOnboardingFlowView"
         case .appAccessGate: "AppAccessPaywallPlaceholderView"
         case .accountDataConflict: "AccountDataConflictView"
         case .onboardingWelcome: "OnboardingWelcomeScreen"

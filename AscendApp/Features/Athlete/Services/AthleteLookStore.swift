@@ -106,11 +106,6 @@ final class AthleteLookStore {
         }
     }
 
-    /// The athlete onboarding starts a new climber with, from the gender answer they just gave.
-    func start(with gender: ProfileGender?) {
-        starting = .starting(for: gender)
-    }
-
     /// Saves the climber's look to their account; others see it on their stairs from their next
     /// read. Throws when it could not be saved, and keeps nothing it could not save.
     func save(_ look: AthleteLook, userId: String) async throws {

@@ -99,7 +99,6 @@ struct MonetizationIdentityTransitionStateTests {
             updatePresentation: nil,
             authenticationState: .authenticated,
             userId: "subscriber",
-            postAuthOnboardingPhase: .complete,
             entitlementState: entitlementState,
             requiredEntitlementID: "app_access"
         )

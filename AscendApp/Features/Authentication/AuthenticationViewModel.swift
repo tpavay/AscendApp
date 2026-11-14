@@ -32,8 +32,6 @@ enum AuthenticationState {
     }
 }
 
-
-
 @MainActor
 @Observable
 class AuthenticationViewModel {
@@ -945,34 +943,6 @@ extension AuthenticationViewModel {
     }
 
     @discardableResult
-    func updateOnboardingBirthday(_ birthday: ProfileBirthday) async -> Bool {
-        errorMessage = nil
-
-        guard let user else {
-            errorMessage = "User not authenticated"
-            return false
-        }
-
-        guard birthday.hasValidProfileAge() else {
-            errorMessage = "Choose a birthday for an age from 13 to 120"
-            return false
-        }
-
-        do {
-            try await UserDataRepository.shared.updateOnboardingDemographics(
-                userId: user.uid,
-                email: user.email,
-                displayName: displayName,
-                birthday: birthday
-            )
-            return true
-        } catch {
-            errorMessage = "Failed to update profile: \(error.localizedDescription)"
-            return false
-        }
-    }
-
-    @discardableResult
     func updateBirthday(_ birthday: ProfileBirthday) async -> Bool {
         errorMessage = nil
 
@@ -1104,34 +1074,6 @@ extension AuthenticationViewModel {
             return true
         } catch {
             errorMessage = "Failed to update profile: \(error.localizedDescription)"
-            return false
-        }
-    }
-
-    @discardableResult
-    func updateOnboardingFirstClimb(_ climbId: String) async -> Bool {
-        errorMessage = nil
-
-        guard let user else {
-            errorMessage = "User not authenticated"
-            return false
-        }
-
-        let normalizedClimbId = climbId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedClimbId.range(of: #"^[a-z0-9-]{1,160}$"#, options: .regularExpression) != nil else {
-            errorMessage = "Choose a valid first climb"
-            return false
-        }
-
-        do {
-            try await UserDataRepository.shared.updateOnboardingFirstClimb(
-                userId: user.uid,
-                email: user.email,
-                climbId: normalizedClimbId
-            )
-            return true
-        } catch {
-            errorMessage = "Failed to update first climb: \(error.localizedDescription)"
             return false
         }
     }

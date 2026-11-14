@@ -14,9 +14,6 @@ final class AppAccessPaywallCoordinator {
     private(set) var phase: AppAccessGatePhase = .openingHosted
 
     private let monetizationManager: MonetizationManager
-    /// Returns whether the onboarding step behind the paywall actually reopened, so the gate
-    /// never leaves a climber on a hosted paywall that is already gone.
-    private let onRequestOnboardingBack: (@MainActor () -> Bool)?
     /// Opens the account-deletion dialog for the hosted paywall's `DELETE ACCOUNT` control.
     ///
     /// Ascend has already dismissed the hosted paywall by the time this is asked, so the dialog has
@@ -63,7 +60,6 @@ final class AppAccessPaywallCoordinator {
     init(
         monetizationManager: MonetizationManager,
         telemetry: TelemetryManager = .shared,
-        onRequestOnboardingBack: (@MainActor () -> Bool)? = nil,
         onRequestAccountDeletion: (@MainActor () -> Void)? = nil,
         onRequestSignOut: (@MainActor () -> Void)? = nil,
         hostedOpeningDeadline: Duration = .seconds(8),
@@ -71,7 +67,6 @@ final class AppAccessPaywallCoordinator {
         sleep: @escaping Sleep = { try await Task.sleep(for: $0) }
     ) {
         self.monetizationManager = monetizationManager
-        self.onRequestOnboardingBack = onRequestOnboardingBack
         self.onRequestAccountDeletion = onRequestAccountDeletion
         self.onRequestSignOut = onRequestSignOut
         self.telemetry = telemetry
@@ -415,36 +410,14 @@ final class AppAccessPaywallCoordinator {
             confirmAccess(holding: outcome == .pendingApproval ? .askToBuy : .unconfirmedCharge)
         case .backRequested:
             watchdogTask?.cancel()
-            // A flow that ends at sign-in has no stage behind the gate, and the v1 stages are ones
-            // this climber never walked, so back is a plain close.
-            if monetizationManager.onboardingFlowVersion == OnboardingAnalyticsContext.currentFlowVersion {
-                recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
-                handlePaidOffersDeclined(
-                    presentationRevision: presentationRevision,
-                    presentationIdentity: presentationIdentity,
-                    reason: .hostedBackRequested
-                )
-                return
-            }
-            // The climber asked for the onboarding step behind the paywall, not for a second one.
-            recordGateTerminal(
+            // The onboarding ends at sign-in, so there is no step behind the gate to go back to:
+            // back is a plain close, for every climber.
+            recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
+            handlePaidOffersDeclined(
                 presentationRevision: presentationRevision,
                 presentationIdentity: presentationIdentity,
-                providerOutcome: .backRequested,
-                recoveryPath: .hosted,
-                recoveryReason: .hostedBackRequested,
-                entitlementActive: entitlementPresence
+                reason: .hostedBackRequested
             )
-            self.presentationRevision &+= 1
-            self.presentationIdentity = nil
-            guard onRequestOnboardingBack?() == true else {
-                // The hosted paywall is already dismissed, so a back that could not land would
-                // leave the spinner with nothing behind it. The paywall the climber left comes
-                // back instead.
-                presentHosted(source: "onboarding_back_unavailable")
-                return
-            }
-            recordOnboardingBackTapped(presentationIdentity: presentationIdentity)
         case .deleteAccountRequested:
             // The climber asked to delete their account, not to shop. Deliberately does not move
             // the phase: the deletion dialog covers the gate, and

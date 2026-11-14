@@ -41,7 +41,7 @@ A climber Apple may already have charged is checked for access behind the spinne
 
 The decline offer (the gift screen) is Superwall's, and the SDK opens it only when the first paywall is closed.
 A climber who force-closes the app on the first paywall never closes it, so they would never meet the offer.
-With `onboarding_v3_enabled` and `free_week_after_decline_enabled` both on, the next launch opens it for them (`DeclineOfferReplayStore`).
+With `free_week_after_decline_enabled` on, the next launch opens it for them (`DeclineOfferReplayStore`).
 
 - **Pending.** A climber who walked the v3 onboarding has the first paywall reach the screen: the gate records the account as owed the offer.
 - **Shown.** The offer reaches the screen, by the SDK's chain or by the replay: the account is never owed it again.

@@ -130,11 +130,9 @@ struct RouteScreenViewEvidenceTests {
     func everyRootRouteResolvesToAReviewedScreenExceptTheContainer() {
         let routes: [AppRootRoute] = [
             .updateRequired,
-            .signedOut,
             .signingIn,
             .restoringSession,
             .resolving,
-            .onboarding(.stairStepperBaseline),
             .paywall,
             .mainApp
         ]
@@ -145,7 +143,6 @@ struct RouteScreenViewEvidenceTests {
 
         #expect(AppRootRoute.mainApp.telemetryScreenName == nil)
         #expect(AppRootRoute.paywall.telemetryScreenName == .appAccessGate)
-        #expect(AppRootRoute.onboarding(.gender).telemetryScreenName == .onboardingFlow)
     }
 
     @Test

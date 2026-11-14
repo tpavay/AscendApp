@@ -14,7 +14,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private let telemetry: TelemetryManager
     private let pendingPurchaseHoldStore: PendingPurchaseHoldStore
     private let declineOfferReplayStore: DeclineOfferReplayStore
-    private let isOnboardingV3Enabled: @MainActor () -> Bool
     /// The account whose first paywall was on screen when the previous process died, read once at
     /// launch. A marker written during this process is not a force-close, so it is never replayed.
     @ObservationIgnored
@@ -135,7 +134,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
         telemetry: TelemetryManager = .shared,
         onboardingLifecycle: OnboardingFlowAnalyticsCoordinator = .shared,
         userDefaults: UserDefaults = .standard,
-        isOnboardingV3Enabled: @escaping @MainActor () -> Bool = MonetizationManager.liveOnboardingV3Switch,
         verdictBudget: MonetizationVerdictBudget = MonetizationVerdictBudget(),
         unattributedGrantSettleDelay: Duration = .seconds(15),
         unattributedGrantSleep: @escaping @Sendable (Duration) async throws -> Void = {
@@ -156,7 +154,6 @@ final class MonetizationManager: MonetizationIdentityManaging {
         pendingPurchaseHoldStore = PendingPurchaseHoldStore(userDefaults: userDefaults)
         declineOfferReplayStore = DeclineOfferReplayStore(userDefaults: userDefaults)
         declineOfferOwedAtLaunch = declineOfferReplayStore.pendingUserID()
-        self.isOnboardingV3Enabled = isOnboardingV3Enabled
         self.verdictBudget = verdictBudget
     }
 
@@ -406,17 +403,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     // MARK: - Decline offer replay
 
-    /// The v3 onboarding's decline offer rides on the free week rollout: with either switch off the
-    /// gate behaves exactly as it did before the replay existed.
+    /// The decline offer rides on the free week rollout: with that switch off the gate behaves
+    /// exactly as it did before the replay existed.
     private var declineOfferReplayIsOn: Bool {
-        freeWeek.isEnabled && isOnboardingV3Enabled()
-    }
-
-    static func liveOnboardingV3Switch() -> Bool {
-        #if DEBUG || STAGING
-        if OnboardingV3DebugReplay().forcesFlow { return true }
-        #endif
-        return RemoteFeatureFlagStore.shared.isEnabled(.onboardingV3)
+        freeWeek.isEnabled
     }
 
     /// The first paywall reached the screen of a climber who walked the v3 onboarding, so closing

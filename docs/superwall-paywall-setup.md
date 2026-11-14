@@ -117,7 +117,6 @@ A gate that cannot show a message or a retry button cannot be where anything end
 | `startFreeWeek` fails, or the account's free week record cannot be read | Asks again after 2, 4 and 8 seconds, then reopens the paywall |
 | A charge RevenueCat has not confirmed | Re-reads access at once and after 2, 4, 8 and 16 seconds, then reopens the paywall |
 | An Ask to Buy | Re-reads access once, then reopens the paywall |
-| The onboarding step behind the paywall cannot reopen | Reopens the paywall |
 | The account-deletion dialog is cancelled | Reopens the paywall |
 | Access is confirmed and routing has still not left the gate 10 seconds later | Reopens the paywall |
 
@@ -129,7 +128,7 @@ The account-deletion route Guideline 5.1.1(v) requires at the gate therefore dep
 
 ## Onboarding paywall and decline offer (1.3.0)
 
-The 1.3.0 onboarding (`onboarding_v3_enabled`) signs the climber in first and sells second: screens 1-12, then sign-in (13), then the app.
+The 1.3.0 onboarding signs the climber in first and sells second: screens 1-12, then sign-in (13), then the app.
 The flow ends at sign-in.
 What a climber who holds no access sees next is the app-access gate, the Superwall paywall for the `app_access_gate` placement, exactly as for every other signed-in climber without access.
 There is no native paywall and no native welcome gift: both were built (PR 675) and removed, because the captain wants everything about what shows, at what price and whether a decline offer exists to be changed in the Superwall dashboard without a build.
@@ -149,7 +148,7 @@ The decline offer is Superwall's, with no Ascend code:
   The offer is a second campaign triggered by Superwall's built-in `paywall_decline` event, showing the welcome product's paywall, and it is shown to everyone who closes the first paywall, including a lapsed subscriber.
   Whether it exists, what it costs and who it targets are dashboard settings.
 - The offer has no back control: its only chrome is a close, plus a close action on `No thanks`, and no back arrow.
-  A `back` action reaching Ascend from it anyway resolves as a plain close for every climber, because only a paywall Ascend registered has a step behind it: nothing reopens and no `onboarding_back_tapped` is recorded.
+  A `back` action reaching Ascend from it anyway resolves as a plain close for every climber, with no `onboarding_back_tapped` recorded.
 - The SDK dismisses the first paywall with `PaywallCloseReason.forNextPaywall` and presents the offer itself, through the first registration's own state publisher (`Superwall.internallyHandleImplicitTrigger` reuses `lastPresentationItems.statePublisher`).
   So the offer reports to the handler Ascend registered, and the presenter treats a `forNextPaywall` dismissal as `.followOnPaywallOpening`: nothing has ended, the registration stays, and the gate waits behind the opening watchdog rather than treating the close as a decline.
   This is generic: any paywall the dashboard chains onto a registered placement is owned the same way, with no gift-specific code.
@@ -197,7 +196,7 @@ Captain-gated before production, none of it done by the build:
 2. Add the product to `app_access` in RevenueCat.
 3. Create and pin the new `REVENUECAT_SERVER_CONFIG` version (`docs/functions-secret-versions.md`).
 4. Build the decline offer's paywall and its `paywall_decline` campaign in Superwall, with a close and a close action on `No thanks` and no back arrow, and keep the welcome product off the first paywall.
-5. Do not publish the decline campaign before the v3 launch: publish the two together, so back only leaves the old onboarding once new climbers no longer walk it.
+5. Publish the decline campaign with the 1.3.0 launch, together with the paywall's back arrow becoming a plain close.
 
 Whether to remove the one-month introductory offer from `ascend_yearly` is a separate captain decision; this change neither requires nor performs it.
 
@@ -430,9 +429,10 @@ Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an
 ### Paywall chrome, the back control, DELETE ACCOUNT, and Sign out
 
 The paywall carries one chrome control: a back arrow in the top-left.
-While no `paywall_decline` campaign is live, it returns the climber to the last onboarding step, except during a v3 onboarding pass, which has no step behind the paywall: there the arrow is a plain close, treated as any other decline - the paywall reopening, or the founder letter and free week when `free_week_after_decline_enabled` is on - and never a v1 stage.
-Once a `paywall_decline` campaign is live, the arrow behaves as a plain close: the close chained after `back` opens the decline offer for everyone, a lapsed subscriber and a climber in a v1 pass included, and Ascend neither dismisses the offer nor reopens a step, and it records no `onboarding_back_tapped` for that tap.
-A v1 climber losing the way back is accepted because the campaign is published together with the v3 launch, when the old onboarding stops being the path for new climbers.
+The onboarding ends at sign-in, so there is no step behind the paywall and the arrow is a plain close, for every climber.
+While no `paywall_decline` campaign is live it is treated as any other decline - the paywall reopening, or the founder letter and free week when `free_week_after_decline_enabled` is on - and Ascend records `onboarding_back_tapped`.
+Once a `paywall_decline` campaign is live, the close chained after `back` opens the decline offer for everyone, and Ascend neither dismisses the offer nor reopens anything, and it records no `onboarding_back_tapped` for that tap.
+The post-sign-in questions this arrow used to return to were removed in 1.3.0, so a climber who updates mid-way through them loses the way back to a screen that no longer exists.
 The paywall carries no close or X control at all.
 Ascend has no free tier, so there is nothing behind the paywall for a close to dismiss to - close and back would land in the same place.
 

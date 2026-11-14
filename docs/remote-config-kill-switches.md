@@ -63,23 +63,21 @@ A rollout gates a feature that is not live until an operator turns it on, so it 
 
 | Parameter | Turning it on starts | Off keeps |
 |---|---|---|
-| `onboarding_v3_enabled` | The 1.3.0 onboarding for signed-out climbers: selling screens and setup questions, then sign-in; a climber who then holds no access meets the app-access paywall, as ever | The onboarding that shipped before it, whole. The flow writes nothing to Firestore itself; the answers it collects stay on the device until sign-in, and `onboarding_answers_profile_write_enabled` gates the write |
 | `free_week_after_decline_enabled` | The free week on the house (`docs/free-week-after-decline.md`): a climber who closes every paid offer at the app-access gate is shown the founder letter and let in for seven days on a server-owned grant. Read by the app and by the `startFreeWeek` Cloud Function | The hard paywall: a decline reopens the hosted paywall. The app registers no letter, reads no record, calls no function and honours no week, a running one included. Nothing is deleted - a server grant stays until it expires - and turning the switch back on honours whatever is left of a week. The function grants nothing while the switch is off for everybody, and nothing when it cannot read the template |
 | `gear_drop_push_enabled` | The server push that announces a new gear event (`functions/src/gearDropPush.ts`). Read by the Cloud Function from the Remote Config template, never by the app | Silence: no dispatch is created and nothing is sent. The event stays unannounced, so the first sweep after the switch is turned on sends it if it is still inside its three-day window; a function that cannot read the switch, or finds it absent, sends nothing |
 | `lifecycle_email_paywall_abandoned_enabled`, `lifecycle_email_free_week_unused_enabled`, `lifecycle_email_trial_reminder_enabled` | The lifecycle drip email sweeps (`docs/lifecycle-drip-emails.md`). One switch per sweep, read by the Cloud Function from the template, never by the app. The first two also need `free_week_after_decline_enabled` | Silence: nothing is queued. A climber still inside the sweep's six-hour window when a switch is turned on is emailed; older ones never are. A template that cannot be read queues nothing. Production also needs the types in its `enabledEmailTypes` secret |
 
 **Decision for the captain before turning `gear_drop_push_enabled` on.**
-Climbers who are opted in today agreed to alerts about new climbs only (the onboarding says "Get an Ascend alert when new climbs open", the Collection says "Be the first to know when new climbs drop", and the Settings toggle is "New climb drops").
+Climbers who are opted in today agreed to alerts about new climbs only (the onboarding says "when new climbs open", the Collection says "Be the first to know when new climbs drop", and the Settings toggle is "New climb drops").
 The gear push reuses that one preference, so turning it on sends a gear announcement to every one of them, including those on 1.2.x, and the only way to stop it is the toggle that also ends climb alerts.
 App Store guideline 4.5.4 requires an explicit opt-in for promotional pushes.
 The choices are to accept the reuse, to send gear only to climbers who opt in from now on, or to give gear its own preference with the Settings label changed to match, which is new durable state.
 Until that is decided the switch stays off.
 
-A flip of `onboarding_v3_enabled` takes effect on the next launch, never on a running one, so a climber is never swapped between flows mid-screen.
-`OnboardingV3RouteLatch` decides once per launch.
-A device whose persisted activation already carries the flag decides on it immediately.
-A device the backend has never answered about it holds on the wordmark until the first fetch ends, for at most 1.5 seconds, and a fetch that fails or runs out the clock leaves it on the shipped `false` for that launch.
-The one exception is the dev build's Debug Tools -> `Replay New Onboarding From Welcome`, which opens the flow at once whatever the switch says and keeps that override on the device until the app is deleted (`OnboardingV3DebugReplay`), so a device that has used it cannot be used to check the switch.
+The onboarding is not behind a switch.
+`onboarding_v3_enabled` shipped as a rollout and was retired in 1.3.0: a fresh install on a slow or blocked network read its shipped `false` after the 1.5 second hold the route latch allowed, and opened the older flow, which is how App Review reached a city step that could not be left (Guideline 2.1(a), 2026-11-14).
+A signed-out climber gets the onboarding on every launch, so the root route reads no flag and holds on nothing.
+The parameter is no longer in `remoteconfig.template.json`, so it stays in each live Remote Config project only until the next full replace publish (`scripts/deploy-remote-config.mjs --apply`) drops it, which is harmless because no build reads it.
 
 ### Settings, which are not switches
 

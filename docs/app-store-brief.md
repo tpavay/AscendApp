@@ -90,9 +90,8 @@ rules are not restated here.
 
 ## Onboarding — current plan + hard constraints (for template evaluation)
 
-Planned sequence:
-**1) Welcome → 2) Pre-auth value carousel → 3) Sign-in (Apple/Google) → 4) Survey →
-5) Paywall priming → 6) Hard paywall → 7) Home.**
+The shipped sequence is owned by `The Shipped Flow` in
+[`docs/onboarding-design-guide.md`](onboarding-design-guide.md); this brief does not restate it.
 
 Visual rules the chosen template must satisfy:
 
@@ -100,8 +99,10 @@ Visual rules the chosen template must satisfy:
   screen.
 - Full-bleed **dark** background, **thin top progress indicator**, **one large product
   hero**, short copy at the bottom, **exactly one CTA per screen**.
-- **No skip affordances. No card chrome or boxed surfaces.**
-- Must collect required demographics post-auth (birthday, bounded to ages 13–120, and gender).
+- **No card chrome or boxed surfaces.** A screen that needs the network or a permission
+  carries a Skip that does not depend on the answer, so no screen can trap a climber.
+- Demographics (birthday, bounded to ages 13–99, and gender) are asked before sign-in and are
+  optional; nothing asks for them after sign-in.
   It must **not** ask for a name: sign-in resolves one and writes it without asking, which is
   what `Name - Resolved, Never Asked` in `docs/onboarding-design-guide.md` covers.
 - Notifications opt-in is anchored to a concrete value prop ("never miss a climb drop / be
