@@ -110,6 +110,59 @@ struct PostAuthCityStepCannotTrapTests {
         }
     }
 
+    @Test
+    func theLastOfFiveSuggestionsScrollsClearOfTheSkip() async throws {
+        let found = (0..<5).map { PostAuthCitySearchSuggestion(id: "city-\($0)", title: "City \($0)", subtitle: "France") }
+        let model = PostAuthCitySearchModel(source: FakeCitySource(searchResult: .success(found)))
+        model.query = "City"
+        #expect(model.suggestions.count == 5)
+
+        var continued = 0
+        let screen = PostAuthLocationScreen(stage: .location, citySearch: model, onBack: {}, onContinue: { continued += 1 })
+            .frame(width: Self.screenSize.width, height: Self.screenSize.height)
+            .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+            .environment(\.colorScheme, .dark)
+
+        try await RenderedScreen.host(screen, size: Self.screenSize) { screen in
+            _ = try await screen.copy { $0.contains("city 4") }
+            let scrollView = try #require(Self.firstScrollView(in: screen.root))
+            let maximumOffset = scrollView.contentSize.height + scrollView.adjustedContentInset.bottom - scrollView.bounds.height
+            #expect(maximumOffset > 0, "Five suggestions overflow the list, so the last one is reached by scrolling.")
+            scrollView.setContentOffset(CGPoint(x: 0, y: max(0, maximumOffset)), animated: false)
+            try await screen.settle(.turns(4))
+
+            let skip = try #require(
+                accessibilityElements(under: screen.root).first { $0.accessibilityLabel == "SKIP FOR NOW" }
+            )
+            let viewport = scrollView.convert(scrollView.bounds, to: nil).insetBy(dx: -1, dy: -1)
+            var lastRow: NSObject?
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while ContinuousClock.now < deadline {
+                lastRow = accessibilityElements(under: screen.root).first { $0.accessibilityLabel?.contains("City 4") == true }
+                if let lastRow, viewport.contains(lastRow.accessibilityFrame) { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            let row = try #require(lastRow)
+
+            #expect(viewport.contains(row.accessibilityFrame), "The last suggestion scrolls fully into the list.")
+            #expect(
+                !row.accessibilityFrame.intersects(skip.accessibilityFrame),
+                "The last suggestion \(row.accessibilityFrame) sits under SKIP FOR NOW \(skip.accessibilityFrame)."
+            )
+            _ = try screen.photograph(named: "post-auth-city-step-five-suggestions-scrolled", scale: 2)
+        }
+
+        #expect(continued == 0)
+    }
+
+    private static func firstScrollView(in view: UIView) -> UIScrollView? {
+        if let scrollView = view as? UIScrollView { return scrollView }
+        for subview in view.subviews {
+            if let found = firstScrollView(in: subview) { return found }
+        }
+        return nil
+    }
+
     // MARK: - The v3 screen
 
     @Test

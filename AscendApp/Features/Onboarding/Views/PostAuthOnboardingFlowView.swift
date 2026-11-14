@@ -567,12 +567,12 @@ struct PostAuthLocationScreen: View {
     /// - Parameter citySearch: Apple Maps unless a test supplies a search of its own.
     init(
         stage: PostAuthOnboardingStage,
-        citySearch: PostAuthCitySearchModel = PostAuthCitySearchModel(),
+        citySearch: PostAuthCitySearchModel? = nil,
         onBack: @escaping () -> Void,
         onContinue: @escaping () -> Void
     ) {
         self.stage = stage
-        _citySearch = StateObject(wrappedValue: citySearch)
+        _citySearch = StateObject(wrappedValue: citySearch ?? PostAuthCitySearchModel())
         self.onBack = onBack
         self.onContinue = onContinue
     }
@@ -651,7 +651,7 @@ struct PostAuthLocationScreen: View {
                     }
                 }
                 .frame(width: metrics.width(334), alignment: .top)
-                .frame(maxHeight: metrics.height(324), alignment: .top)
+                .frame(maxHeight: metrics.height(244), alignment: .top)
                 .scrollDismissesKeyboard(.interactively)
             }
             .frame(width: metrics.width(334), alignment: .topLeading)

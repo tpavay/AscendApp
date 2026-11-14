@@ -16,10 +16,10 @@ struct OnboardingClaimCityScreen: View {
     init(
         coordinator: OnboardingV3Coordinator,
         model: OnboardingCityClaimModel? = nil,
-        search: PostAuthCitySearchModel = PostAuthCitySearchModel()
+        search: PostAuthCitySearchModel? = nil
     ) {
         self.coordinator = coordinator
-        _search = StateObject(wrappedValue: search)
+        _search = StateObject(wrappedValue: search ?? PostAuthCitySearchModel())
         _model = State(initialValue: model ?? OnboardingCityClaimModel(initialCity: coordinator.answers.city))
     }
 
