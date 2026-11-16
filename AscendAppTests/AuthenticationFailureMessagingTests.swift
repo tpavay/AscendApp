@@ -166,7 +166,6 @@ struct AuthenticationFailureMessagingTests {
             .noIDToken,
             .invalidAppleCredential,
             .signInFailed("x"),
-            .emailPasswordSignInFailed("x"),
             .appleSignInFailed("x"),
             .signOutFailed("x")
         ]

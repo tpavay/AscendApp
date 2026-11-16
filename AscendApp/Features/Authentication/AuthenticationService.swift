@@ -17,7 +17,6 @@ enum AuthenticationError: LocalizedError {
     case noRootViewController
     case noIDToken
     case signInFailed(String)
-    case emailPasswordSignInFailed(String)
     case signOutFailed(String)
     case appleSignInFailed(String)
     case invalidAppleCredential
@@ -37,7 +36,7 @@ extension AuthenticationError {
         switch self {
         case .noClientID, .noRootViewController, .noIDToken, .invalidAppleCredential:
             return "Something went wrong. Please try again."
-        case .signInFailed, .emailPasswordSignInFailed, .appleSignInFailed:
+        case .signInFailed, .appleSignInFailed:
             return "We couldn't sign you in. Try again in a moment."
         case .signOutFailed:
             return "Unable to sign out. Please try again."
@@ -81,8 +80,6 @@ extension AuthenticationError {
             return "ID token is missing from Google Sign-In"
         case .signInFailed(let error):
             return "Sign-in failed: \(error)"
-        case .emailPasswordSignInFailed(let error):
-            return "Email/password sign-in failed: \(error)"
         case .signOutFailed(let error):
             return "Sign-out failed: \(error)"
         case .appleSignInFailed(let error):
