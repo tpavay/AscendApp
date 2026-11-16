@@ -105,7 +105,7 @@ struct ReauthenticationResult: Sendable {
 }
 
 @MainActor
-class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
+class AuthenticationService: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
 
     /// An Apple authorization resolved for reauthentication, before it is
     /// exchanged with Firebase.
@@ -202,6 +202,7 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
 
                 let authorizationController = ASAuthorizationController(authorizationRequests: [request])
                 authorizationController.delegate = self
+                authorizationController.presentationContextProvider = self
                 authorizationController.performRequests()
             } catch {
                 continuation.resume(throwing: error)
@@ -219,25 +220,9 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
     }
     
     /// The view controller Google Sign-In presents from.
-    ///
-    /// `connectedScenes.first` is an unordered set's first element and
-    /// `windows.first` is not necessarily the key window, so the old lookup could
-    /// land on a background scene - or on no window at all - and refuse a sign-in
-    /// the app was perfectly able to present (Sentry ASCEND-IOS-2W, 11 refusals
-    /// on the 1.0 build, all `google_sign_in_failed`). Ask for the foreground
-    /// scene and its key window instead, and only fall back when there is
-    /// genuinely nothing on screen.
     private func presentingViewController() throws -> UIViewController {
-        let windowScenes = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-
-        let orderedScenes = windowScenes.filter { $0.activationState == .foregroundActive }
-            + windowScenes.filter { $0.activationState == .foregroundInactive }
-            + windowScenes.filter { $0.activationState == .background }
-
-        for scene in orderedScenes {
-            let window = scene.keyWindow ?? scene.windows.first { $0.isKeyWindow } ?? scene.windows.first
-            if let rootViewController = window?.rootViewController {
+        for window in SignInPresentationWindow.connectedCandidates() {
+            if let rootViewController = window.rootViewController {
                 // Presenting onto a controller that already has something modal
                 // over it silently does nothing, so hand Google the topmost one.
                 return rootViewController.topmostPresentedViewController
@@ -288,6 +273,13 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
         }.joined()
         
         return hashString
+    }
+}
+
+// MARK: - ASAuthorizationControllerPresentationContextProviding
+extension AuthenticationService {
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        SignInPresentationWindow.connectedCandidates().first ?? ASPresentationAnchor()
     }
 }
 
@@ -510,6 +502,7 @@ extension AuthenticationService {
 
                 let authorizationController = ASAuthorizationController(authorizationRequests: [request])
                 authorizationController.delegate = self
+                authorizationController.presentationContextProvider = self
                 authorizationController.performRequests()
             } catch {
                 continuation.resume(throwing: error)
