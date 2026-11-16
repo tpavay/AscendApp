@@ -40,6 +40,13 @@ The sign-in screen's saved-items list says back what the flow collected: the pro
 - Any screen that asks for something that needs the network or a permission - Apple Maps city search, Health, notifications, a photo - carries a way on that does not depend on the answer.
   `OnboardingClaimCityScreen` keeps its header Skip in every state, and `OnboardingCityStepCannotTrapTests` fails the search on purpose through `PostAuthCitySuggestionSource` and holds that Skip moves the climber on with no city.
 - A failed search or lookup says so beside the control, and never disables the only exit.
+- The sign-in screen's red line says what failed, and only a connectivity error may mention the connection.
+  1.3.0 (build 2026111401) was rejected under Guideline 2.1(a) on 2026-11-16 because every Apple, Google and Firebase failure shared "Please check your connection": a reviewer on a working connection saw Apple's own authorization fail (Sentry `ASCEND-IOS-1F`) and read it as the app not recognising the internet.
+  `AuthenticationFailureDiagnostics` classifies from the error's own chain (`URLError` transport codes, Firebase's `networkError`), the Apple failure points to Google one button below, and Sentry now carries `failure_kind`, `error_domain` and `error_code` - Apple's code was discarded before, so the root cause of ASCEND-IOS-1F is read from those tags on the next occurrence.
+  A simulator cannot reproduce it: with no Apple Account the Authentication Services sheet never calls back.
+  Apple failing is not retry-recoverable and not an entitlement fault: the entitlement ships, other retail phones complete Apple on the same build, an iPad and an iPhone 14,6 failed it three and five times in a row, and the Firebase exchange never runs (a Firebase failure carries Firebase's own text, not "unknown error").
+  Every other device that failed Apple went to Google within two seconds and completed; the 2026-11-16 reviewer, shown a connection sentence with no way on, stopped after seven seconds.
+  Never reintroduce one catch-all sentence for a provider failure.
 
 ## Walking the flow on a simulator or a test phone
 - The flow only shows to a signed-out climber. A reinstalled app restores the Keychain session, so sign out first or the launch goes straight to the account's route. Debug Tools -> `Replay New Onboarding From Welcome` clears the flow's answers and signs out.
