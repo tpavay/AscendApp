@@ -183,7 +183,6 @@ struct ReturningSubscriberJourneyTranscriptTests {
         switch route {
         case .updateRequired: "updateRequired (hard update lockout)"
         case .preAuthOnboarding: "preAuthOnboarding (the onboarding, signed out)"
-        case .signingIn: "signingIn"
         case .restoringSession: "restoringSession"
         case .resolving: "resolving (the spinner, while access is worked out)"
         case .paywall: "paywall (app-access gate)"

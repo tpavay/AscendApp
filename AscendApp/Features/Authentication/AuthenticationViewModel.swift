@@ -43,6 +43,10 @@ class AuthenticationViewModel {
     var photoURL: URL?
     var customProfilePictureURL: URL?
     private(set) var lastUsedProvider: AuthProviderKind?
+    /// Sign in with Apple failures in a row since the last sign-in that landed or the app launched.
+    /// The sign-in screen reads it: the second one in a row puts Google first, because a climber who
+    /// has been refused twice should not be offered the same button as the way on.
+    private(set) var appleFailureCount: Int = 0
     private(set) var hasRemoteDisplayName: Bool = false
 
     /// What the sign-in provider supplied that the climber's profile does not
@@ -71,11 +75,13 @@ class AuthenticationViewModel {
     init(
         monetizationIdentityManager: any MonetizationIdentityManaging = MonetizationManager.shared,
         signInIdentityStore: SignInIdentityStore = .shared,
-        observesFirebaseAuth: Bool = true
+        observesFirebaseAuth: Bool = true,
+        authenticationService: AuthenticationService? = nil
     ) {
         self.monetizationIdentityManager = monetizationIdentityManager
         self.signInIdentityStore = signInIdentityStore
-        self.authenticationService = AuthenticationService(signInIdentityStore: signInIdentityStore)
+        self.authenticationService = authenticationService
+            ?? AuthenticationService(signInIdentityStore: signInIdentityStore)
         lastUsedProvider = accountSessionStore.lastUsedProvider
 
         // Load cached display name immediately for UI responsiveness
@@ -302,6 +308,9 @@ extension AuthenticationViewModel {
         onboardingContext: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
         entry: String? = nil
     ) async {
+        // One sign-in at a time: a second tap while one is waiting on a provider is not a second
+        // attempt, and answering it would reset the first one's state under it.
+        guard !authenticationState.isAuthenticating else { return }
         authenticationState = .authenticatingWithGoogle
         errorMessage = nil
         TelemetryManager.shared.track(
@@ -311,6 +320,7 @@ extension AuthenticationViewModel {
         do {
             _ = try await authenticationService.signInWithGoogle()
             recordSuccessfulSignIn(provider: .google)
+            appleFailureCount = 0
             TelemetryManager.shared.track(
                 OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.google.rawValue, context: onboardingContext, entry: entry)
             )
@@ -334,7 +344,8 @@ extension AuthenticationViewModel {
                         provider: AuthProviderKind.google.rawValue,
                         reason: "failed",
                         context: onboardingContext,
-                        entry: entry
+                        entry: entry,
+                        details: (error as? AuthenticationError)?.analyticsParameters ?? [:]
                     )
                 )
                 TelemetryManager.shared.log(.authSignInFailed)
@@ -426,6 +437,8 @@ extension AuthenticationViewModel {
         onboardingContext: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
         entry: String? = nil
     ) async {
+        // One sign-in at a time: a second tap while the sheet is up is not a second request.
+        guard !authenticationState.isAuthenticating else { return }
         authenticationState = .authenticatingWithApple
         errorMessage = nil
         TelemetryManager.shared.track(
@@ -434,6 +447,7 @@ extension AuthenticationViewModel {
 
         do {
             _ = try await authenticationService.signInWithApple()
+            appleFailureCount = 0
             recordSuccessfulSignIn(provider: .apple)
             TelemetryManager.shared.track(
                 OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.apple.rawValue, context: onboardingContext, entry: entry)
@@ -441,24 +455,27 @@ extension AuthenticationViewModel {
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             // Don't show error for user cancellation
-            if error is CancellationError {
+            if error is CancellationError || error is AppleAuthorizationCancelled {
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.apple.rawValue,
                         reason: "cancelled",
                         context: onboardingContext,
-                        entry: entry
+                        entry: entry,
+                        details: (error as? AppleAuthorizationCancelled)?.trace?.analyticsParameters ?? [:]
                     )
                 )
                 // User canceled - just reset state without showing error
                 authenticationState = .unauthenticated
             } else {
+                appleFailureCount += 1
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.authFailed(
                         provider: AuthProviderKind.apple.rawValue,
                         reason: "failed",
                         context: onboardingContext,
-                        entry: entry
+                        entry: entry,
+                        details: (error as? AuthenticationError)?.analyticsParameters ?? [:]
                     )
                 )
                 TelemetryManager.shared.log(.authSignInFailed)

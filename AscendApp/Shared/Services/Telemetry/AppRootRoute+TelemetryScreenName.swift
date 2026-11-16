@@ -14,7 +14,6 @@ extension AppRootRoute {
         switch self {
         case .updateRequired: .appUpdateRequired
         case .preAuthOnboarding: nil
-        case .signingIn: .authSigningIn
         case .restoringSession: .sessionRestoring
         case .resolving: .appAccessResolving
         case .paywall: .appAccessGate

@@ -155,9 +155,23 @@ struct OnboardingAuthScreen: View {
         .padding(.bottom, Self.fadeHeight)
     }
 
+    private var presentation: AppleRetryPresentation {
+        AppleRetryPresentation(appleFailureCount: authVM.appleFailureCount)
+    }
+
     private var actions: some View {
         VStack(spacing: 10) {
-            if let message = authVM.errorMessage {
+            if isDisabled {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .tint(Color.white)
+                    Text("Signing in...")
+                        .font(.custom("Montserrat-Medium", size: 13, relativeTo: .footnote))
+                        .foregroundStyle(Color.white.opacity(0.7))
+                }
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                .accessibilityElement(children: .combine)
+            } else if let message = authVM.errorMessage {
                 Text(message)
                     .font(.custom("Montserrat-Medium", size: 13, relativeTo: .footnote))
                     .foregroundStyle(Color.red.opacity(0.95))
@@ -167,24 +181,12 @@ struct OnboardingAuthScreen: View {
                     .accessibilityLabel("Sign in error: \(message)")
             }
 
-            OnboardingAuthProviderButton(
-                title: "Continue with Apple",
-                style: .apple,
-                isDisabled: isDisabled
-            ) {
-                signIn { context, entry in
-                    await authVM.signInWithApple(onboardingContext: context, entry: entry)
-                }
-            }
-
-            OnboardingAuthProviderButton(
-                title: "Continue with Google",
-                style: .google,
-                isDisabled: isDisabled
-            ) {
-                signIn { context, entry in
-                    await authVM.signInWithGoogle(onboardingContext: context, entry: entry)
-                }
+            if presentation.googleLeads {
+                googleButton
+                appleButton
+            } else {
+                appleButton
+                googleButton
             }
 
             Text(.init("By continuing, you agree to our [Terms](https://ascendstepper.com/terms) and [Privacy Policy](https://ascendstepper.com/privacy)."))
@@ -203,15 +205,43 @@ struct OnboardingAuthScreen: View {
         .onboardingEntrance(index: 4)
     }
 
+    private var appleButton: some View {
+        OnboardingAuthProviderButton(
+            title: presentation.appleTitle,
+            style: .apple,
+            isPrimary: !presentation.googleLeads,
+            isDisabled: isDisabled
+        ) {
+            signIn { context, entry in
+                await authVM.signInWithApple(onboardingContext: context, entry: entry)
+            }
+        }
+    }
+
+    private var googleButton: some View {
+        OnboardingAuthProviderButton(
+            title: presentation.googleTitle,
+            style: .google,
+            isPrimary: presentation.googleLeads,
+            isDisabled: isDisabled
+        ) {
+            signIn { context, entry in
+                await authVM.signInWithGoogle(onboardingContext: context, entry: entry)
+            }
+        }
+    }
+
     // MARK: - Sign in
 
     /// Runs a provider's sign-in, leaving the mark that lets the root close the flow when the
     /// account appears.
     ///
     /// The flow is finished only after the account exists: finishing first would send a climber
-    /// whose sign-in failed to the old landing screen instead of back here. The root swaps this
-    /// screen for its signing-in route the moment the attempt starts, so the work is an unstructured
-    /// task that holds the auth model itself rather than anything the view owns.
+    /// whose sign-in failed to the old landing screen instead of back here. This screen stays
+    /// mounted while the provider's sheet is up - the buttons dim and a "Signing in..." line shows -
+    /// so a refusal lands on the buttons it came from. The work is an unstructured task that holds
+    /// the auth model itself rather than anything the view owns, because the screen goes away the
+    /// moment the account appears.
     private func signIn(
         _ attempt: @escaping @MainActor (OnboardingAnalyticsContext, String) async -> Void
     ) {
@@ -264,6 +294,8 @@ private struct OnboardingAuthProviderButton: View {
 
     let title: String
     let style: Style
+    /// The filled, white button. Apple's by default; Google's once Apple has refused twice.
+    let isPrimary: Bool
     let isDisabled: Bool
     let action: () -> Void
 
@@ -279,16 +311,16 @@ private struct OnboardingAuthProviderButton: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
             }
-            .foregroundStyle(style == .apple ? Color.black : Color.white)
+            .foregroundStyle(isPrimary ? Color.black : Color.white)
             .frame(maxWidth: .infinity, minHeight: 56)
             .padding(.horizontal, 16)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(style == .apple ? Color.white : OnboardingV3Palette.controlFill)
+                    .fill(isPrimary ? Color.white : OnboardingV3Palette.controlFill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(style == .apple ? Color.clear : OnboardingV3Palette.cardBorder, lineWidth: 1)
+                    .strokeBorder(isPrimary ? Color.clear : OnboardingV3Palette.cardBorder, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }

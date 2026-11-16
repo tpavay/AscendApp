@@ -41,16 +41,24 @@ struct AppRootRouteResolverTests {
     }
 
     @Test
-    func resolvesSigningInBeforeUserIsAvailable() {
-        let route = AppRootRouteResolver.resolve(
-            updatePresentation: nil,
-            authenticationState: .authenticatingWithApple,
-            userId: nil,
-            entitlementState: .unknown,
-            requiredEntitlementID: "app_access"
-        )
+    func aSignInWaitingOnAProviderKeepsTheSignInScreenMounted() {
+        // 1.3.0 swapped the whole onboarding for a spinner the instant Apple was tapped, in the same
+        // turn the sheet was raised. The screen that asked is the one a refusal has to land on.
+        for state in [
+            AuthenticationState.authenticatingWithApple,
+            .authenticatingWithGoogle,
+            .authenticatingWithInternalQA
+        ] {
+            let route = AppRootRouteResolver.resolve(
+                updatePresentation: nil,
+                authenticationState: state,
+                userId: nil,
+                entitlementState: .unknown,
+                requiredEntitlementID: "app_access"
+            )
 
-        #expect(route == .signingIn)
+            #expect(route == .preAuthOnboarding, "\(state) left the sign-in screen")
+        }
     }
 
     @Test

@@ -202,7 +202,8 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
         provider: String,
         reason: String,
         context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
-        entry: String? = nil
+        entry: String? = nil,
+        details: [String: TelemetryValue] = [:]
     )
     case paywallReached(placement: String, source: String?, context: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.paywallContext)
     case flowCompleted(context: OnboardingAnalyticsContext, completionReason: OnboardingFlowCompletionReason)
@@ -321,8 +322,9 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 context: context,
                 parameters: Self.authParameters(provider: provider, entry: entry)
             )
-        case .authFailed(let provider, let reason, let context, let entry):
+        case .authFailed(let provider, let reason, let context, let entry, let details):
             var parameters = Self.authParameters(provider: provider, entry: entry)
+            details.forEach { parameters[$0.key] = $0.value }
             parameters["reason"] = .string(reason)
             return makeRecord(
                 name: "onboarding_auth_failed",

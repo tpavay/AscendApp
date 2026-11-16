@@ -37,7 +37,9 @@ struct AuthenticationFailureMessagingTests {
         let text = try message(of: thrown)
 
         #expect(!text.localizedCaseInsensitiveContains(Self.connectionWording), "\(text)")
-        #expect(text.contains("Sign in with Apple didn't complete"), "\(text)")
+        #expect(text.contains("Sign in with Apple didn't finish"), "\(text)")
+        #expect(text.contains("Apple Account"), "the fixable cause is named: \(text)")
+        #expect(text.contains("two-factor"), "the other fixable cause is named: \(text)")
         #expect(text.contains("continue with Google"), "the way on is the other provider: \(text)")
     }
 
@@ -50,7 +52,8 @@ struct AuthenticationFailureMessagingTests {
         #expect(thrown.telemetryInfo == [
             "failure_kind": "appleAuthorization",
             "error_domain": ASAuthorizationError.errorDomain,
-            "error_code": "1000"
+            "error_code": "1000",
+            "apple_error_name": "unknown"
         ])
     }
 
@@ -70,7 +73,7 @@ struct AuthenticationFailureMessagingTests {
     func aDismissedAppleSheetEndsQuietly() {
         let dismissed = NSError(domain: ASAuthorizationError.errorDomain, code: ASAuthorizationError.canceled.rawValue)
 
-        #expect(AuthenticationService.appleAuthorizationFailure(for: dismissed) is CancellationError)
+        #expect(AuthenticationService.appleAuthorizationFailure(for: dismissed) is AppleAuthorizationCancelled)
     }
 
     // MARK: - Only a connectivity error says connection
@@ -200,7 +203,8 @@ struct AuthenticationFailureMessagingTests {
         try await RenderedScreen.host(controller, size: CGSize(width: 393, height: 852), settle: .turns(40)) { hosted in
             let copy = try await hosted.copy { $0.contains("continue with apple") }
 
-            #expect(copy.contains("sign in with apple didn't complete on this device"), "\(copy)")
+            #expect(copy.contains("sign in with apple didn't finish"), "\(copy)")
+            #expect(copy.contains("two-factor authentication is on"), "\(copy)")
             #expect(copy.contains("continue with google"), "\(copy)")
             #expect(!copy.contains("check your connection"), "\(copy)")
             #expect(!copy.contains("unable to sign in"), "\(copy)")

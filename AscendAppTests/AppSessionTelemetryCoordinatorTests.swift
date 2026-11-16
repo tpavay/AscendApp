@@ -250,7 +250,6 @@ struct AppSessionTelemetryCoordinatorTests {
             Set(AppLifecycleAnalyticsEvent.RootRoute.allCases.map(\.rawValue)) == [
                 "update_required",
                 "pre_auth_onboarding",
-                "signing_in",
                 "restoring_session",
                 "resolving",
                 "paywall",
