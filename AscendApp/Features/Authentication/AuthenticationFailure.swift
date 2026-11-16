@@ -161,6 +161,11 @@ struct AuthenticationFailureDiagnostics: Equatable, Sendable {
         case .notHandled: "notHandled"
         case .failed: "failed"
         case .notInteractive: "notInteractive"
+        case .matchedExcludedCredential: "matchedExcludedCredential"
+        case .credentialImport: "credentialImport"
+        case .credentialExport: "credentialExport"
+        case .preferSignInWithApple: "preferSignInWithApple"
+        case .deviceNotConfiguredForPasskeyCreation: "deviceNotConfiguredForPasskeyCreation"
         default: "unrecognized"
         }
     }

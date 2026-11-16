@@ -80,7 +80,12 @@ struct AppleSignInRecoveryTests {
         (.invalidResponse, "invalidResponse"),
         (.notHandled, "notHandled"),
         (.failed, "failed"),
-        (.notInteractive, "notInteractive")
+        (.notInteractive, "notInteractive"),
+        (.matchedExcludedCredential, "matchedExcludedCredential"),
+        (.credentialImport, "credentialImport"),
+        (.credentialExport, "credentialExport"),
+        (.preferSignInWithApple, "preferSignInWithApple"),
+        (.deviceNotConfiguredForPasskeyCreation, "deviceNotConfiguredForPasskeyCreation")
     ])
     func aNamedCodeIsRecordedByNameAndInteger(code: ASAuthorizationError.Code, name: String) throws {
         let thrown = try #require(

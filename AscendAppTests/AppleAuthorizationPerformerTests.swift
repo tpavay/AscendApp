@@ -212,14 +212,22 @@ struct AppleAuthorizationPerformerTests {
 
         // Nothing but the performer holds the controller: the harness keeps it weakly.
         for _ in 0..<5 { await Task.yield() }
-        let controller = try #require(harness.lastController, "the controller was released while Apple's sheet was up")
+        try #require(harness.lastController != nil, "the controller was released while Apple's sheet was up")
 
-        harness.performer.authorizationController(controller: controller, didCompleteWithError: appleError(.unknown))
+        harness.performer.authorizationController(
+            controller: try #require(harness.lastController),
+            didCompleteWithError: appleError(.unknown)
+        )
         _ = await task?.value
         task = nil
 
         #expect(!harness.performer.isInProgress)
-        for _ in 0..<20 where harness.lastController != nil { await Task.yield() }
+        var turns = 0
+        while harness.lastController != nil && turns < 200 {
+            await Task.yield()
+            turns += 1
+        }
+        #expect(harness.lastController == nil, "the performer still holds the controller after the request resolved")
     }
 
     @Test("The sheet is anchored and the controller delegates to the performer")
