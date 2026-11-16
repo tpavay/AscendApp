@@ -338,8 +338,13 @@ extension AuthenticationViewModel {
                     )
                 )
                 TelemetryManager.shared.log(.authSignInFailed)
-                TelemetryManager.shared.recordError(error, context: .auth, code: "google_sign_in_failed", additionalInfo: ["provider": "google"])
-                errorMessage = error.localizedDescription
+                TelemetryManager.shared.recordError(
+                    error,
+                    context: .auth,
+                    code: "google_sign_in_failed",
+                    additionalInfo: Self.failureInfo(for: error, provider: "google")
+                )
+                errorMessage = Self.screenMessage(for: error)
                 authenticationState = .unauthenticated
             }
         }
@@ -405,6 +410,18 @@ extension AuthenticationViewModel {
         }
     }
     
+    /// The sentence the sign-in screen shows for a failed attempt.
+    nonisolated static func screenMessage(for error: Error) -> String {
+        (error as? AuthenticationError)?.signInScreenDescription ?? error.localizedDescription
+    }
+
+    /// The tags recorded beside a failed attempt: the provider, and what the error actually was.
+    nonisolated static func failureInfo(for error: Error, provider: String) -> [String: String] {
+        var info = (error as? AuthenticationError)?.telemetryInfo ?? [:]
+        info["provider"] = provider
+        return info
+    }
+
     func signInWithApple(
         onboardingContext: OnboardingAnalyticsContext = OnboardingAnalyticsEvent.authContext,
         entry: String? = nil
@@ -445,8 +462,13 @@ extension AuthenticationViewModel {
                     )
                 )
                 TelemetryManager.shared.log(.authSignInFailed)
-                TelemetryManager.shared.recordError(error, context: .auth, code: "apple_sign_in_failed", additionalInfo: ["provider": "apple"])
-                errorMessage = error.localizedDescription
+                TelemetryManager.shared.recordError(
+                    error,
+                    context: .auth,
+                    code: "apple_sign_in_failed",
+                    additionalInfo: Self.failureInfo(for: error, provider: "apple")
+                )
+                errorMessage = Self.screenMessage(for: error)
                 authenticationState = .unauthenticated
             }
         }

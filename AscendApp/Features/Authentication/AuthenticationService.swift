@@ -17,23 +17,56 @@ enum AuthenticationError: LocalizedError {
     case noRootViewController
     case noIDToken
     case signInFailed(String)
-    case emailPasswordSignInFailed(String)
     case signOutFailed(String)
     case appleSignInFailed(String)
     case invalidAppleCredential
+    /// A provider, Firebase or the network refused a sign-in, with the error that says which.
+    /// Kept apart from the string cases above so the message and the Sentry tags are decided by
+    /// what the error was, not by the fact that a sign-in failed.
+    case providerFailure(AuthenticationFailureDiagnostics)
 }
 
 extension AuthenticationError {
-    /// User-friendly error description shown to users
+    /// User-friendly error description shown to users.
+    ///
+    /// Only a connectivity failure may mention the connection. The one sentence this used to be
+    /// for every sign-in failure told App Review, on a phone with a working connection, that the
+    /// app could not tell it was online (Guideline 2.1(a), 1.3.0 build 2026111401).
     var errorDescription: String? {
         switch self {
         case .noClientID, .noRootViewController, .noIDToken, .invalidAppleCredential:
             return "Something went wrong. Please try again."
-        case .signInFailed, .emailPasswordSignInFailed, .appleSignInFailed:
-            return "Unable to sign in. Please check your connection and try again."
+        case .signInFailed, .appleSignInFailed:
+            return "We couldn't sign you in. Try again in a moment."
         case .signOutFailed:
             return "Unable to sign out. Please try again."
+        case .providerFailure(let diagnostics):
+            switch diagnostics.kind {
+            case .connectivity:
+                return "Can't reach Ascend right now. Check your connection and try again."
+            case .appleAuthorization:
+                return "Sign in with Apple didn't complete on this device. Try again in a moment."
+            case .providerRejected:
+                return "We couldn't sign you in. Try again in a moment."
+            }
         }
+    }
+
+    /// What the sign-in screen shows. Apple's own authorization failing is the one failure with
+    /// a way on that the screen has: the other provider, which sits one button below.
+    var signInScreenDescription: String? {
+        if case .providerFailure(let diagnostics) = self, diagnostics.kind == .appleAuthorization {
+            return "Sign in with Apple didn't complete on this device. Try again, or continue with Google."
+        }
+        return errorDescription
+    }
+
+    /// The tags recorded beside a failed sign-in: the kind, and the domains and codes behind it.
+    var telemetryInfo: [String: String] {
+        if case .providerFailure(let diagnostics) = self {
+            return diagnostics.telemetryInfo
+        }
+        return [:]
     }
 
     /// Technical details for logging/debugging (not shown to users)
@@ -47,14 +80,14 @@ extension AuthenticationError {
             return "ID token is missing from Google Sign-In"
         case .signInFailed(let error):
             return "Sign-in failed: \(error)"
-        case .emailPasswordSignInFailed(let error):
-            return "Email/password sign-in failed: \(error)"
         case .signOutFailed(let error):
             return "Sign-out failed: \(error)"
         case .appleSignInFailed(let error):
             return "Apple Sign-in failed: \(error)"
         case .invalidAppleCredential:
             return "Invalid Apple Sign-in credential"
+        case .providerFailure(let diagnostics):
+            return "Sign-in failed (\(diagnostics.kind.rawValue), \(diagnostics.errorDomain) \(diagnostics.errorCode)): \(diagnostics.detail)"
         }
     }
 }
@@ -69,7 +102,7 @@ struct ReauthenticationResult: Sendable {
 }
 
 @MainActor
-class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
+class AuthenticationService: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
 
     /// An Apple authorization resolved for reauthentication, before it is
     /// exchanged with Firebase.
@@ -132,17 +165,12 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
             throw error
         } catch {
             // Check for Google Sign-in cancellation
-            if let gidError = error as? GIDSignInError {
-                switch gidError.code {
-                case .canceled:
-                    // User canceled - not an error
-                    throw CancellationError()
-                default:
-                    throw AuthenticationError.signInFailed(error.localizedDescription)
-                }
+            if let gidError = error as? GIDSignInError, gidError.code == .canceled {
+                // User canceled - not an error
+                throw CancellationError()
             }
-            
-            throw AuthenticationError.signInFailed(error.localizedDescription)
+
+            throw Self.providerFailure(for: error)
         }
     }
 
@@ -152,7 +180,7 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
             debugLog("Firebase email sign-in succeeded")
             return result.user
         } catch {
-            throw AuthenticationError.emailPasswordSignInFailed(error.localizedDescription)
+            throw Self.providerFailure(for: error)
         }
     }
 
@@ -171,6 +199,7 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
 
                 let authorizationController = ASAuthorizationController(authorizationRequests: [request])
                 authorizationController.delegate = self
+                authorizationController.presentationContextProvider = self
                 authorizationController.performRequests()
             } catch {
                 continuation.resume(throwing: error)
@@ -188,25 +217,9 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
     }
     
     /// The view controller Google Sign-In presents from.
-    ///
-    /// `connectedScenes.first` is an unordered set's first element and
-    /// `windows.first` is not necessarily the key window, so the old lookup could
-    /// land on a background scene - or on no window at all - and refuse a sign-in
-    /// the app was perfectly able to present (Sentry ASCEND-IOS-2W, 11 refusals
-    /// on the 1.0 build, all `google_sign_in_failed`). Ask for the foreground
-    /// scene and its key window instead, and only fall back when there is
-    /// genuinely nothing on screen.
     private func presentingViewController() throws -> UIViewController {
-        let windowScenes = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-
-        let orderedScenes = windowScenes.filter { $0.activationState == .foregroundActive }
-            + windowScenes.filter { $0.activationState == .foregroundInactive }
-            + windowScenes.filter { $0.activationState == .background }
-
-        for scene in orderedScenes {
-            let window = scene.keyWindow ?? scene.windows.first { $0.isKeyWindow } ?? scene.windows.first
-            if let rootViewController = window?.rootViewController {
+        for window in SignInPresentationWindow.connectedCandidates() {
+            if let rootViewController = window.rootViewController {
                 // Presenting onto a controller that already has something modal
                 // over it silently does nothing, so hand Google the topmost one.
                 return rootViewController.topmostPresentedViewController
@@ -257,6 +270,13 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
         }.joined()
         
         return hashString
+    }
+}
+
+// MARK: - ASAuthorizationControllerPresentationContextProviding
+extension AuthenticationService {
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        SignInPresentationWindow.connectedCandidates().first ?? ASPresentationAnchor()
     }
 }
 
@@ -328,35 +348,13 @@ extension AuthenticationService {
 
                 signInContinuation?.resume(returning: firebaseUser)
             } catch {
-                signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed(error.localizedDescription))
+                signInContinuation?.resume(throwing: Self.providerFailure(for: error))
             }
         }
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        let authError = error as? ASAuthorizationError
-        let errorToThrow: Error
-
-        if let authError = authError {
-            switch authError.code {
-            case .canceled:
-                errorToThrow = CancellationError()
-            case .unknown:
-                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in failed with unknown error")
-            case .invalidResponse:
-                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in received invalid response")
-            case .notHandled:
-                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in request not handled")
-            case .failed:
-                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in failed")
-            case .notInteractive:
-                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in requires user interaction")
-            default:
-                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in failed with unknown error")
-            }
-        } else {
-            errorToThrow = AuthenticationError.appleSignInFailed(error.localizedDescription)
-        }
+        let errorToThrow = Self.appleAuthorizationFailure(for: error)
 
         // Resume whichever continuation is active
         if let appleReauthContinuation = appleReauthContinuation {
@@ -365,6 +363,24 @@ extension AuthenticationService {
         } else {
             signInContinuation?.resume(throwing: errorToThrow)
         }
+    }
+
+    /// What Apple's authorization controller failing becomes. A dismissed sheet is the climber's
+    /// choice and ends quietly; every other code is the system sheet failing before any Ascend
+    /// request was made, so it is recorded with Apple's own domain and code and never described
+    /// as a connection problem unless the error itself says the network was the cause.
+    nonisolated static func appleAuthorizationFailure(for error: Error) -> Error {
+        if let authError = error as? ASAuthorizationError, authError.code == .canceled {
+            return CancellationError()
+        }
+        return AuthenticationError.providerFailure(
+            AuthenticationFailureDiagnostics(error: error, otherwise: .appleAuthorization)
+        )
+    }
+
+    /// What a failed Firebase, Google or network call becomes.
+    nonisolated static func providerFailure(for error: Error) -> AuthenticationError {
+        .providerFailure(AuthenticationFailureDiagnostics(error: error, otherwise: .providerRejected))
     }
 
     func updateUserDisplayName(displayName: String) async throws {
@@ -429,7 +445,7 @@ extension AuthenticationService {
         } catch let error as AuthenticationError {
             throw error
         } catch {
-            throw AuthenticationError.signInFailed(error.localizedDescription)
+            throw Self.providerFailure(for: error)
         }
     }
 
@@ -483,6 +499,7 @@ extension AuthenticationService {
 
                 let authorizationController = ASAuthorizationController(authorizationRequests: [request])
                 authorizationController.delegate = self
+                authorizationController.presentationContextProvider = self
                 authorizationController.performRequests()
             } catch {
                 continuation.resume(throwing: error)

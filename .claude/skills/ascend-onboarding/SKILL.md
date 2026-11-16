@@ -40,6 +40,17 @@ The sign-in screen's saved-items list says back what the flow collected: the pro
 - Any screen that asks for something that needs the network or a permission - Apple Maps city search, Health, notifications, a photo - carries a way on that does not depend on the answer.
   `OnboardingClaimCityScreen` keeps its header Skip in every state, and `OnboardingCityStepCannotTrapTests` fails the search on purpose through `PostAuthCitySuggestionSource` and holds that Skip moves the climber on with no city.
 - A failed search or lookup says so beside the control, and never disables the only exit.
+- The sign-in screen's red line says what failed, and only a connectivity error may mention the connection.
+  1.3.0 (build 2026111401) was rejected under Guideline 2.1(a) on 2026-11-16 because every Apple, Google and Firebase failure shared "Please check your connection": a reviewer on a working connection saw Apple's own authorization fail (Sentry `ASCEND-IOS-1F`) and read it as the app not recognising the internet.
+  `AuthenticationFailureDiagnostics` classifies from the error's own chain (`URLError` transport codes, Firebase's `networkError`), the Apple failure points to Google one button below, and Sentry now carries `failure_kind`, `error_domain` and `error_code` - Apple's code was discarded before, so the root cause of ASCEND-IOS-1F is read from those tags on the next occurrence.
+  A simulator cannot reproduce it: with no Apple Account the Authentication Services sheet never calls back.
+  The failure is not an entitlement or request-code fault: the entitlement, the App ID's Sign in with Apple capability and `AuthenticationService.swift`'s Apple request are unchanged between 1.2.4 and 1.3.0, other retail phones complete Apple on the same builds, and the Firebase exchange never ran (a Firebase failure carries Firebase's own text, not "unknown error").
+  Retrying does not recover it: an iPad failed four times and an iPhone 14,6 five times in a row.
+  The cause is unproven.
+  In production from 2026-10-20 to 2026-11-16, 0 of 12 Apple attempts on iOS 27.2.1 (build 24B156, 6 devices) succeeded while 27.0.1 and 27.2 completed, and retail iOS 26.x phones also failed after 2026-11-14, so iOS 27.2.1 and an Apple-side fault both fit; Apple's real code, now recorded, separates them.
+  Do not blame the review device's Apple Account: a review iPhone has the App Store, so one is signed in.
+  Devices that failed Apple tapped Google 1 to 80 seconds later and only some finished it; the 2026-11-16 reviewer, shown a connection sentence with no way on, stopped after seven seconds.
+  Never reintroduce one catch-all sentence for a provider failure.
 
 ## Walking the flow on a simulator or a test phone
 - The flow only shows to a signed-out climber. A reinstalled app restores the Keychain session, so sign out first or the launch goes straight to the account's route. Debug Tools -> `Replay New Onboarding From Welcome` clears the flow's answers and signs out.
