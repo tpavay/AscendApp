@@ -38,8 +38,6 @@ struct RootView: View {
                 routeContent(for: rootRoute)
             case .preAuthOnboarding:
                 routeContent(for: rootRoute)
-            case .signingIn:
-                routeContent(for: rootRoute)
             case .restoringSession:
                 routeContent(for: rootRoute)
             case .resolving:
@@ -346,12 +344,6 @@ struct RootView: View {
         case .preAuthOnboarding:
             routeScreen(route) {
                 OnboardingV3FlowView(coordinator: onboardingV3Coordinator)
-            }
-
-        case .signingIn:
-            routeScreen(route) {
-                ProgressView("Signing In...")
-                    .themedBackground()
             }
 
         case .restoringSession:

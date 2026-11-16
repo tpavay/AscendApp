@@ -1,3 +1,4 @@
+import AuthenticationServices
 import FirebaseAuth
 import Foundation
 
@@ -34,6 +35,16 @@ struct AuthenticationFailureDiagnostics: Equatable, Sendable {
     let errorCode: Int
     let underlyingDomain: String?
     let underlyingCode: Int?
+    /// Every underlying error in the chain, outermost first, as `domain:code`. `underlyingDomain` and
+    /// `underlyingCode` name only the first; Apple wraps its authorization failure in an
+    /// `AKAuthenticationError` that can itself wrap an `NSOSStatusErrorDomain` code, and the deepest
+    /// one is the one that names the cause.
+    let underlyingChain: [String]
+    /// The name of an `ASAuthorizationError.Code`, kept next to the integer so a code the app has
+    /// never heard of reads as `unrecognized` rather than collapsing into a known one.
+    let appleErrorName: String?
+    /// How the Apple attempt looked from the app's side, present only on Apple authorization failures.
+    let appleTrace: AppleAuthorizationTrace?
     /// The provider's own wording, for logs only. It is never shown to a climber.
     let detail: String
 
@@ -62,6 +73,9 @@ struct AuthenticationFailureDiagnostics: Equatable, Sendable {
         errorCode: Int,
         underlyingDomain: String? = nil,
         underlyingCode: Int? = nil,
+        underlyingChain: [String] = [],
+        appleErrorName: String? = nil,
+        appleTrace: AppleAuthorizationTrace? = nil,
         detail: String = ""
     ) {
         self.kind = kind
@@ -69,6 +83,9 @@ struct AuthenticationFailureDiagnostics: Equatable, Sendable {
         self.errorCode = errorCode
         self.underlyingDomain = underlyingDomain
         self.underlyingCode = underlyingCode
+        self.underlyingChain = underlyingChain
+        self.appleErrorName = appleErrorName
+        self.appleTrace = appleTrace
         self.detail = detail
     }
 
@@ -77,9 +94,10 @@ struct AuthenticationFailureDiagnostics: Equatable, Sendable {
     /// need the network, and either wraps the transport error that says so. Otherwise the
     /// provider answered, and the failure is `otherwise`: `appleAuthorization` for Apple's
     /// controller, `providerRejected` for Firebase and Google.
-    init(error: Error, otherwise: AuthenticationFailureKind) {
+    init(error: Error, otherwise: AuthenticationFailureKind, appleTrace: AppleAuthorizationTrace? = nil) {
         let nsError = error as NSError
-        let isConnectivity = Self.chain(of: nsError).contains(where: Self.isConnectivityFailure)
+        let chain = Self.chain(of: nsError)
+        let isConnectivity = chain.contains(where: Self.isConnectivityFailure)
         let underlying = Self.firstUnderlying(of: nsError)
 
         self.init(
@@ -88,6 +106,9 @@ struct AuthenticationFailureDiagnostics: Equatable, Sendable {
             errorCode: nsError.code,
             underlyingDomain: underlying?.domain,
             underlyingCode: underlying?.code,
+            underlyingChain: chain.dropFirst().map { "\($0.domain):\($0.code)" },
+            appleErrorName: nsError.domain == ASAuthorizationError.errorDomain ? Self.appleErrorName(for: nsError.code) : nil,
+            appleTrace: appleTrace,
             detail: error.localizedDescription
         )
     }
@@ -101,7 +122,52 @@ struct AuthenticationFailureDiagnostics: Equatable, Sendable {
         ]
         if let underlyingDomain { info["underlying_domain"] = underlyingDomain }
         if let underlyingCode { info["underlying_code"] = String(underlyingCode) }
+        if !underlyingChain.isEmpty { info["underlying_chain"] = underlyingChain.joined(separator: ">") }
+        if let appleErrorName { info["apple_error_name"] = appleErrorName }
+        if let appleTrace {
+            info["sheet_presented"] = String(appleTrace.sheetPresented)
+            info["ms_to_result"] = String(appleTrace.millisecondsToResult)
+            info["scene_state"] = appleTrace.sceneState
+            info["app_state"] = appleTrace.applicationState
+            info["attempt_number"] = String(appleTrace.attemptNumber)
+        }
         return info
+    }
+
+    /// The same facts as `telemetryInfo`, typed for an analytics event: integers stay integers and
+    /// the sheet flag stays a boolean, so Mixpanel can slice and bucket them. Every value is an OS
+    /// error domain, an integer, a closed enum or a boolean - never message text.
+    var analyticsParameters: [String: TelemetryValue] {
+        var parameters: [String: TelemetryValue] = [
+            "failure_kind": .string(kind.rawValue),
+            "error_domain": .string(errorDomain),
+            "error_code": .int(errorCode)
+        ]
+        if let underlyingDomain { parameters["underlying_domain"] = .string(underlyingDomain) }
+        if let underlyingCode { parameters["underlying_code"] = .int(underlyingCode) }
+        if !underlyingChain.isEmpty { parameters["underlying_chain"] = .string(underlyingChain.joined(separator: ">")) }
+        if let appleErrorName { parameters["apple_error_name"] = .string(appleErrorName) }
+        if let appleTrace { parameters.merge(appleTrace.analyticsParameters) { _, new in new } }
+        return parameters
+    }
+
+    /// Maps by `ASAuthorizationError.Code`, never by a string of the message, and keeps a code the
+    /// enum does not know as `unrecognized` - the integer travels beside it in `error_code`.
+    static func appleErrorName(for code: Int) -> String {
+        switch ASAuthorizationError.Code(rawValue: code) {
+        case .unknown: "unknown"
+        case .canceled: "canceled"
+        case .invalidResponse: "invalidResponse"
+        case .notHandled: "notHandled"
+        case .failed: "failed"
+        case .notInteractive: "notInteractive"
+        case .matchedExcludedCredential: "matchedExcludedCredential"
+        case .credentialImport: "credentialImport"
+        case .credentialExport: "credentialExport"
+        case .preferSignInWithApple: "preferSignInWithApple"
+        case .deviceNotConfiguredForPasskeyCreation: "deviceNotConfiguredForPasskeyCreation"
+        default: "unrecognized"
+        }
     }
 
     private static func chain(of error: NSError) -> [NSError] {

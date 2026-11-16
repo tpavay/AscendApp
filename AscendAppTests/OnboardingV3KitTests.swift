@@ -344,8 +344,8 @@ struct OnboardingV3KitTests {
     }
 
     @Test
-    func onceTheClimberIsSigningInOrSignedInTheFlowIsLeft() {
-        #expect(route(state: .authenticatingWithApple) == .signingIn)
+    func theFlowIsLeftOnlyOnceTheClimberIsSignedIn() {
+        #expect(route(state: .authenticatingWithApple) == .preAuthOnboarding, "the sign-in screen stays under Apple's sheet")
         #expect(route(state: .restoringSession) == .restoringSession)
         #expect(route(state: .authenticated, userId: "u1") == .paywall)
     }

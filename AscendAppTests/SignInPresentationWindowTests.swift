@@ -88,10 +88,10 @@ struct SignInPresentationWindowTests {
     }
 
     @Test func theAppleAnchorIsTheResolvedForegroundWindow() throws {
-        let service = AuthenticationService()
+        let performer = AppleAuthorizationPerformer()
         let controller = ASAuthorizationController(authorizationRequests: [ASAuthorizationAppleIDProvider().createRequest()])
         let expected = try #require(SignInPresentationWindow.connectedCandidates().first)
 
-        #expect(service.presentationAnchor(for: controller) === expected)
+        #expect(performer.presentationAnchor(for: controller) === expected)
     }
 }

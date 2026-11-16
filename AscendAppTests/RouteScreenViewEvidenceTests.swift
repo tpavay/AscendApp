@@ -130,7 +130,6 @@ struct RouteScreenViewEvidenceTests {
     func everyRootRouteResolvesToAReviewedScreenExceptTheContainer() {
         let routes: [AppRootRoute] = [
             .updateRequired,
-            .signingIn,
             .restoringSession,
             .resolving,
             .paywall,
