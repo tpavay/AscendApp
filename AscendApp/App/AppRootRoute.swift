@@ -6,9 +6,11 @@ enum AppRootRoute: Equatable, Sendable {
     case updateRequired
     /// Signed out: the selling and setup screens, then sign-in. The only thing a signed-out climber
     /// can reach, on a fresh install and after every sign-out alike - there is no switch, no
-    /// fallback flow and no landing screen behind it.
+    /// fallback flow and no landing screen behind it. It also holds while a sign-in is waiting on
+    /// Apple or Google: the screen that started the request stays mounted under the provider's
+    /// sheet, so a refusal lands back on the buttons it came from rather than on a screen that was
+    /// built a moment later (1.3.0 swapped it for a spinner the instant Apple was tapped).
     case preAuthOnboarding
-    case signingIn
     case restoringSession
     case resolving
     case paywall
@@ -51,12 +53,11 @@ struct AppRootRouteResolver {
         }
 
         switch authenticationState {
-        case .unauthenticated:
-            return .preAuthOnboarding
-        case .authenticatingWithApple,
+        case .unauthenticated,
+             .authenticatingWithApple,
              .authenticatingWithGoogle,
              .authenticatingWithInternalQA:
-            return .signingIn
+            return .preAuthOnboarding
         case .restoringSession:
             return .restoringSession
         case .authenticated:

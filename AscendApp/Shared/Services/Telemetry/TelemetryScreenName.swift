@@ -25,7 +25,6 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     // MARK: - Root routes
 
     case appUpdateRequired = "app_update_required"
-    case authSigningIn = "auth_signing_in"
     case sessionRestoring = "session_restoring"
     case appAccessResolving = "app_access_resolving"
     case appAccessGate = "app_access_gate"
@@ -159,7 +158,6 @@ enum TelemetryScreenName: String, CaseIterable, Sendable {
     var screenClass: String {
         switch self {
         case .appUpdateRequired: "AppUpdateRequiredView"
-        case .authSigningIn: "RootView"
         case .sessionRestoring: "RootView"
         case .appAccessResolving: "AppAccessResolvingView"
         case .appAccessGate: "AppAccessPaywallPlaceholderView"
