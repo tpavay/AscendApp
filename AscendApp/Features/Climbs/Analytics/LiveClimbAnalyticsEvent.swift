@@ -44,13 +44,6 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
     case summaryViewed(climb: Climb, rank: Int?, rankTotal: Int?)
     case summaryShareTapped(climb: Climb, rank: Int?, rankTotal: Int?)
     case summaryDoneTapped(climb: Climb, surface: SummaryDismissSurface)
-    case shareActionTapped(climb: Climb, surface: ShareSurface, cardType: ShareCardAnalyticsType)
-    case shareActivityCompleted(
-        climb: Climb,
-        surface: ShareSurface,
-        cardType: ShareCardAnalyticsType,
-        completed: Bool
-    )
 
     var record: TelemetryRecord {
         switch self {
@@ -205,27 +198,6 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
                     "surface": .string(surface.rawValue)
                 ]
             )
-
-        case .shareActionTapped(let climb, let surface, let cardType):
-            return record(
-                name: "live_climb_share_action_tap",
-                climb: climb,
-                parameters: [
-                    "share_surface": .string(surface.rawValue),
-                    "card_type": .string(cardType.rawValue)
-                ]
-            )
-
-        case .shareActivityCompleted(let climb, let surface, let cardType, let completed):
-            return record(
-                name: "live_climb_share_activity_done",
-                climb: climb,
-                parameters: [
-                    "share_surface": .string(surface.rawValue),
-                    "card_type": .string(cardType.rawValue),
-                    "completed": .bool(completed)
-                ]
-            )
         }
     }
 
@@ -258,7 +230,7 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
         ]
     }
 
-    private static func climbParameters(for climb: Climb) -> [String: TelemetryValue] {
+    static func climbParameters(for climb: Climb) -> [String: TelemetryValue] {
         [
             "climb_id": .string(climb.id),
             "climb_tier": .string(climb.tier.rawValue),
@@ -334,18 +306,6 @@ extension LiveClimbAnalyticsEvent {
     enum SummaryDismissSurface: String {
         case backButton = "back_button"
         case doneButton = "done_button"
-    }
-
-    enum ShareSurface: String {
-        case instagramStories = "instagram_stories"
-        case systemSheet = "system_sheet"
-        case copyText = "copy_text"
-        case x
-    }
-
-    enum ShareCardAnalyticsType: String {
-        case liveClimb = "live_climb"
-        case poster
     }
 
     enum CountBucket: String {

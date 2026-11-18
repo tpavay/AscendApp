@@ -25,6 +25,7 @@ struct ShareSheetLateStandingEvidenceTests {
 
         var body: some View {
             ShareSheetView(
+                source: .workoutDetail,
                 workout: workout,
                 climb: nil,
                 climbRank: presenter.rank,

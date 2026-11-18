@@ -124,6 +124,7 @@ struct LiveClimbCompletionSummaryView: View {
             // next climber finishes, so only the frozen standing is forwarded.
             let frozen = hero?.standing?.frozen
             ShareSheetView(
+                source: .liveClimbSummary,
                 workout: workout,
                 climb: climb,
                 climbRank: frozen?.rank,

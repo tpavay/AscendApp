@@ -32,6 +32,7 @@ final class StickersViewModel {
     private let now: @Sendable () -> Date
     private var standings: ShareTotalsRepository.Standings?
     private var standingsRead: Task<ShareTotalsRepository.Standings, Never>?
+    private let analytics: ShareSheetAnalyticsReporter?
 
     init(
         subject: ShareSheetSubject,
@@ -39,8 +40,10 @@ final class StickersViewModel {
         userId: String?,
         repository: ShareTotalsRepository = ShareTotalsRepository(),
         store: StickerStyleStore = StickerStyleStore(),
-        now: @escaping @Sendable () -> Date = { .now }
+        now: @escaping @Sendable () -> Date = { .now },
+        analytics: ShareSheetAnalyticsReporter? = nil
     ) {
+        self.analytics = analytics
         self.now = now
         self.subject = subject
         self.modelContext = modelContext
@@ -88,21 +91,38 @@ final class StickersViewModel {
         style.color == .black
     }
 
+    /// What a tap or hold on `item` shares, for the share funnel: which sticker, and whether it
+    /// prints this climb or the period's totals.
+    func shareContent(for item: StickerItem) -> ShareContent {
+        let kind: String
+        switch item {
+        case .standard(let standard): kind = standard.rawValue
+        case .seasonal(let seasonal): kind = "seasonal_\(seasonal.rawValue)"
+        }
+        return .sticker(kind: kind, scope: scope == .climb ? .climb : .totals)
+    }
+
     // MARK: - Style
 
     func setFont(_ font: StickerStyle.Font) {
+        let changed = style.font != font
         style.font = font
         store.save(style)
+        if changed { analytics?.edited(.stickerFont, value: font.rawValue) }
     }
 
     func setColor(_ color: StickerStyle.Color) {
+        let changed = style.color != color
         style.color = color
         store.save(style)
+        if changed { analytics?.edited(.stickerColor, value: color.rawValue) }
     }
 
     func setShadow(_ shadow: StickerStyle.Shadow) {
+        let changed = style.shadow != shadow
         style.shadow = shadow
         store.save(style)
+        if changed { analytics?.edited(.stickerShadow, value: shadow.rawValue) }
     }
 
     func togglePanel(_ panel: Panel) {

@@ -81,7 +81,7 @@ struct LoggedClimbResultView: View {
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showingShareSheet) {
-            ShareSheetView(workout: workout, climb: nil, climbRank: nil, climbRankTotal: nil)
+            ShareSheetView(source: .loggedClimbResult, workout: workout, climb: nil, climbRank: nil, climbRankTotal: nil)
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color(hex: "0B0B0B"))
         }
