@@ -17,9 +17,9 @@ struct ShareSheetView: View {
     private let rankPosition: Int?
     private let rankField: Int?
 
-    private let analytics: ShareSheetAnalyticsReporter
     private let telemetry: TelemetryManager
 
+    @State private var analytics: ShareSheetAnalyticsReporter
     @State private var sheet: ShareSheetViewModel
     @State private var presets: PresetsViewModel?
     @State private var stickers: StickersViewModel?
@@ -43,7 +43,7 @@ struct ShareSheetView: View {
             context: ShareSheetAnalyticsContext(source: source, climb: climb),
             telemetry: telemetry
         )
-        self.analytics = reporter
+        _analytics = State(initialValue: reporter)
         _sheet = State(initialValue: ShareSheetViewModel(reporter: reporter))
     }
 

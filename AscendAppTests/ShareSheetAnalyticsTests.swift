@@ -403,6 +403,51 @@ struct ShareSheetAnalyticsTests {
     }
 
     @Test
+    func resettingOnlyAPhotoBackgroundReportsTheReset() {
+        let rig = Rig()
+        rig.presets.selectPhoto(UIImage())
+        rig.presets.reset()
+
+        #expect(rig.records.map { string($0, "edit_type") } == ["photo", "reset"])
+    }
+
+    @Test
+    func resettingOnlyAPickedBestEffortReportsTheReset() {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let reporter = ShareSheetAnalyticsReporter(
+            context: ShareSheetAnalyticsContext(source: .workoutDetail, climb: .preview),
+            telemetry: makeTestTelemetry(sink: sink)
+        )
+        let presets = PresetsViewModel(
+            subject: .fixture(bestEfforts: [ShareSheetSubject.effort("a")]),
+            hasTower: true,
+            store: PresetPreferencesStore(defaults: UserDefaults(suiteName: "ShareSheetAnalyticsTests.\(UUID().uuidString)")!),
+            analytics: reporter
+        )
+        presets.pickBestEffort("a")
+        presets.reset()
+
+        #expect(sink.records.map { string($0, "edit_type") } == ["best_effort", "reset"])
+    }
+
+    @Test
+    func resettingATowerClimbThatStillShowsItsTowerIsNotAnEdit() {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let presets = PresetsViewModel(
+            subject: .fixture(),
+            hasTower: true,
+            store: PresetPreferencesStore(defaults: UserDefaults(suiteName: "ShareSheetAnalyticsTests.\(UUID().uuidString)")!),
+            analytics: ShareSheetAnalyticsReporter(
+                context: ShareSheetAnalyticsContext(source: .workoutDetail, climb: .preview),
+                telemetry: makeTestTelemetry(sink: sink)
+            )
+        )
+        presets.reset()
+
+        #expect(sink.records.isEmpty)
+    }
+
+    @Test
     func aShareCarriesABucketedCountAndAFlagPerKindEdited() async {
         let rig = Rig()
         rig.presets.selectBackground(.stairs)

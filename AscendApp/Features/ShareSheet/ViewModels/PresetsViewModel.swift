@@ -236,9 +236,12 @@ final class PresetsViewModel {
 
     /// Black, Classic, Bold, Lime, Time plus SPM plus Rank (plus Best efforts when earned).
     func reset() {
+        let defaultSessionBackground: PresetCardBackground? = hasTower ? .tower : nil
         let hadEdits = preferences != .defaults
+            || sessionBackground != defaultSessionBackground
+            || pickedBestEffortID != nil
         preferences = .defaults
-        sessionBackground = hasTower ? .tower : nil
+        sessionBackground = defaultSessionBackground
         pickedBestEffortID = nil
         store.reset()
         currentLayout = Self.resolvedLayout(.classic, subject: subject, preferences: preferences)
