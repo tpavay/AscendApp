@@ -23,7 +23,6 @@ struct ShareSheetLateStandingEvidenceTests {
         let workout: Workout
         let presenter: Presenter
         var telemetry: TelemetryManager = .shared
-        var landsStandingOnAppear = false
 
         var body: some View {
             ShareSheetView(
@@ -34,11 +33,6 @@ struct ShareSheetLateStandingEvidenceTests {
                 climbRankTotal: presenter.total,
                 telemetry: telemetry
             )
-            .onAppear {
-                guard landsStandingOnAppear else { return }
-                presenter.rank = 32
-                presenter.total = 85
-            }
         }
     }
 
@@ -84,6 +78,11 @@ struct ShareSheetLateStandingEvidenceTests {
         }
     }
 
+    /// The presenter can rebuild the sheet between the pass that creates its state and the one it
+    /// appears on - Workout Detail clears and then re-sets the standing around the Share tap. Every rebuild runs `ShareSheetView.init` again, so a reporter built there and held
+    /// in a plain `let` is a fresh one on the copy whose `.task` builds the tab view models, while
+    /// the sheet view model keeps the first: edits are tallied on one reporter and the share reads
+    /// the other.
     @Test
     func anEditMadeAfterTheStandingRebuildsTheSheetStillRidesOnTheShare() async throws {
         let preferences = PresetPreferencesStore()
@@ -97,16 +96,19 @@ struct ShareSheetLateStandingEvidenceTests {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let workout = Workout(duration: 3_770, steps: 5_004, floors: 0, source: .headphoneMotion)
         let presenter = Presenter()
-        let view = Host(
-            workout: workout,
-            presenter: presenter,
-            telemetry: makeTestTelemetry(sink: sink),
-            landsStandingOnAppear: true
+        let controller = UIHostingController(
+            rootView: Host(workout: workout, presenter: presenter, telemetry: makeTestTelemetry(sink: sink))
+                .modelContainer(container)
+                .environment(AuthenticationViewModel(observesFirebaseAuth: false))
         )
-        .modelContainer(container)
-        .environment(AuthenticationViewModel(observesFirebaseAuth: false))
+        // Sizing builds the sheet's state off screen without it appearing, the way a presentation
+        // sizes its content first; the standing then rebuilds it before its first `.task` runs.
+        _ = controller.sizeThatFits(in: RenderedScreen.iPhone16ProSize)
+        presenter.rank = 32
+        presenter.total = 85
+        _ = controller.sizeThatFits(in: RenderedScreen.iPhone16ProSize)
 
-        try await RenderedScreen.host(view) { screen in
+        try await RenderedScreen.host(controller) { screen in
             _ = try await screen.copy { $0.contains("curve layout") }
             try await Self.activate("Font: closed", in: screen)
             try await Self.activate("Mono font", in: screen)
