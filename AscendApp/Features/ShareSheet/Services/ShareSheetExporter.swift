@@ -3,10 +3,26 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+/// Everything the share sheet asks of its exporter, so a test can stand in for the clipboard,
+/// Photos, Instagram and the system share sheet, none of which a simulator host can drive.
+@MainActor
+protocol ShareSheetExporting {
+    func renderCard(model: PresetCardModel, artwork: PresetCardArtwork) -> UIImage?
+    func renderSticker<Content: View>(_ content: Content) -> UIImage?
+    func loadClimbArtwork(for climb: Climb) async -> UIImage?
+    func copyToClipboard(_ image: UIImage) -> Bool
+    func saveToPhotos(_ image: UIImage) async -> Bool
+    func shareToInstagramStory(_ card: UIImage) -> Bool
+    /// Shows the system share sheet and reports how it ended through `completion`: the activity
+    /// type the climber picked (nil when they cancelled) and whether the activity completed.
+    /// Returns false, and never calls `completion`, when there was nothing to present on.
+    func presentShareSheet(image: UIImage, completion: @escaping @MainActor (String?, Bool) -> Void) -> Bool
+}
+
 /// Renders a card or sticker to an image and routes it to the clipboard, Photos, Instagram Stories
 /// or the system share sheet.
 @MainActor
-struct ShareSheetExporter {
+struct ShareSheetExporter: ShareSheetExporting {
     /// A card is exported square at 1080 points, the size the design specifies.
     static let cardExportSize: CGFloat = 1080
     /// Instagram's pasteboard key for an image placed over the Story as a movable sticker. The card
@@ -112,13 +128,19 @@ struct ShareSheetExporter {
         return true
     }
 
-    func presentShareSheet(image: UIImage) {
+    func presentShareSheet(image: UIImage, completion: @escaping @MainActor (String?, Bool) -> Void) -> Bool {
         guard let scene = UIApplication.shared.connectedScenes
             .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
               let root = scene.keyWindow?.rootViewController else {
-            return
+            return false
         }
         let activityVC = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+        // UIKit calls this on the main thread, once, whether the climber picked something or
+        // dismissed the sheet.
+        activityVC.completionWithItemsHandler = { activityType, completed, _, _ in
+            let rawType = activityType?.rawValue
+            MainActor.assumeIsolated { completion(rawType, completed) }
+        }
         var presenter = root
         while let presented = presenter.presentedViewController {
             presenter = presented
@@ -128,5 +150,6 @@ struct ShareSheetExporter {
             pop.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.maxY - 40, width: 0, height: 0)
         }
         presenter.present(activityVC, animated: true)
+        return true
     }
 }

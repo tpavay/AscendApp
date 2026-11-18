@@ -25,6 +25,7 @@ final class PresetsViewModel {
     private let store: PresetPreferencesStore
     private let clock: () -> Date
     private let calendar: Calendar
+    private let analytics: ShareSheetAnalyticsReporter?
 
     /// A background chosen for this climb only: the landmark's tower or a photograph.
     private(set) var sessionBackground: PresetCardBackground?
@@ -41,9 +42,11 @@ final class PresetsViewModel {
         hasTower: Bool,
         store: PresetPreferencesStore = PresetPreferencesStore(),
         clock: @escaping () -> Date = Date.init,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        analytics: ShareSheetAnalyticsReporter? = nil
     ) {
         let saved = store.load()
+        self.analytics = analytics
         self.subject = subject
         self.hasTower = hasTower
         self.store = store
@@ -144,7 +147,10 @@ final class PresetsViewModel {
 
     func select(layout: PresetLayout) {
         guard layouts.contains(layout) else { return }
+        let changed = layout != currentLayout
         currentLayout = layout
+        // Landing on the layout already showing is not a choice, so it reports nothing.
+        if changed { analytics?.cardSelected(layout) }
         // Swiping to a layout is browsing; only the layouts a climber stays on are remembered.
         preferences.layout = layout
         store.save(preferences)
@@ -159,22 +165,28 @@ final class PresetsViewModel {
     // MARK: - Customisation
 
     func selectBackground(_ flat: PresetFlatBackground) {
+        let before = background
         sessionBackground = nil
         preferences.background = flat
         preferences.seasonal = nil
         persist()
+        reportBackgroundEdit(from: before, value: flat.rawValue)
     }
 
     func selectSeasonal(_ seasonal: SeasonalBackground) {
         guard seasonal.isAvailable(on: clock(), calendar: calendar) else { return }
+        let before = background
         sessionBackground = nil
         preferences.seasonal = seasonal
         persist()
+        reportBackgroundEdit(from: before, value: ShareBackgroundKind.seasonal.rawValue)
     }
 
     func selectTower() {
         guard hasTower else { return }
+        let before = background
         sessionBackground = .tower
+        reportBackgroundEdit(from: before, value: ShareBackgroundKind.tower.rawValue)
     }
 
     func selectPhoto(_ image: UIImage) {
@@ -182,6 +194,13 @@ final class PresetsViewModel {
         artwork.photoScale = 1
         artwork.photoOffset = .zero
         sessionBackground = .photo
+        analytics?.edited(.photo, value: ShareBackgroundKind.photo.rawValue)
+    }
+
+    /// Choosing the background already showing is not an edit.
+    private func reportBackgroundEdit(from before: PresetCardBackground, value: String) {
+        guard background != before else { return }
+        analytics?.edited(.background, value: value)
     }
 
     func frame(scale: CGFloat, offset: CGSize) {
@@ -189,31 +208,44 @@ final class PresetsViewModel {
     }
 
     func setFont(_ font: PresetFont) {
+        let changed = preferences.font != font
         preferences.font = font
         persist()
+        if changed { analytics?.edited(.font, value: font.rawValue) }
     }
 
     func setAccent(_ accent: PresetAccent) {
+        let changed = preferences.accent != accent
         preferences.accent = accent
         persist()
+        if changed { analytics?.edited(.accent, value: accent.rawValue) }
     }
 
     func toggle(_ stat: PresetStat) {
         preferences.toggle(stat)
         persist()
+        analytics?.edited(.stat, value: "\(stat.rawValue)_\(preferences.isOn(stat) ? "on" : "off")")
     }
 
     func pickBestEffort(_ id: String?) {
+        let changed = pickedBestEffortID != id
         pickedBestEffortID = id
+        // Which effort was picked is the climber's own record, so only that one was chosen is reported.
+        if changed { analytics?.edited(.bestEffort, value: id == nil ? "none" : "chosen") }
     }
 
     /// Black, Classic, Bold, Lime, Time plus SPM plus Rank (plus Best efforts when earned).
     func reset() {
+        let defaultSessionBackground: PresetCardBackground? = hasTower ? .tower : nil
+        let hadEdits = preferences != .defaults
+            || sessionBackground != defaultSessionBackground
+            || pickedBestEffortID != nil
         preferences = .defaults
-        sessionBackground = hasTower ? .tower : nil
+        sessionBackground = defaultSessionBackground
         pickedBestEffortID = nil
         store.reset()
         currentLayout = Self.resolvedLayout(.classic, subject: subject, preferences: preferences)
+        if hadEdits { analytics?.edited(.reset, value: "defaults") }
     }
 
     func togglePanel(_ panel: Panel) {

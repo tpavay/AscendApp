@@ -117,6 +117,7 @@ struct WorkoutDetailView: View {
         }
         .sheet(isPresented: $showingShareWorkoutView) {
             ShareSheetView(
+                source: .workoutDetail,
                 workout: workout,
                 climb: liveClimbDetailClimb,
                 climbRank: shareStanding?.rank,
