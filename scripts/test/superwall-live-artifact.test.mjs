@@ -7,6 +7,8 @@ import {
   collectActions,
   compactWindowLayout,
   runtimeStoreFromHTML,
+  servedPaywalls,
+  validateCompactWindowLayouts,
   validateSuperwallArtifact
 } from "../lib/superwall-live-artifact.mjs";
 
@@ -177,9 +179,24 @@ test("runtime parser reads the exact Editor store and rejects missing context", 
 
 // A paywall's layout, reduced to the properties the compact-window rule reads. The shapes are the
 // ones the live artifact serialises: literal property wrappers, `css-length` and `css-string` values.
-function layoutStore({rootHeight, rootOverflowY, rootScroll = "none", childHeight = {value: "100", unit: "%"}}) {
-  const literal = (value) => ({type: "literal", value});
-  const length = ({value, unit}) => literal({type: "css-length", value, unit});
+const literal = (value) => ({type: "literal", value});
+const length = ({value, unit}) => literal({type: "css-length", value, unit});
+const overflow = (value) => literal({type: "css-string", value});
+const purchaseBehavior = literal({
+  type: "click-behavior",
+  clickActions: [{action: {type: "purchase", reference: {type: "by-selected"}, onPurchase: [{action: {type: "close"}}]}}]
+});
+const closeBehavior = literal({type: "click-behavior", clickActions: [{action: {type: "close"}}]});
+
+function layoutStore({
+  rootHeight,
+  rootOverflowY,
+  rootScroll = "none",
+  childHeight = {value: "100", unit: "%"},
+  childOverflowY,
+  targetOverflowY,
+  targetBehavior = purchaseBehavior
+}) {
   return {
     "node:main": {
       id: "node:main",
@@ -189,7 +206,7 @@ function layoutStore({rootHeight, rootOverflowY, rootScroll = "none", childHeigh
       defaultProperties: {
         "prop:stack": literal({type: "property-stack", axis: "y", scroll: rootScroll}),
         "css:height": length(rootHeight),
-        "css:overflowY": literal({type: "css-string", value: rootOverflowY})
+        "css:overflowY": overflow(rootOverflowY)
       },
       properties: {}
     },
@@ -198,101 +215,240 @@ function layoutStore({rootHeight, rootOverflowY, rootScroll = "none", childHeigh
       name: "Overlay",
       parentId: "node:main",
       type: "stack",
-      defaultProperties: {"css:height": length(childHeight)},
+      defaultProperties: {
+        "css:height": length(childHeight),
+        ...(childOverflowY ? {"css:overflowY": overflow(childOverflowY)} : {})
+      },
       properties: {}
     },
-    "node:purchase": {
-      id: "node:purchase",
-      name: "CTA - purchase selected product",
+    "node:target": {
+      id: "node:target",
+      name: "CTA",
       parentId: "node:overlay",
       type: "stack",
-      defaultProperties: {},
-      properties: {
-        "prop:click-behavior": literal({
-          type: "click-behavior",
-          clickActions: [{action: {type: "purchase", reference: {type: "by-selected"}, onPurchase: [{action: {type: "close"}}]}}]
-        })
-      }
+      defaultProperties: targetOverflowY ? {"css:overflowY": overflow(targetOverflowY)} : {},
+      properties: {"prop:click-behavior": targetBehavior}
     }
   };
 }
 
-function layoutVerdict(store) {
-  const purchases = collectActions(store).filter(({action}) => action.type === "purchase");
-  return compactWindowLayout(store, purchases);
-}
+const clippingRoot = {rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "hidden"};
+const docsRecipe = {
+  rootHeight: {value: "100", unit: "dvh"},
+  rootOverflowY: "auto",
+  rootScroll: "normal",
+  childHeight: {value: "auto", unit: "none"}
+};
 
 // App Review, 2026-11-19, iPad Air 11-inch (M3): the iPhone app gets a 375 by 667 pt window there,
 // and the paywall's content needs 834 pt. The root was 100dvh, overflow hidden, scroll none.
 test("a paywall fixed to the viewport with overflow hidden and no scroll clips the purchase button", () => {
-  const verdict = layoutVerdict(
-    layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "hidden"})
-  );
+  const verdict = compactWindowLayout(layoutStore(clippingRoot));
 
   assert.equal(verdict.verdict, "clips");
-  assert.match(verdict.message, /Paywall root "Main"/);
+  assert.match(verdict.message, /root "Main" \(node:main\)/);
+  assert.match(verdict.message, /purchase button/);
+  assert.match(verdict.message, /child "Overlay" \(node:overlay\)/);
 });
 
 test("scroll normal does not help while the node's own Overflow Y is still hidden", () => {
-  const verdict = layoutVerdict(
-    layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "hidden", rootScroll: "normal"})
-  );
+  const verdict = compactWindowLayout(layoutStore({...clippingRoot, rootScroll: "normal"}));
 
   assert.equal(verdict.verdict, "clips");
 });
 
-test("a root that scrolls vertically reaches the purchase button on any window", () => {
-  const verdict = layoutVerdict(
-    layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "auto", rootScroll: "normal"})
-  );
+test("the recipe the docs prescribe scrolls on any window", () => {
+  const verdict = compactWindowLayout(layoutStore(docsRecipe));
 
   assert.equal(verdict.verdict, "scrolls");
   assert.equal(verdict.message, null);
 });
 
 test("a root that grows with its content never clips", () => {
-  const verdict = layoutVerdict(
+  const verdict = compactWindowLayout(
     layoutStore({rootHeight: {value: "auto", unit: "none"}, rootOverflowY: "hidden"})
   );
 
   assert.equal(verdict.verdict, "fits");
 });
 
-test("a capture with no node tree is unknown, never an error", async () => {
-  const capture = await fixture(productionFixture);
-  const purchases = collectActions(capture.runtimeStore).filter(({action}) => action.type === "purchase");
+test("the purchase button scrolling itself does not reach it under a clipping root", () => {
+  const verdict = compactWindowLayout(layoutStore({...clippingRoot, targetOverflowY: "auto"}));
 
-  assert.equal(compactWindowLayout(capture.runtimeStore, purchases).verdict, "unknown");
+  assert.equal(verdict.verdict, "clips");
 });
 
-test("the layout finding is an error only where it is enforced, and a warning elsewhere", async () => {
-  const capture = structuredClone(await fixture(productionFixture));
-  const response = activePaywallResponse(capture.staticConfig, "app_access_gate").response;
-  for (const product of response.products_v2) product.entitlements = [{identifier: "app_access"}];
-  capture.runtimeStore["state:purchaseAbandoned"] = {};
-  capture.runtimeStore["node:purchase"].properties["prop:click-behavior"].value.clickActions[0].action
-    .onAbandon[0].action.stateId = "state:purchaseAbandoned";
-  Object.assign(
-    capture.runtimeStore,
-    layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "hidden"}),
-    {"node:purchase": {...layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "hidden"})["node:purchase"]}}
+test("a node between the root and the purchase button that grows with its content never scrolls", () => {
+  const verdict = compactWindowLayout(
+    layoutStore({...clippingRoot, childHeight: {value: "auto", unit: "none"}, childOverflowY: "auto"})
   );
-  const validate = (enforce) =>
-    validateSuperwallArtifact({
-      staticConfig: capture.staticConfig,
-      runtimeStore: capture.runtimeStore,
-      placement: "app_access_gate",
-      sellableProductIDs: ["ascend_yearly", "ascend_monthly"],
-      expectedEntitlementID: "app_access",
-      enforceCompactWindowLayout: enforce
+
+  assert.equal(verdict.verdict, "clips");
+});
+
+test("a node between the root and the purchase button with a bounded height scrolls", () => {
+  const verdict = compactWindowLayout(layoutStore({...clippingRoot, childOverflowY: "auto"}));
+
+  assert.equal(verdict.verdict, "scrolls");
+});
+
+test("a paywall that sells nothing is judged by the controls that close it", () => {
+  const clipping = compactWindowLayout(layoutStore({...clippingRoot, targetBehavior: closeBehavior}));
+  assert.equal(clipping.verdict, "clips");
+  assert.match(clipping.message, /close control/);
+
+  const fixed = compactWindowLayout(layoutStore({...docsRecipe, targetBehavior: closeBehavior}));
+  assert.equal(fixed.verdict, "scrolls");
+});
+
+test("a capture with no node tree is unknown, never an error", async () => {
+  const capture = await fixture(productionFixture);
+
+  assert.equal(compactWindowLayout(capture.runtimeStore).verdict, "unknown");
+});
+
+function gateConfig(triggers) {
+  const identifiers = new Set(
+    triggers.flatMap(({rules}) => rules.flat().map(({paywall}) => paywall))
+  );
+  return {
+    trigger_options: triggers.map(({placement, rules}) => ({
+      event_name: placement,
+      rules: rules.map((variants) => ({
+        variants: variants.map(({paywall, percentage = 100, type = "TREATMENT"}) => ({
+          variant_type: type,
+          percentage,
+          paywall_identifier: paywall
+        }))
+      }))
+    })),
+    paywall_responses: [...identifiers].map((identifier) => ({id: identifier, identifier}))
+  };
+}
+
+function storesByPaywall(stores) {
+  return async (response) => {
+    const store = stores[response.identifier];
+    if (!store) throw new Error(`no runtime for ${response.identifier}`);
+    return store;
+  };
+}
+
+const everyGatePlacement = gateConfig([
+  {placement: "app_access_gate", rules: [[{paywall: "first"}], [{paywall: "second"}]]},
+  {placement: "paywall_decline", rules: [[{paywall: "decline"}]]},
+  {placement: "decline_offer_replay", rules: [[{paywall: "decline"}]]},
+  {placement: "founder_letter", rules: [[{paywall: "letter"}]]}
+]);
+
+test("every paywall any rule serves is checked, and a second rule's clipping paywall is named", async () => {
+  const result = await validateCompactWindowLayouts({
+    staticConfig: everyGatePlacement,
+    loadRuntimeStore: storesByPaywall({
+      first: layoutStore(docsRecipe),
+      second: layoutStore(clippingRoot),
+      decline: layoutStore(docsRecipe),
+      letter: layoutStore({...docsRecipe, targetBehavior: closeBehavior})
+    }),
+    enforce: true
+  });
+
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /^app_access_gate paywall second \(second\): root "Main"/);
+  assert.deepEqual(
+    result.evidence.map(({placements, paywallIdentifier, compactWindowLayout: verdict}) => [
+      placements,
+      paywallIdentifier,
+      verdict
+    ]),
+    [
+      [["app_access_gate"], "first", "scrolls"],
+      [["app_access_gate"], "second", "clips"],
+      [["paywall_decline", "decline_offer_replay"], "decline", "scrolls"],
+      [["founder_letter"], "letter", "scrolls"]
+    ]
+  );
+});
+
+test("the decline offer and the founder letter are held to the rule too", async () => {
+  const result = await validateCompactWindowLayouts({
+    staticConfig: everyGatePlacement,
+    loadRuntimeStore: storesByPaywall({
+      first: layoutStore(docsRecipe),
+      second: layoutStore(docsRecipe),
+      decline: layoutStore(clippingRoot),
+      letter: layoutStore({...clippingRoot, targetBehavior: closeBehavior})
+    }),
+    enforce: true
+  });
+
+  assert.equal(result.errors.length, 2);
+  assert.match(result.errors[0], /^paywall_decline, decline_offer_replay paywall decline \(decline\): /);
+  assert.match(result.errors[1], /^founder_letter paywall letter \(letter\): .*close control/);
+});
+
+test("only treatments with a share of the audience are served", () => {
+  const {errors, paywalls} = servedPaywalls(
+    gateConfig([
+      {
+        placement: "app_access_gate",
+        rules: [[{paywall: "live"}, {paywall: "paused", percentage: 0}, {paywall: "held", type: "HOLDOUT"}]]
+      }
+    ]),
+    ["app_access_gate"]
+  );
+
+  assert.deepEqual(errors, []);
+  assert.deepEqual(paywalls.map(({response}) => response.identifier), ["live"]);
+});
+
+test("a gate placement missing from trigger_options is reported by name", async () => {
+  const staticConfig = gateConfig([
+    {placement: "app_access_gate", rules: [[{paywall: "first"}]]}
+  ]);
+  const result = await validateCompactWindowLayouts({
+    staticConfig,
+    loadRuntimeStore: storesByPaywall({first: layoutStore(docsRecipe)}),
+    enforce: true
+  });
+
+  assert.deepEqual(result.errors, [
+    "Superwall has no trigger_options entry for paywall_decline.",
+    "Superwall has no trigger_options entry for decline_offer_replay.",
+    "Superwall has no trigger_options entry for founder_letter."
+  ]);
+});
+
+test("a runtime that cannot be read is a finding that names its placement and paywall", async () => {
+  const result = await validateCompactWindowLayouts({
+    staticConfig: gateConfig([{placement: "founder_letter", rules: [[{paywall: "letter"}]]}]),
+    placements: ["founder_letter"],
+    loadRuntimeStore: storesByPaywall({}),
+    enforce: true
+  });
+
+  assert.deepEqual(result.errors, ["founder_letter paywall letter (letter): no runtime for letter"]);
+});
+
+test("the layout findings are errors only where they are enforced, and warnings elsewhere", async () => {
+  const check = (enforce) =>
+    validateCompactWindowLayouts({
+      staticConfig: everyGatePlacement,
+      loadRuntimeStore: storesByPaywall({
+        first: layoutStore(clippingRoot),
+        second: layoutStore(docsRecipe),
+        decline: layoutStore(docsRecipe),
+        letter: layoutStore({...docsRecipe, targetBehavior: closeBehavior})
+      }),
+      enforce
     });
 
-  const strict = validate(true);
+  const strict = await check(true);
   assert.equal(strict.errors.length, 1);
   assert.match(strict.errors[0], /667 pt tall/);
-  assert.equal(strict.evidence.compactWindowLayout, "clips");
+  assert.deepEqual(strict.warnings, []);
 
-  const lenient = validate(false);
+  const lenient = await check(false);
   assert.deepEqual(lenient.errors, []);
-  assert.equal(lenient.warnings.length, 1);
+  assert.deepEqual(lenient.warnings, strict.errors);
 });

@@ -9,6 +9,7 @@ import {
 import {
   activePaywallResponse,
   runtimeStoreFromHTML,
+  validateCompactWindowLayouts,
   validateSuperwallArtifact
 } from "./lib/superwall-live-artifact.mjs";
 
@@ -59,30 +60,31 @@ for (const [environment, configurationName] of selected) {
     const staticResponse = await fetchWithRetry(staticURL, "static config");
     const staticConfig = await staticResponse.json();
     const {response} = activePaywallResponse(staticConfig, placement);
-
-    // Use the complete provider URL unchanged. Its sw_cache_key selects the exact published
-    // Editor artifact and must not be reconstructed from response IDs or document IDs.
-    const runtimeResponse = await fetchWithRetry(response.url, "runtime");
-    const runtimeStore = runtimeStoreFromHTML(await runtimeResponse.text());
     const result = validateSuperwallArtifact({
       staticConfig,
-      runtimeStore,
+      runtimeStore: await loadRuntimeStore(response),
       placement,
       sellableProductIDs,
-      expectedEntitlementID: "app_access",
+      expectedEntitlementID: "app_access"
+    });
+    const layout = await validateCompactWindowLayouts({
+      staticConfig,
+      loadRuntimeStore,
       // App Review rejects what ships to production, so only production is held to the layout rule.
-      // Staging reports the same finding as a warning so one dashboard fix does not stop every merge.
-      enforceCompactWindowLayout: environment === "production"
+      // Staging reports the same findings as warnings so one dashboard fix does not stop every merge.
+      enforce: environment === "production"
     });
 
-    console.log(JSON.stringify({environment, ...result.evidence}, null, 2));
-    for (const warning of result.warnings ?? []) {
+    console.log(
+      JSON.stringify({environment, ...result.evidence, compactWindowLayouts: layout.evidence}, null, 2)
+    );
+    for (const warning of layout.warnings) {
       console.warn(`${environment}: WARNING ${warning}`);
     }
-    for (const error of result.errors) {
+    for (const error of [...result.errors, ...layout.errors]) {
       console.error(`${environment}: ${error}`);
     }
-    failed ||= result.errors.length > 0;
+    failed ||= result.errors.length > 0 || layout.errors.length > 0;
   } catch (error) {
     console.error(`${environment}: ${error.message}`);
     failed = true;
@@ -90,6 +92,13 @@ for (const [environment, configurationName] of selected) {
 }
 
 if (failed) process.exit(1);
+
+// Use the complete provider URL unchanged. Its sw_cache_key selects the exact published Editor
+// artifact and must not be reconstructed from response IDs or document IDs.
+async function loadRuntimeStore(response) {
+  const runtimeResponse = await fetchWithRetry(response.url, "runtime");
+  return runtimeStoreFromHTML(await runtimeResponse.text());
+}
 
 async function fetchWithRetry(url, label) {
   let lastStatus = null;
