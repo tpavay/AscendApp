@@ -67,7 +67,6 @@ struct NotificationPrimerEmailOptInTests {
             coordinator: coordinator,
             loadCatalog: { .empty },
             requestAuthorization: { answer },
-            declineNotifications: {},
             track: { _ in }
         )
     }
@@ -123,25 +122,25 @@ struct NotificationPrimerEmailOptInTests {
     }
 
     @Test
-    func notNowKeepsATickedBox() async {
+    func aRefusalKeepsATickedBox() async {
         let coordinator = coordinator()
 
-        await viewModel(coordinator).notNow()
+        await viewModel(coordinator, answer: .denied).turnOn()
 
-        #expect(coordinator.answers.notificationChoice == .skipped)
-        #expect(coordinator.answers.emailOptIn == true, "Not now declines push, it does not discard the box")
+        #expect(coordinator.answers.notificationChoice == .denied)
+        #expect(coordinator.answers.emailOptIn == true, "refusing push does not discard the box")
         #expect(coordinator.step == .auth)
     }
 
     @Test
-    func notNowKeepsAnUntickedBox() async {
+    func aRefusalKeepsAnUntickedBox() async {
         let coordinator = coordinator()
-        let model = viewModel(coordinator)
+        let model = viewModel(coordinator, answer: .denied)
 
         model.toggleEmailOptIn()
-        await model.notNow()
+        await model.turnOn()
 
-        #expect(coordinator.answers.notificationChoice == .skipped)
+        #expect(coordinator.answers.notificationChoice == .denied)
         #expect(coordinator.answers.emailOptIn == false)
     }
 
@@ -152,7 +151,7 @@ struct NotificationPrimerEmailOptInTests {
 
         model.toggleEmailOptIn()
         model.toggleEmailOptIn()
-        await model.notNow()
+        await model.turnOn()
 
         #expect(coordinator.answers.emailOptIn == true)
     }
@@ -192,7 +191,8 @@ struct NotificationPrimerEmailOptInScreenTests {
             let copy = try await screen.copy()
             #expect(copy.contains(NotificationPrimerContent.emailOptInLabel.lowercased()))
             #expect(copy.contains("turn on"))
-            #expect(copy.contains("not now"))
+            #expect(!copy.contains("not now"), "no way past the iOS request (Guideline 5.1.1(iv))")
+            #expect(!copy.contains("skip"))
 
             let box = try #require(await screen.frame(ofElementLabelled: NotificationPrimerContent.emailOptInLabel))
             let turnOn = try #require(await screen.frame(ofElementLabelled: "Turn on"))
@@ -203,11 +203,7 @@ struct NotificationPrimerEmailOptInScreenTests {
     }
 
     @Test
-    func untickingTheBoxThenPressingNotNowRecordsTheNo() async throws {
-        // Not now writes the device-local push preference, which the rest of the suite shares.
-        let pushPreference = ClimbDropNotificationPreferenceStore.isEnabled
-        defer { ClimbDropNotificationPreferenceStore.isEnabled = pushPreference }
-
+    func untickingTheBoxIsPhotographedAndTheStepStaysUntilTurnOn() async throws {
         let coordinator = coordinator()
         let size = RenderedScreen.iPhone16ProSize
 
@@ -219,14 +215,10 @@ struct NotificationPrimerEmailOptInScreenTests {
             try activateAccessibilityElement(labelled: NotificationPrimerContent.emailOptInLabel, in: screen.root)
             try await screen.settle(.turns(4))
             try screen.photograph(named: "onboarding-v3-primer-email-box-unticked")
-
-            try activateAccessibilityElement(labelled: "Not now", in: screen.root)
-            try await screen.settle(.turns(12))
         }
 
-        #expect(coordinator.answers.emailOptIn == false)
-        #expect(coordinator.answers.notificationChoice == .skipped)
-        #expect(coordinator.step == .auth)
+        #expect(coordinator.step == .notificationPrimer, "only Turn on leaves the step, and it asks iOS first")
+        #expect(coordinator.answers.emailOptIn == nil, "nothing is recorded until the climber leaves")
     }
 }
 

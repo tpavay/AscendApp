@@ -4,7 +4,9 @@ import SwiftUI
 ///
 /// The examples are the real sends, so the ask is specific: a nudge short of the weekly target
 /// (only for a climber who set one), new gear, and a new climb. TURN ON goes
-/// through ``ClimbDropNotificationState``; Not now declines without asking iOS.
+/// through ``ClimbDropNotificationState`` and is the only forward action: there is no Not now,
+/// because a custom message ahead of a permission request must always be followed by the request
+/// (Guideline 5.1.1(iv)). The climber's no is iOS's Don't Allow, and onboarding moves on either way.
 struct OnboardingNotificationPrimerScreen: View {
     let coordinator: OnboardingV3Coordinator
 
@@ -97,11 +99,6 @@ struct OnboardingNotificationPrimerScreen: View {
                 Task { await viewModel.turnOn() }
             }
             .buttonStyle(.onboardingPrimary)
-
-            Button("Not now") {
-                Task { await viewModel.notNow() }
-            }
-            .buttonStyle(.onboardingQuietLink)
         }
         .disabled(viewModel.isRequesting)
         .padding(.horizontal, 24)

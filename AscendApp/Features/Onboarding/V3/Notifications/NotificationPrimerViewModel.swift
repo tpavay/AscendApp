@@ -2,9 +2,9 @@ import Foundation
 import Observation
 import UserNotifications
 
-/// What the primer's two buttons do: ask iOS through the one shared notification state and remember
-/// the answer. Writing that answer is what sets up the reminders: ``LocalReminderCoordinator``
-/// follows it.
+/// What the primer's one button does: ask iOS through the one shared notification state, remember
+/// the answer, and move on whatever it was (Guideline 5.1.1(iv) forbids a way past the request).
+/// Writing that answer is what sets up the reminders: ``LocalReminderCoordinator`` follows it.
 ///
 /// The prompt always goes through ``ClimbDropNotificationState``, never a second request path, so
 /// every surface that offers notifications reads one answer. Nothing here is sent anywhere: the
@@ -25,7 +25,6 @@ final class NotificationPrimerViewModel {
 
     @ObservationIgnored private let coordinator: OnboardingV3Coordinator
     @ObservationIgnored private let requestAuthorization: @MainActor () async -> UNAuthorizationStatus
-    @ObservationIgnored private let declineNotifications: @MainActor () async -> Void
     @ObservationIgnored private let track: @MainActor (_ choice: PreAuthOnboardingNotificationChoice) -> Void
 
     init(
@@ -34,9 +33,6 @@ final class NotificationPrimerViewModel {
         now: Date = .now,
         requestAuthorization: @escaping @MainActor () async -> UNAuthorizationStatus = {
             await ClimbDropNotificationState.shared.requestDuringOnboarding()
-        },
-        declineNotifications: @escaping @MainActor () async -> Void = {
-            await ClimbDropNotificationState.shared.disable()
         },
         telemetry: TelemetryManager = .shared,
         track: (@MainActor (_ choice: PreAuthOnboardingNotificationChoice) -> Void)? = nil
@@ -50,7 +46,6 @@ final class NotificationPrimerViewModel {
             now: now
         )
         self.requestAuthorization = requestAuthorization
-        self.declineNotifications = declineNotifications
         // Telemetry reports under the flow's own analytics context unless a test replaces it.
         self.track = track ?? { [weak coordinator] choice in
             NotificationPrimerViewModel.report(
@@ -79,20 +74,8 @@ final class NotificationPrimerViewModel {
         coordinator.advance()
     }
 
-    /// Not now: declines without asking iOS, so a later ask from Settings still gets the system
-    /// prompt, and moves on.
-    func notNow() async {
-        guard !isRequesting else { return }
-        isRequesting = true
-        defer { isRequesting = false }
-
-        await declineNotifications()
-        record(.skipped)
-        coordinator.advance(as: .skip)
-    }
-
-    /// Email is a separate answer from push: it is saved whichever button leaves the step, so Not now
-    /// declines notifications and never discards a ticked box, and unticking never stops the prompt.
+    /// Email is a separate answer from push: it is saved whichever way iOS was answered, so a
+    /// refusal never discards a ticked box, and unticking never stops the prompt.
     private func record(_ choice: PreAuthOnboardingNotificationChoice) {
         let emailOptIn = emailOptIn
         coordinator.update {

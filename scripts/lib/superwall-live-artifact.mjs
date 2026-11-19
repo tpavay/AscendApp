@@ -59,7 +59,8 @@ export function validateSuperwallArtifact({
   runtimeStore,
   placement,
   sellableProductIDs,
-  expectedEntitlementID
+  expectedEntitlementID,
+  enforceCompactWindowLayout = false
 }) {
   const errors = [];
   let selected;
@@ -160,8 +161,14 @@ export function validateSuperwallArtifact({
     }
   }
 
+  const layout = compactWindowLayout(runtimeStore, purchases);
+  if (layout.verdict === "clips" && enforceCompactWindowLayout) {
+    errors.push(layout.message);
+  }
+
   return {
     errors,
+    warnings: layout.verdict === "clips" && !enforceCompactWindowLayout ? [layout.message] : [],
     evidence: {
       buildID: staticConfig.build_id ?? null,
       placement,
@@ -172,9 +179,92 @@ export function validateSuperwallArtifact({
       productIDs: actualProductIDs,
       purchaseActionCount: purchases.length,
       stateReferenceCount: actions.filter(({action}) => action.type === "set-state").length,
+      compactWindowLayout: layout.verdict,
       geometryValidation: "requires-rendered-device-canary"
     }
   };
+}
+
+const VIEWPORT_HEIGHT_UNITS = new Set(["dvh", "vh", "svh", "lvh", "%"]);
+const CLIPPING_OVERFLOW = new Set(["hidden", "clip"]);
+
+/**
+ * Whether the published paywall can cut off its own purchase button on a short window.
+ *
+ * Ascend is an iPhone app, so on an iPad it runs in the iPhone compatibility window, which is 375 by
+ * 667 points, the same window an iPhone SE has. A paywall whose root is a fixed viewport height with
+ * overflow hidden and nothing between it and the purchase button that scrolls has no way to show
+ * more than that window holds: App Review found the Lifetime card, the purchase button, Restore,
+ * Terms and Privacy cut off on an iPad Air 11-inch (M3) on 2026-11-19 (Guideline 4). The paywall
+ * needed 834 points; its `Main` node was `100dvh`, `overflowY: hidden`, `scroll: none`.
+ *
+ * This reads the layout, not the rendering, so it can only say the structure clips or scrolls.
+ * `unknown` means the capture has no node tree to read (a frozen fixture) and is never an error.
+ */
+export function compactWindowLayout(runtimeStore, purchases) {
+  const nodes = Object.entries(runtimeStore ?? {}).filter(
+    ([key, value]) => key.startsWith("node:") && value && typeof value === "object"
+  );
+  const roots = nodes.filter(([, node]) => node.parentId === "page:page");
+  if (roots.length === 0) return {verdict: "unknown", message: null};
+
+  const byID = new Map(nodes);
+  const purchaseNodeIDs = purchases
+    .map(({path}) => /^\$\.(node:[^.]+)/.exec(path)?.[1])
+    .filter((id) => id && byID.has(id));
+  if (purchaseNodeIDs.length === 0) return {verdict: "unknown", message: null};
+
+  const chain = new Set();
+  for (const id of purchaseNodeIDs) {
+    for (let current = id; current && byID.has(current); current = byID.get(current).parentId) {
+      chain.add(current);
+    }
+  }
+
+  const scrolls = [...chain].some((id) => nodeScrolls(byID.get(id)));
+  if (scrolls) return {verdict: "scrolls", message: null};
+
+  const clippingRoot = roots.find(([, node]) => chain.has(node.id) && rootClips(node));
+  if (!clippingRoot) return {verdict: "fits", message: null};
+
+  const [, root] = clippingRoot;
+  return {
+    verdict: "clips",
+    message:
+      `Paywall root "${root.name}" is a fixed viewport height with overflow hidden and nothing between ` +
+      `it and the purchase button scrolls, so a window shorter than the content (an iPhone SE or an ` +
+      `iPhone app on an iPad is 667 pt tall) cuts off the plans, the purchase button and the legal ` +
+      `links with no way to reach them. In the Superwall editor set "${root.name}" to scroll ` +
+      `vertically with Overflow Y auto, and give its first child a minimum height of 100% instead of ` +
+      `a height (docs/superwall-paywall-setup.md, "Short windows").`
+  };
+}
+
+function nodeProperty(node, name) {
+  const candidate = node?.properties?.[name] ?? node?.defaultProperties?.[name];
+  return candidate?.type === "literal" ? candidate.value : undefined;
+}
+
+function overflowY(node) {
+  return nodeProperty(node, "css:overflowY")?.value;
+}
+
+function nodeScrolls(node) {
+  const stack = nodeProperty(node, "prop:stack");
+  const own = overflowY(node);
+  // `scroll: normal` only scrolls while the node's own Overflow Y is not hidden or clip, because the
+  // node's inline overflow wins over the class the scroll setting adds.
+  if (stack?.scroll === "normal" && stack?.axis === "y" && !CLIPPING_OVERFLOW.has(own)) return true;
+  return own === "auto" || own === "scroll";
+}
+
+function rootClips(node) {
+  const height = nodeProperty(node, "css:height");
+  const fixedToViewport =
+    height?.type === "css-length" &&
+    VIEWPORT_HEIGHT_UNITS.has(height.unit) &&
+    Number(height.value) >= 100;
+  return fixedToViewport && CLIPPING_OVERFLOW.has(overflowY(node));
 }
 
 export function collectActions(value) {

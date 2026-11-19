@@ -126,6 +126,41 @@ Restore, Manage Subscription, Sign out and `DELETE ACCOUNT` therefore exist at t
 The cost of this is stated rather than hidden: while Superwall cannot present anything at all, a locked-out climber has a spinner and no control.
 The account-deletion route Guideline 5.1.1(v) requires at the gate therefore depends on the hosted paywall being presentable, and the public support page keeps the email route for exactly that case.
 
+## Short windows: iPad and iPhone SE (Guideline 4, 2026-11-19)
+
+Apple reviewed 1.3.0 (build 2026111701) on an iPad Air 11-inch (M3) and rejected it under Guideline 4: "subscription page is not fully visible."
+Ascend is an iPhone app (`TARGETED_DEVICE_FAMILY = 1`), so on an iPad it runs in the iPhone compatibility window, which is **375 by 667 points**: the same window an iPhone SE has, and a good deal shorter than the 874 to 956 points of the phones the paywall was drawn on.
+Reproduced on an iPad Air 11-inch (M3) simulator, iOS 26.2, against the staging paywall: the hero, the headline, the four benefits and the Yearly card show, the Lifetime card is cut in half by the bottom edge, and the purchase button, "Cancel anytime", Restore, Terms and Privacy are not on screen and cannot be scrolled to.
+
+### What is code and what is the dashboard
+
+The page is entirely the hosted Superwall paywall (`app_access_gate`, production paywall `232372`, staging `249435`); the app draws a spinner behind it and nothing else, and there is no native paywall to fall back to.
+So the layout is dashboard configuration, and no Swift change can make the page fit: the app has no say in how a hosted page lays itself out.
+
+- **Dashboard (the defect).** The paywall's `Main` node is `Height 100dvh`, `Overflow Y hidden`, stack `Scroll none`, and its only child `Overlay` is `Height 100%` with `Justify space-between`, padding 56 top and 28 bottom.
+  The content needs 834 points of height (measured in headless Chrome against the live artifact at 375 points wide; it is the same in staging and production), so any window shorter than that cuts off the bottom of the page, and nothing scrolls.
+  Phones 844 points tall and over (iPhone 14 and later) fit it; the 812-point phones (iPhone 11 Pro, 12 mini, 13 mini), the iPhone SE (2nd and 3rd generation, still supported by iOS 26) and every iPad in compatibility mode do not.
+- **Code (what the repo holds).** `scripts/validate-superwall-live-artifact.mjs` now reads the live artifact's layout (`compactWindowLayout` in `scripts/lib/superwall-live-artifact.mjs`) and fails the **production** archive while the root clips, and prints the same finding as a warning for staging so one dashboard fix does not stop every merge.
+  The check is structural: it cannot see pixels, so it proves the page can scroll, and a rendered check on a 375 by 667 window stays the acceptance test.
+  `scripts/test/superwall-live-artifact.test.mjs` pins the rule against the live defect and against each way of fixing it.
+
+### The dashboard change
+
+Make the same edits on the production paywall (`232372`) and the staging paywall (`249435`), in the Superwall editor, then publish:
+
+1. Select the root node `Main`.
+   Set **Overflow Y** to `Auto` (it is `Hidden`, which overrides the scroll setting and is why switching Scroll alone does nothing).
+   Set the stack's **Scroll** to `Normal`.
+   Leave `Height 100dvh` alone.
+2. Select its child `Overlay`.
+   Replace **Height `100%`** with **Min height `100%`** (Height `Auto`), so it grows with the content instead of stopping at the window's edge.
+   Keep padding 56 top and 28 bottom: the 28 is what keeps Restore, Terms and Privacy off the home indicator once the page scrolls.
+3. Preview at **iPhone SE (375 by 667)** and at an iPad window: scroll to the bottom and confirm the Lifetime card, the purchase button, "Cancel anytime", Restore, Terms and Privacy are all reachable, and that on a tall phone (440 by 956) the page looks exactly as it did.
+4. Re-run `node scripts/validate-superwall-live-artifact.mjs production`; it passes once `Main` scrolls.
+
+A shorter page also works (a smaller hero, one line less of benefits), but only scrolling is robust to Dynamic Type and to every future window size, and it is the change the validator accepts.
+The structural fact it enforces is the one that failed review: a node between the root and the purchase button must scroll vertically, or the root must not clip.
+
 ## Onboarding paywall and decline offer (1.3.0)
 
 The 1.3.0 onboarding signs the climber in first and sells second: screens 1-12, then sign-in (13), then the app.

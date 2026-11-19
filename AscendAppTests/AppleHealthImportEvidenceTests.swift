@@ -223,14 +223,14 @@ struct AppleHealthImportEvidenceTests {
     @Test("The connect screens read as the mocks do")
     func theConnectFlowScreens() async throws {
         try await RenderedScreen.host(
-            AppleHealthConnectView(onConnect: {}, onClose: {})
+            AppleHealthConnectView(onConnect: {})
         ) { screen in
             let copy = try await screen.copy { $0.contains("connect apple health") }
             #expect(copy.contains("your workouts,"), "\(copy)")
             #expect(copy.contains("counted for you."))
             #expect(copy.contains("any device or app that saves there"))
-            #expect(copy.contains("not now"))
-            #expect(copy.contains("close"))
+            #expect(!copy.contains("not now"), "Guideline 5.1.1(iv): no way past the request: \(copy)")
+            #expect(!copy.contains("close"), "\(copy)")
             #expect(copy.contains("tap turn on all, then allow."), "the copy matches the iOS sheet: \(copy)")
             #expect(!copy.contains("top right"), "iOS puts Allow at the bottom: \(copy)")
             #expect(!copy.contains("watch"), "no wearable is named: \(copy)")
@@ -262,7 +262,10 @@ struct AppleHealthImportEvidenceTests {
         var safeAreaTop: CGFloat = 0
         var primaryFrames: [CGRect] = []
 
-        try await RenderedScreen.host(AppleHealthConnectView(onConnect: {}, onClose: {})) { screen in
+        // A failed request is the one state that draws the X (Guideline 5.1.1(iv)).
+        try await RenderedScreen.host(
+            AppleHealthConnectView(errorMessage: "Apple Health did not connect. Try again.", onConnect: {}, onClose: {})
+        ) { screen in
             safeAreaTop = screen.window.safeAreaInsets.top
             closeFrame = try await screen.frame(ofElementLabelled: "Close")
             let texts = try await screen.texts()

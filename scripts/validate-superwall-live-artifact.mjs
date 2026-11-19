@@ -69,10 +69,16 @@ for (const [environment, configurationName] of selected) {
       runtimeStore,
       placement,
       sellableProductIDs,
-      expectedEntitlementID: "app_access"
+      expectedEntitlementID: "app_access",
+      // App Review rejects what ships to production, so only production is held to the layout rule.
+      // Staging reports the same finding as a warning so one dashboard fix does not stop every merge.
+      enforceCompactWindowLayout: environment === "production"
     });
 
     console.log(JSON.stringify({environment, ...result.evidence}, null, 2));
+    for (const warning of result.warnings ?? []) {
+      console.warn(`${environment}: WARNING ${warning}`);
+    }
     for (const error of result.errors) {
       console.error(`${environment}: ${error}`);
     }

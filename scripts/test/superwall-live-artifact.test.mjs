@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {
   activePaywallResponse,
+  collectActions,
+  compactWindowLayout,
   runtimeStoreFromHTML,
   validateSuperwallArtifact
 } from "../lib/superwall-live-artifact.mjs";
@@ -171,4 +173,126 @@ test("runtime parser reads the exact Editor store and rejects missing context", 
     () => runtimeStoreFromHTML("<html></html>"),
     /no vike_pageContext JSON script/
   );
+});
+
+// A paywall's layout, reduced to the properties the compact-window rule reads. The shapes are the
+// ones the live artifact serialises: literal property wrappers, `css-length` and `css-string` values.
+function layoutStore({rootHeight, rootOverflowY, rootScroll = "none", childHeight = {value: "100", unit: "%"}}) {
+  const literal = (value) => ({type: "literal", value});
+  const length = ({value, unit}) => literal({type: "css-length", value, unit});
+  return {
+    "node:main": {
+      id: "node:main",
+      name: "Main",
+      parentId: "page:page",
+      type: "stack",
+      defaultProperties: {
+        "prop:stack": literal({type: "property-stack", axis: "y", scroll: rootScroll}),
+        "css:height": length(rootHeight),
+        "css:overflowY": literal({type: "css-string", value: rootOverflowY})
+      },
+      properties: {}
+    },
+    "node:overlay": {
+      id: "node:overlay",
+      name: "Overlay",
+      parentId: "node:main",
+      type: "stack",
+      defaultProperties: {"css:height": length(childHeight)},
+      properties: {}
+    },
+    "node:purchase": {
+      id: "node:purchase",
+      name: "CTA - purchase selected product",
+      parentId: "node:overlay",
+      type: "stack",
+      defaultProperties: {},
+      properties: {
+        "prop:click-behavior": literal({
+          type: "click-behavior",
+          clickActions: [{action: {type: "purchase", reference: {type: "by-selected"}, onPurchase: [{action: {type: "close"}}]}}]
+        })
+      }
+    }
+  };
+}
+
+function layoutVerdict(store) {
+  const purchases = collectActions(store).filter(({action}) => action.type === "purchase");
+  return compactWindowLayout(store, purchases);
+}
+
+// App Review, 2026-11-19, iPad Air 11-inch (M3): the iPhone app gets a 375 by 667 pt window there,
+// and the paywall's content needs 834 pt. The root was 100dvh, overflow hidden, scroll none.
+test("a paywall fixed to the viewport with overflow hidden and no scroll clips the purchase button", () => {
+  const verdict = layoutVerdict(
+    layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "hidden"})
+  );
+
+  assert.equal(verdict.verdict, "clips");
+  assert.match(verdict.message, /Paywall root "Main"/);
+});
+
+test("scroll normal does not help while the node's own Overflow Y is still hidden", () => {
+  const verdict = layoutVerdict(
+    layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "hidden", rootScroll: "normal"})
+  );
+
+  assert.equal(verdict.verdict, "clips");
+});
+
+test("a root that scrolls vertically reaches the purchase button on any window", () => {
+  const verdict = layoutVerdict(
+    layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "auto", rootScroll: "normal"})
+  );
+
+  assert.equal(verdict.verdict, "scrolls");
+  assert.equal(verdict.message, null);
+});
+
+test("a root that grows with its content never clips", () => {
+  const verdict = layoutVerdict(
+    layoutStore({rootHeight: {value: "auto", unit: "none"}, rootOverflowY: "hidden"})
+  );
+
+  assert.equal(verdict.verdict, "fits");
+});
+
+test("a capture with no node tree is unknown, never an error", async () => {
+  const capture = await fixture(productionFixture);
+  const purchases = collectActions(capture.runtimeStore).filter(({action}) => action.type === "purchase");
+
+  assert.equal(compactWindowLayout(capture.runtimeStore, purchases).verdict, "unknown");
+});
+
+test("the layout finding is an error only where it is enforced, and a warning elsewhere", async () => {
+  const capture = structuredClone(await fixture(productionFixture));
+  const response = activePaywallResponse(capture.staticConfig, "app_access_gate").response;
+  for (const product of response.products_v2) product.entitlements = [{identifier: "app_access"}];
+  capture.runtimeStore["state:purchaseAbandoned"] = {};
+  capture.runtimeStore["node:purchase"].properties["prop:click-behavior"].value.clickActions[0].action
+    .onAbandon[0].action.stateId = "state:purchaseAbandoned";
+  Object.assign(
+    capture.runtimeStore,
+    layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "hidden"}),
+    {"node:purchase": {...layoutStore({rootHeight: {value: "100", unit: "dvh"}, rootOverflowY: "hidden"})["node:purchase"]}}
+  );
+  const validate = (enforce) =>
+    validateSuperwallArtifact({
+      staticConfig: capture.staticConfig,
+      runtimeStore: capture.runtimeStore,
+      placement: "app_access_gate",
+      sellableProductIDs: ["ascend_yearly", "ascend_monthly"],
+      expectedEntitlementID: "app_access",
+      enforceCompactWindowLayout: enforce
+    });
+
+  const strict = validate(true);
+  assert.equal(strict.errors.length, 1);
+  assert.match(strict.errors[0], /667 pt tall/);
+  assert.equal(strict.evidence.compactWindowLayout, "clips");
+
+  const lenient = validate(false);
+  assert.deepEqual(lenient.errors, []);
+  assert.equal(lenient.warnings.length, 1);
 });
