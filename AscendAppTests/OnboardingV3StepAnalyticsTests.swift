@@ -71,11 +71,9 @@ struct OnboardingV3StepAnalyticsTests {
     }
 
     @Test
-    func healthSkipAndHealthWithNothingFoundAreTwoDifferentExits() throws {
-        let skip = rig(at: .healthConnect)
-        OnboardingHealthConnectScreen.declineHealth(skip.coordinator)
-        #expect(skip.records("onboarding_screen_completed").first?.parameters["action_id"] == .string("skip"))
-        #expect(skip.records("onboarding_screen_completed").first?.parameters["next_step_id"] == .string("usual_climb"))
+    func healthConnectHasNoSkipAndHealthWithNothingFoundIsItsOwnExit() throws {
+        // Guideline 5.1.1(iv): 06 leaves only by connecting, so no `skip` action can come from it.
+        #expect(!OnboardingV3Step.healthConnect.alternateExits.contains { $0.analyticsAction == .skip })
 
         let connect = rig(at: .healthConnect)
         connect.coordinator.advance()
@@ -307,7 +305,7 @@ struct OnboardingV3StepAnalyticsTests {
         func record(screen: EnvelopedTelemetryScreen) {}
     }
 
-    private func primer(emailTicked: Bool, status: UNAuthorizationStatus, turnOn: Bool) async throws -> PropertyRecordingSink {
+    private func primer(emailTicked: Bool, status: UNAuthorizationStatus) async throws -> PropertyRecordingSink {
         let suite = "onboarding-v3-primer-analytics-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
@@ -328,18 +326,17 @@ struct OnboardingV3StepAnalyticsTests {
         let model = NotificationPrimerViewModel(
             coordinator: coordinator,
             requestAuthorization: { status },
-            declineNotifications: {},
             telemetry: telemetry
         )
         if model.emailOptIn != emailTicked { model.toggleEmailOptIn() }
 
-        if turnOn { await model.turnOn() } else { await model.notNow() }
+        await model.turnOn()
         return sink
     }
 
     @Test(arguments: [true, false])
     func theEmailBoxIsRecordedBesideThePushAnswerWhicheverButtonLeaves(ticked: Bool) async throws {
-        let sink = try await primer(emailTicked: ticked, status: .authorized, turnOn: true)
+        let sink = try await primer(emailTicked: ticked, status: .authorized)
 
         let answer = try #require(sink.records.first {
             $0.name == "onboarding_question_answered" && $0.parameters["question_id"] == .string("notifications")
@@ -351,17 +348,18 @@ struct OnboardingV3StepAnalyticsTests {
         #expect(sink.properties["notifications_choice"] == "allow")
     }
 
+    /// The primer has no Not now (Guideline 5.1.1(iv)), so a refusal in the iOS prompt is how a climber
+    /// says no, and it still records the box and the answer and moves on.
     @Test
-    func notNowStillRecordsATickedEmailBox() async throws {
-        let sink = try await primer(emailTicked: true, status: .authorized, turnOn: false)
+    func anIOSRefusalStillRecordsATickedEmailBoxAndAnswersDecline() async throws {
+        let sink = try await primer(emailTicked: true, status: .denied)
 
         let answer = try #require(sink.records.first { $0.name == "onboarding_question_answered" })
-        #expect(answer.parameters["answer_id"] == .string("skip"))
+        #expect(answer.parameters["answer_id"] == .string("decline"))
         #expect(answer.parameters["email_opt_in"] == .bool(true))
         #expect(sink.properties["email_opt_in"] == "true")
-        // The primer's leaving move reports the completion with the skip as its action.
         #expect(sink.records.contains {
-            $0.name == "onboarding_screen_completed" && $0.parameters["action_id"] == .string("skip")
+            $0.name == "onboarding_screen_completed" && $0.parameters["action_id"] == .string("continue")
         })
     }
 

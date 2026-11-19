@@ -5,29 +5,30 @@ import SwiftUI
 ///
 /// - ``Chrome/closeButton``, opened from the Climb sheet or the Integrations card. The primary
 ///   button goes straight to the iOS Health sheet, so connecting is this tap and the sheet's own
-///   two. The close X and "Not now" both close it.
+///   two.
 /// - ``Chrome/onboarding``, screen 06 of the first-run flow. The progress header replaces the X,
-///   the quiet link says "Skip" with a line under it that connecting waits in Settings, the art
-///   sits centred in the room above the words, and the one-line hint about the iOS sheet is left
-///   out, because the next screen (06b) shows the sheet itself.
+///   a line under the button says connecting also waits in Settings, the art sits centred in the
+///   room above the words, and the one-line hint about the iOS sheet is left out, because the next
+///   screen (06b) shows the sheet itself.
+///
+/// Neither place lets the climber close this message before the iOS request: Guideline 5.1.1(iv)
+/// says a custom message ahead of a permission request must always be followed by the request, so
+/// there is no Skip, Not now or X while it waits. The climber's way to say no is the iOS sheet's own
+/// Don't Allow. A close appears only once a request has been made and failed
+/// (``errorMessage``), because by then the request has happened and a retry is the only thing the
+/// screen would otherwise offer. `AscendAppTests/PrePermissionMessagesHaveNoWayOutTests.swift`
+/// holds that.
 struct AppleHealthConnectView: View {
     enum Chrome: Equatable {
         case closeButton
         case onboarding
 
-        /// The line under the quiet link: the way back to connecting later, said only where the climber
-        /// has just chosen to skip it.
+        /// The line under the button: where connecting waits if the iOS sheet is answered no. Said
+        /// only in onboarding, where the climber has not yet chosen to open this screen themselves.
         var footnote: String? {
             switch self {
             case .closeButton: nil
             case .onboarding: "You can always connect this in Settings."
-            }
-        }
-
-        var secondaryTitle: String {
-            switch self {
-            case .closeButton: "Not now"
-            case .onboarding: "Skip"
             }
         }
     }
@@ -37,8 +38,13 @@ struct AppleHealthConnectView: View {
     var isWorking = false
     var errorMessage: String?
     let onConnect: () -> Void
-    /// The close X and "Not now" for ``Chrome/closeButton``; "Skip" for ``Chrome/onboarding``.
-    let onClose: () -> Void
+    /// The close X and "Not now" that ``Chrome/closeButton`` offers once a request has failed. Never
+    /// called before the iOS request has been made.
+    var onClose: () -> Void = {}
+
+    /// Whether the way out is drawn. Only a failed request earns it, and only after the climber
+    /// opened this screen themselves.
+    private var offersExit: Bool { chrome == .closeButton && errorMessage != nil }
 
     var body: some View {
         // Two literal call sites, one for each place the screen opens: the catalogue contract finds
@@ -155,7 +161,7 @@ struct AppleHealthConnectView: View {
                     primaryTitle: "CONNECT APPLE HEALTH",
                     primaryHeight: layout.primaryButtonHeight,
                     footnote: chrome.footnote,
-                    secondaryTitle: chrome.secondaryTitle,
+                    secondaryTitle: offersExit ? "Not now" : nil,
                     isDisabled: isWorking,
                     onPrimary: onConnect,
                     onSecondary: onClose
@@ -171,7 +177,7 @@ struct AppleHealthConnectView: View {
                     .padding(.top, 9)
             }
         }
-        .healthFlowCloseControl(action: onClose, isShown: chrome == .closeButton)
+        .healthFlowCloseControl(action: onClose, isShown: offersExit)
         .preferredColorScheme(.dark)
     }
 

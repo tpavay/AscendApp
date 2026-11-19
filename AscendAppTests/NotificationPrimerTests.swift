@@ -3,7 +3,7 @@ import Testing
 import UserNotifications
 @testable import AscendApp
 
-/// Screen 12's copy and what its two buttons do.
+/// Screen 12's copy and what its one button does.
 @MainActor
 struct NotificationPrimerTests {
     private let calendar: Calendar = {
@@ -148,7 +148,6 @@ struct NotificationPrimerTests {
 
     private struct Calls {
         var asked = 0
-        var declined = 0
         var tracked: [PreAuthOnboardingNotificationChoice] = []
     }
 
@@ -166,7 +165,6 @@ struct NotificationPrimerTests {
             coordinator: coordinator,
             loadCatalog: { catalog },
             requestAuthorization: { recorder.calls.asked += 1; return answer },
-            declineNotifications: { recorder.calls.declined += 1 },
             track: { recorder.calls.tracked.append($0) }
         )
     }
@@ -197,18 +195,18 @@ struct NotificationPrimerTests {
         #expect(coordinator.step == .auth)
     }
 
-    @Test
-    func notNowNeverAsksIOSAndMovesOn() async throws {
+    /// The primer has no Not now (Guideline 5.1.1(iv)): the one button always asks iOS, and the
+    /// climber's no is iOS's Don't Allow. Every answer iOS can give still moves onboarding on.
+    @Test(arguments: [UNAuthorizationStatus.authorized, .denied, .notDetermined, .provisional, .ephemeral])
+    func everyAnswerIOSCanGiveMovesOnAfterExactlyOneRequest(answer: UNAuthorizationStatus) async throws {
         let coordinator = coordinator()
         let recorder = Recorder()
-        let model = try viewModel(coordinator, recorder: recorder, answer: .authorized)
+        let model = try viewModel(coordinator, recorder: recorder, answer: answer)
 
-        await model.notNow()
+        await model.turnOn()
 
-        #expect(recorder.calls.asked == 0)
-        #expect(recorder.calls.declined == 1)
-        #expect(recorder.calls.tracked == [.skipped])
-        #expect(coordinator.answers.notificationChoice == .skipped)
+        #expect(recorder.calls.asked == 1)
         #expect(coordinator.step == .auth)
+        #expect(coordinator.answers.notificationChoice != .skipped, "nothing records a skip any more")
     }
 }

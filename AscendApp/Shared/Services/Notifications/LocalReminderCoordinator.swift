@@ -8,7 +8,7 @@ import UIKit
 /// This is the one caller of the weekly reconcile. It reads the climber's target and this week's
 /// climbs and hands them to ``LocalReminderScheduler`` on launch, on every foreground, on every
 /// change to the workout store and on every write of the notification answer - the primer's TURN ON
-/// and Not now and the Settings toggle all land there - so a climber who is back on pace stops being
+/// and the Settings toggle both land there - so a climber who is back on pace stops being
 /// told they are behind, a new week starts from nothing, and an answer takes effect when it is given.
 ///
 /// The read is bounded by the week, never by the climber's history: one fetch of the workouts

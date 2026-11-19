@@ -300,6 +300,14 @@ The one screen that asks for a city, `OnboardingClaimCityScreen`, is optional.
 Apple Maps is a network call, and a reviewer's network, a restricted one or any `MKError` ends a search the climber did nothing wrong in, so the screen carries a Skip in its header in every state, and a failed search says so beside it.
 `OnboardingCityStepCannotTrapTests` fails a search on purpose, through `PostAuthCitySuggestionSource`, and holds that the Skip is still there and moves the climber on without a city.
 
+### Permission messages - always followed by the request
+
+Guideline 5.1.1(iv): a custom message that appears before a system permission request must always be followed by the request.
+Apple rejected 1.3.0 (build 2026111701) on 2026-11-19 because screen 06, the Health connect message, carried a Skip.
+Screens 06, 06b (the picture of the Health sheet) and 12 (the notification primer) therefore have one forward action each and no Skip, Not now or X; the header's Back is the only other control and it leaves the flow's earlier screens.
+The climber's no is the iOS sheet's own Don't Allow, and the flow moves on whatever the answer was, or when the request could not be made, so declining never blocks onboarding.
+`PrePermissionMessagesHaveNoWayOutTests` holds it, and any new screen that explains a permission before iOS asks joins that suite.
+
 ### Name - Resolved, Never Asked
 
 There is no name screen, and one may not be added back.

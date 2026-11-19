@@ -4,6 +4,12 @@ import Observation
 /// 06b's one action. "GOT IT" asks for Health access through the Connect flow's own view model, then
 /// reads what Health holds and says where onboarding goes next.
 ///
+/// Whatever the request comes to, onboarding moves on. 06 and 06b have no Skip (Guideline 5.1.1(iv)),
+/// so a refusal or a failed request cannot be left standing as a screen with nothing else to press:
+/// the climber's no is the iOS sheet's Don't Allow, and a request that could not be made at all
+/// (Health unavailable, an error) is the same answer with a different id. Either way the climber
+/// goes on to the usual-climb question, and connecting waits in Settings.
+///
 /// Nothing is written. There is no account yet, so the climber's answer to the iOS sheet is the
 /// only thing that changes, and what the read finds is carried to the next screen by that screen
 /// reading it again.
@@ -24,16 +30,16 @@ final class OnboardingHealthPermissionViewModel {
 
     var isWorking: Bool { connect.isWorking || isReading }
 
-    /// The iOS sheet's refusal, or nil. The climber taps again to retry.
-    var errorMessage: String? { connect.errorMessage }
-
     /// Asks for access, reads Health, and moves the flow on: to "We found your climbs" when there are
-    /// workouts, to the usual-climb question when there are none. A refusal from the iOS request moves
-    /// nothing and leaves ``errorMessage`` for the climber to retry from.
+    /// workouts, to the usual-climb question when there are none or when the request itself failed.
     func gotIt(coordinator: OnboardingV3Coordinator) async {
         guard !isWorking else { return }
         guard await connect.requestAccessOnly() else {
+            // The request could not be made, which is not a screen the climber can stay on: the only
+            // way off it would be Back, and nothing on 06 leads anywhere but here.
             report("request_failed", coordinator: coordinator)
+            guard coordinator.step == .healthPermission else { return }
+            leaveHealthBehind(coordinator)
             return
         }
 
@@ -55,6 +61,13 @@ final class OnboardingHealthPermissionViewModel {
             coordinator.update { $0.clearFoundHealthHistory() }
             coordinator.go(to: .usualClimb)
         }
+    }
+
+    /// On to the usual-climb question with nothing carried from Health, reporting a plain continue:
+    /// the climber did not decline a workout search, the request never completed.
+    private func leaveHealthBehind(_ coordinator: OnboardingV3Coordinator) {
+        coordinator.update { $0.clearFoundHealthHistory() }
+        coordinator.go(to: .usualClimb, as: .continue)
     }
 
     /// What the sheet and the read came to. HealthKit never says whether a read type was allowed, so

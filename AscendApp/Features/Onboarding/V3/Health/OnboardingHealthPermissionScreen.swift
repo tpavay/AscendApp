@@ -6,6 +6,9 @@ import SwiftUI
 /// After the sheet it reads what Health holds and routes: workouts found go to 07a, none go to
 /// 07b. The read and the request live in ``OnboardingHealthPermissionViewModel``; nothing is
 /// written before sign-in.
+///
+/// "GOT IT" is the only forward action and there is no Skip: the screen before it (06) and this one
+/// are the message, and the request always follows (Guideline 5.1.1(iv)).
 struct OnboardingHealthPermissionScreen: View {
     let coordinator: OnboardingV3Coordinator
 
@@ -35,13 +38,6 @@ struct OnboardingHealthPermissionScreen: View {
                             VStack(alignment: .leading, spacing: 10) {
                                 TapStepRow(number: 1, lead: "Tap ", highlight: "Turn On All", trail: "")
                                 TapStepRow(number: 2, lead: "Tap ", highlight: "Allow", trail: " at the bottom")
-                            }
-
-                            if let message = viewModel.errorMessage {
-                                Text(message)
-                                    .font(.montserratMedium(size: 14))
-                                    .foregroundStyle(Color.ascendCaution)
-                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         .padding(.horizontal, 28)
