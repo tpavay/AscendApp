@@ -143,6 +143,7 @@ So the layout is dashboard configuration, and no Swift change can make a page fi
   Phones 844 points tall and over (iPhone 14 and later) fit it; the 812-point phones (iPhone 11 Pro, 12 mini, 13 mini), the iPhone SE (2nd and 3rd generation, still supported by iOS 26) and every iPad in compatibility mode do not.
 - **Code (what the repo holds).** `scripts/validate-superwall-live-artifact.mjs` reads the live layout of every hosted placement the gate presents (`validateCompactWindowLayouts` and `compactWindowLayout` in `scripts/lib/superwall-live-artifact.mjs`), fails the **production** archive while any of them clips, and prints the same findings as warnings for staging so one dashboard fix does not stop every merge.
   Every finding names its placement, its paywall id and the root and child nodes to edit.
+  A paywall whose layout the reader cannot read (no node under a page, or no purchase or close control) is a finding on the same terms, never a pass.
   The check is structural: it cannot see pixels, so it proves a page can scroll, and a rendered check on a 375 by 667 window stays the acceptance test.
   `scripts/test/superwall-live-artifact.test.mjs` pins the rule against the live defect and against each way of fixing it.
 

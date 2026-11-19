@@ -452,3 +452,40 @@ test("the layout findings are errors only where they are enforced, and warnings 
   assert.deepEqual(lenient.errors, []);
   assert.deepEqual(lenient.warnings, strict.errors);
 });
+
+test("a paywall whose layout cannot be read is a finding, an error only where enforced", async () => {
+  const unreadable = layoutStore(docsRecipe);
+  delete unreadable["node:target"];
+  const check = (enforce) =>
+    validateCompactWindowLayouts({
+      staticConfig: gateConfig([{placement: "founder_letter", rules: [[{paywall: "letter"}]]}]),
+      placements: ["founder_letter"],
+      loadRuntimeStore: storesByPaywall({letter: unreadable}),
+      enforce
+    });
+
+  const strict = await check(true);
+  assert.equal(strict.errors.length, 1);
+  assert.match(strict.errors[0], /^founder_letter paywall letter \(letter\): .*no node carrying a purchase or close action/);
+  assert.equal(strict.evidence[0].compactWindowLayout, "unknown");
+
+  const lenient = await check(false);
+  assert.deepEqual(lenient.errors, []);
+  assert.deepEqual(lenient.warnings, strict.errors);
+});
+
+test("a root under any page is read, not only the first page", () => {
+  const store = layoutStore(clippingRoot);
+  store["node:main"].parentId = "page:checkout";
+
+  assert.equal(compactWindowLayout(store).verdict, "clips");
+});
+
+test("a store with no node under a page is unknown with a reason", () => {
+  const store = layoutStore(clippingRoot);
+  store["node:main"].parentId = "node:elsewhere";
+
+  const verdict = compactWindowLayout(store);
+  assert.equal(verdict.verdict, "unknown");
+  assert.match(verdict.message, /no node whose parent is a page/);
+});

@@ -276,7 +276,9 @@ export async function validateCompactWindowLayouts({
       responseID: response.id ?? null,
       compactWindowLayout: layout.verdict
     });
-    if (layout.verdict === "clips") findings.push(`${label}: ${layout.message}`);
+    if (layout.verdict === "clips" || layout.verdict === "unknown") {
+      findings.push(`${label}: ${layout.message}`);
+    }
   }
 
   return enforce
@@ -296,14 +298,22 @@ export async function validateCompactWindowLayouts({
  *
  * The controls are the purchase buttons, or on a paywall that sells nothing (the founder letter) the
  * controls that close it. This reads the layout, not the rendering, so it can only say the structure
- * clips or scrolls. `unknown` means the capture has no node tree to read (a frozen fixture).
+ * clips or scrolls. `unknown` means the reader found no node tree or no control to judge, which a
+ * frozen fixture has and a live paywall must not, so it is a finding wherever a clip would be.
  */
 export function compactWindowLayout(runtimeStore) {
   const nodes = Object.entries(runtimeStore ?? {}).filter(
     ([key, value]) => key.startsWith("node:") && value && typeof value === "object"
   );
-  const roots = nodes.filter(([, node]) => node.parentId === "page:page");
-  if (roots.length === 0) return {verdict: "unknown", message: null};
+  const roots = nodes.filter(([, node]) => String(node.parentId ?? "").startsWith("page:"));
+  if (roots.length === 0) {
+    return {
+      verdict: "unknown",
+      message:
+        "the runtime store has no node whose parent is a page, so its layout cannot be read and " +
+        "it cannot be shown to scroll on a 667 pt window."
+    };
+  }
 
   const byID = new Map(nodes);
   const actions = collectActions(runtimeStore);
@@ -317,7 +327,14 @@ export function compactWindowLayout(runtimeStore) {
   ];
   const purchaseNodeIDs = nodesCarrying("purchase");
   const targetNodeIDs = purchaseNodeIDs.length > 0 ? purchaseNodeIDs : nodesCarrying("close");
-  if (targetNodeIDs.length === 0) return {verdict: "unknown", message: null};
+  if (targetNodeIDs.length === 0) {
+    return {
+      verdict: "unknown",
+      message:
+        "the runtime store has no node carrying a purchase or close action, so there is no control " +
+        "to judge and it cannot be shown to scroll on a 667 pt window."
+    };
+  }
   const targets = purchaseNodeIDs.length > 0 ? "purchase button" : "close control";
 
   const ancestors = new Set();
