@@ -489,3 +489,25 @@ test("a store with no node under a page is unknown with a reason", () => {
   assert.equal(verdict.verdict, "unknown");
   assert.match(verdict.message, /no node whose parent is a page/);
 });
+
+test("the clip message reads as clean sentences with a child to change and without one", () => {
+  const tail =
+    "is a fixed viewport height with overflow hidden and nothing between it and the purchase button " +
+    "scrolls, so a window shorter than the content (an iPhone SE or an iPhone app on an iPad is 667 pt " +
+    "tall) cuts the bottom of the page off with no way to reach it. In the Superwall editor set " +
+    "\"Main\" to Overflow Y auto with stack Scroll normal";
+  const rule =
+    ". Every hosted placement the gate presents is held to this " +
+    "(docs/superwall-paywall-setup.md, \"Short windows\").";
+
+  assert.equal(
+    compactWindowLayout(layoutStore(clippingRoot)).message,
+    `root "Main" (node:main) ${tail}, and give its child "Overlay" (node:overlay) a minimum ` +
+      `height of 100% instead of a height${rule}`
+  );
+
+  const noChild = layoutStore(clippingRoot);
+  delete noChild["node:overlay"];
+  noChild["node:target"].parentId = "node:main";
+  assert.equal(compactWindowLayout(noChild).message, `root "Main" (node:main) ${tail}${rule}`);
+});

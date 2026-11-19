@@ -361,7 +361,7 @@ export function compactWindowLayout(runtimeStore) {
       `root "${root.name}" (${root.id}) is a fixed viewport height with overflow hidden and nothing ` +
       `between it and the ${targets} scrolls, so a window shorter than the content (an iPhone SE or ` +
       `an iPhone app on an iPad is 667 pt tall) cuts the bottom of the page off with no way to reach ` +
-      `it. In the Superwall editor set "${root.name}" to Overflow Y auto with stack Scroll normal, ` +
+      `it. In the Superwall editor set "${root.name}" to Overflow Y auto with stack Scroll normal` +
       `${childStep}. Every hosted placement the gate presents is held to this ` +
       `(docs/superwall-paywall-setup.md, "Short windows").`
   };
