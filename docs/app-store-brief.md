@@ -99,8 +99,9 @@ Visual rules the chosen template must satisfy:
   screen.
 - Full-bleed **dark** background, **thin top progress indicator**, **one large product
   hero**, short copy at the bottom, **exactly one CTA per screen**.
-- **No card chrome or boxed surfaces.** A screen that needs the network or a permission
-  carries a Skip that does not depend on the answer, so no screen can trap a climber.
+- **No card chrome or boxed surfaces.** A screen that needs the network carries a Skip that
+  does not depend on the answer, and a permission message always leads to the iOS request and
+  moves on whatever the answer, so no screen can trap a climber.
 - Demographics (birthday, bounded to ages 13–99, and gender) are asked before sign-in and are
   optional; nothing asks for them after sign-in.
   It must **not** ask for a name: sign-in resolves one and writes it without asking, which is
