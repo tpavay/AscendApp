@@ -126,6 +126,35 @@ Restore, Manage Subscription, Sign out and `DELETE ACCOUNT` therefore exist at t
 The cost of this is stated rather than hidden: while Superwall cannot present anything at all, a locked-out climber has a spinner and no control.
 The account-deletion route Guideline 5.1.1(v) requires at the gate therefore depends on the hosted paywall being presentable, and the public support page keeps the email route for exactly that case.
 
+## Paywall layout checklist (iPhone SE and iPad)
+
+Run this every time a hosted paywall is created, duplicated or edited, before it is published and before it becomes a campaign target.
+Apple has rejected Ascend twice for the same defect: 2026-08-17 (Guideline 2.1(b)) and 2026-11-19 (Guideline 4, "subscription page is not fully visible").
+Both times a hosted paywall had a root container locked to the screen height with scrolling off, and the purchase controls were cut off on a window shorter than the page.
+The history, the measured paywalls and the per-node ids are in "Short windows" below; this is the part to follow.
+
+Why it keeps happening: Ascend is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`), so an iPad runs it in the iPhone compatibility window, **375 by 667 points**, which is an iPhone SE's window.
+The phones a paywall is drawn and previewed on are 844 to 956 points tall, so a page that needs 834 points looks perfect in the editor and is cut off on the device App Review uses.
+A duplicate inherits the root's settings, so duplicating a clipping paywall ships a clipping paywall.
+
+1. **Root `Main` scrolls.**
+   Set **Overflow Y** to `Auto` and the stack's **Scroll** to `Normal`.
+   Both, because `Overflow Y hidden` overrides the scroll setting: switching Scroll alone does nothing.
+   Leave the root's `Height 100dvh` alone.
+2. **The child `Overlay` grows.**
+   Use **Min height `100%`**, never **Height `100%`**, so the content can be taller than the window and the root scrolls instead of the child stopping at the window's edge.
+3. **Keep the padding.**
+   Top 56 and bottom 28 stay as they are: the 28 at the bottom is what keeps Restore, Terms and Privacy off the home indicator once the page scrolls.
+4. **Preview at iPhone SE size (375 by 667) before publishing.**
+   Scroll to the bottom and confirm every plan, the purchase button, "Cancel anytime", Restore, Terms and Privacy are all reachable, and that on a tall phone (440 by 956) the page looks the way it did.
+   A page that fits a tall preview proves nothing: the editor's default preview is a tall phone.
+5. **Pass the production validator before the paywall goes live.**
+   `node scripts/validate-superwall-live-artifact.mjs production` fails the production deploy while any paywall a gate placement serves has a root that clips, so a new or duplicated paywall that has not been through steps 1 to 4 stops the next production deploy at "Validate live production Superwall purchase artifact".
+   Staging prints the same findings as warnings, so a staging pass is not the production pass.
+
+A paywall that sells nothing, like the founder letter, is held to the same rule on the controls that close it.
+The validator reads structure, not pixels, so step 4 stays the acceptance test.
+
 ## Short windows: iPad and iPhone SE (Guideline 4, 2026-11-19)
 
 Apple reviewed 1.3.0 (build 2026111701) on an iPad Air 11-inch (M3) and rejected it under Guideline 4: "subscription page is not fully visible."
@@ -146,6 +175,7 @@ So the layout is dashboard configuration, and no Swift change can make a page fi
   A paywall whose layout the reader cannot read (no node under a page, or no purchase or close control) is a finding on the same terms, never a pass.
   The check is structural: it cannot see pixels, so it proves a page can scroll, and a rendered check on a 375 by 667 window stays the acceptance test.
   `scripts/test/superwall-live-artifact.test.mjs` pins the rule against the live defect and against each way of fixing it.
+  It also fails when a placement is added to `SuperwallPlacement` without being added to `GATE_PLACEMENTS` or named there as one the app never presents, so a new placement cannot ship unchecked.
 
 ### Which placements and paywalls are held to it
 
