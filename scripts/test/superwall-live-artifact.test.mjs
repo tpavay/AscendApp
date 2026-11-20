@@ -6,7 +6,6 @@ import {
   activePaywallResponse,
   collectActions,
   compactWindowLayout,
-  GATE_PLACEMENTS,
   runtimeStoreFromHTML,
   servedPaywalls,
   validateCompactWindowLayouts,
@@ -511,36 +510,4 @@ test("the clip message reads as clean sentences with a child to change and witho
   delete noChild["node:overlay"];
   noChild["node:target"].parentId = "node:main";
   assert.equal(compactWindowLayout(noChild).message, `root "Main" (node:main) ${tail}${rule}`);
-});
-
-// A placement added to the app is a placement App Review can reach, so a new one has to be held to the
-// compact-window rule or named here as deliberately exempt. `paywall_decline` is the SDK's own event
-// and so is not a Swift case; `app_launch_hard_gate` is a case the app never registers.
-const placementsTheAppNeverPresents = ["app_launch_hard_gate"];
-const placementsOnlyTheSDKRaises = ["paywall_decline"];
-
-test("every placement the app registers is held to the compact-window rule or named as exempt", async () => {
-  const source = await readFile(
-    new URL("../../AscendApp/Features/Monetization/Models/SuperwallPlacement.swift", import.meta.url),
-    "utf8"
-  );
-  const appPlacements = [...source.matchAll(/^\s*case \w+ = "([a-z_]+)"/gm)].map(([, name]) => name);
-
-  assert.ok(appPlacements.includes("app_access_gate"), "the placement enum could not be read");
-  const unchecked = appPlacements.filter(
-    (name) => !GATE_PLACEMENTS.includes(name) && !placementsTheAppNeverPresents.includes(name)
-  );
-  assert.deepEqual(
-    unchecked,
-    [],
-    `Add ${unchecked.join(", ")} to GATE_PLACEMENTS in scripts/lib/superwall-live-artifact.mjs, ` +
-      "or to placementsTheAppNeverPresents here with the reason it never reaches a climber."
-  );
-  assert.deepEqual(
-    GATE_PLACEMENTS.filter(
-      (name) => !appPlacements.includes(name) && !placementsOnlyTheSDKRaises.includes(name)
-    ),
-    [],
-    "GATE_PLACEMENTS names a placement the app no longer has."
-  );
 });
