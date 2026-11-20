@@ -237,14 +237,19 @@ The in-app permission guide the handoff drew as screen 10 was dropped on 2026-11
 The connect screen carries one line instead: "Next, iOS asks for access. Tap Turn On All, then Allow."
 The flow has two Ascend screens, Connect and the import choice.
 Both end in `HealthFlowChrome`'s bottom bar, which always reserves the secondary slot under the primary button, so the primary button sits in the same place on both.
-Only the Connect screen draws the close X, 6 points under the safe area's top and 16 from the leading edge.
+The Connect screen draws no close X and no Not now until a request has failed: it is a custom message ahead of a permission request, and Guideline 5.1.1(iv) says the climber must always proceed from such a message to the request (Apple rejected 1.3.0, build 2026111701, for a Skip on onboarding's copy of it).
+The climber's no is the iOS sheet's Don't Allow, which the flow takes as an answer (the choice screen then finds nothing, and Continue closes it).
+Only a failed request (`errorMessage`) draws the X, 6 points under the safe area's top and 16 from the leading edge, and Not now in the reserved slot, because the request has then been made and a retry would otherwise be the screen's only control.
+`PrePermissionMessagesHaveNoWayOutTests` holds it.
 The import choice draws no control at the top and starts its content 40 points lower than Connect's.
 The Ascend tile on the connect screen is the real `AppIconInternalAccent` mark.
 The tiles pop in and the dotted line between them flows from Health toward Ascend, one 12 point step every 0.4 seconds (the design's 24 points in 0.8), which Reduce Motion holds still.
 
 ## In onboarding
 
-`AppleHealthConnectView` is also onboarding's screen 06, in `Chrome.onboarding`: the progress header replaces the X, the quiet link says "Skip" with "You can always connect this in Settings." under it, the art is centred in the room above the words, and the one-line hint is left out because the next screen shows the sheet.
+`AppleHealthConnectView` is also onboarding's screen 06, in `Chrome.onboarding`: the progress header replaces the X, "You can always connect this in Settings." sits under the button, the art is centred in the room above the words, and the one-line hint is left out because the next screen shows the sheet.
+06 has no Skip (removed after the 1.3.0 Guideline 5.1.1(iv) rejection, 2026-11-19): CONNECT APPLE HEALTH goes to 06b, and 06b's GOT IT is the request.
+Whatever the request comes to, onboarding moves on: a refusal reads Health, finds nothing and goes to 07b, and a request that could not be made at all (`request_failed`, for example Health unavailable) goes straight to 07b with the found-history answers cleared, so no screen in the branch is left with nothing to press.
 The two chromes track `.onboardingHealthConnect` and `.healthConnectLater`.
 06b ("Two taps and you're set") shows a drawn picture of Apple's sheet with the four types of `readTypes` and "access", never "update"; its "GOT IT" is the request, through `AppleHealthConnectViewModel.requestAccessOnly()`, the same `HealthKitAuthorizationClient` request without the discovery and the import choice, because there is no account to file in yet and onboarding connects with auto-import on.
 The picture follows iOS 26's own sheet, captured from the simulator: Allow is at the bottom, under Turn On All and the four switches, so the step reads "Tap Allow at the bottom" (the handoff's "in the top right" was the older sheet, and is the wording the connect flow already dropped on 2026-11-02).

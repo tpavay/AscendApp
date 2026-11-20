@@ -74,11 +74,21 @@ struct OnboardingV3FlowEvidenceTests {
             try await tap("Continue", on: screen, expecting: .countMethods, in: coordinator, photograph: "onboarding-v3-flow-05-count-methods")
             try await tap("Continue", on: screen, expecting: .healthConnect, in: coordinator, photograph: "onboarding-v3-flow-06-health-connect")
 
-            // The Health branch: connecting opens the two-taps screen. Its own "Got it" asks iOS for
-            // Health access, which a hosted window cannot answer, so the walk comes back and skips.
+            // The Health branch: 06 has no Skip (Guideline 5.1.1(iv)), so connecting is its only way
+            // forward and opens the two-taps screen. That screen's "Got it" asks iOS for Health access,
+            // which a hosted window cannot answer, so the walk stands in for the answer by moving the
+            // coordinator on the way a refusal does (`OnboardingHealthPermissionViewModel`).
+            var copy = try await screen.copy()
+            #expect(!copy.contains("skip") && !copy.contains("not now"), "06 offers no way past the request")
             try await tap("CONNECT APPLE HEALTH", on: screen, expecting: .healthPermission, in: coordinator, photograph: "onboarding-v3-flow-06b-health-permission")
+            copy = try await screen.copy()
+            #expect(!copy.contains("skip") && !copy.contains("not now"), "06b offers no way past the request")
             try await tap("Back", on: screen, expecting: .healthConnect, in: coordinator, photograph: "onboarding-v3-flow-06-health-connect-after-back")
-            try await tap("Skip", on: screen, expecting: .usualClimb, in: coordinator, photograph: "onboarding-v3-flow-07b-usual-climb")
+            coordinator.advance()
+            coordinator.go(to: .usualClimb, as: .continue)
+            try await screen.settle(.turns(40))
+            #expect(coordinator.step == .usualClimb)
+            try screen.photograph(named: "onboarding-v3-flow-07b-usual-climb")
 
             try activateAccessibilityElement(labelled: "15 to 30 min, ~1,800 steps", in: screen.root)
             try await screen.settle(.turns(20))
@@ -88,11 +98,18 @@ struct OnboardingV3FlowEvidenceTests {
             try await tap("Skip", on: screen, expecting: .weeklyTarget, in: coordinator, photograph: "onboarding-v3-flow-10-weekly-target")
             try await tap("No target for now", on: screen, expecting: .thisMonthEvent, in: coordinator, photograph: "onboarding-v3-flow-11-this-month-event")
             try await tap("LET'S CLIMB", on: screen, expecting: .notificationPrimer, in: coordinator, photograph: "onboarding-v3-flow-12-notification-primer")
-            try await tap("Not now", on: screen, expecting: .auth, in: coordinator, photograph: "onboarding-v3-flow-15-save-every-climb")
+            // The primer has no Not now either: "Turn on" asks iOS, which a hosted window cannot
+            // answer, so the walk stands in for the answer by advancing the coordinator.
+            copy = try await screen.copy()
+            #expect(copy.contains("turn on") && !copy.contains("not now"), "12 offers no way past the request")
+            coordinator.advance()
+            try await screen.settle(.turns(40))
+            #expect(coordinator.step == .auth)
+            try screen.photograph(named: "onboarding-v3-flow-15-save-every-climb")
 
             // Sign-in ends the flow: nothing on the screen moves the coordinator on.
             #expect(coordinator.step.primaryDestination == nil)
-            let copy = try await screen.copy()
+            copy = try await screen.copy()
             #expect(copy.contains("save every"))
             #expect(copy.contains("continue with apple"))
             #expect(!copy.contains("stub"), "no placeholder screen survives in the shipped flow")

@@ -32,7 +32,7 @@ struct OnboardingNotificationPrimerEvidenceTests {
             let copy = try await screen.copy()
             #expect(copy.contains("we'll keep you on track."), "\(copy)")
             #expect(copy.contains("turn on"), "\(copy)")
-            #expect(copy.contains("not now"), "\(copy)")
+            #expect(!copy.contains("not now"), "no way past the iOS request (Guideline 5.1.1(iv)): \(copy)")
             #expect(copy.contains("one climb from your target"), "\(copy)")
             #expect(copy.contains("gear just dropped"), "\(copy)")
             #expect(copy.contains("new climb open"), "\(copy)")
@@ -74,7 +74,7 @@ struct OnboardingNotificationPrimerEvidenceTests {
     }
 
     @Test
-    func theButtonsStayReachableAtAnAccessibilityTextSize() async throws {
+    func theButtonStaysReachableAtAnAccessibilityTextSize() async throws {
         try await RenderedScreen.host(
             flow(target: 3).environment(\.dynamicTypeSize, .accessibility3),
             size: Self.smallestPhone,
@@ -83,7 +83,7 @@ struct OnboardingNotificationPrimerEvidenceTests {
             let recognized = try await screen.recognizedText(scale: 2).lowercased()
             let copy = try await screen.copy()
             #expect(copy.contains("turn on"), "\(copy)")
-            #expect(copy.contains("not now"), "\(copy)")
+            #expect(!copy.contains("not now"), "\(copy)")
             #expect(recognized.contains("turn on"), "legible, not just in the tree: \(recognized)")
             try screen.photograph(named: "onboarding-v3-notification-primer-se-accessibility3")
         }

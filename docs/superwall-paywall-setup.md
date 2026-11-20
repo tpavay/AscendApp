@@ -126,6 +126,125 @@ Restore, Manage Subscription, Sign out and `DELETE ACCOUNT` therefore exist at t
 The cost of this is stated rather than hidden: while Superwall cannot present anything at all, a locked-out climber has a spinner and no control.
 The account-deletion route Guideline 5.1.1(v) requires at the gate therefore depends on the hosted paywall being presentable, and the public support page keeps the email route for exactly that case.
 
+## Paywall layout checklist (iPhone SE and iPad)
+
+Run this every time a hosted paywall is created, duplicated or edited, before it is published and before it becomes a campaign target.
+Apple has rejected Ascend twice for the same defect: 2026-08-17 (Guideline 2.1(b)) and 2026-11-19 (Guideline 4, "subscription page is not fully visible").
+Both times a hosted paywall had a root container locked to the screen height with scrolling off, and the purchase controls were cut off on a window shorter than the page.
+The history, the measured paywalls and the per-node ids are in "Short windows" below; this is the part to follow.
+
+Why it keeps happening: Ascend is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`), so an iPad runs it in the iPhone compatibility window, **375 by 667 points**, which is an iPhone SE's window.
+The phones a paywall is drawn and previewed on are 874 to 956 points tall, so a page that needs 834 points looks perfect in the editor and is cut off on the device App Review uses.
+A duplicate inherits the root's settings, so duplicating a clipping paywall ships a clipping paywall.
+
+1. **Root `Main` scrolls.**
+   Set **Overflow Y** to `Auto` and the stack's **Scroll** to `Normal`.
+   Both, because `Overflow Y hidden` overrides the scroll setting: switching Scroll alone does nothing.
+   Leave the root's `Height 100dvh` alone.
+2. **The child `Overlay` grows.**
+   Use **Min height `100%`**, never **Height `100%`**, so the content can be taller than the window and the root scrolls instead of the child stopping at the window's edge.
+3. **Keep the padding.**
+   On the `app_access_gate` paywalls the `Overlay`'s padding of 56 top and 28 bottom stays as it is: the 28 at the bottom is what keeps Restore, Terms and Privacy off the home indicator once the page scrolls.
+4. **Preview at iPhone SE size (375 by 667) before publishing.**
+   Scroll to the bottom and confirm every plan, the purchase button, "Cancel anytime", Restore, Terms and Privacy are all reachable, and that on a tall phone (440 by 956) the page looks the way it did.
+   A page that fits a tall preview proves nothing: the editor's default preview is a tall phone.
+5. **Pass the production validator before the paywall goes live.**
+   `node scripts/validate-superwall-live-artifact.mjs production` fails the production deploy while any paywall a gate placement serves has a root that clips, so a new or duplicated paywall that has not been through steps 1 to 4 stops the next production deploy at "Validate live production Superwall purchase artifact".
+   Staging prints the same findings as warnings, so a staging pass is not the production pass.
+
+A paywall that sells nothing, like the founder letter, is held to the same rule on the controls that close it.
+The validator reads structure, not pixels, so step 4 stays the acceptance test.
+
+## Short windows: iPad and iPhone SE (Guideline 4, 2026-11-19)
+
+Apple reviewed 1.3.0 (build 2026111701) on an iPad Air 11-inch (M3) and rejected it under Guideline 4: "subscription page is not fully visible."
+Ascend is an iPhone app (`TARGETED_DEVICE_FAMILY = 1`), so on an iPad it runs in the iPhone compatibility window, which is **375 by 667 points**: the same window an iPhone SE has, and a good deal shorter than the 874 to 956 points of the phones the paywall was drawn on.
+Reproduced on an iPad Air 11-inch (M3) simulator, iOS 26.2, against the staging paywall: the hero, the headline, the four benefits and the Yearly card show, the Lifetime card is cut in half by the bottom edge, and the purchase button, "Cancel anytime", Restore, Terms and Privacy are not on screen and cannot be scrolled to.
+
+### What is code and what is the dashboard
+
+Every screen at the gate is a hosted Superwall paywall; the app draws a spinner behind them and nothing else, and there is no native paywall to fall back to.
+So the layout is dashboard configuration, and no Swift change can make a page fit: the app has no say in how a hosted page lays itself out.
+
+- **Dashboard (the defect).** Every hosted paywall the gate can present has the same structure: a root node fixed at `Height 100dvh` with `Overflow Y hidden` and stack `Scroll none`.
+  On the `app_access_gate` paywalls that root's child `Overlay` is `Height 100%` with `Justify space-between`, padding 56 top and 28 bottom.
+  Staging `290971` and production `289214` need 834 points of height, so any window shorter than that cuts off the bottom of the page, and nothing scrolls.
+  Phones 844 points tall and over (iPhone 14 and later) fit it; the 812-point phones (iPhone 11 Pro, 12 mini, 13 mini), the iPhone SE (2nd and 3rd generation, still supported by iOS 26) and every iPad in compatibility mode do not.
+- **Code (what the repo holds).** `scripts/validate-superwall-live-artifact.mjs` reads the live layout of every hosted placement the gate presents (`validateCompactWindowLayouts` and `compactWindowLayout` in `scripts/lib/superwall-live-artifact.mjs`), fails the **production** archive while any of them clips, and prints the same findings as warnings for staging so one dashboard fix does not stop every merge.
+  Every finding names its placement, its paywall id and the root and child nodes to edit.
+  A paywall whose layout the reader cannot read (no node under a page, or no purchase or close control) is a finding on the same terms, never a pass.
+  The check is structural: it cannot see pixels, so it proves a page can scroll, and a rendered check on a 375 by 667 window stays the acceptance test.
+  `scripts/test/superwall-live-artifact.test.mjs` pins the rule against the live defect and against each way of fixing it.
+
+### Which placements and paywalls are held to it
+
+The rule covers every hosted placement the gate can present:
+
+- `app_access_gate`, the first paywall.
+- `paywall_decline`, the SDK's own event that chains the decline offer when the first paywall is closed; the app cannot register it, but the offer it opens is on screen at the gate.
+- `decline_offer_replay`, the same decline offer replayed after a force-close on the first paywall.
+- `founder_letter`, the screen that sells nothing and starts the free week.
+
+`app_launch_hard_gate` is an enum case the app never registers and `campaign_trigger` is Superwall's default example trigger, so neither is checked.
+
+For each placement the validator checks every paywall that any treatment with a share above 0 percent serves, in any rule of that placement's campaign, because a climber's audience, App Review's device included, decides which rule and so which paywall opens.
+On a paywall that sells something the controls that must stay reachable are its purchase buttons; on one that sells nothing (the founder letter) they are the controls that close it.
+
+The rules are read the way Superwall reads them for the build under release (`MARKETING_VERSION`): first match wins, and a paywall only rules that exclude that version serve is a **warning**, never an error, because neither App Review nor any climber on the new build can see it.
+On 2026-11-20 the `app_access_gate` campaign had three rules, each for an unentitled climber: app version 1.3.0 or later served `289214`, 1.2.3 or later served `277289`, and everyone else served `232372`, so a 1.3.0 build never reaches the last two, on an iPhone or in an iPad's compatibility window (no rule filters by device).
+Those two stay in the validator's output as warnings naming the audience that still serves them, and they are a real exposure for climbers still on 1.2.3 to 1.2.4 until they are republished with the scroll structure.
+The rule stays whole for everything a 1.3.0 or later build can reach: a rule condition the reader does not understand (a parameter, a country, anything beyond the entitlement check and `device.appVersionPadded` comparisons) counts as reachable and does not shadow the rules after it, loosening or reordering the newest rule makes an older paywall reachable again and fails the check, and a placement no rule serves to that version is an error.
+
+Measured read-only on 2026-11-19 from the public static config and each paywall's runtime store, and rendered in headless Chrome at 375 by 667 points:
+
+| Placement | Environment | Paywall | Name | Products | Root scroll height at 375 by 667 |
+|---|---|---|---|---|---|
+| `app_access_gate` | Staging | `290971` (`example-paywall-ba90-2026-11-10`) | Paywell With Lifetime Option (Duplicate) (New) | `ascend_staging_yearly`, `ascend_staging_monthly`, `ascend_staging_lifetime` | 834 (cut off today) |
+| `paywall_decline`, `decline_offer_replay` | Staging | `290974` (`example-paywall-8817-2026-11-10`) | Decline Offer - Welcome Yearly v1 (New) | `ascend_staging_yearly_welcome`, `ascend_staging_yearly` | 667 (fits today, cannot scroll) |
+| `founder_letter` | Staging | `291033` (`founder-letter---free-week-c790-2026-11-10`) | Founder Letter - Free Week | none | 667 (fits today, cannot scroll) |
+| `app_access_gate` | Production | `289214` (`example-paywall-4a42-2026-11-05`) | Paywell With Lifetime Option (Duplicate) | `ascend_yearly`, `ascend_monthly`, `ascend_lifetime` | 834 (cut off today) |
+| `app_access_gate` | Production | `277289` (`paywell-with-lifetime-option-2151-2026-10-07`) | Paywell With Lifetime Option | `ascend_yearly`, `ascend_monthly`, `ascend_lifetime` | 667 (fits today, cannot scroll) |
+| `app_access_gate` | Production | `232372` (`new-paywall-a6dc-2026-06-11`) | Paywall Without Lifetime Option | `ascend_yearly`, `ascend_monthly` | 667 (fits today, cannot scroll) |
+| `paywall_decline`, `decline_offer_replay` | Production | `289743` (`new-paywall-mw5cj9nr-n7w4av`) | New Paywall | `ascend_yearly_welcome`, `ascend_yearly` | 667 (fits today, cannot scroll) |
+| `founder_letter` | Production | `291924` (`example-paywall-7ef4-2026-11-12`) | Founder Letter - Free Week (New) | none | 667 (fits today, cannot scroll) |
+
+Staging `290971` and production `289214` are the cut-off page Apple saw.
+The rest fit a 667-point window today only because their content happens to, and any longer copy, a larger Dynamic Type size or a shorter window cuts them off the same way.
+All of them should get the scroll structure, because it only engages when the content overflows: a page that fits looks exactly as it did.
+
+### The dashboard change
+
+**These dashboard edits are NOT done yet.**
+They are owned by firstmate and the captain, because the defect is Superwall dashboard configuration that no change in this repository can reach.
+Until they are published, the production deploy pipeline fails at the live artifact validation on purpose, and staging only warns.
+
+The same two edits apply to every paywall, with the node names and ids exactly as each runtime store has them:
+
+1. Select the root node.
+   Set **Overflow Y** to `Auto` (it is `Hidden`, which overrides the scroll setting and is why switching Scroll alone does nothing).
+   Set the stack's **Scroll** to `Normal`.
+   Leave `Height 100dvh` alone.
+2. Select the root's child named below, where there is one.
+   Replace **Height** with **Min height `100%`** (Height `Auto`), so it grows with the content instead of stopping at the window's edge.
+   Keep its padding: on the gate paywalls the 28 bottom is what keeps Restore, Terms and Privacy off the home indicator once the page scrolls.
+
+Per paywall:
+
+- **Staging `290971`, production `289214`, `277289` and `232372`** (`app_access_gate`): root `Main` (`node:gmV2xgt6XITiqLnL1Ig9H`), child `Overlay` (`node:pE8Orq7gOmf9Dv17pGhMC`), which is `Height 100%` today.
+- **Staging `290974`** (`paywall_decline`, `decline_offer_replay`): root `Decline offer` (`node:_CGWiVCE8XlnWqS1plcKo`), child `Opened offer` (`node:S6GaVECx6OsFONqzbZX5R`), which has no height set today, so step 2 only adds Min height `100%`.
+- **Production `289743`** (`paywall_decline`, `decline_offer_replay`): root `Decline offer` (`node:VBGc8dkdqb1z43s2bgmic`), child `Opened offer` (`node:mBFca7h3plnH17aS4uCFQ`), which has no height set today, so step 2 only adds Min height `100%`.
+- **Staging `291033`, production `291924`** (`founder_letter`): root `Founder letter` (`node:_LhYNCE3hCDHdvY2Nb7XE`) only.
+  Its `Close - X` and `CTA - start free trial` are direct children of the root around a `Scroll body` that already scrolls, so there is no child to change and step 1 is the whole edit.
+
+Then, for each paywall:
+
+3. Preview at **iPhone SE (375 by 667)** and at an iPad window: scroll to the bottom and confirm every plan, the purchase button, "Cancel anytime", Restore, Terms and Privacy (or, on the founder letter, the close and the CTA) are all reachable, and that on a tall phone (440 by 956) the page looks exactly as it did.
+4. Re-run `node scripts/validate-superwall-live-artifact.mjs production`; it passes once every placement scrolls.
+
+A shorter page also works for one window size (a smaller hero, one line less of benefits), but only scrolling is robust to Dynamic Type and to every future window size, and it is the change the validator accepts.
+The structural fact it enforces is the one that failed review: a node with a bounded height between the root and the controls a climber must reach has to scroll vertically, or the root must not clip.
+A node that grows with its content (Height `Auto`) never scrolls, and a control that scrolls itself does not bring itself into view, so neither counts.
+
 ## Onboarding paywall and decline offer (1.3.0)
 
 The 1.3.0 onboarding signs the climber in first and sells second: screens 1-12, then sign-in (13), then the app.

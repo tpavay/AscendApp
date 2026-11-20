@@ -142,13 +142,14 @@ struct StickersTabView: View {
 
     private func copy(_ item: StickerItem) {
         flash(item)
-        sheet.copySticker(rendered(item))
+        sheet.copySticker(rendered(item), content: model.shareContent(for: item))
     }
 
     private func save(_ item: StickerItem) {
         flash(item)
         let image = rendered(item)
-        Task { await sheet.saveSticker(image) }
+        let content = model.shareContent(for: item)
+        Task { await sheet.saveSticker(image, content: content) }
     }
 
     private func flash(_ item: StickerItem) {

@@ -17,15 +17,34 @@ struct ShareSheetView: View {
     private let rankPosition: Int?
     private let rankField: Int?
 
-    @State private var sheet = ShareSheetViewModel()
+    private let telemetry: TelemetryManager
+
+    @State private var analytics: ShareSheetAnalyticsReporter
+    @State private var sheet: ShareSheetViewModel
     @State private var presets: PresetsViewModel?
     @State private var stickers: StickersViewModel?
 
-    init(workout: Workout, climb: Climb?, climbRank: Int?, climbRankTotal: Int?) {
+    /// `source` is required so a new presenter cannot open the composer without saying which
+    /// surface it is; the share funnel is read by it.
+    init(
+        source: ShareSheetSource,
+        workout: Workout,
+        climb: Climb?,
+        climbRank: Int?,
+        climbRankTotal: Int?,
+        telemetry: TelemetryManager = .shared
+    ) {
         self.workout = workout
         self.climb = climb
         self.rankPosition = climbRank
         self.rankField = climbRankTotal
+        self.telemetry = telemetry
+        let reporter = ShareSheetAnalyticsReporter(
+            context: ShareSheetAnalyticsContext(source: source, climb: climb),
+            telemetry: telemetry
+        )
+        _analytics = State(initialValue: reporter)
+        _sheet = State(initialValue: ShareSheetViewModel(reporter: reporter))
     }
 
     var body: some View {
@@ -57,6 +76,7 @@ struct ShareSheetView: View {
             presets?.artwork.tower = await sheet.shareExporter.loadClimbArtwork(for: climb)
         }
         .trackOnce(screen: .shareComposer)
+        .trackOnce(ShareSheetAnalyticsEvent.composerOpened(context: analytics.context), telemetry: telemetry)
     }
 
     /// What the subject is built from that can arrive after the sheet is up: the best-effort
@@ -80,11 +100,16 @@ struct ShareSheetView: View {
         )
 
         if presets == nil {
-            presets = PresetsViewModel(subject: subject, hasTower: climb != nil)
+            presets = PresetsViewModel(
+                subject: subject,
+                hasTower: climb != nil,
+                analytics: analytics
+            )
             stickers = StickersViewModel(
                 subject: subject,
                 modelContext: modelContext,
-                userId: authVM.user?.uid
+                userId: authVM.user?.uid,
+                analytics: analytics
             )
         } else {
             presets?.update(subject: subject)

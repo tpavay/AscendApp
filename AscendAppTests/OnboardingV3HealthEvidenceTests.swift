@@ -104,7 +104,7 @@ struct OnboardingV3HealthEvidenceTests {
     // MARK: - 06 Your workouts, counted for you
 
     @Test(arguments: Self.phones)
-    func connectShowsTheDesignsCopyTheBarAndBothActions(size: CGSize) async throws {
+    func connectShowsTheDesignsCopyTheBarAndTheOneForwardAction(size: CGSize) async throws {
         try await RenderedScreen.host(flow(.healthConnect), size: size, settle: .turns(40)) { screen in
             let copy = try await screen.copy { $0.contains("connect apple health") }
             #expect(copy.contains("your workouts,"), "\(copy)")
@@ -112,11 +112,11 @@ struct OnboardingV3HealthEvidenceTests {
             #expect(copy.contains("any device or app that saves there show up in ascend. no typing."), "\(copy)")
             for chip in ["workouts", "steps", "heart rate"] { #expect(copy.contains(chip), "\(copy)") }
             #expect(copy.contains("connect apple health"), "\(copy)")
-            #expect(copy.contains("skip"), "\(copy)")
+            #expect(!copy.contains("skip"), "Guideline 5.1.1(iv): the message has no way past the request: \(copy)")
             #expect(copy.contains("you can always connect this in settings."), "\(copy)")
             #expect(copy.contains("onboarding progress"), "the bar replaces the X: \(copy)")
             #expect(copy.contains("back"), "\(copy)")
-            #expect(!copy.contains("not now"), "onboarding's quiet link is the other one: \(copy)")
+            #expect(!copy.contains("not now"), "no quiet link of any name: \(copy)")
             #expect(!copy.contains("i don't track workouts"), "\(copy)")
             #expect(!copy.contains("close"), "no X in onboarding: \(copy)")
             #expect(!copy.contains("tap turn on all"), "06b shows the sheet, so the hint is left out: \(copy)")
@@ -134,7 +134,6 @@ struct OnboardingV3HealthEvidenceTests {
             // middle of it, and the button's white chevron reaches below the bar.
             let header = try #require(try await screen.frame(ofElementLabelled: "Back"))
             let primary = try #require(try await screen.frame(ofElementLabelled: "Connect Apple Health"))
-            let skip = try #require(try await screen.frame(ofElementLabelled: "Skip"))
             let footnote = try #require(try await screen.frame(ofElementLabelled: "You can always connect this in Settings."))
 
             // The Health tile is the only pure white on the screen between the header and the headline,
@@ -158,8 +157,7 @@ struct OnboardingV3HealthEvidenceTests {
                 #expect(abs(tile.midY - roomMiddle) <= 10, "centred: the tile \(tile) in the room from \(header.maxY) to \(headlineInk.minY)")
             }
 
-            #expect(skip.minY > primary.maxY, "Skip is under the button")
-            #expect(footnote.minY >= skip.maxY - 4, "the Settings line is under Skip")
+            #expect(footnote.minY >= primary.maxY, "the Settings line is under the button")
             #expect(screen.bounds.contains(footnote), "the Settings line is on screen: \(footnote)")
         }
     }
@@ -200,12 +198,14 @@ struct OnboardingV3HealthEvidenceTests {
         }
     }
 
+    /// Guideline 5.1.1(iv) applies to the Climb sheet's and Settings' copy of the screen too: it is a
+    /// message ahead of the Health request, so it draws no X and no Not now until a request has failed.
     @Test
-    func theClimbSheetsCopyOfTheSameScreenKeepsItsXAndNotNow() async throws {
-        try await RenderedScreen.host(AppleHealthConnectView(onConnect: {}, onClose: {}), settle: .turns(40)) { screen in
+    func theClimbSheetsCopyOfTheSameScreenHasNoWayOutBeforeTheRequest() async throws {
+        try await RenderedScreen.host(AppleHealthConnectView(onConnect: {}), settle: .turns(40)) { screen in
             let copy = try await screen.copy { $0.contains("connect apple health") }
-            #expect(copy.contains("close"), "\(copy)")
-            #expect(copy.contains("not now"), "\(copy)")
+            #expect(!copy.contains("close"), "\(copy)")
+            #expect(!copy.contains("not now"), "\(copy)")
             #expect(copy.contains("tap turn on all, then allow."), "\(copy)")
             #expect(!copy.contains("onboarding progress"), "\(copy)")
             #expect(!copy.contains("skip"), "\(copy)")
@@ -213,8 +213,21 @@ struct OnboardingV3HealthEvidenceTests {
         }
     }
 
+    @Test
+    func aFailedRequestOnTheClimbSheetsCopyEarnsTheXAndNotNowBack() async throws {
+        try await RenderedScreen.host(
+            AppleHealthConnectView(errorMessage: "Apple Health did not connect. Try again.", onConnect: {}, onClose: {}),
+            settle: .turns(40)
+        ) { screen in
+            let copy = try await screen.copy { $0.contains("connect apple health") }
+            #expect(copy.contains("close"), "\(copy)")
+            #expect(copy.contains("not now"), "\(copy)")
+            #expect(copy.contains("apple health did not connect. try again."), "\(copy)")
+        }
+    }
+
     @Test(arguments: Self.accessibilitySizes)
-    func connectAtAnAccessibilityTextSizeKeepsBothActionsReachable(size: DynamicTypeSize) async throws {
+    func connectAtAnAccessibilityTextSizeKeepsTheButtonReachable(size: DynamicTypeSize) async throws {
         try await RenderedScreen.host(
             flow(.healthConnect).environment(\.dynamicTypeSize, size),
             size: Self.smallestPhone,
@@ -222,7 +235,7 @@ struct OnboardingV3HealthEvidenceTests {
         ) { screen in
             let copy = try await screen.copy { $0.contains("connect apple health") }
             #expect(copy.contains("connect apple health"), "\(copy)")
-            #expect(copy.contains("skip"), "\(copy)")
+            #expect(!copy.contains("skip"), "\(copy)")
             let primary = try #require(try await screen.frame(ofElementLabelled: "Connect Apple Health"))
             #expect(screen.bounds.contains(primary), "the primary button \(primary) runs off the screen")
             try screen.photograph(named: "onboarding-v3-health-06-connect-se-\(size)")

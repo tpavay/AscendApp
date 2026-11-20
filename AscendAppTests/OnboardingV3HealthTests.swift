@@ -30,30 +30,18 @@ struct OnboardingV3HealthTests {
         )
     }
 
-    // MARK: - 06 and its two exits
+    // MARK: - 06 has one way forward
 
     @Test
-    func connectGoesToTheTwoTapsScreenAndTheNoGoesToTheUsualClimbQuestion() {
+    func connectGoesToTheTwoTapsScreenAndNothingOnTheScreenLeavesAnyOtherWay() {
         let connect = coordinator(at: .healthConnect)
         connect.advance()
         #expect(connect.step == .healthPermission)
 
-        let decline = coordinator(at: .healthConnect)
-        OnboardingHealthConnectScreen.declineHealth(decline)
-        #expect(decline.step == .usualClimb)
-        #expect(decline.canGoBack)
-    }
-
-    @Test
-    func aNoClearsWhateverTheClimberAskedToBringInOnTheWayHere() {
-        let store = makeStore()
-        store.update { $0.recordFoundHealthHistory(.reportedByEveryWorkout(workoutIDs: ["a", "b"], knownSteps: 6_000)) }
-        let flow = coordinator(at: .healthConnect, store: store)
-
-        OnboardingHealthConnectScreen.declineHealth(flow)
-
-        #expect(store.answers().foundHealthWorkoutIDs.isEmpty, "a no is a no")
-        #expect(store.answers().foundHealthKnownSteps == nil)
+        // Guideline 5.1.1(iv): no Skip. The only exit the step used to offer is gone.
+        #expect(OnboardingV3Step.healthConnect.alternateExits.isEmpty)
+        #expect(OnboardingV3Step.healthConnect.primaryDestination == .healthPermission)
+        #expect(connect.canGoBack, "Back still leaves for the earlier screens")
     }
 
     // MARK: - 06b
@@ -123,18 +111,36 @@ struct OnboardingV3HealthTests {
         #expect(rig.harness.reader.windowReads.isEmpty)
     }
 
+    /// 06 and 06b have no Skip (Guideline 5.1.1(iv)), so a request that could not be made must not
+    /// leave the climber on a screen with nothing else to press.
     @Test
-    func aRefusedRequestStaysOnTheScreenWithTheMessageAndReadsNothing() async throws {
+    func aRequestThatCannotBeMadeMovesOnToTheUsualClimbQuestionAndReadsNothing() async throws {
         let rig = try permissionRig(grants: false)
         rig.harness.addWorkout(daysAgo: 100, steps: 3_000)
-        let flow = coordinator(at: .healthPermission)
+        let store = makeStore()
+        store.update { $0.foundHealthWorkoutIDs = ["stale"] }
+        let flow = coordinator(at: .healthPermission, store: store)
 
         await rig.viewModel.gotIt(coordinator: flow)
 
-        #expect(flow.step == .healthPermission)
-        #expect(rig.viewModel.errorMessage == "Health said no.")
+        #expect(flow.step == .usualClimb)
+        #expect(store.answers().foundHealthWorkoutIDs.isEmpty, "nothing from an earlier walk is left to import")
         #expect(rig.harness.reader.changeReads.isEmpty, "no read without the access it asked for")
-        #expect(!rig.viewModel.isWorking, "the button comes back so the climber can try again")
+        #expect(!rig.viewModel.isWorking)
+        #expect(flow.canGoBack)
+    }
+
+    @Test
+    func aRequestThatCannotBeMadeDoesNotMoveAClimberWhoBackedOutWhileTheSheetWasUp() async throws {
+        let rig = try permissionRig(grants: false)
+        let flow = coordinator(at: .healthConnect)
+        flow.advance()
+        flow.back()
+        #expect(flow.step == .healthConnect)
+
+        await rig.viewModel.gotIt(coordinator: flow)
+
+        #expect(flow.step == .healthConnect, "the answer belongs to a screen that is gone")
     }
 
     @Test
@@ -582,7 +588,7 @@ struct OnboardingV3HealthTests {
     @Test
     func noHealthCopyBreaksTheWordingRules() {
         let copy = [
-            "Your workouts,", "counted for you.", "Skip", "You can always connect this in Settings.",
+            "Your workouts,", "counted for you.", "You can always connect this in Settings.",
             "Two taps and", "you're set.", "Tap Turn On All", "Tap Allow at the bottom",
             "We found your climbs", "Add 214 to my history", OnboardingHealthHistoryScreen.footnote,
             OnboardingHealthHistoryScreen.skipTitle, OnboardingHealthHistoryScreen.primaryPlaceholder,

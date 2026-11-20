@@ -128,6 +128,37 @@ Contracts: `AscendAppTests/TelemetryScreenCatalogTests.swift` pins every name/cl
 Host those windows on the test host's `UIWindowScene`.
 A scene-less `UIWindow` mounts a `TabView` that was there from the first render but silently never mounts one that *arrives* on a later state change - no tab bar controller, no tab root, no `body` call - so the first tab of a session reports nothing and the harness, not the app, is what is broken.
 
+## Share funnel
+
+Sharing is measured end to end by `ShareSheetAnalyticsEvent` (`AscendApp/Features/ShareSheet/Analytics/`), reported through `ShareSheetAnalyticsReporter` from `ShareSheetViewModel` and `PresetsViewModel`, never from a view body.
+The "composer" is the editable share card sheet (`ShareSheetView`: Presets and Stickers tabs), not a separate screen; `share_composer` is the old name of its screen view.
+The funnel, in order:
+
+1. `share_composer_open` - the composer reached the screen, with `share_source` (`live_climb_summary`, `workout_detail`, `logged_climb_result`).
+   `ShareSheetView` cannot be built without a `ShareSheetSource`, so a new presenter has to name itself.
+   The `share_composer` screen view stays alongside it, unchanged.
+2. `share_card_select` - the climber landed on a different card layout (`card_layout`).
+   Re-selecting the card already showing, and a layout the climb cannot show, report nothing.
+   `share_card_edit` - the climber changed something in the sheet: `edit_type` (`background`, `photo`, `font`, `accent`, `stat`, `best_effort`, `reset`, `sticker_font`, `sticker_color`, `sticker_shadow`) and `edit_value`, a member of a bounded set (a font, an accent, a background kind, `rank_off`).
+   Choosing what is already chosen is not an edit, and a photo or a best effort reports only that one was chosen, never which.
+3. `live_climb_share_action_tap` - a share started from Story, Copy, Save or More on a card, or a tap or hold on a sticker.
+   Carries `action`, `content_type` (`card` or `sticker`), and `card_layout` and `card_background` (the kind, never the tile or photo) or `sticker_kind` and `sticker_scope`.
+   Both this and the completion also carry the sheet session's edits so far: `edit_count_bucket` and an `edited_<kind>` flag per `edit_type`, cumulative for the sheet's lifetime, so a funnel can split shares by whether the climber customised first.
+4. `live_climb_share_activity_done` - how it ended: `outcome` (`completed`, `cancelled`, `failed`), `completed` (the bool a funnel filters on) and `destination`.
+
+The two action events keep the names an earlier, never-fired definition declared, so the `live_climb_` prefix is historical: they describe any climb the composer opens on.
+`climb_*` parameters ride along only when the presenter has a catalogue climb, and a logged climb has none.
+
+`destination` is bucketed to `instagram_stories`, `instagram`, `messages`, `whatsapp`, `airdrop`, `save_to_photos`, `copy`, `other` and `none` by `ShareDestination(activityType:)`, because the system sheet reports an open-ended activity string.
+Two limits are honest ones.
+`instagram_stories` means Ascend handed the card to Instagram's Story composer: Instagram never reports whether the climber posted.
+`instagram` is Instagram's extension inside the system sheet, which does not say feed, Direct or Story.
+A cancelled system sheet is `outcome=cancelled`, `destination=none`; a share Ascend could not hand over (nothing rendered, Photos refused, no window to present on) is `failed` and is charged to the destination the action was aiming at.
+
+A new share action or content type goes through `ShareSheetAnalyticsReporter` and gets a case in `ShareAction` or `ShareContent`; the free-text and numeric parameters stay out.
+Contract: `AscendAppTests/ShareSheetAnalyticsTests.swift`.
+Not yet measured, on purpose: `Copy Workout Text` on Workout Detail (no card involved), and panning or zooming a photo background.
+
 ## Local inspection
 
 DEBUG builds expose a developer-visible analytics console so events and screen views can be inspected without leaving the simulator (`DebugTelemetryConsoleSink`, `TelemetryConsoleView`).

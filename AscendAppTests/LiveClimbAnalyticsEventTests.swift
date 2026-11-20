@@ -96,19 +96,4 @@ struct LiveClimbAnalyticsEventTests {
         #expect(record.destinations == [.analytics])
         #expect(record.parameters.isEmpty)
     }
-
-    @Test
-    func shareActionTapIncludesSurfaceAndCardType() {
-        let record = LiveClimbAnalyticsEvent
-            .shareActionTapped(
-                climb: .preview,
-                surface: .systemSheet,
-                cardType: .liveClimb
-            )
-            .record
-
-        #expect(record.name == "live_climb_share_action_tap")
-        #expect(record.parameters["share_surface"] == .string("system_sheet"))
-        #expect(record.parameters["card_type"] == .string("live_climb"))
-    }
 }

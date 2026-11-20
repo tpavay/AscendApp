@@ -47,7 +47,8 @@ enum PreAuthOnboardingNotificationChoice: String, Codable, Equatable, Sendable {
     case allowed
     /// Turn on was tapped and iOS declined.
     case denied
-    /// Not now.
+    /// Not now, from a build before the primer lost its Not now (Guideline 5.1.1(iv)). Only ever
+    /// decoded from an answer an older build saved; no screen writes it any more.
     case skipped
 }
 

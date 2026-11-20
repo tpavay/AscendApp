@@ -80,5 +80,5 @@ Apply `View.sentryMasked()` inside the view's own definition and add the surface
 - Everything is bundled and rendered on device.
   No remote template service, no server-rendered images, no remote-configured layouts.
 - The Live Climb completion summary stays the emotional payoff; its Share button opens this sheet and never replaces the summary.
-- Analytics: the screen only, `TelemetryScreenName.shareComposer` (the raw value `share_composer` is kept so the funnel stays continuous).
+- Analytics: the `share_composer` screen (`TelemetryScreenName.shareComposer`, raw value kept so the funnel stays continuous) plus the share funnel - composer open with its source, card chosen, share started, and how it ended - owned by `ascend-analytics` (Share funnel). `ShareSheetView` takes a required `ShareSheetSource`, and every way out of the sheet goes through `ShareSheetViewModel` so it is reported; never present a share sheet or write the clipboard from a view.
 - Legacy `share-card-templates/...` objects may still sit in Storage; nothing here reads them.

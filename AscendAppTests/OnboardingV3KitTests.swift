@@ -97,7 +97,8 @@ struct OnboardingV3KitTests {
     func theBranchesMeetAgainAtTheClimberCard() {
         #expect(OnboardingV3Step.healthHistory.primaryDestination == .profileSetup)
         #expect(OnboardingV3Step.usualClimb.primaryDestination == .profileSetup)
-        #expect(OnboardingV3Step.healthConnect.alternateExits.map(\.destination) == [.usualClimb])
+        #expect(OnboardingV3Step.healthConnect.alternateExits.isEmpty, "06 has no Skip (Guideline 5.1.1(iv))")
+        #expect(OnboardingV3Step.healthPermission.alternateExits.map(\.destination) == [.usualClimb])
     }
 
     @Test
