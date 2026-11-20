@@ -190,6 +190,11 @@ The rule covers every hosted placement the gate can present:
 For each placement the validator checks every paywall that any treatment with a share above 0 percent serves, in any rule of that placement's campaign, because a climber's audience, App Review's device included, decides which rule and so which paywall opens.
 On a paywall that sells something the controls that must stay reachable are its purchase buttons; on one that sells nothing (the founder letter) they are the controls that close it.
 
+The rules are read the way Superwall reads them for the build under release (`MARKETING_VERSION`): first match wins, and a paywall only rules that exclude that version serve is a **warning**, never an error, because neither App Review nor any climber on the new build can see it.
+On 2026-11-20 the `app_access_gate` campaign had three rules, each for an unentitled climber: app version 1.3.0 or later served `289214`, 1.2.3 or later served `277289`, and everyone else served `232372`, so a 1.3.0 build never reaches the last two, on an iPhone or in an iPad's compatibility window (no rule filters by device).
+Those two stay in the validator's output as warnings naming the audience that still serves them, and they are a real exposure for climbers still on 1.2.3 to 1.2.4 until they are republished with the scroll structure.
+The rule stays whole for everything a 1.3.0 or later build can reach: a rule condition the reader does not understand (a parameter, a country, anything beyond the entitlement check and `device.appVersionPadded` comparisons) counts as reachable and does not shadow the rules after it, loosening or reordering the newest rule makes an older paywall reachable again and fails the check, and a placement no rule serves to that version is an error.
+
 Measured read-only on 2026-11-19 from the public static config and each paywall's runtime store, and rendered in headless Chrome at 375 by 667 points:
 
 | Placement | Environment | Paywall | Name | Products | Root scroll height at 375 by 667 |

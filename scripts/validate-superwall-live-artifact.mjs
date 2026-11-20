@@ -41,6 +41,12 @@ for (const [environment, configurationName] of selected) {
     continue;
   }
 
+  const appVersion = settingValue(configuration.buildSettings, "MARKETING_VERSION")?.trim();
+  if (!appVersion) {
+    console.error(`${environment}: ${configurationName} has no MARKETING_VERSION to read the campaign rules at.`);
+    failed = true;
+    continue;
+  }
   const apiKey = settingValue(configuration.buildSettings, "ASCEND_SUPERWALL_API_KEY")?.trim();
   const sellableProductIDs = [
     "ASCEND_REVENUECAT_YEARLY_PRODUCT_ID",
@@ -70,6 +76,9 @@ for (const [environment, configurationName] of selected) {
     const layout = await validateCompactWindowLayouts({
       staticConfig,
       loadRuntimeStore,
+      // The build under release is the one App Review opens, so the campaign rules are read as that
+      // version reads them: a paywall only older-version rules serve is a warning, never a pass.
+      appVersion,
       // App Review rejects what ships to production, so only production is held to the layout rule.
       // Staging reports the same findings as warnings so one dashboard fix does not stop every merge.
       enforce: environment === "production"
