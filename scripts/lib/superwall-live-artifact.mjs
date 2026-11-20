@@ -195,13 +195,143 @@ export const GATE_PLACEMENTS = [
 ];
 
 /**
+ * The app version as Superwall's `device.appVersionPadded` writes it: each of up to three numeric
+ * components zero-padded to three digits, so a plain string comparison orders versions. Null when the
+ * input is not a one to three component numeric version.
+ */
+export function paddedAppVersion(version) {
+  const parts = String(version ?? "").trim().split(".");
+  if (parts.length < 1 || parts.length > 3 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
+    return null;
+  }
+  while (parts.length < 3) parts.push("0");
+  return parts.map((part) => part.padStart(3, "0")).join(".");
+}
+
+const ENTITLEMENT_CONJUNCT = /^size\(device\.activeEntitlements\) == 0$/;
+const VERSION_CONJUNCT = /^device\.appVersionPadded (>=|>|<=|<|==|!=) "(\d{3}\.\d{3}\.\d{3})"$/;
+
+function stripOuterParens(text) {
+  let result = text.trim();
+  while (result.startsWith("(") && result.endsWith(")")) {
+    let depth = 0;
+    let wraps = true;
+    for (let index = 0; index < result.length - 1; index += 1) {
+      if (result[index] === "(") depth += 1;
+      if (result[index] === ")") depth -= 1;
+      if (depth === 0) {
+        wraps = false;
+        break;
+      }
+    }
+    if (!wraps) break;
+    result = result.slice(1, -1).trim();
+  }
+  return result;
+}
+
+function splitTopLevelConjuncts(text) {
+  const conjuncts = [];
+  let depth = 0;
+  let inString = false;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"') inString = !inString;
+    if (inString) continue;
+    if (character === "(") depth += 1;
+    if (character === ")") depth -= 1;
+    if (depth === 0 && text.startsWith("&&", index)) {
+      conjuncts.push(text.slice(start, index));
+      start = index + 2;
+      index += 1;
+    }
+  }
+  conjuncts.push(text.slice(start));
+  return conjuncts.map(stripOuterParens);
+}
+
+function compareVersions(actual, operator, expected) {
+  switch (operator) {
+    case ">=": return actual >= expected;
+    case ">": return actual > expected;
+    case "<=": return actual <= expected;
+    case "<": return actual < expected;
+    case "==": return actual === expected;
+    default: return actual !== expected;
+  }
+}
+
+/**
+ * What a campaign rule's audience does to an unentitled climber on `paddedVersion`: `matches` when
+ * every condition is known and true, `excludes` when any app-version condition is known and false,
+ * and `unknown` for anything else (a parameter, a country, a condition this parser has never seen).
+ * Unknown is never read as safe: the rule stays reachable and does not shadow the rules after it.
+ *
+ * Only the entitlement condition every Ascend campaign carries and `device.appVersionPadded`
+ * comparisons are understood, and the conjunction is read from `expression_cel` (Superwall's complete
+ * condition), falling back to `expression` where a rule has no CEL form.
+ */
+export function ruleAudienceAtVersion(rule, paddedVersion) {
+  const source = rule.expression_cel ?? rule.expression;
+  if (source === null || source === undefined || String(source).trim() === "") return "matches";
+
+  let state = "matches";
+  for (const conjunct of splitTopLevelConjuncts(stripOuterParens(String(source)))) {
+    if (ENTITLEMENT_CONJUNCT.test(conjunct)) continue;
+    const version = VERSION_CONJUNCT.exec(conjunct);
+    if (!version) {
+      state = "unknown";
+      continue;
+    }
+    if (!compareVersions(paddedVersion, version[1], version[2])) return "excludes";
+  }
+  return state;
+}
+
+/**
+ * Splits a placement's rules, in the order Superwall evaluates them (first match wins), into the
+ * ones an unentitled app at `paddedVersion` can reach and the ones it never can: a rule is shadowed
+ * once an earlier rule certainly matches that version, and excluded when its own version condition
+ * fails. Returns each rule's `audience` so callers can name the audience that still serves a paywall.
+ */
+export function reachableRules(rules, paddedVersion) {
+  let shadowed = false;
+  return (rules ?? []).map((rule) => {
+    const audience = ruleAudienceAtVersion(rule, paddedVersion);
+    const reachable = !shadowed && audience !== "excludes";
+    if (reachable && audience === "matches") shadowed = true;
+    return {rule, reachable};
+  });
+}
+
+function describeAudience(rule) {
+  const source = String(rule.expression_cel ?? rule.expression ?? "every climber");
+  return source
+    .replace(/\(?size\(device\.activeEntitlements\) == 0\)?( && )?/, "")
+    .replaceAll("device.appVersionPadded", "app version")
+    .trim() || "every unentitled climber";
+}
+
+/**
  * Every paywall a placement can open: any treatment with a share of its audience in any rule, because
  * which rule a climber matches, App Review's device included, decides which paywall opens. Paywalls
  * two placements share are returned once, naming both.
+ *
+ * With `appVersion` the rules are read the way Superwall reads them for an app at that version, and
+ * each paywall carries `reachable`: true when some rule that version can reach serves it. A paywall
+ * only older-version rules serve is returned with `reachable: false` and `servedBy` naming those
+ * audiences, so a caller can hold the build under release to the rule without failing on what it never
+ * shows. Without `appVersion` every paywall is reachable, as before.
  */
-export function servedPaywalls(staticConfig, placements) {
+export function servedPaywalls(staticConfig, placements, {appVersion} = {}) {
   const errors = [];
   const paywalls = new Map();
+  const paddedVersion = appVersion === undefined ? undefined : paddedAppVersion(appVersion);
+  if (appVersion !== undefined && paddedVersion === null) {
+    errors.push(`App version "${appVersion}" is not a one to three component numeric version.`);
+    return {errors, paywalls: []};
+  }
 
   for (const placement of placements) {
     const trigger = staticConfig.trigger_options?.find(
@@ -212,23 +342,36 @@ export function servedPaywalls(staticConfig, placements) {
       continue;
     }
 
-    const identifiers = new Set(
-      (trigger.rules ?? [])
-        .flatMap((rule) => rule.variants ?? [])
-        .filter(
-          (variant) =>
-            variant.variant_type === ACTIVE_VARIANT_TYPE &&
-            Number(variant.percentage) > 0 &&
-            variant.paywall_identifier
-        )
-        .map((variant) => String(variant.paywall_identifier))
-    );
+    const rules =
+      paddedVersion === undefined
+        ? (trigger.rules ?? []).map((rule) => ({rule, reachable: true}))
+        : reachableRules(trigger.rules, paddedVersion);
+    const identifiers = new Map();
+    for (const {rule, reachable} of rules) {
+      for (const variant of rule.variants ?? []) {
+        if (
+          variant.variant_type !== ACTIVE_VARIANT_TYPE ||
+          !(Number(variant.percentage) > 0) ||
+          !variant.paywall_identifier
+        ) {
+          continue;
+        }
+        const identifier = String(variant.paywall_identifier);
+        const entry = identifiers.get(identifier) ?? {reachable: false, servedBy: []};
+        entry.reachable ||= reachable;
+        if (!reachable) entry.servedBy.push(describeAudience(rule));
+        identifiers.set(identifier, entry);
+      }
+    }
     if (identifiers.size === 0) {
       errors.push(`${placement} has no ${ACTIVE_VARIANT_TYPE} paywall variant above 0%.`);
       continue;
     }
+    if (![...identifiers.values()].some(({reachable}) => reachable)) {
+      errors.push(`${placement} serves no paywall to an app at version ${appVersion}.`);
+    }
 
-    for (const identifier of identifiers) {
+    for (const [identifier, {reachable, servedBy}] of identifiers) {
       const response = staticConfig.paywall_responses?.find(
         (candidate) => String(candidate.identifier) === identifier
       );
@@ -236,8 +379,10 @@ export function servedPaywalls(staticConfig, placements) {
         errors.push(`${placement} points to missing paywall response ${identifier}.`);
         continue;
       }
-      const served = paywalls.get(identifier) ?? {response, placements: []};
+      const served = paywalls.get(identifier) ?? {response, placements: [], reachable: false, servedBy: []};
       served.placements.push(placement);
+      served.reachable ||= reachable;
+      if (!reachable) served.servedBy.push(...servedBy);
       paywalls.set(identifier, served);
     }
   }
@@ -249,41 +394,54 @@ export function servedPaywalls(staticConfig, placements) {
  * Holds every paywall the gate can present to the compact-window rule. `loadRuntimeStore` reads one
  * paywall response's published runtime store. A finding is an error where `enforce` is set and a
  * warning elsewhere, and every finding names its placements and paywall.
+ *
+ * `appVersion` is the version under release. A paywall that only rules excluding that version serve
+ * is still read, but its finding is always a warning that names the audience still served: App Review
+ * and every climber on the new build never see it. A paywall any reachable rule serves, or that no
+ * rule can be proven to exclude, is held to the rule in full.
  */
 export async function validateCompactWindowLayouts({
   staticConfig,
   placements = GATE_PLACEMENTS,
   loadRuntimeStore,
-  enforce
+  enforce,
+  appVersion
 }) {
-  const {errors: findings, paywalls} = servedPaywalls(staticConfig, placements);
+  const {errors: findings, paywalls} = servedPaywalls(staticConfig, placements, {appVersion});
+  const shadowedFindings = [];
   const evidence = [];
 
-  for (const {response, placements: servedPlacements} of paywalls) {
+  for (const {response, placements: servedPlacements, reachable, servedBy} of paywalls) {
     const label =
       `${servedPlacements.join(", ")} paywall ${response.id ?? response.identifier} ` +
       `(${response.identifier})`;
+    const target = reachable ? findings : shadowedFindings;
+    const audience = reachable
+      ? ""
+      : ` Not reachable from app ${appVersion}: only older-version rules still serve it ` +
+        `(${[...new Set(servedBy)].join("; ")}), so it is a warning here and an error for any version that reaches it.`;
     let layout;
     try {
       layout = compactWindowLayout(await loadRuntimeStore(response));
     } catch (error) {
-      findings.push(`${label}: ${error.message}`);
+      target.push(`${label}: ${error.message}${audience ? `.${audience}` : ""}`);
       continue;
     }
     evidence.push({
       placements: servedPlacements,
       paywallIdentifier: response.identifier,
       responseID: response.id ?? null,
-      compactWindowLayout: layout.verdict
+      compactWindowLayout: layout.verdict,
+      ...(appVersion === undefined ? {} : {reachableFromAppVersion: reachable})
     });
     if (layout.verdict === "clips" || layout.verdict === "unknown") {
-      findings.push(`${label}: ${layout.message}`);
+      target.push(`${label}: ${layout.message}${audience}`);
     }
   }
 
   return enforce
-    ? {errors: findings, warnings: [], evidence}
-    : {errors: [], warnings: findings, evidence};
+    ? {errors: findings, warnings: shadowedFindings, evidence}
+    : {errors: [], warnings: [...findings, ...shadowedFindings], evidence};
 }
 
 /**

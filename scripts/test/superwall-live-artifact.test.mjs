@@ -6,6 +6,7 @@ import {
   activePaywallResponse,
   collectActions,
   compactWindowLayout,
+  paddedAppVersion,
   runtimeStoreFromHTML,
   servedPaywalls,
   validateCompactWindowLayouts,
@@ -510,4 +511,183 @@ test("the clip message reads as clean sentences with a child to change and witho
   delete noChild["node:overlay"];
   noChild["node:target"].parentId = "node:main";
   assert.equal(compactWindowLayout(noChild).message, `root "Main" (node:main) ${tail}${rule}`);
+});
+
+// The production campaign shape on 2026-11-20: three first-match rules, newest audience first, each
+// requiring no active entitlement.
+const entitled = "size(device.activeEntitlements) == 0";
+const versionedRule = (floor, paywall, extra = {}) => ({
+  expression_cel: `(${entitled}) && (device.appVersionPadded >= "${floor}")`,
+  variants: [
+    {variant_type: "HOLDOUT", percentage: 0},
+    {variant_type: "TREATMENT", percentage: 100, paywall_identifier: paywall}
+  ],
+  ...extra
+});
+const catchAllRule = (paywall) => ({
+  expression: null,
+  expression_cel: entitled,
+  variants: [{variant_type: "TREATMENT", percentage: 100, paywall_identifier: paywall}]
+});
+
+function versionedGate(rules) {
+  const identifiers = new Set(
+    rules.flatMap(({variants}) => variants.map(({paywall_identifier: id}) => id).filter(Boolean))
+  );
+  return {
+    trigger_options: [{event_name: "app_access_gate", rules}],
+    paywall_responses: [...identifiers].map((identifier) => ({id: identifier, identifier}))
+  };
+}
+
+const productionGate = versionedGate([
+  versionedRule("001.003.000", "current"),
+  versionedRule("001.002.003", "october"),
+  catchAllRule("june")
+]);
+
+function checkGate(staticConfig, stores, options = {}) {
+  return validateCompactWindowLayouts({
+    staticConfig,
+    placements: ["app_access_gate"],
+    loadRuntimeStore: storesByPaywall(stores),
+    enforce: true,
+    ...options
+  });
+}
+
+const allClipping = {
+  current: layoutStore(clippingRoot),
+  october: layoutStore(clippingRoot),
+  june: layoutStore(clippingRoot)
+};
+
+test("an app version reads the rules as Superwall does, so only the paywalls it can reach are errors", async () => {
+  const result = await checkGate(productionGate, allClipping, {appVersion: "1.3.0"});
+
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /^app_access_gate paywall current \(current\): /);
+  assert.equal(result.warnings.length, 2);
+  assert.match(result.warnings[0], /^app_access_gate paywall october \(october\): .*Not reachable from app 1\.3\.0: only older-version rules still serve it \(\(app version >= "001\.002\.003"\)\)/);
+  assert.match(result.warnings[1], /^app_access_gate paywall june \(june\): .*still serve it \(every unentitled climber\)/);
+  assert.deepEqual(
+    result.evidence.map(({paywallIdentifier, reachableFromAppVersion}) => [paywallIdentifier, reachableFromAppVersion]),
+    [["current", true], ["october", false], ["june", false]]
+  );
+});
+
+test("the same campaign without an app version holds every paywall to the rule", async () => {
+  const result = await checkGate(productionGate, allClipping);
+
+  assert.equal(result.errors.length, 3);
+  assert.deepEqual(result.warnings, []);
+});
+
+test("a scrolling current paywall passes while older shadowed ones clip, with warnings naming them", async () => {
+  const result = await checkGate(
+    productionGate,
+    {...allClipping, current: layoutStore(docsRecipe)},
+    {appVersion: "1.3.0"}
+  );
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.warnings.length, 2);
+});
+
+test("a version the newest rule does not reach is held to the rule the version does reach", async () => {
+  const result = await checkGate(productionGate, allClipping, {appVersion: "1.2.4"});
+
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /paywall october \(october\)/);
+  assert.equal(result.warnings.length, 2);
+  assert.match(result.warnings[0], /paywall current \(current\): .*Not reachable from app 1\.2\.4/);
+});
+
+test("loosening the newest rule's audience makes the older paywall reachable and fails again", async () => {
+  const loosened = versionedGate([
+    versionedRule("001.004.000", "current"),
+    versionedRule("001.002.003", "october"),
+    catchAllRule("june")
+  ]);
+  const result = await checkGate(loosened, allClipping, {appVersion: "1.3.0"});
+
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /paywall october \(october\)/);
+});
+
+test("reordering so an older rule comes first makes that paywall the reachable one", async () => {
+  const reordered = versionedGate([
+    versionedRule("001.002.003", "october"),
+    versionedRule("001.003.000", "current"),
+    catchAllRule("june")
+  ]);
+  const result = await checkGate(reordered, allClipping, {appVersion: "1.3.0"});
+
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /paywall october \(october\)/);
+  assert.equal(result.warnings.length, 2);
+});
+
+test("a rule condition the reader cannot parse stays reachable and does not shadow what follows", async () => {
+  const unparseable = versionedGate([
+    {
+      expression_cel: `(${entitled}) && (device.appVersionPadded >= "001.003.000" && params.presented_by_event_name == "app_access_gate")`,
+      variants: [{variant_type: "TREATMENT", percentage: 100, paywall_identifier: "current"}]
+    },
+    versionedRule("001.002.003", "october"),
+    catchAllRule("june")
+  ]);
+  const result = await checkGate(unparseable, allClipping, {appVersion: "1.3.0"});
+
+  assert.equal(result.errors.length, 2);
+  assert.match(result.errors[0], /paywall current/);
+  assert.match(result.errors[1], /paywall october/);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /paywall june/);
+});
+
+test("a rule with no condition at all matches every version and shadows the rules after it", async () => {
+  const everyone = versionedGate([
+    {variants: [{variant_type: "TREATMENT", percentage: 100, paywall_identifier: "current"}]},
+    catchAllRule("june")
+  ]);
+  const result = await checkGate(everyone, {current: layoutStore(docsRecipe), june: layoutStore(clippingRoot)}, {appVersion: "1.3.0"});
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.warnings.length, 1);
+});
+
+test("a shadowed paywall whose runtime cannot be read is a warning naming its audience, never silence", async () => {
+  const result = await checkGate(
+    productionGate,
+    {current: layoutStore(docsRecipe), october: layoutStore(docsRecipe)},
+    {appVersion: "1.3.0"}
+  );
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /paywall june \(june\): no runtime for june\. Not reachable/);
+});
+
+test("an app version that is not a numeric version is refused", async () => {
+  const result = await checkGate(productionGate, allClipping, {appVersion: "next"});
+
+  assert.deepEqual(result.errors, ['App version "next" is not a one to three component numeric version.']);
+});
+
+test("a placement whose every rule excludes the app version is an error, never an empty pass", async () => {
+  const future = versionedGate([versionedRule("002.000.000", "current")]);
+  const result = await checkGate(future, {current: layoutStore(clippingRoot)}, {appVersion: "1.3.0"});
+
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /^app_access_gate serves no paywall to an app at version 1\.3\.0\.$/);
+});
+
+test("paddedAppVersion pads each component so strings order as versions", () => {
+  assert.equal(paddedAppVersion("1.3.0"), "001.003.000");
+  assert.equal(paddedAppVersion("1.3"), "001.003.000");
+  assert.equal(paddedAppVersion("1.2.10"), "001.002.010");
+  assert.ok(paddedAppVersion("1.2.10") > paddedAppVersion("1.2.9"));
+  assert.equal(paddedAppVersion("1.3.0.1"), null);
+  assert.equal(paddedAppVersion("one"), null);
 });
