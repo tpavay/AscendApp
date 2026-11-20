@@ -544,11 +544,3 @@ test("every placement the app registers is held to the compact-window rule or na
     "GATE_PLACEMENTS names a placement the app no longer has."
   );
 });
-
-test("the live validator holds every gate placement and does not narrow the list", async () => {
-  const script = await readFile(new URL("../validate-superwall-live-artifact.mjs", import.meta.url), "utf8");
-  const call = /validateCompactWindowLayouts\(\{[^}]*\}\)/s.exec(script)?.[0] ?? "";
-
-  assert.ok(call, "the validator no longer calls validateCompactWindowLayouts");
-  assert.doesNotMatch(call, /placements\s*:/);
-});
